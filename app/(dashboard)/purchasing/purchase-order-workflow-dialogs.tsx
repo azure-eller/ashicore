@@ -46,6 +46,7 @@ export type XeroAccountOption = {
 };
 
 export type PurchaseOrderEmailDialogValues = {
+  groups?: PurchaseOrderEmailDialogGroupValues[];
   to: string;
   replyTo: string;
   bcc: string;
@@ -53,12 +54,41 @@ export type PurchaseOrderEmailDialogValues = {
   message: string;
 };
 
+export type PurchaseOrderEmailDialogGroupValues = {
+  groupKey: string;
+  supplierId: string;
+  label: string;
+  include: boolean;
+  isFreight: boolean;
+  to: string;
+  replyTo: string;
+  bcc: string;
+  subject: string;
+  message: string;
+  sentAt?: Date | string | null;
+  status?: "sent" | "failed" | "skipped" | "pending" | null;
+};
+
 export type PurchaseBillDialogValues = {
+  groups?: PurchaseBillDialogGroupValues[];
   invoiceNumber: string;
   billDate: string;
   dueDate: string;
   accountingPurchaseAccountCode: string;
   confirmAdditionalCostsOmitted: boolean;
+};
+
+export type PurchaseBillDialogGroupValues = {
+  groupKey: string;
+  label: string;
+  include: boolean;
+  invoiceNumber: string;
+  accountingPurchaseAccountCode: string;
+  amount: string;
+  additionalCostIds?: string[];
+  pushedAt?: Date | string | null;
+  status?: "pending" | "pushed" | "failed" | null;
+  externalNumber?: string | null;
 };
 
 type PurchaseOrderEmailDialogProps = {
@@ -79,6 +109,7 @@ type PurchaseOrderEmailDialogProps = {
   onOpenChange: (open: boolean) => void;
   onAddDocuments?: () => void;
   onDeleteDocument?: (fileId: string) => void;
+  onSaveRecipientEmail?: (groupKey: string, supplierId: string, email: string) => void;
   onSend: () => void;
 };
 
@@ -121,8 +152,43 @@ export function PurchaseOrderEmailDialog({
   onOpenChange,
   onAddDocuments = () => {},
   onDeleteDocument = () => {},
+  onSaveRecipientEmail,
   onSend,
 }: PurchaseOrderEmailDialogProps) {
+  const groups = values.groups ?? [
+    {
+      groupKey: "default",
+      supplierId: "",
+      label: "Purchase order",
+      include: true,
+      isFreight: false,
+      to: values.to,
+      replyTo: values.replyTo,
+      bcc: values.bcc,
+      subject: values.subject,
+      message: values.message,
+    },
+  ];
+  const updateGroup = (
+    index: number,
+    patch: Partial<PurchaseOrderEmailDialogGroupValues>,
+  ) => {
+    const nextGroups = groups.map((group, currentIndex) =>
+      currentIndex === index ? { ...group, ...patch } : group,
+    );
+    const first = nextGroups[0];
+    onValuesChange({
+      ...values,
+      groups: nextGroups,
+      to: first?.to ?? "",
+      replyTo: first?.replyTo ?? "",
+      bcc: first?.bcc ?? "",
+      subject: first?.subject ?? "",
+      message: first?.message ?? "",
+    });
+  };
+  const selectedCount = groups.filter((group) => group.include).length;
+
   return (
     <Sheet open={open} onOpenChange={pending ? undefined : onOpenChange}>
       <SheetContent
@@ -137,60 +203,103 @@ export function PurchaseOrderEmailDialog({
         </SheetHeader>
         {orderId ? (
           <div className="grid flex-1 content-start gap-7 overflow-y-auto px-8 pb-8">
-            <Field>
-              <FieldLabel htmlFor="po-email-to" className="text-destructive">
-                Send to
-              </FieldLabel>
-              <Input
-                id="po-email-to"
-                className="border-x-0 border-t-0 border-destructive px-0 shadow-none focus-visible:shadow-none"
-                value={values.to}
-                onChange={(event) =>
-                  onValuesChange({ ...values, to: event.target.value })
-                }
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="po-email-reply-to">Reply to</FieldLabel>
-              <Input
-                id="po-email-reply-to"
-                className="border-x-0 border-t-0 px-0 shadow-none focus-visible:shadow-none"
-                value={values.replyTo}
-                onChange={(event) =>
-                  onValuesChange({ ...values, replyTo: event.target.value })
-                }
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="po-email-subject">Subject</FieldLabel>
-              <Input
-                id="po-email-subject"
-                className="border-x-0 border-t-0 px-0 shadow-none focus-visible:shadow-none"
-                value={values.subject}
-                onChange={(event) =>
-                  onValuesChange({ ...values, subject: event.target.value })
-                }
-              />
-            </Field>
-            <Field>
-              <div className="border">
-                <FieldLabel
-                  htmlFor="po-email-message"
-                  className="border-b bg-muted/40 px-3 py-2"
-                >
-                  Email body
-                </FieldLabel>
-                <Textarea
-                  id="po-email-message"
-                  rows={12}
-                  className="min-h-72 resize-none border-0 shadow-none focus-visible:shadow-none"
-                  value={values.message}
-                  onChange={(event) =>
-                    onValuesChange({ ...values, message: event.target.value })
-                  }
-                />
+            {groups.map((group, index) => (
+              <div key={group.groupKey} className="grid gap-4 border p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="flex items-center gap-3 text-sm font-medium">
+                    <Checkbox
+                      checked={group.include}
+                      onCheckedChange={(checked) =>
+                        updateGroup(index, { include: checked === true })
+                      }
+                    />
+                    {group.label}
+                  </label>
+                  {group.status === "sent" ? (
+                    <span className="text-xs text-muted-foreground">
+                      Sent{group.sentAt ? ` ${new Date(group.sentAt).toLocaleString()}` : ""}
+                    </span>
+                  ) : null}
+                </div>
+                <Field>
+                  <div className="flex items-center justify-between gap-3">
+                    <FieldLabel
+                      htmlFor={`po-email-to-${group.groupKey}`}
+                      className="text-destructive"
+                    >
+                      Send to
+                    </FieldLabel>
+                    {onSaveRecipientEmail && group.supplierId ? (
+                      <button
+                        type="button"
+                        className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+                        disabled={group.to.trim() === "" || pending}
+                        onClick={() =>
+                          onSaveRecipientEmail(
+                            group.groupKey,
+                            group.supplierId,
+                            group.to,
+                          )
+                        }
+                      >
+                        Save email
+                      </button>
+                    ) : null}
+                  </div>
+                  <Input
+                    id={`po-email-to-${group.groupKey}`}
+                    className="border-x-0 border-t-0 border-destructive px-0 shadow-none focus-visible:shadow-none"
+                    value={group.to}
+                    onChange={(event) => updateGroup(index, { to: event.target.value })}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor={`po-email-reply-to-${group.groupKey}`}>
+                    Reply to
+                  </FieldLabel>
+                  <Input
+                    id={`po-email-reply-to-${group.groupKey}`}
+                    className="border-x-0 border-t-0 px-0 shadow-none focus-visible:shadow-none"
+                    value={group.replyTo}
+                    onChange={(event) =>
+                      updateGroup(index, { replyTo: event.target.value })
+                    }
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor={`po-email-subject-${group.groupKey}`}>
+                    Subject
+                  </FieldLabel>
+                  <Input
+                    id={`po-email-subject-${group.groupKey}`}
+                    className="border-x-0 border-t-0 px-0 shadow-none focus-visible:shadow-none"
+                    value={group.subject}
+                    onChange={(event) =>
+                      updateGroup(index, { subject: event.target.value })
+                    }
+                  />
+                </Field>
+                <Field>
+                  <div className="border">
+                    <FieldLabel
+                      htmlFor={`po-email-message-${group.groupKey}`}
+                      className="border-b bg-muted/40 px-3 py-2"
+                    >
+                      Email body
+                    </FieldLabel>
+                    <Textarea
+                      id={`po-email-message-${group.groupKey}`}
+                      rows={8}
+                      className="min-h-52 resize-none border-0 shadow-none focus-visible:shadow-none"
+                      value={group.message}
+                      onChange={(event) =>
+                        updateGroup(index, { message: event.target.value })
+                      }
+                    />
+                  </div>
+                </Field>
               </div>
-            </Field>
+            ))}
             <div className="grid gap-2">
               <p className="text-sm font-medium">Documents</p>
               <div className="divide-y border">
@@ -269,11 +378,15 @@ export function PurchaseOrderEmailDialog({
             onClick={onSend}
             disabled={
               pending ||
-              values.to.trim() === "" ||
-              values.subject.trim() === ""
+              selectedCount === 0 ||
+              groups.some(
+                (group) =>
+                  group.include &&
+                  (group.to.trim() === "" || group.subject.trim() === ""),
+              )
             }
           >
-            {pending ? "Sending..." : "Send"}
+            {pending ? "Sending..." : `Send selected (${selectedCount})`}
           </Button>
         </SheetFooter>
       </SheetContent>
@@ -294,28 +407,45 @@ export function PurchaseBillDialog({
   onOpenChange,
   onCreate,
 }: PurchaseBillDialogProps) {
+  const groups = values.groups ?? [
+    {
+      groupKey: "default",
+      label: "Purchase order",
+      include: true,
+      invoiceNumber: values.invoiceNumber,
+      accountingPurchaseAccountCode: values.accountingPurchaseAccountCode,
+      amount: "",
+      additionalCostIds: [],
+    },
+  ];
+  const updateGroup = (
+    index: number,
+    patch: Partial<PurchaseBillDialogGroupValues>,
+  ) => {
+    const nextGroups = groups.map((group, currentIndex) =>
+      currentIndex === index ? { ...group, ...patch } : group,
+    );
+    const first = nextGroups[0];
+    onValuesChange({
+      ...values,
+      groups: nextGroups,
+      invoiceNumber: first?.invoiceNumber ?? "",
+      accountingPurchaseAccountCode:
+        first?.accountingPurchaseAccountCode ?? "",
+    });
+  };
+  const selectedGroups = groups.filter((group) => group.include);
+
   return (
     <Dialog open={open} onOpenChange={pending ? undefined : onOpenChange}>
       <DialogContent size="md">
         <DialogHeader>
           <DialogTitle>Create {providerLabel} bill</DialogTitle>
           <DialogDescription>
-            Creates a supplier bill in {providerLabel} for all purchase order lines.
+            Creates selected supplier bills in {providerLabel}.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4">
-          <Field>
-            <FieldLabel htmlFor="purchase-bill-invoice-number">
-              Supplier invoice number
-            </FieldLabel>
-            <Input
-              id="purchase-bill-invoice-number"
-              value={values.invoiceNumber}
-              onChange={(event) =>
-                onValuesChange({ ...values, invoiceNumber: event.target.value })
-              }
-            />
-          </Field>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field>
               <FieldLabel htmlFor="purchase-bill-date">Bill date</FieldLabel>
@@ -338,44 +468,64 @@ export function PurchaseBillDialog({
               />
             </Field>
           </div>
-          <Field>
-            <FieldLabel htmlFor="purchase-bill-account">Default account</FieldLabel>
-            <Input
-              id="purchase-bill-account"
-              list="purchase-bill-xero-accounts"
-              value={values.accountingPurchaseAccountCode}
-              onChange={(event) =>
-                onValuesChange({
-                  ...values,
-                  accountingPurchaseAccountCode: event.target.value,
-                })
-              }
-            />
-            <datalist id="purchase-bill-xero-accounts">
-              {xeroAccounts.map((account) => (
-                <option key={account.code} value={account.code}>
-                  {xeroAccountLabel(account.code, xeroAccounts)}
-                </option>
-              ))}
-            </datalist>
-          </Field>
-          {hasAdditionalCosts ? (
-            <label className="flex items-start gap-3 border bg-muted/30 p-3 text-sm">
-              <Checkbox
-                checked={values.confirmAdditionalCostsOmitted}
-                onCheckedChange={(checked) =>
-                  onValuesChange({
-                    ...values,
-                    confirmAdditionalCostsOmitted: checked === true,
-                  })
-                }
-              />
-              <span>
-                This PO has {formatPrice(additionalCostTotal) ?? "$0.00"} in
-                additional costs. These affect ERP costing but are not sent to
-                Xero in v1.
-              </span>
-            </label>
+          <datalist id="purchase-bill-xero-accounts">
+            {xeroAccounts.map((account) => (
+              <option key={account.code} value={account.code}>
+                {xeroAccountLabel(account.code, xeroAccounts)}
+              </option>
+            ))}
+          </datalist>
+          {groups.map((group, index) => (
+            <div key={group.groupKey} className="grid gap-4 border p-4">
+              <div className="flex items-center justify-between gap-3">
+                <label className="flex items-center gap-3 text-sm font-medium">
+                  <Checkbox
+                    checked={group.include}
+                    onCheckedChange={(checked) =>
+                      updateGroup(index, { include: checked === true })
+                    }
+                  />
+                  {group.label}
+                </label>
+                <span className="text-xs text-muted-foreground">
+                  {group.status === "pushed"
+                    ? `Billed${group.externalNumber ? ` ${group.externalNumber}` : ""}`
+                    : formatPrice(group.amount) ?? "$0.00"}
+                </span>
+              </div>
+              <Field>
+                <FieldLabel htmlFor={`purchase-bill-invoice-${group.groupKey}`}>
+                  Supplier invoice number
+                </FieldLabel>
+                <Input
+                  id={`purchase-bill-invoice-${group.groupKey}`}
+                  value={group.invoiceNumber}
+                  onChange={(event) =>
+                    updateGroup(index, { invoiceNumber: event.target.value })
+                  }
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor={`purchase-bill-account-${group.groupKey}`}>
+                  Bill account
+                </FieldLabel>
+                <Input
+                  id={`purchase-bill-account-${group.groupKey}`}
+                  list="purchase-bill-xero-accounts"
+                  value={group.accountingPurchaseAccountCode}
+                  onChange={(event) =>
+                    updateGroup(index, {
+                      accountingPurchaseAccountCode: event.target.value,
+                    })
+                  }
+                />
+              </Field>
+            </div>
+          ))}
+          {hasAdditionalCosts && groups.length === 1 ? (
+            <p className="text-xs text-muted-foreground">
+              Additional costs total {formatPrice(additionalCostTotal) ?? "$0.00"}.
+            </p>
           ) : null}
           {error ? <FieldError>{error}</FieldError> : null}
         </div>
@@ -393,12 +543,15 @@ export function PurchaseBillDialog({
             onClick={onCreate}
             disabled={
               pending ||
-              values.invoiceNumber.trim() === "" ||
-              values.accountingPurchaseAccountCode.trim() === "" ||
-              (hasAdditionalCosts && !values.confirmAdditionalCostsOmitted)
+              selectedGroups.length === 0 ||
+              selectedGroups.some(
+                (group) =>
+                  group.invoiceNumber.trim() === "" ||
+                  group.accountingPurchaseAccountCode.trim() === "",
+              )
             }
           >
-            {pending ? "Creating..." : "Create bill"}
+            {pending ? "Creating..." : `Create selected (${selectedGroups.length})`}
           </Button>
         </DialogFooter>
       </DialogContent>

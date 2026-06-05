@@ -61,6 +61,7 @@ export type PurchaseOrderListRow = {
   updatedAt: Date;
   receivedAt: Date | null;
   purchaseBillStatus: "pending" | "pushed" | "failed" | null;
+  purchaseBillManualStatus: "not_billed" | "partly_billed" | "billed" | null;
   purchaseBillError: string | null;
   purchaseBillExternalId: string | null;
   purchaseBillExternalNumber: string | null;
@@ -70,6 +71,18 @@ export type PurchaseOrderListRow = {
   xeroPoEmailStatus: "sent" | "failed" | "skipped" | null;
   xeroPoEmailError: string | null;
   xeroPoEmailedAt: Date | null;
+};
+
+export type PurchaseOrderAccountingGroupState = {
+  groupKey: string;
+  pushStatus: "pending" | "pushed" | "failed" | null;
+  pushError: string | null;
+  externalDocumentId: string | null;
+  externalDocumentNumber: string | null;
+  pushedAt: Date | null;
+  emailStatus: "sent" | "failed" | "skipped" | null;
+  emailError: string | null;
+  emailedAt: Date | null;
 };
 
 export type PurchaseOrderDetailLine = {
@@ -117,6 +130,9 @@ export type PurchaseOrderAdditionalCost = {
   id: string;
   costType: PurchaseOrderAdditionalCostType;
   reference: string | null;
+  vendorOverrideSupplierId: string | null;
+  vendorOverrideSupplierName: string | null;
+  vendorOverrideSupplierEmail: string | null;
   distributionMethod: PurchaseOrderAdditionalCostDistributionMethod;
   accountingPurchaseAccountCode: string | null;
   amount: string;
@@ -174,6 +190,7 @@ export type PurchaseOrderDetail = {
   purchaseBillExternalId: string | null;
   purchaseBillExternalNumber: string | null;
   purchaseBillStatus: "pending" | "pushed" | "failed" | null;
+  purchaseBillManualStatus: "not_billed" | "partly_billed" | "billed" | null;
   purchaseBillError: string | null;
   purchaseBillPushedAt: Date | null;
   purchaseBillPayloadSnapshot: Record<string, unknown> | null;
@@ -184,6 +201,7 @@ export type PurchaseOrderDetail = {
   taxRates: PurchaseOrderTaxRateOption[];
   defaultTaxRateId: string | null;
   additionalCosts: PurchaseOrderAdditionalCost[];
+  accountingGroupStates: PurchaseOrderAccountingGroupState[];
   attachments: PurchaseOrderAttachment[];
 };
 
@@ -212,10 +230,12 @@ export type PurchaseOrderEditData = {
   purchaseBillExternalId: string | null;
   purchaseBillExternalNumber: string | null;
   purchaseBillStatus: "pending" | "pushed" | "failed" | null;
+  purchaseBillManualStatus: "not_billed" | "partly_billed" | "billed" | null;
   purchaseBillError: string | null;
   xeroPoEmailStatus: "sent" | "failed" | "skipped" | null;
   xeroPoEmailError: string | null;
   xeroPoEmailedAt: Date | null;
+  accountingGroupStates: PurchaseOrderAccountingGroupState[];
   lines: Array<{
     id: string;
     itemId: string;
@@ -242,6 +262,9 @@ export type PurchaseOrderEditData = {
     id: string;
     costType: PurchaseOrderAdditionalCostType;
     reference: string | null;
+    vendorOverrideSupplierId: string | null;
+    vendorOverrideSupplierName: string | null;
+    vendorOverrideSupplierEmail: string | null;
     distributionMethod: PurchaseOrderAdditionalCostDistributionMethod;
     accountingPurchaseAccountCode: string | null;
     amount: string;

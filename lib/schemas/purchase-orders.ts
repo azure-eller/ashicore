@@ -56,6 +56,7 @@ const rawLineSchema = z.object({
 const rawAdditionalCostSchema = z.object({
   costType: z.enum(PURCHASE_ORDER_ADDITIONAL_COST_TYPES).default("shipping"),
   reference: nullableString,
+  vendorOverrideSupplierId: nullableString.optional(),
   distributionMethod: z
     .enum(PURCHASE_ORDER_ADDITIONAL_COST_DISTRIBUTION_METHODS)
     .default("by_value"),
@@ -156,6 +157,19 @@ const cleanedAdditionalCostsSchema = z
   .superRefine((costs, ctx) => {
     costs.forEach((cost, index) => {
       const amount = cost.amount?.trim() ?? "";
+      const vendorOverrideSupplierId =
+        cost.vendorOverrideSupplierId?.trim() ?? "";
+      if (
+        vendorOverrideSupplierId &&
+        !z.string().uuid().safeParse(vendorOverrideSupplierId).success
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Invalid vendor",
+          path: [index, "vendorOverrideSupplierId"],
+        });
+      }
+
       if (!amount) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -210,6 +224,8 @@ const basePurchaseOrderSchema = createInsertSchema(purchaseOrders, {
   id: true,
   organizationId: true,
   supplierName: true,
+  parentPurchaseOrderId: true,
+  type: true,
   status: true,
   subtotalAmount: true,
   taxAmount: true,
@@ -275,16 +291,43 @@ export const receivePurchaseOrderSchema = z
 
 export type ReceivePurchaseOrder = z.infer<typeof receivePurchaseOrderSchema>;
 
-export const createPurchaseBillSchema = z
-  .object({
-    invoiceNumber: z.string().trim().min(1, "Supplier invoice number is required"),
-    billDate: z.string().refine(isValidIsoDate, "Bill date must be a real date in YYYY-MM-DD format"),
-    dueDate: z.string().refine(isValidIsoDate, "Due date must be a real date in YYYY-MM-DD format"),
-    reference: nullableString,
-    accountingPurchaseAccountCode: z.string().trim().min(1, "Account is required"),
-    confirmAdditionalCostsOmitted: z.boolean().optional(),
-  })
-  .superRefine((data, ctx) => {
+const purchaseBillGroupSchema = z.object({
+  groupKey: z.string().trim().min(1),
+  include: z.boolean().optional(),
+  invoiceNumber: z.string().trim().optional(),
+  accountingPurchaseAccountCode: z.string().trim().optional(),
+  additionalCostIds: z.array(z.uuid()).optional(),
+}).superRefine((group, ctx) => {
+  if (group.include === false) return;
+  if (!group.invoiceNumber) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Supplier invoice number is required",
+      path: ["invoiceNumber"],
+    });
+  }
+  if (!group.accountingPurchaseAccountCode) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Account is required",
+      path: ["accountingPurchaseAccountCode"],
+    });
+  }
+});
+
+const createPurchaseBillBaseObjectSchema = z.object({
+  invoiceNumber: z.string().trim().min(1, "Supplier invoice number is required"),
+  billDate: z.string().refine(isValidIsoDate, "Bill date must be a real date in YYYY-MM-DD format"),
+  dueDate: z.string().refine(isValidIsoDate, "Due date must be a real date in YYYY-MM-DD format"),
+  reference: nullableString,
+  accountingPurchaseAccountCode: z.string().trim().min(1, "Account is required"),
+  confirmAdditionalCostsOmitted: z.boolean().optional(),
+}).strict();
+
+function refinePurchaseBillDates(
+  data: { billDate: string; dueDate: string },
+  ctx: z.RefinementCtx,
+) {
     if (data.dueDate < data.billDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -292,17 +335,109 @@ export const createPurchaseBillSchema = z
         path: ["dueDate"],
       });
     }
-  });
+}
+
+const createPurchaseBillBaseSchema =
+  createPurchaseBillBaseObjectSchema.superRefine(refinePurchaseBillDates);
+
+export const createPurchaseBillSchema = z
+  .union([
+    createPurchaseBillBaseObjectSchema
+      .extend({
+        groups: z.array(purchaseBillGroupSchema).min(1),
+      })
+      .superRefine((data, ctx) => {
+        refinePurchaseBillDates(data, ctx);
+        const invoiceNumbers = new Map<string, number>();
+        data.groups.forEach((group, index) => {
+          if (group.include === false || !group.invoiceNumber) return;
+          const normalized = group.invoiceNumber.trim().toLowerCase();
+          const firstIndex = invoiceNumbers.get(normalized);
+          if (firstIndex == null) {
+            invoiceNumbers.set(normalized, index);
+            return;
+          }
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Invoice numbers must be unique per bill group",
+            path: ["groups", index, "invoiceNumber"],
+          });
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Invoice numbers must be unique per bill group",
+            path: ["groups", firstIndex, "invoiceNumber"],
+          });
+        });
+      }),
+    createPurchaseBillBaseSchema,
+  ])
+  .transform((data) =>
+    "groups" in data
+      ? { ...data, legacySingleBillInput: false as const }
+      : {
+          ...data,
+          legacySingleBillInput: true as const,
+          groups: [
+            {
+              groupKey: "default",
+              include: true,
+              invoiceNumber: data.invoiceNumber,
+              accountingPurchaseAccountCode: data.accountingPurchaseAccountCode,
+            },
+          ],
+        },
+  );
 
 export type CreatePurchaseBill = z.infer<typeof createPurchaseBillSchema>;
 
-export const sendPurchaseOrderEmailSchema = z.object({
-  to: z.email("Supplier email must be a valid email address"),
+const purchaseOrderEmailBaseComposerSchema = z.object({
+  groupKey: z.string().trim().min(1).optional(),
+  include: z.boolean().optional(),
+  resend: z.boolean().optional(),
+  to: z.string().trim().optional(),
   replyTo: z.email("Reply-to must be a valid email address").optional().nullable(),
   bcc: z.email("Bcc must be a valid email address").optional().nullable(),
-  subject: z.string().trim().min(1, "Subject is required").max(200),
+  subject: z.string().trim().max(200).optional(),
   message: z.string().trim().max(2000).optional().nullable(),
 });
+
+const purchaseOrderEmailGroupSchema =
+  purchaseOrderEmailBaseComposerSchema.superRefine((group, ctx) => {
+    if (group.include === false) return;
+    if (!group.to || !z.email().safeParse(group.to).success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Supplier email must be a valid email address",
+        path: ["to"],
+      });
+    }
+    if (!group.subject) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Subject is required",
+        path: ["subject"],
+      });
+    }
+  });
+
+const purchaseOrderEmailComposerSchema =
+  purchaseOrderEmailBaseComposerSchema.extend({
+    to: z.email("Supplier email must be a valid email address"),
+    subject: z.string().trim().min(1, "Subject is required").max(200),
+  });
+
+export const sendPurchaseOrderEmailSchema = z
+  .union([
+    z.object({
+      groups: z.array(purchaseOrderEmailGroupSchema).min(1),
+    }),
+    purchaseOrderEmailComposerSchema,
+  ])
+  .transform((data) =>
+    "groups" in data
+      ? { groups: data.groups }
+      : { groups: [{ ...data, groupKey: data.groupKey ?? "default" }] },
+  );
 
 export type SendPurchaseOrderEmail = z.infer<typeof sendPurchaseOrderEmailSchema>;
 

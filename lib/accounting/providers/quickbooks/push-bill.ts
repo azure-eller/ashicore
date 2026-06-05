@@ -268,6 +268,13 @@ export async function createPurchaseBillInQuickBooks(
   orderId: string,
   input: CreatePurchaseBill
 ) {
+  if (!input.legacySingleBillInput) {
+    throw new QuickBooksError(
+      "Grouped supplier bills are only supported for Xero right now.",
+      400,
+    );
+  }
+
   const prepared = await withOrgContext(orgId, async (tx) => {
     const data = await loadPurchaseOrderForBillInTx(tx, orderId);
     if (!data) throw new QuickBooksError("Purchase order not found.", 404);
@@ -409,13 +416,30 @@ export async function markQuickBooksBillPushFailed(
   const message =
     error instanceof Error ? error.message : "QuickBooks bill push failed.";
   await withOrgContext(orgId, async (tx) => {
-    await persistAccountingDocumentPushFailure(tx, {
-      organizationId: orgId,
-      provider: ACCOUNTING_PROVIDER_QUICKBOOKS,
-      documentType: ACCOUNTING_DOCUMENT_PURCHASE_BILL,
-      documentId: orderId,
-      error: message,
-      providerDocumentType: PROVIDER_DOCUMENT_TYPE,
-    });
+    const pendingRows = await tx
+      .select({ groupKey: accountingDocumentSyncs.groupKey })
+      .from(accountingDocumentSyncs)
+      .where(
+        and(
+          eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_QUICKBOOKS),
+          eq(
+            accountingDocumentSyncs.documentType,
+            ACCOUNTING_DOCUMENT_PURCHASE_BILL,
+          ),
+          eq(accountingDocumentSyncs.documentId, orderId),
+          eq(accountingDocumentSyncs.pushStatus, "pending"),
+        ),
+      );
+    for (const row of pendingRows) {
+      await persistAccountingDocumentPushFailure(tx, {
+        organizationId: orgId,
+        provider: ACCOUNTING_PROVIDER_QUICKBOOKS,
+        documentType: ACCOUNTING_DOCUMENT_PURCHASE_BILL,
+        documentId: orderId,
+        groupKey: row.groupKey,
+        error: message,
+        providerDocumentType: PROVIDER_DOCUMENT_TYPE,
+      });
+    }
   });
 }

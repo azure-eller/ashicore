@@ -93,6 +93,7 @@ const blankPurchaseOrderLine = {
 const blankPurchaseOrderAdditionalCost = {
   costType: "shipping" as const,
   reference: null,
+  vendorOverrideSupplierId: null,
   distributionMethod: "by_value" as const,
   accountingPurchaseAccountCode: null,
   amount: null,
@@ -168,6 +169,9 @@ export function createPurchaseOrderAdditionalCostRow(
     distributionMethod:
       values?.distributionMethod ??
       blankPurchaseOrderAdditionalCost.distributionMethod,
+    vendorOverrideSupplierId:
+      values?.vendorOverrideSupplierId ??
+      blankPurchaseOrderAdditionalCost.vendorOverrideSupplierId,
     accountingPurchaseAccountCode:
       values?.accountingPurchaseAccountCode ??
       blankPurchaseOrderAdditionalCost.accountingPurchaseAccountCode,
@@ -180,9 +184,10 @@ export function toPurchaseOrderAdditionalCostPayloadRows(
 ): PurchaseOrderAdditionalCostPayloadRow[] {
   return rows
     .filter((row) => !isBlankPurchaseOrderAdditionalCost(row))
-    .map(({ costType, reference, distributionMethod, amount }) => ({
+    .map(({ costType, reference, vendorOverrideSupplierId, distributionMethod, amount }) => ({
       costType: costType ?? "shipping",
       reference: reference ?? null,
+      vendorOverrideSupplierId: vendorOverrideSupplierId ?? null,
       distributionMethod: distributionMethod ?? "by_value",
       accountingPurchaseAccountCode: null,
       amount: amount ?? null,
@@ -277,6 +282,7 @@ export function purchaseOrderEditDataToDraft(
         id: cost.id ?? null,
         costType: cost.costType,
         reference: cost.reference,
+        vendorOverrideSupplierId: cost.vendorOverrideSupplierId,
         distributionMethod: cost.distributionMethod,
         accountingPurchaseAccountCode: cost.accountingPurchaseAccountCode,
         amount: cost.amount,
@@ -340,6 +346,7 @@ export function purchaseOrderDetailToDraft(
         clientRowId: previousCostIdById.get(cost.id),
         costType: cost.costType,
         reference: cost.reference,
+        vendorOverrideSupplierId: cost.vendorOverrideSupplierId,
         distributionMethod: cost.distributionMethod,
         accountingPurchaseAccountCode: cost.accountingPurchaseAccountCode,
         amount: cost.amount,

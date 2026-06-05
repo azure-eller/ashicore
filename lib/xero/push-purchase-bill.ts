@@ -1,7 +1,8 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { Invoice, LineAmountTypes, type Invoices, type LineItem } from "xero-node";
 import {
   accountingDocumentSyncs,
@@ -26,6 +27,10 @@ import {
   tryRecordAccountingAuditEvent,
 } from "@/lib/accounting/audit-events";
 import { normalizeNumeric } from "@/lib/format";
+import {
+  groupPurchaseOrderByResolvedVendor,
+  resolvedPurchaseOrderVendorGroupKey,
+} from "@/lib/purchasing/resolved-vendor-groups";
 import type { CreatePurchaseBill } from "@/lib/schemas/purchase-orders";
 import { upsertXeroContact, type XeroContactInput } from "./contacts";
 import { getAuthedXeroClient } from "./client";
@@ -41,6 +46,10 @@ import { hashXeroPayload } from "./payload-hash";
 const PROVIDER_DOCUMENT_TYPE = "xero_accpay_invoice";
 const TAX_MODE = LineAmountTypes.Exclusive;
 const STALE_PENDING_MS = 10 * 60 * 1000;
+const additionalCostVendorSuppliers = alias(
+  suppliers,
+  "additional_cost_vendor_suppliers",
+);
 
 type OrderForBill = {
   id: string;
@@ -74,6 +83,7 @@ type SupplierForBill = {
 };
 
 type LineForBill = {
+  id: string;
   itemName: string;
   itemSku: string | null;
   xeroItemCode: string | null;
@@ -87,15 +97,37 @@ type LineForBill = {
 };
 
 type AdditionalCostForBill = {
+  id: string;
+  costType: string;
+  reference: string | null;
+  accountingPurchaseAccountCode: string | null;
+  vendorOverrideSupplierId: string | null;
+  vendorOverrideSupplierName: string | null;
+  vendorOverrideSupplierEmail: string | null;
+  vendorOverrideSupplierPhone: string | null;
+  vendorOverrideSupplierXeroContactId: string | null;
+  vendorOverrideSupplierBillingLine1: string | null;
+  vendorOverrideSupplierBillingLine2: string | null;
+  vendorOverrideSupplierBillingCity: string | null;
+  vendorOverrideSupplierBillingRegion: string | null;
+  vendorOverrideSupplierBillingPostcode: string | null;
+  vendorOverrideSupplierBillingCountry: string | null;
   amount: string;
 };
 
 export type CreatePurchaseBillResult = {
-  xeroBillId: string;
-  xeroBillNumber: string;
+  xeroBillId: string | null;
+  xeroBillNumber: string | null;
   status: "pushed";
   created: boolean;
   adopted: boolean;
+  bills: Array<{
+    groupKey: string;
+    xeroBillId: string;
+    xeroBillNumber: string;
+    created: boolean;
+    adopted: boolean;
+  }>;
 };
 
 function supplierToXeroContact(supplier: SupplierForBill): XeroContactInput {
@@ -160,6 +192,7 @@ async function loadPurchaseOrderForBillInTx(
         eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
         eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_PURCHASE_BILL),
         eq(accountingDocumentSyncs.documentId, order.id),
+        eq(accountingDocumentSyncs.groupKey, "default"),
       ),
     );
 
@@ -200,6 +233,7 @@ async function loadPurchaseOrderForBillInTx(
 
   const lines = await tx
     .select({
+      id: purchaseOrderLines.id,
       itemName: purchaseOrderLines.itemName,
       itemSku: purchaseOrderLines.itemSku,
       xeroItemCode: sql<string | null>`(
@@ -223,8 +257,43 @@ async function loadPurchaseOrderForBillInTx(
     .orderBy(purchaseOrderLines.sortOrder);
 
   const additionalCosts = await tx
-    .select({ amount: purchaseOrderAdditionalCosts.amount })
+    .select({
+      id: purchaseOrderAdditionalCosts.id,
+      costType: purchaseOrderAdditionalCosts.costType,
+      reference: purchaseOrderAdditionalCosts.reference,
+      accountingPurchaseAccountCode:
+        purchaseOrderAdditionalCosts.accountingPurchaseAccountCode,
+      vendorOverrideSupplierId:
+        purchaseOrderAdditionalCosts.vendorOverrideSupplierId,
+      vendorOverrideSupplierName: additionalCostVendorSuppliers.name,
+      vendorOverrideSupplierEmail: additionalCostVendorSuppliers.email,
+      vendorOverrideSupplierPhone: additionalCostVendorSuppliers.phone,
+      vendorOverrideSupplierXeroContactId: sql<string | null>`(
+        SELECT ${integrationExternalRecords.externalId}
+        FROM ${integrationExternalRecords}
+        WHERE ${integrationExternalRecords.provider} = ${ACCOUNTING_PROVIDER_XERO}
+          AND ${integrationExternalRecords.entityType} = 'supplier'
+          AND ${integrationExternalRecords.localRecordId} = ${purchaseOrderAdditionalCosts.vendorOverrideSupplierId}
+        LIMIT 1
+      )`,
+      vendorOverrideSupplierBillingLine1: additionalCostVendorSuppliers.billingLine1,
+      vendorOverrideSupplierBillingLine2: additionalCostVendorSuppliers.billingLine2,
+      vendorOverrideSupplierBillingCity: additionalCostVendorSuppliers.billingCity,
+      vendorOverrideSupplierBillingRegion: additionalCostVendorSuppliers.billingRegion,
+      vendorOverrideSupplierBillingPostcode:
+        additionalCostVendorSuppliers.billingPostcode,
+      vendorOverrideSupplierBillingCountry:
+        additionalCostVendorSuppliers.billingCountry,
+      amount: purchaseOrderAdditionalCosts.amount,
+    })
     .from(purchaseOrderAdditionalCosts)
+    .leftJoin(
+      additionalCostVendorSuppliers,
+      eq(
+        additionalCostVendorSuppliers.id,
+        purchaseOrderAdditionalCosts.vendorOverrideSupplierId,
+      ),
+    )
     .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, orderId));
 
   return { order: orderWithSync, supplier, lines, additionalCosts };
@@ -246,14 +315,6 @@ function lineDescription(line: LineForBill) {
   return summary ? `${line.itemName} - ${summary}` : line.itemName;
 }
 
-function additionalCostTotal(additionalCosts: AdditionalCostForBill[]) {
-  return additionalCosts.reduce((sum, cost) => sum + Number(cost.amount), 0);
-}
-
-function billLineAmount(line: LineForBill) {
-  return Number(line.lineTotal);
-}
-
 function billReference(input: CreatePurchaseBill, order: OrderForBill) {
   return input.reference?.trim() || order.orderNumber;
 }
@@ -264,15 +325,6 @@ function billCreateOperation(invoiceNumber: string) {
     .digest("hex")
     .slice(0, 32);
   return `create-v2:${digest}`;
-}
-
-function isRecentPending(order: OrderForBill) {
-  if (order.xeroBillStatus !== "pending") return false;
-  if (!order.xeroBillLastPushAttemptAt) return true;
-  return (
-    Date.now() - order.xeroBillLastPushAttemptAt.getTime() <
-    STALE_PENDING_MS
-  );
 }
 
 function assertBillablePurchaseOrder(data: {
@@ -290,50 +342,149 @@ function assertBillablePurchaseOrder(data: {
   }
 }
 
-function buildSnapshot(params: {
-  input: CreatePurchaseBill;
+type PurchaseBillGroupInput = CreatePurchaseBill["groups"][number];
+type SelectedPurchaseBillGroupInput = PurchaseBillGroupInput & {
+  invoiceNumber: string;
+  accountingPurchaseAccountCode: string;
+};
+
+type PurchaseBillGroupData = {
+  key: string;
+  supplier: SupplierForBill;
+  lines: LineForBill[];
+  additionalCosts: AdditionalCostForBill[];
+  input: SelectedPurchaseBillGroupInput;
+};
+
+function isSelectedPurchaseBillGroupInput(
+  group: PurchaseBillGroupInput,
+): group is SelectedPurchaseBillGroupInput {
+  return (
+    group.include !== false &&
+    Boolean(group.invoiceNumber?.trim()) &&
+    Boolean(group.accountingPurchaseAccountCode?.trim())
+  );
+}
+
+function supplierFromAdditionalCost(
+  cost: AdditionalCostForBill,
+  fallback: { id: string; name: string },
+): SupplierForBill {
+  return {
+    id: cost.vendorOverrideSupplierId ?? fallback.id,
+    name: cost.vendorOverrideSupplierName ?? fallback.name,
+    email: cost.vendorOverrideSupplierEmail,
+    phone: cost.vendorOverrideSupplierPhone,
+    xeroContactId: cost.vendorOverrideSupplierXeroContactId,
+    billingLine1: cost.vendorOverrideSupplierBillingLine1,
+    billingLine2: cost.vendorOverrideSupplierBillingLine2,
+    billingCity: cost.vendorOverrideSupplierBillingCity,
+    billingRegion: cost.vendorOverrideSupplierBillingRegion,
+    billingPostcode: cost.vendorOverrideSupplierBillingPostcode,
+    billingCountry: cost.vendorOverrideSupplierBillingCountry,
+  };
+}
+
+function buildPurchaseBillGroups(params: {
   data: NonNullable<Awaited<ReturnType<typeof loadPurchaseOrderForBillInTx>>>;
-  lineItems: LineItem[];
+  input: CreatePurchaseBill;
+}): PurchaseBillGroupData[] {
+  const selectedInputs = new Map(
+    params.input.groups
+      .filter(isSelectedPurchaseBillGroupInput)
+      .map((group) => [group.groupKey, group]),
+  );
+  const defaultGroupKey = resolvedPurchaseOrderVendorGroupKey(
+    params.data.supplier.id,
+  );
+  if (selectedInputs.has("default") && !selectedInputs.has(defaultGroupKey)) {
+    selectedInputs.set(defaultGroupKey, selectedInputs.get("default")!);
+  }
+
+  const suppliersById = new Map(
+    params.data.additionalCosts
+      .filter((cost) => cost.vendorOverrideSupplierId)
+      .map((cost) => [
+        cost.vendorOverrideSupplierId as string,
+        {
+          id: cost.vendorOverrideSupplierId as string,
+          name: cost.vendorOverrideSupplierName ?? "Vendor",
+          email: cost.vendorOverrideSupplierEmail,
+        },
+      ]),
+  );
+
+  return groupPurchaseOrderByResolvedVendor({
+    purchaseOrderSupplier: params.data.supplier,
+    suppliersById,
+    lines: params.data.lines,
+    additionalCosts: params.data.additionalCosts,
+  }).flatMap((group) => {
+    const groupInput = selectedInputs.get(group.key);
+    if (!groupInput) return [];
+
+    const groupInputAdditionalCostIds =
+      "additionalCostIds" in groupInput ? groupInput.additionalCostIds : undefined;
+    const includedCostIds =
+      groupInputAdditionalCostIds == null
+        ? null
+        : new Set(groupInputAdditionalCostIds);
+    const additionalCosts = params.input.legacySingleBillInput
+      ? []
+      : includedCostIds == null
+        ? group.additionalCosts
+        : group.additionalCosts.filter((cost) => includedCostIds.has(cost.id));
+    if (group.lines.length === 0 && additionalCosts.length === 0) return [];
+
+    const supplier = group.isPurchaseOrderSupplier
+      ? params.data.supplier
+      : supplierFromAdditionalCost(group.additionalCosts[0], group.supplier);
+
+    return [
+      {
+        key: group.key,
+        supplier,
+        lines: group.isPurchaseOrderSupplier ? group.lines : [],
+        additionalCosts,
+        input: groupInput,
+      },
+    ];
+  });
+}
+
+function additionalCostDescription(cost: AdditionalCostForBill) {
+  const label =
+    cost.costType === "shipping"
+      ? "Shipping"
+      : cost.costType === "customs"
+        ? "Customs"
+        : "Additional cost";
+  return cost.reference ? `${label} - ${cost.reference}` : label;
+}
+
+function buildBillLineItems(params: {
+  group: PurchaseBillGroupData;
   defaultAccountCode: string;
   taxType: string | null;
 }) {
-  const omittedAdditionalCostTotal = additionalCostTotal(params.data.additionalCosts);
-  return {
-    invoiceNumber: params.input.invoiceNumber,
-    billDate: params.input.billDate,
-    dueDate: params.input.dueDate,
-    reference: billReference(params.input, params.data.order),
-    supplier: {
-      id: params.data.supplier.id,
-      name: params.data.supplier.name,
-    },
-    purchaseOrder: {
-      id: params.data.order.id,
-      orderNumber: params.data.order.orderNumber,
-      status: params.data.order.status,
-    },
-    lineAmountTypes: TAX_MODE,
-    taxMode: "exclusive",
-    taxType: params.taxType,
-    defaultAccountCode: params.defaultAccountCode,
-    lineItems: params.lineItems.map((line) => ({
-      itemCode: line.itemCode ?? null,
-      description: line.description ?? null,
-      quantity: line.quantity ?? null,
-      unitAmount: line.unitAmount ?? null,
-      lineAmount: line.lineAmount ?? null,
-      accountCode: line.accountCode ?? null,
-      taxType: line.taxType ?? null,
-    })),
-    totals: {
-      materialSubtotal: params.data.lines.reduce(
-        (sum, line) => sum + billLineAmount(line),
-        0,
-      ),
-      additionalCostsOmitted: omittedAdditionalCostTotal > 0,
-      omittedAdditionalCostTotal,
-    },
-  };
+  const materialLines: LineItem[] = params.group.lines.map((line) => ({
+    itemCode: line.xeroItemCode ?? undefined,
+    description: lineDescription(line),
+    quantity: Number(line.quantityOrdered),
+    unitAmount: Number(line.unitCost),
+    accountCode: params.defaultAccountCode,
+    taxType: params.taxType ?? undefined,
+  }));
+  const costLines: LineItem[] = params.group.additionalCosts.map((cost) => ({
+    description: additionalCostDescription(cost),
+    quantity: 1,
+    unitAmount: Number(cost.amount),
+    accountCode:
+      cost.accountingPurchaseAccountCode || params.group.input.accountingPurchaseAccountCode,
+    taxType: params.taxType ?? undefined,
+  }));
+
+  return [...materialLines, ...costLines];
 }
 
 export async function findXeroPurchaseBill(
@@ -448,11 +599,25 @@ export async function reconcileXeroPurchaseBillExternalState(
   }
 
   await withOrgContext(orgId, async (tx) => {
+    const [sync] = await tx
+      .select({ groupKey: accountingDocumentSyncs.groupKey })
+      .from(accountingDocumentSyncs)
+      .where(
+        and(
+          eq(accountingDocumentSyncs.organizationId, orgId),
+          eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+          eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_PURCHASE_BILL),
+          eq(accountingDocumentSyncs.documentId, orderId),
+          eq(accountingDocumentSyncs.externalDocumentId, invoiceId),
+        ),
+      )
+      .limit(1);
     await resetAccountingDocumentPushState(tx, {
       organizationId: orgId,
       provider: ACCOUNTING_PROVIDER_XERO,
       documentType: ACCOUNTING_DOCUMENT_PURCHASE_BILL,
       documentId: orderId,
+      groupKey: sync?.groupKey,
     });
   });
 
@@ -480,11 +645,14 @@ export async function createPurchaseBillAccountingSync(
   orderId: string,
   input: CreatePurchaseBill,
 ): Promise<CreatePurchaseBillResult> {
-  const data = await withOrgContext(orgId, async (tx) => {
+  await withOrgContext(orgId, async (tx) => {
     const loaded = await loadPurchaseOrderForBillInTx(tx, orderId);
-    if (!loaded) return null;
+    if (!loaded) {
+      throw new XeroError("Purchase order not found.", 404);
+    }
     assertBillablePurchaseOrder(loaded);
     if (
+      input.legacySingleBillInput &&
       loaded.additionalCosts.length > 0 &&
       input.confirmAdditionalCostsOmitted !== true
     ) {
@@ -493,98 +661,179 @@ export async function createPurchaseBillAccountingSync(
         400,
       );
     }
-    if (isRecentPending(loaded.order)) {
-      throw new XeroError("Xero bill sync is already running.", 409);
+
+    const groups = buildPurchaseBillGroups({ data: loaded, input });
+    if (groups.length === 0) {
+      throw new XeroError("Select at least one bill group to create.", 400);
     }
-    if (loaded.order.xeroBillStatus === "pushed" && loaded.order.xeroBillId) {
-      return loaded;
-    }
-    return loaded;
-  });
-
-  if (!data) {
-    throw new XeroError("Purchase order not found.", 404);
-  }
-
-  const alreadyPushed =
-    data.order.xeroBillStatus === "pushed" && data.order.xeroBillId;
-
-  if (alreadyPushed) {
-    if (
-      !data.order.xeroBillNumber ||
-      data.order.xeroBillNumber !== input.invoiceNumber
-    ) {
-      throw new XeroError(
-        "This purchase order already has a Xero bill. Void it in Xero before recreating.",
-        409,
+    const syncRows = await tx
+      .select({
+        groupKey: accountingDocumentSyncs.groupKey,
+        pushStatus: accountingDocumentSyncs.pushStatus,
+        lastPushAttemptAt: accountingDocumentSyncs.lastPushAttemptAt,
+      })
+      .from(accountingDocumentSyncs)
+      .where(
+        and(
+          eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+          eq(
+            accountingDocumentSyncs.documentType,
+            ACCOUNTING_DOCUMENT_PURCHASE_BILL,
+          ),
+          eq(accountingDocumentSyncs.documentId, orderId),
+          inArray(
+            accountingDocumentSyncs.groupKey,
+            [...new Set(["default", ...groups.map((group) => group.key)])],
+          ),
+        ),
       );
+    for (const sync of syncRows) {
+      if (
+        sync.pushStatus === "pending" &&
+        (!sync.lastPushAttemptAt ||
+          Date.now() - sync.lastPushAttemptAt.getTime() < STALE_PENDING_MS)
+      ) {
+        throw new XeroError("Xero bill sync is already running.", 409);
+      }
     }
-
-    return {
-      xeroBillId: data.order.xeroBillId!,
-      xeroBillNumber: data.order.xeroBillNumber,
-      status: "pushed",
-      created: false,
-      adopted: false,
-    };
-  }
+  });
 
   const authed = await getAuthedXeroClient(orgId);
   const connection = authed.connection;
   const accountingApi = authed.client.accountingApi;
   const taxType = connection.purchaseOrderDefaultTaxType ?? connection.defaultTaxType;
-  const defaultAccountCode = input.accountingPurchaseAccountCode;
 
   const prepared = await withOrgContext(orgId, async (tx) => {
     const loaded = await loadPurchaseOrderForBillInTx(tx, orderId);
     if (!loaded) return null;
     assertBillablePurchaseOrder(loaded);
-    if (isRecentPending(loaded.order)) {
-      throw new XeroError("Xero bill sync is already running.", 409);
-    }
-    if (loaded.order.xeroBillStatus === "pushed" && loaded.order.xeroBillId) {
-      return { status: "pushed" as const, order: loaded.order };
+    const groups = buildPurchaseBillGroups({ data: loaded, input });
+    if (groups.length === 0) {
+      throw new XeroError("Select at least one bill group to create.", 400);
     }
 
-    const lineItems: LineItem[] = loaded.lines.map((line) => ({
-      itemCode: line.xeroItemCode ?? undefined,
-      description: lineDescription(line),
-      quantity: Number(line.quantityOrdered),
-      unitAmount: Number(line.unitCost),
-      accountCode: defaultAccountCode,
-      taxType: taxType ?? undefined,
-    }));
-    const snapshot = buildSnapshot({
-      input,
-      data: loaded,
-      lineItems,
-      defaultAccountCode,
-      taxType,
-    });
-    const payloadHash = hashXeroPayload(snapshot);
-    const idempotencyKey = buildXeroIdempotencyKey(
-      orgId,
-      "purchase-bill",
-      orderId,
-      billCreateOperation(input.invoiceNumber),
-    );
+    const syncRows = await tx
+      .select({
+        groupKey: accountingDocumentSyncs.groupKey,
+        externalDocumentId: accountingDocumentSyncs.externalDocumentId,
+        externalDocumentNumber: accountingDocumentSyncs.externalDocumentNumber,
+        pushStatus: accountingDocumentSyncs.pushStatus,
+        lastPushAttemptAt: accountingDocumentSyncs.lastPushAttemptAt,
+      })
+      .from(accountingDocumentSyncs)
+      .where(
+        and(
+          eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+          eq(
+            accountingDocumentSyncs.documentType,
+            ACCOUNTING_DOCUMENT_PURCHASE_BILL,
+          ),
+          eq(accountingDocumentSyncs.documentId, orderId),
+          inArray(
+            accountingDocumentSyncs.groupKey,
+            [...new Set(["default", ...groups.map((group) => group.key)])],
+          ),
+        ),
+      );
+    const syncByGroup = new Map(syncRows.map((row) => [row.groupKey, row]));
 
-    await markAccountingDocumentPushAttempt(tx, {
-      organizationId: orgId,
-      provider: ACCOUNTING_PROVIDER_XERO,
-      documentType: ACCOUNTING_DOCUMENT_PURCHASE_BILL,
-      documentId: orderId,
-      pushStatus: "pending",
-      providerDocumentType: PROVIDER_DOCUMENT_TYPE,
-      idempotencyKey,
-    });
+    const readyGroups = [];
+    const alreadyPushed = [];
+    for (const group of groups) {
+      const sync = syncByGroup.get(group.key) ?? (
+        group.key === resolvedPurchaseOrderVendorGroupKey(loaded.supplier.id)
+          ? syncByGroup.get("default")
+          : undefined
+      );
+      if (
+        sync?.pushStatus === "pending" &&
+        (!sync.lastPushAttemptAt ||
+          Date.now() - sync.lastPushAttemptAt.getTime() < STALE_PENDING_MS)
+      ) {
+        throw new XeroError("Xero bill sync is already running.", 409);
+      }
+      if (sync?.pushStatus === "pushed" && sync.externalDocumentId) {
+        if (
+          !sync.externalDocumentNumber ||
+          sync.externalDocumentNumber !== group.input.invoiceNumber
+        ) {
+          throw new XeroError(
+            "This purchase order group already has a Xero bill. Void it in Xero before recreating.",
+            409,
+          );
+        }
+        alreadyPushed.push({
+          group,
+          xeroBillId: sync.externalDocumentId,
+          xeroBillNumber: sync.externalDocumentNumber,
+        });
+        continue;
+      }
+
+      const lineItems = buildBillLineItems({
+        group,
+        defaultAccountCode: group.input.accountingPurchaseAccountCode,
+        taxType,
+      });
+      const snapshot = {
+        invoiceNumber: group.input.invoiceNumber,
+        billDate: input.billDate,
+        dueDate: input.dueDate,
+        reference: billReference(input, loaded.order),
+        groupKey: group.key,
+        supplier: { id: group.supplier.id, name: group.supplier.name },
+        purchaseOrder: {
+          id: loaded.order.id,
+          orderNumber: loaded.order.orderNumber,
+          status: loaded.order.status,
+        },
+        lineAmountTypes: TAX_MODE,
+        taxMode: "exclusive",
+        taxType,
+        defaultAccountCode: group.input.accountingPurchaseAccountCode,
+        lineItems: lineItems.map((line) => ({
+          itemCode: line.itemCode ?? null,
+          description: line.description ?? null,
+          quantity: line.quantity ?? null,
+          unitAmount: line.unitAmount ?? null,
+          lineAmount: line.lineAmount ?? null,
+          accountCode: line.accountCode ?? null,
+          taxType: line.taxType ?? null,
+        })),
+        includedAdditionalCostIds: group.additionalCosts.map((cost) => cost.id),
+      };
+      const payloadHash = hashXeroPayload(snapshot);
+      const idempotencyKey = buildXeroIdempotencyKey(
+        orgId,
+        "purchase-bill",
+        orderId,
+        `${group.key}:${billCreateOperation(group.input.invoiceNumber)}`,
+      );
+
+      await markAccountingDocumentPushAttempt(tx, {
+        organizationId: orgId,
+        provider: ACCOUNTING_PROVIDER_XERO,
+        documentType: ACCOUNTING_DOCUMENT_PURCHASE_BILL,
+        documentId: orderId,
+        groupKey: group.key,
+        pushStatus: "pending",
+        providerDocumentType: PROVIDER_DOCUMENT_TYPE,
+        idempotencyKey,
+      });
+      readyGroups.push({
+        group,
+        lineItems,
+        snapshot,
+        payloadHash,
+        idempotencyKey,
+      });
+    }
+
     return {
       status: "ready" as const,
       data: loaded,
-      lineItems,
-      snapshot,
-      payloadHash,
-      idempotencyKey,
+      readyGroups,
+      alreadyPushed,
     };
   });
 
@@ -592,94 +841,130 @@ export async function createPurchaseBillAccountingSync(
     throw new XeroError("Purchase order not found.", 404);
   }
 
-  if (prepared.status === "pushed") {
-    if (
-      !prepared.order.xeroBillNumber ||
-      prepared.order.xeroBillNumber !== input.invoiceNumber
-    ) {
-      throw new XeroError(
-        "This purchase order already has a Xero bill. Void it in Xero before recreating.",
-        409,
-      );
-    }
-
-    return {
-      xeroBillId: prepared.order.xeroBillId!,
-      xeroBillNumber: prepared.order.xeroBillNumber,
-      status: "pushed",
+  const reference = billReference(input, prepared.data.order);
+  const bills: CreatePurchaseBillResult["bills"] = prepared.alreadyPushed.map(
+    (row) => ({
+      groupKey: row.group.key,
+      xeroBillId: row.xeroBillId,
+      xeroBillNumber: row.xeroBillNumber,
       created: false,
       adopted: false,
-    };
+    }),
+  );
+  const successfulReadyGroups: Array<{
+    ready: (typeof prepared.readyGroups)[number];
+    billId: string;
+    billNumber: string;
+    created: boolean;
+    adopted: boolean;
+  }> = [];
+  const billsToCreate: Array<{
+    ready: (typeof prepared.readyGroups)[number];
+    bill: Invoice;
+  }> = [];
+
+  for (const ready of prepared.readyGroups) {
+    const expectedSubTotal = ready.lineItems.reduce(
+      (sum, line) =>
+        sum +
+        (line.lineAmount ??
+          Number(line.quantity ?? 0) * Number(line.unitAmount ?? 0)),
+      0,
+    );
+    const contactId = await upsertXeroContact(
+      orgId,
+      supplierToXeroContact(ready.group.supplier),
+      authed.tenantId,
+      accountingApi,
+    );
+    const existing = await findXeroPurchaseBill(
+      orgId,
+      ready.group.input.invoiceNumber,
+    );
+    if (existing) {
+      const contactMatches = existing.contactID === contactId;
+      const referenceMatches = existing.reference === reference;
+      const subtotalMatches =
+        existing.subTotal != null &&
+        Math.abs(existing.subTotal - expectedSubTotal) < 0.01;
+
+      if (!contactMatches || !referenceMatches || !subtotalMatches) {
+        throw new XeroError(
+          "A Xero bill already exists with this supplier invoice number, but it does not match this purchase order.",
+          409,
+        );
+      }
+
+      successfulReadyGroups.push({
+        ready,
+        billId: existing.invoiceID,
+        billNumber: existing.invoiceNumber ?? ready.group.input.invoiceNumber,
+        created: false,
+        adopted: true,
+      });
+    } else {
+      billsToCreate.push({
+        ready,
+        bill: {
+          type: Invoice.TypeEnum.ACCPAY,
+          contact: { contactID: contactId },
+          lineItems: ready.lineItems,
+          lineAmountTypes: TAX_MODE,
+          date: input.billDate,
+          dueDate: input.dueDate,
+          invoiceNumber: ready.group.input.invoiceNumber,
+          reference,
+          status: Invoice.StatusEnum.DRAFT,
+        },
+      });
+    }
   }
 
-  const currentData = prepared.data;
-  const lineItems = prepared.lineItems;
-  const snapshot = prepared.snapshot;
-  const payloadHash = prepared.payloadHash;
-  const idempotencyKey = prepared.idempotencyKey;
-  const reference = billReference(input, currentData.order);
-  const expectedSubTotal = currentData.lines.reduce(
-    (sum, line) => sum + billLineAmount(line),
-    0,
-  );
-
-  let billId: string;
-  let billNumber: string;
-  let created = false;
-  let adopted = false;
-
-  const contactId = await upsertXeroContact(
-    orgId,
-    supplierToXeroContact(currentData.supplier),
-    authed.tenantId,
-    accountingApi,
-  );
-  const existing = await findXeroPurchaseBill(orgId, input.invoiceNumber);
-  if (existing) {
-    const contactMatches = existing.contactID === contactId;
-    const referenceMatches = existing.reference === reference;
-    const subtotalMatches =
-      existing.subTotal == null ||
-      Math.abs(existing.subTotal - expectedSubTotal) < 0.01;
-
-    if (!contactMatches || !referenceMatches || !subtotalMatches) {
-      throw new XeroError(
-        "A Xero bill already exists with this supplier invoice number, but it does not match this purchase order.",
-        409,
-      );
-    }
-
-    billId = existing.invoiceID;
-    billNumber = existing.invoiceNumber ?? input.invoiceNumber;
-    adopted = true;
-  } else {
-    const bill: Invoice = {
-      type: Invoice.TypeEnum.ACCPAY,
-      contact: { contactID: contactId },
-      lineItems,
-      lineAmountTypes: TAX_MODE,
-      date: input.billDate,
-      dueDate: input.dueDate,
-      invoiceNumber: input.invoiceNumber,
-      reference,
-      status: Invoice.StatusEnum.DRAFT,
-    };
+  if (billsToCreate.length > 0) {
+    const batchIdempotencyKey = buildXeroIdempotencyKey(
+      orgId,
+      "purchase-bill",
+      orderId,
+      `create-batch-v2:${createHash("sha256")
+        .update(
+          billsToCreate
+            .map((entry) => entry.ready.group.input.invoiceNumber)
+            .join("\n"),
+        )
+        .digest("hex")
+        .slice(0, 32)}`,
+    );
 
     try {
       const response = await accountingApi.createInvoices(
         authed.tenantId,
-        { invoices: [bill] } satisfies Invoices,
+        { invoices: billsToCreate.map((entry) => entry.bill) } satisfies Invoices,
         undefined,
         undefined,
-        idempotencyKey,
+        batchIdempotencyKey,
       );
-      const returned = response.body.invoices?.[0];
-      if (!returned?.invoiceID) {
-        throw new XeroError("Xero did not return a bill ID.", 502);
+      const returnedByInvoiceNumber = new Map(
+        (response.body.invoices ?? [])
+          .filter((invoice) => invoice.invoiceID)
+          .map((invoice) => [invoice.invoiceNumber, invoice]),
+      );
+
+      for (const entry of billsToCreate) {
+        const returned = returnedByInvoiceNumber.get(
+          entry.ready.group.input.invoiceNumber,
+        );
+        if (!returned?.invoiceID) {
+          throw new XeroError("Xero did not return every bill ID.", 502);
+        }
+        successfulReadyGroups.push({
+          ready: entry.ready,
+          billId: returned.invoiceID,
+          billNumber:
+            returned.invoiceNumber ?? entry.ready.group.input.invoiceNumber,
+          created: true,
+          adopted: false,
+        });
       }
-      billId = returned.invoiceID;
-      billNumber = returned.invoiceNumber ?? input.invoiceNumber;
-      created = true;
     } catch (error) {
       if (error instanceof XeroError) throw error;
       const status = extractXeroStatusCode(error);
@@ -692,19 +977,32 @@ export async function createPurchaseBillAccountingSync(
   }
 
   await withOrgContext(orgId, async (tx) => {
-    await persistAccountingDocumentPushSuccess(tx, {
-      organizationId: orgId,
-      provider: ACCOUNTING_PROVIDER_XERO,
-      documentType: ACCOUNTING_DOCUMENT_PURCHASE_BILL,
-      documentId: orderId,
-      externalDocumentId: billId,
-      externalDocumentNumber: billNumber,
-      payloadHash,
-      providerDocumentType: PROVIDER_DOCUMENT_TYPE,
-      idempotencyKey,
-      payloadSnapshot: snapshot,
-    });
+    for (const success of successfulReadyGroups) {
+      await persistAccountingDocumentPushSuccess(tx, {
+        organizationId: orgId,
+        provider: ACCOUNTING_PROVIDER_XERO,
+        documentType: ACCOUNTING_DOCUMENT_PURCHASE_BILL,
+        documentId: orderId,
+        groupKey: success.ready.group.key,
+        externalDocumentId: success.billId,
+        externalDocumentNumber: success.billNumber,
+        payloadHash: success.ready.payloadHash,
+        providerDocumentType: PROVIDER_DOCUMENT_TYPE,
+        idempotencyKey: success.ready.idempotencyKey,
+        payloadSnapshot: success.ready.snapshot,
+      });
+    }
   });
+
+  for (const success of successfulReadyGroups) {
+    bills.push({
+      groupKey: success.ready.group.key,
+      xeroBillId: success.billId,
+      xeroBillNumber: success.billNumber,
+      created: success.created,
+      adopted: success.adopted,
+    });
+  }
 
   await tryRecordAccountingAuditEvent({
     organizationId: orgId,
@@ -718,20 +1016,18 @@ export async function createPurchaseBillAccountingSync(
     localEntityType: ACCOUNTING_DOCUMENT_PURCHASE_BILL,
     localEntityId: orderId,
     metadata: {
-      invoiceNumber: input.invoiceNumber,
-      billId,
-      billNumber,
-      created,
-      adopted,
+      bills,
     },
   });
 
+  const firstBill = bills[0] ?? null;
   return {
-    xeroBillId: billId,
-    xeroBillNumber: billNumber,
+    xeroBillId: firstBill?.xeroBillId ?? null,
+    xeroBillNumber: firstBill?.xeroBillNumber ?? null,
     status: "pushed",
-    created,
-    adopted,
+    created: bills.some((bill) => bill.created),
+    adopted: bills.some((bill) => bill.adopted),
+    bills,
   };
 }
 
@@ -742,14 +1038,31 @@ export async function markXeroPurchaseBillPushFailed(
 ) {
   const message = extractXeroMessage(error).slice(0, 500);
   await withOrgContext(orgId, async (tx) => {
-    await persistAccountingDocumentPushFailure(tx, {
-      organizationId: orgId,
-      provider: ACCOUNTING_PROVIDER_XERO,
-      documentType: ACCOUNTING_DOCUMENT_PURCHASE_BILL,
-      documentId: orderId,
-      error: message,
-      providerDocumentType: PROVIDER_DOCUMENT_TYPE,
-    });
+    const pendingRows = await tx
+      .select({ groupKey: accountingDocumentSyncs.groupKey })
+      .from(accountingDocumentSyncs)
+      .where(
+        and(
+          eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+          eq(
+            accountingDocumentSyncs.documentType,
+            ACCOUNTING_DOCUMENT_PURCHASE_BILL,
+          ),
+          eq(accountingDocumentSyncs.documentId, orderId),
+          eq(accountingDocumentSyncs.pushStatus, "pending"),
+        ),
+      );
+    for (const groupKey of pendingRows.map((row) => row.groupKey)) {
+      await persistAccountingDocumentPushFailure(tx, {
+        organizationId: orgId,
+        provider: ACCOUNTING_PROVIDER_XERO,
+        documentType: ACCOUNTING_DOCUMENT_PURCHASE_BILL,
+        documentId: orderId,
+        groupKey,
+        error: message,
+        providerDocumentType: PROVIDER_DOCUMENT_TYPE,
+      });
+    }
   });
   await tryRecordAccountingAuditEvent({
     organizationId: orgId,

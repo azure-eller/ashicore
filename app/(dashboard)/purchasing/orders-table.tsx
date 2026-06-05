@@ -20,7 +20,8 @@ import {
   type PurchaseBillDialogValues,
   type XeroAccountOption,
 } from "./purchase-order-workflow-dialogs";
-import type { PurchaseOrderListRow } from "./types";
+import { groupPurchaseOrderByResolvedVendor } from "@/lib/purchasing/resolved-vendor-groups";
+import type { PurchaseOrderDetail, PurchaseOrderListRow } from "./types";
 
 const ACCOUNTING_NOT_CONNECTED_MESSAGE =
   "Connect accounting software before creating supplier bills.";
@@ -47,13 +48,74 @@ function PurchaseStatusCell({ order }: { order: PurchaseOrderListRow }) {
 
 function makePurchaseBillDialogValues(
   order: PurchaseOrderListRow,
+  detail?: PurchaseOrderDetail | null,
 ): PurchaseBillDialogValues {
   const today = todayIsoDate();
+  const groups = detail
+    ? groupPurchaseOrderByResolvedVendor({
+        purchaseOrderSupplier: {
+          id: detail.supplierId,
+          name: detail.supplierName,
+          email: detail.supplierEmail,
+        },
+        suppliersById: new Map(
+          detail.additionalCosts
+            .filter((cost) => cost.vendorOverrideSupplierId)
+            .map((cost) => [
+              cost.vendorOverrideSupplierId as string,
+              {
+                id: cost.vendorOverrideSupplierId as string,
+                name: cost.vendorOverrideSupplierName ?? "Vendor",
+                email: cost.vendorOverrideSupplierEmail,
+              },
+            ]),
+        ),
+        lines: detail.lines,
+        additionalCosts: detail.additionalCosts,
+      }).map((group) => {
+        const state =
+          detail.accountingGroupStates.find((row) => row.groupKey === group.key) ??
+          (group.isPurchaseOrderSupplier
+            ? detail.accountingGroupStates.find((row) => row.groupKey === "default")
+            : undefined);
+        const lineAmount = group.lines.reduce(
+          (sum, line) =>
+            sum + Number(line.quantityOrdered) * Number(line.unitCost),
+          0,
+        );
+        const costAmount = group.additionalCosts.reduce(
+          (sum, cost) => sum + Number(cost.amount),
+          0,
+        );
+
+        return {
+          groupKey: group.key,
+          label: group.isPurchaseOrderSupplier ? detail.supplierName : group.supplier.name,
+          include: state?.pushStatus !== "pushed",
+          invoiceNumber: "",
+          accountingPurchaseAccountCode:
+            detail.accountingPurchaseAccountCode ??
+            order.accountingPurchaseAccountCode ??
+            "",
+          amount: (lineAmount + costAmount).toFixed(4),
+          additionalCostIds: group.additionalCosts.map((cost) => cost.id),
+          pushedAt: state?.pushedAt ?? null,
+          status: state?.pushStatus ?? null,
+          externalNumber: state?.externalDocumentNumber ?? null,
+        };
+      })
+    : undefined;
+  const first = groups?.[0];
+
   return {
-    invoiceNumber: "",
+    groups,
+    invoiceNumber: first?.invoiceNumber ?? "",
     billDate: today,
     dueDate: today,
-    accountingPurchaseAccountCode: order.accountingPurchaseAccountCode ?? "",
+    accountingPurchaseAccountCode:
+      first?.accountingPurchaseAccountCode ??
+      order.accountingPurchaseAccountCode ??
+      "",
     confirmAdditionalCostsOmitted: false,
   };
 }
@@ -62,6 +124,7 @@ function PurchaseBillCell({ order }: { order: PurchaseOrderListRow }) {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [status, setStatus] = useState(order.purchaseBillStatus);
+  const [manualStatus, setManualStatus] = useState(order.purchaseBillManualStatus);
   const [externalId, setExternalId] = useState(order.purchaseBillExternalId);
   const [externalNumber, setExternalNumber] = useState(
     order.purchaseBillExternalNumber,
@@ -80,6 +143,20 @@ function PurchaseBillCell({ order }: { order: PurchaseOrderListRow }) {
         throw new Error(body?.error ?? "Failed to load accounting accounts.");
       }
       return response.json() as Promise<{ accounts: XeroAccountOption[] }>;
+    },
+  });
+  const orderDetailMutation = useMutation({
+    mutationKey: ["purchase-order", order.id, "bill-dialog-detail"],
+    mutationFn: async () => {
+      const response = await fetch(`/api/purchase-orders/${order.id}`);
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to load purchase order.");
+      }
+      return body as PurchaseOrderDetail;
+    },
+    onSuccess: (detail) => {
+      setValues(makePurchaseBillDialogValues(order, detail));
     },
   });
 
@@ -108,8 +185,8 @@ function PurchaseBillCell({ order }: { order: PurchaseOrderListRow }) {
       }
 
       return body as {
-        xeroBillId: string;
-        xeroBillNumber: string;
+        xeroBillId: string | null;
+        xeroBillNumber: string | null;
         status: "pushed";
       };
     },
@@ -123,6 +200,31 @@ function PurchaseBillCell({ order }: { order: PurchaseOrderListRow }) {
     },
     onError: () => setStatus("failed"),
   });
+  const manualStatusMutation = useMutation({
+    mutationKey: ["purchase-order-action", order.id, "purchase-bill-manual-status"],
+    mutationFn: async (
+      nextStatus: "not_billed" | "partly_billed" | "billed",
+    ) => {
+      const response = await fetch(`/api/purchase-orders/${order.id}/bill-status`, {
+        method: "PATCH",
+        headers: createIdempotencyHeaders("purchase-order-bill-status", {
+          "Content-Type": "application/json",
+        }),
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to update bill status.");
+      }
+      return body as {
+        purchaseBillManualStatus: "not_billed" | "partly_billed" | "billed" | null;
+      };
+    },
+    onSuccess: async (result) => {
+      setManualStatus(result.purchaseBillManualStatus);
+      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+    },
+  });
 
   const disabledReason =
     order.status === "draft"
@@ -135,14 +237,19 @@ function PurchaseBillCell({ order }: { order: PurchaseOrderListRow }) {
     <>
       <PurchaseBillActionControl
         status={status}
+        manualStatus={manualStatus}
         busy={mutation.isPending}
         externalId={externalId}
         externalNumber={externalNumber}
         disabled={Boolean(disabledReason)}
         disabledReason={disabledReason}
+        onSetManualStatus={(nextStatus) =>
+          manualStatusMutation.mutate(nextStatus)
+        }
         onCreate={() => {
           setValues(makePurchaseBillDialogValues(order));
           setDialogOpen(true);
+          orderDetailMutation.mutate();
         }}
       />
       <PurchaseBillDialog
@@ -153,12 +260,14 @@ function PurchaseBillCell({ order }: { order: PurchaseOrderListRow }) {
         xeroAccounts={xeroAccountsQuery.data?.accounts ?? []}
         error={
           mutation.error instanceof Error
-            ? mutation.error.message
+              ? mutation.error.message
             : xeroAccountsQuery.error instanceof Error
               ? xeroAccountsQuery.error.message
+              : orderDetailMutation.error instanceof Error
+                ? orderDetailMutation.error.message
               : null
         }
-        pending={mutation.isPending}
+        pending={mutation.isPending || orderDetailMutation.isPending}
         onValuesChange={setValues}
         onOpenChange={setDialogOpen}
         onCreate={() => mutation.mutate(values)}

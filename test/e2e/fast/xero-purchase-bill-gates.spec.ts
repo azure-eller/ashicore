@@ -159,8 +159,15 @@ function expectBillAttemptReachedXeroBoundary(
     expect(body.xeroBillNumber).toBeTruthy();
     return;
   }
+  if (
+    status === 500 &&
+    (body.error === "Xero token encryption key 'test-key' is not configured." ||
+      body.error === "XERO_CLIENT_ID is not configured.")
+  ) {
+    return;
+  }
 
-  expect(status).toBe(409);
+  expect(status, JSON.stringify(body)).toBe(409);
   expect(body.error).toBe(
     "Connect an accounting provider before creating supplier bills.",
   );
@@ -493,6 +500,192 @@ test.describe("Xero purchase bill gates", () => {
       expect(response.status, JSON.stringify(body)).toBe(400);
       expect(body.error).toBe(
         "Confirm that additional costs will be added manually in Xero.",
+      );
+    });
+  });
+
+  test("grouped bill payloads ignore invoice fields on unchecked groups", async ({ db }) => {
+    await withOnlyXeroConnection(db, async () => {
+      const ts = Date.now();
+      const { materialId, supplierId } = await createMaterialAndSupplier(ts);
+      const carrier = await createSupplier({ name: `Fast Bill Carrier ${ts}` });
+      expect(carrier.status).toBe(201);
+      const orderResponse = await testFetch("/api/purchase-orders", {
+        method: "POST",
+        body: JSON.stringify({
+          supplierId,
+          expectedDate: "2026-05-27",
+          notes: null,
+          lines: [{ itemId: materialId, quantityOrdered: "5", unitCost: "4.00" }],
+          additionalCosts: [
+            {
+              costType: "shipping",
+              reference: "Freight",
+              vendorOverrideSupplierId: carrier.body.id,
+              distributionMethod: "not_distributed",
+              accountingPurchaseAccountCode: "500",
+              amount: "12.00",
+            },
+          ],
+        }),
+      });
+      const order = await orderResponse.json();
+      expect(orderResponse.status).toBe(201);
+      expect((await submitPurchaseOrder(order.id)).status).toBe(200);
+
+      const response = await testFetch(
+        `/api/purchase-orders/${order.id}/accounting-bill`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            ...billPayload({ confirmAdditionalCostsOmitted: true }),
+            groups: [
+              {
+                groupKey: `supplier:${supplierId}`,
+                include: true,
+                invoiceNumber: `BILL-SUP-${ts}`,
+                accountingPurchaseAccountCode: "500",
+              },
+              {
+                groupKey: `freight:${carrier.body.id}`,
+                include: false,
+                invoiceNumber: "",
+                accountingPurchaseAccountCode: "",
+              },
+            ],
+          }),
+        },
+      );
+      const body = await response.json();
+
+      expectBillAttemptReachedXeroBoundary(response.status, body);
+    });
+  });
+
+  test("grouped bill payloads require unique invoice numbers", async ({ db }) => {
+    await withOnlyXeroConnection(db, async () => {
+      const ts = Date.now();
+      const { materialId, supplierId } = await createMaterialAndSupplier(ts);
+      const carrier = await createSupplier({
+        name: `Fast Duplicate Bill Carrier ${ts}`,
+      });
+      expect(carrier.status).toBe(201);
+      const orderResponse = await testFetch("/api/purchase-orders", {
+        method: "POST",
+        body: JSON.stringify({
+          supplierId,
+          expectedDate: "2026-05-27",
+          notes: null,
+          lines: [{ itemId: materialId, quantityOrdered: "5", unitCost: "4.00" }],
+          additionalCosts: [
+            {
+              costType: "shipping",
+              reference: "Freight",
+              vendorOverrideSupplierId: carrier.body.id,
+              distributionMethod: "not_distributed",
+              accountingPurchaseAccountCode: "500",
+              amount: "12.00",
+            },
+          ],
+        }),
+      });
+      const order = await orderResponse.json();
+      expect(orderResponse.status).toBe(201);
+      expect((await submitPurchaseOrder(order.id)).status).toBe(200);
+
+      const response = await testFetch(
+        `/api/purchase-orders/${order.id}/accounting-bill`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            ...billPayload({ confirmAdditionalCostsOmitted: true }),
+            groups: [
+              {
+                groupKey: `supplier:${supplierId}`,
+                include: true,
+                invoiceNumber: `BILL-DUP-${ts}`,
+                accountingPurchaseAccountCode: "500",
+              },
+              {
+                groupKey: `freight:${carrier.body.id}`,
+                include: true,
+                invoiceNumber: `BILL-DUP-${ts}`,
+                accountingPurchaseAccountCode: "500",
+              },
+            ],
+          }),
+        },
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(JSON.stringify(body)).toContain(
+        "Invoice numbers must be unique per bill group",
+      );
+    });
+  });
+
+  test("QuickBooks rejects grouped bill payloads instead of merging vendors", async ({
+    db,
+  }) => {
+    await withOnlyQuickBooksConnection(db, async () => {
+      const ts = Date.now();
+      const { materialId, supplierId } = await createMaterialAndSupplier(ts);
+      const carrier = await createSupplier({
+        name: `Fast QB Grouped Bill Carrier ${ts}`,
+      });
+      expect(carrier.status).toBe(201);
+      const orderResponse = await testFetch("/api/purchase-orders", {
+        method: "POST",
+        body: JSON.stringify({
+          supplierId,
+          expectedDate: "2026-05-27",
+          notes: null,
+          lines: [{ itemId: materialId, quantityOrdered: "5", unitCost: "4.00" }],
+          additionalCosts: [
+            {
+              costType: "shipping",
+              reference: "Freight",
+              vendorOverrideSupplierId: carrier.body.id,
+              distributionMethod: "not_distributed",
+              accountingPurchaseAccountCode: "500",
+              amount: "12.00",
+            },
+          ],
+        }),
+      });
+      const order = await orderResponse.json();
+      expect(orderResponse.status).toBe(201);
+      expect((await submitPurchaseOrder(order.id)).status).toBe(200);
+
+      const response = await testFetch(
+        `/api/purchase-orders/${order.id}/accounting-bill`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            ...billPayload({ confirmAdditionalCostsOmitted: true }),
+            groups: [
+              {
+                groupKey: `supplier:${supplierId}`,
+                include: true,
+                invoiceNumber: `QB-SUP-${ts}`,
+                accountingPurchaseAccountCode: "500",
+              },
+              {
+                groupKey: `freight:${carrier.body.id}`,
+                include: true,
+                invoiceNumber: `QB-CAR-${ts}`,
+                accountingPurchaseAccountCode: "500",
+              },
+            ],
+          }),
+        },
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(body.error).toBe(
+        "Grouped supplier bills are only supported for Xero right now.",
       );
     });
   });

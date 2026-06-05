@@ -1,5 +1,6 @@
 import {
   date,
+  foreignKey,
   index,
   integer,
   numeric,
@@ -53,6 +54,10 @@ export const suppliers = purchasingSchema
       uniqueIndex("purchasing_suppliers_org_code_uidx")
         .on(table.organizationId, table.code)
         .where(sql`code IS NOT NULL AND deleted_at IS NULL`),
+      uniqueIndex("purchasing_suppliers_org_id_uidx").on(
+        table.organizationId,
+        table.id
+      ),
       pgPolicy("purchasing_suppliers_org_isolation", {
         for: "all",
         to: "public",
@@ -119,11 +124,16 @@ export const purchaseOrders = purchasingSchema
       id: uuid("id").primaryKey().defaultRandom(),
       organizationId: text("organization_id").notNull(),
       orderNumber: varchar("order_number", { length: 32 }).notNull(),
+      parentPurchaseOrderId: uuid("parent_purchase_order_id"),
+      type: varchar("type", { length: 20 }).notNull().default("standard"),
       supplierId: uuid("supplier_id")
         .notNull()
         .references(() => suppliers.id),
       supplierName: varchar("supplier_name", { length: 255 }).notNull(),
       status: varchar("status", { length: 20 }).notNull().default("draft"),
+      purchaseBillManualStatus: varchar("purchase_bill_manual_status", {
+        length: 20,
+      }),
       expectedDate: date("expected_date", { mode: "string" }),
       notes: text("notes"),
       accountingPurchaseAccountCode: varchar("accounting_purchase_account_code", {
@@ -161,12 +171,42 @@ export const purchaseOrders = purchasingSchema
         .where(sql`deleted_at IS NULL`),
       index("purchase_orders_status_idx").on(table.status),
       index("purchase_orders_supplier_id_idx").on(table.supplierId),
+      index("purchase_orders_parent_id_idx").on(table.parentPurchaseOrderId),
       index("purchase_orders_expected_date_idx").on(table.expectedDate),
       index("purchase_orders_created_at_idx").on(table.createdAt),
       uniqueIndex("purchase_orders_org_order_number_uidx").on(
         table.organizationId,
         table.orderNumber
       ),
+      uniqueIndex("purchase_orders_org_id_uidx").on(
+        table.organizationId,
+        table.id
+      ),
+      uniqueIndex("purchase_orders_org_parent_freight_supplier_uidx")
+        .on(table.organizationId, table.parentPurchaseOrderId, table.supplierId)
+        .where(sql`type = 'freight' AND deleted_at IS NULL`),
+      check(
+        "purchase_orders_type_check",
+        sql`type IN ('standard', 'freight')`
+      ),
+      check(
+        "purchase_orders_purchase_bill_manual_status_check",
+        sql`purchase_bill_manual_status IS NULL OR purchase_bill_manual_status IN ('not_billed', 'partly_billed', 'billed')`
+      ),
+      check(
+        "purchase_orders_parent_type_check",
+        sql`(type = 'standard' AND parent_purchase_order_id IS NULL) OR (type = 'freight' AND parent_purchase_order_id IS NOT NULL)`
+      ),
+      foreignKey({
+        columns: [table.parentPurchaseOrderId],
+        foreignColumns: [table.id],
+        name: "purchase_orders_parent_id_fk",
+      }),
+      foreignKey({
+        columns: [table.organizationId, table.parentPurchaseOrderId],
+        foreignColumns: [table.organizationId, table.id],
+        name: "purchase_orders_parent_org_id_fk",
+      }),
       pgPolicy("purchase_orders_org_isolation", {
         for: "all",
         to: "public",
@@ -283,6 +323,10 @@ export const purchaseOrderAdditionalCosts = purchasingSchema
       purchaseOrderId: uuid("purchase_order_id")
         .notNull()
         .references(() => purchaseOrders.id, { onDelete: "cascade" }),
+      vendorOverrideSupplierId: uuid("vendor_override_supplier_id").references(
+        () => suppliers.id,
+        { onDelete: "set null" }
+      ),
       costType: varchar("cost_type", { length: 20 }).notNull(),
       reference: varchar("reference", { length: 120 }),
       distributionMethod: varchar("distribution_method", { length: 20 }).notNull(),
@@ -297,6 +341,9 @@ export const purchaseOrderAdditionalCosts = purchasingSchema
     (table) => [
       index("purchase_order_additional_costs_org_id_idx").on(table.organizationId),
       index("purchase_order_additional_costs_order_id_idx").on(table.purchaseOrderId),
+      index("purchase_order_additional_costs_vendor_override_idx").on(
+        table.vendorOverrideSupplierId
+      ),
       check(
         "purchase_order_additional_costs_type_check",
         sql`cost_type IN ('shipping', 'customs', 'other')`
@@ -306,6 +353,11 @@ export const purchaseOrderAdditionalCosts = purchasingSchema
         sql`distribution_method IN ('by_value', 'not_distributed')`
       ),
       check("purchase_order_additional_costs_amount_check", sql`amount >= 0`),
+      foreignKey({
+        columns: [table.organizationId, table.vendorOverrideSupplierId],
+        foreignColumns: [suppliers.organizationId, suppliers.id],
+        name: "purchase_order_additional_costs_vendor_override_org_fk",
+      }),
       pgPolicy("purchase_order_additional_costs_org_isolation", {
         for: "all",
         to: "public",

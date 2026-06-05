@@ -12,6 +12,10 @@ export function getEmailSenderConfig() {
     return { resendApiKey, from };
   }
 
+  if (process.env.EMAIL_OUTBOX_ONLY === "1") {
+    return null;
+  }
+
   if (process.env.NODE_ENV === "production") {
     throw new Error(
       "Missing RESEND_API_KEY for transactional email delivery."

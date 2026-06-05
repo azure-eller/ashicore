@@ -1,6 +1,8 @@
-import { and, eq } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { test, expect } from "../fixtures";
 import {
+  accountingDocumentSyncs,
   inventoryEvents,
   inventoryExpectedSummary,
   inventoryItemBalances,
@@ -10,15 +12,20 @@ import {
   purchaseOrderLines,
   purchaseOrders,
 } from "../../../lib/db/schema";
+import { groupPurchaseOrderByResolvedVendor } from "../../../lib/purchasing/resolved-vendor-groups";
 import {
   createItem,
   createPurchaseOrder,
   createSupplier,
+  getOrgId,
   getUnitId,
   receivePurchaseOrder,
   submitPurchaseOrder,
   testFetch,
 } from "../../helpers/api";
+
+const ACCOUNTING_DOCUMENT_PURCHASE_ORDER = "purchase_order";
+const ACCOUNTING_PROVIDER_XERO = "xero";
 
 test.describe("purchasing supply and receipt heartbeat", () => {
   const ts = Date.now();
@@ -260,7 +267,6 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     const supplier = await createSupplier({ name: `Fast Reval Supplier ${ts}` });
     expect(supplier.status).toBe(201);
 
-    // Landed unit cost = unit cost + freight/qty = 10 + 20/10 = 12.
     const createResponse = await testFetch("/api/purchase-orders", {
       method: "POST",
       body: JSON.stringify({
@@ -309,7 +315,6 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       );
     expect(receipt.unitCost).toBe("12.000000");
 
-    // Edit freight 20 -> 50: landed unit cost = 10 + 50/10 = 15.
     const editResponse = await testFetch(`/api/purchase-orders/${order.id}`, {
       method: "PUT",
       body: JSON.stringify({
@@ -332,7 +337,6 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     });
     expect(editResponse.status, await editResponse.text()).toBe(200);
 
-    // Append-only revaluation event: zero qty, new cost 15, signed delta 10*(15-12)=30.
     const [reval] = await db
       .select({
         quantity: inventoryEvents.quantity,
@@ -358,7 +362,6 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       referenceId: order.id,
     });
 
-    // Lot cost basis and material current cost are rebased to 15.
     const [lot] = await db
       .select({ unitCost: inventoryLotBalances.unitCost })
       .from(inventoryLotBalances)
@@ -371,7 +374,6 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       .where(eq(items.id, itemId));
     expect(item.currentStockUnitCost).toBe("15.000000");
 
-    // The original receipt event is unchanged.
     const [receiptAfter] = await db
       .select({
         unitCost: inventoryEvents.unitCost,
@@ -522,5 +524,770 @@ test.describe("purchasing supply and receipt heartbeat", () => {
         }),
       ])
     );
+  });
+
+  test("resolved vendor grouping collapses supplier overrides and splits carrier costs", async () => {
+    const groups = groupPurchaseOrderByResolvedVendor({
+      purchaseOrderSupplier: {
+        id: "supplier-a",
+        name: "Supplier A",
+      },
+      suppliersById: new Map([
+        ["carrier-a", { id: "carrier-a", name: "Carrier A" }],
+        ["carrier-b", { id: "carrier-b", name: "Carrier B" }],
+      ]),
+      lines: [{ id: "line-1" }],
+      additionalCosts: [
+        { id: "cost-supplier", vendorOverrideSupplierId: "supplier-a" },
+        { id: "cost-carrier-a", vendorOverrideSupplierId: "carrier-a" },
+        { id: "cost-carrier-b", vendorOverrideSupplierId: "carrier-b" },
+      ],
+    });
+
+    expect(groups).toMatchObject([
+      {
+        key: "supplier:supplier-a",
+        isPurchaseOrderSupplier: true,
+        lines: [{ id: "line-1" }],
+        additionalCosts: [{ id: "cost-supplier" }],
+      },
+      {
+        key: "freight:carrier-a",
+        isPurchaseOrderSupplier: false,
+        lines: [],
+        additionalCosts: [{ id: "cost-carrier-a" }],
+      },
+      {
+        key: "freight:carrier-b",
+        isPurchaseOrderSupplier: false,
+        lines: [],
+        additionalCosts: [{ id: "cost-carrier-b" }],
+      },
+    ]);
+  });
+
+  test("freight purchase orders reconcile to current carrier cost groups", async ({ db }) => {
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast PO Freight Material ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-PO-FREIGHT-${ts}`,
+      category: `Fast Purchasing ${ts}`,
+      description: null,
+      defaultPurchasePrice: "10.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status).toBe(201);
+    const supplier = await createSupplier({ name: `Fast Freight Supplier ${ts}` });
+    const carrier = await createSupplier({ name: `Fast Carrier ${ts}` });
+    expect(supplier.status).toBe(201);
+    expect(carrier.status).toBe(201);
+
+    const createResponse = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId: supplier.body.id,
+        expectedDate: "2026-05-08",
+        lines: [
+          {
+            itemId: material.body.id,
+            quantityOrdered: "1",
+            unitCost: "10.00",
+          },
+        ],
+        additionalCosts: [
+          {
+            costType: "shipping",
+            reference: "Freight",
+            vendorOverrideSupplierId: carrier.body.id,
+            distributionMethod: "by_value",
+            accountingPurchaseAccountCode: null,
+            amount: "12.00",
+          },
+        ],
+      }),
+    });
+    const order = await createResponse.json();
+    expect(createResponse.status).toBe(201);
+
+    const firstFreightResponse = await testFetch(
+      `/api/purchase-orders/${order.id}/freight-pos`,
+      { method: "POST" },
+    );
+    const firstFreightBody = await firstFreightResponse.json();
+    expect(firstFreightResponse.status).toBe(200);
+    expect(firstFreightBody.freightPurchaseOrders).toHaveLength(1);
+    const freightOrderId = firstFreightBody.freightPurchaseOrders[0].id;
+
+    const updateResponse = await testFetch(`/api/purchase-orders/${order.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        supplierId: supplier.body.id,
+        expectedDate: "2026-05-08",
+        notes: null,
+        accountingPurchaseAccountCode: null,
+        lines: [
+          {
+            itemId: material.body.id,
+            quantityOrdered: "1",
+            unitCost: "10.00",
+          },
+        ],
+        additionalCosts: [
+          {
+            costType: "shipping",
+            reference: "Freight",
+            vendorOverrideSupplierId: carrier.body.id,
+            distributionMethod: "by_value",
+            accountingPurchaseAccountCode: null,
+            amount: "18.00",
+          },
+        ],
+      }),
+    });
+    expect(updateResponse.status, await updateResponse.text()).toBe(200);
+
+    const secondFreightResponse = await testFetch(
+      `/api/purchase-orders/${order.id}/freight-pos`,
+      { method: "POST" },
+    );
+    const secondFreightBody = await secondFreightResponse.json();
+    expect(secondFreightResponse.status).toBe(200);
+    expect(secondFreightBody.freightPurchaseOrders[0].id).toBe(freightOrderId);
+
+    const [updatedFreight] = await db
+      .select({
+        shippingCost: purchaseOrders.shippingCost,
+        totalAmount: purchaseOrders.totalAmount,
+      })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, freightOrderId));
+    expect(updatedFreight).toMatchObject({
+      shippingCost: "18.0000",
+      totalAmount: "18.0000",
+    });
+
+    const clearResponse = await testFetch(`/api/purchase-orders/${order.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        supplierId: supplier.body.id,
+        expectedDate: "2026-05-08",
+        notes: null,
+        accountingPurchaseAccountCode: null,
+        lines: [
+          {
+            itemId: material.body.id,
+            quantityOrdered: "1",
+            unitCost: "10.00",
+          },
+        ],
+        additionalCosts: [],
+      }),
+    });
+    expect(clearResponse.status, await clearResponse.text()).toBe(200);
+    const clearedFreightResponse = await testFetch(
+      `/api/purchase-orders/${order.id}/freight-pos`,
+      { method: "POST" },
+    );
+    const clearedFreightBody = await clearedFreightResponse.json();
+    expect(clearedFreightResponse.status).toBe(200);
+    expect(clearedFreightBody.freightPurchaseOrders).toHaveLength(0);
+
+    const [deletedFreight] = await db
+      .select({ deletedAt: purchaseOrders.deletedAt })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, freightOrderId));
+    expect(deletedFreight.deletedAt).not.toBeNull();
+  });
+
+  test("supplier delete is blocked while used as an active carrier override", async () => {
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast PO Carrier Delete Material ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-PO-CARRIER-DELETE-${ts}`,
+      category: `Fast Purchasing ${ts}`,
+      description: null,
+      defaultPurchasePrice: "10.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    const supplier = await createSupplier({
+      name: `Fast Carrier Delete Supplier ${ts}`,
+    });
+    const carrier = await createSupplier({
+      name: `Fast Carrier Delete Carrier ${ts}`,
+    });
+    expect(material.status).toBe(201);
+    expect(supplier.status).toBe(201);
+    expect(carrier.status).toBe(201);
+
+    const createResponse = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId: supplier.body.id,
+        expectedDate: "2026-05-14",
+        lines: [
+          {
+            itemId: material.body.id,
+            quantityOrdered: "1",
+            unitCost: "10.00",
+          },
+        ],
+        additionalCosts: [
+          {
+            costType: "shipping",
+            reference: "Freight",
+            vendorOverrideSupplierId: carrier.body.id,
+            distributionMethod: "by_value",
+            accountingPurchaseAccountCode: null,
+            amount: "12.00",
+          },
+        ],
+      }),
+    });
+    expect(createResponse.status, await createResponse.text()).toBe(201);
+
+    const deleteResponse = await testFetch(`/api/suppliers/${carrier.body.id}`, {
+      method: "DELETE",
+    });
+    const body = await deleteResponse.json();
+    expect(deleteResponse.status).toBe(400);
+    expect(body.error).toBe(
+      "Cannot delete supplier used as a carrier on active draft, ordered, or partially received purchase orders.",
+    );
+  });
+
+  test("freight purchase orders are not created from terminal parent orders", async ({ db }) => {
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast PO Freight Terminal Material ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-PO-FREIGHT-TERM-${ts}`,
+      category: `Fast Purchasing ${ts}`,
+      description: null,
+      defaultPurchasePrice: "10.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    const supplier = await createSupplier({ name: `Fast Freight Terminal Supplier ${ts}` });
+    const carrier = await createSupplier({ name: `Fast Terminal Carrier ${ts}` });
+    expect(material.status).toBe(201);
+    expect(supplier.status).toBe(201);
+    expect(carrier.status).toBe(201);
+
+    const createOrderWithFreight = async () => {
+      const response = await testFetch("/api/purchase-orders", {
+        method: "POST",
+        body: JSON.stringify({
+          supplierId: supplier.body.id,
+          expectedDate: "2026-05-10",
+          lines: [
+            {
+              itemId: material.body.id,
+              quantityOrdered: "1",
+              unitCost: "10.00",
+            },
+          ],
+          additionalCosts: [
+            {
+              costType: "shipping",
+              reference: "Freight",
+              vendorOverrideSupplierId: carrier.body.id,
+              distributionMethod: "by_value",
+              accountingPurchaseAccountCode: null,
+              amount: "12.00",
+            },
+          ],
+        }),
+      });
+      const body = await response.json();
+      expect(response.status).toBe(201);
+      return body;
+    };
+
+    const cancelledOrder = await createOrderWithFreight();
+    const cancelResponse = await testFetch(
+      `/api/purchase-orders/${cancelledOrder.id}/status`,
+      { method: "PATCH", body: JSON.stringify({ status: "cancelled" }) },
+    );
+    expect(cancelResponse.status).toBe(200);
+    const cancelledFreightResponse = await testFetch(
+      `/api/purchase-orders/${cancelledOrder.id}/freight-pos`,
+      { method: "POST" },
+    );
+    expect(cancelledFreightResponse.status).toBe(404);
+
+    const receivedOrder = await createOrderWithFreight();
+    expect((await submitPurchaseOrder(receivedOrder.id)).status).toBe(200);
+    const [line] = await db
+      .select({ id: purchaseOrderLines.id })
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, receivedOrder.id));
+    const receipt = await receivePurchaseOrder(receivedOrder.id, {
+      lines: [{ lineId: line.id, quantityReceived: "1" }],
+    });
+    expect(receipt.status).toBe(200);
+    const receivedFreightResponse = await testFetch(
+      `/api/purchase-orders/${receivedOrder.id}/freight-pos`,
+      { method: "POST" },
+    );
+    expect(receivedFreightResponse.status).toBe(404);
+  });
+
+  test("linked freight purchase orders follow parent cancel and delete", async ({ db }) => {
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast PO Freight Child Material ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-PO-FREIGHT-CHILD-${ts}`,
+      category: `Fast Purchasing ${ts}`,
+      description: null,
+      defaultPurchasePrice: "10.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    const supplier = await createSupplier({ name: `Fast Freight Child Supplier ${ts}` });
+    const carrier = await createSupplier({ name: `Fast Freight Child Carrier ${ts}` });
+    expect(material.status).toBe(201);
+    expect(supplier.status).toBe(201);
+    expect(carrier.status).toBe(201);
+
+    const createOrderWithFreight = async (suffix: string) => {
+      const createResponse = await testFetch("/api/purchase-orders", {
+        method: "POST",
+        body: JSON.stringify({
+          supplierId: supplier.body.id,
+          expectedDate: "2026-05-11",
+          lines: [
+            {
+              itemId: material.body.id,
+              quantityOrdered: "1",
+              unitCost: "10.00",
+            },
+          ],
+          additionalCosts: [
+            {
+              costType: "shipping",
+              reference: `Freight ${suffix}`,
+              vendorOverrideSupplierId: carrier.body.id,
+              distributionMethod: "by_value",
+              accountingPurchaseAccountCode: null,
+              amount: "12.00",
+            },
+          ],
+        }),
+      });
+      const order = await createResponse.json();
+      expect(createResponse.status).toBe(201);
+      const freightResponse = await testFetch(
+        `/api/purchase-orders/${order.id}/freight-pos`,
+        { method: "POST" },
+      );
+      const freightBody = await freightResponse.json();
+      expect(freightResponse.status).toBe(200);
+      return {
+        orderId: order.id as string,
+        freightOrderId: freightBody.freightPurchaseOrders[0].id as string,
+      };
+    };
+
+    const cancelled = await createOrderWithFreight("cancel");
+    const cancelResponse = await testFetch(
+      `/api/purchase-orders/${cancelled.orderId}/status`,
+      { method: "PATCH", body: JSON.stringify({ status: "cancelled" }) },
+    );
+    expect(cancelResponse.status).toBe(200);
+    const [cancelledFreight] = await db
+      .select({
+        status: purchaseOrders.status,
+        cancelledAt: purchaseOrders.cancelledAt,
+      })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, cancelled.freightOrderId));
+    expect(cancelledFreight.status).toBe("cancelled");
+    expect(cancelledFreight.cancelledAt).not.toBeNull();
+
+    const deleted = await createOrderWithFreight("delete");
+    const deleteResponse = await testFetch(
+      `/api/purchase-orders/${deleted.orderId}`,
+      { method: "DELETE" },
+    );
+    expect(deleteResponse.status).toBe(200);
+    const [deletedFreight] = await db
+      .select({ deletedAt: purchaseOrders.deletedAt })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, deleted.freightOrderId));
+    expect(deletedFreight.deletedAt).not.toBeNull();
+  });
+
+  test("submitted freight purchase orders keep ordered timestamp when reconciled", async ({ db }) => {
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast PO Freight Ordered Material ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-PO-FREIGHT-ORDERED-${ts}`,
+      category: `Fast Purchasing ${ts}`,
+      description: null,
+      defaultPurchasePrice: "10.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    const supplier = await createSupplier({ name: `Fast Freight Ordered Supplier ${ts}` });
+    const carrier = await createSupplier({ name: `Fast Freight Ordered Carrier ${ts}` });
+    expect(material.status).toBe(201);
+    expect(supplier.status).toBe(201);
+    expect(carrier.status).toBe(201);
+    const createResponse = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId: supplier.body.id,
+        expectedDate: "2026-05-12",
+        lines: [
+          {
+            itemId: material.body.id,
+            quantityOrdered: "1",
+            unitCost: "10.00",
+          },
+        ],
+        additionalCosts: [
+          {
+            costType: "shipping",
+            reference: "Freight",
+            vendorOverrideSupplierId: carrier.body.id,
+            distributionMethod: "by_value",
+            accountingPurchaseAccountCode: null,
+            amount: "12.00",
+          },
+        ],
+      }),
+    });
+    const order = await createResponse.json();
+    expect(createResponse.status).toBe(201);
+    expect((await submitPurchaseOrder(order.id)).status).toBe(200);
+    const firstFreightResponse = await testFetch(
+      `/api/purchase-orders/${order.id}/freight-pos`,
+      { method: "POST" },
+    );
+    const firstFreightBody = await firstFreightResponse.json();
+    expect(firstFreightResponse.status).toBe(200);
+    const freightOrderId = firstFreightBody.freightPurchaseOrders[0].id as string;
+    const [firstFreight] = await db
+      .select({ orderedAt: purchaseOrders.orderedAt })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, freightOrderId));
+    expect(firstFreight.orderedAt).not.toBeNull();
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const secondFreightResponse = await testFetch(
+      `/api/purchase-orders/${order.id}/freight-pos`,
+      { method: "POST" },
+    );
+    expect(secondFreightResponse.status).toBe(200);
+    const [secondFreight] = await db
+      .select({ orderedAt: purchaseOrders.orderedAt })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, freightOrderId));
+    expect(secondFreight.orderedAt?.getTime()).toBe(
+      firstFreight.orderedAt?.getTime(),
+    );
+  });
+
+  test("purchase order email retry skips groups already marked sent", async ({ db }) => {
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast PO Email Retry Material ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-PO-EMAIL-RETRY-${ts}`,
+      category: `Fast Purchasing ${ts}`,
+      description: null,
+      defaultPurchasePrice: "10.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    const supplierEmail = `supplier-${ts}@example.com`;
+    const carrierEmail = `carrier-${ts}@example.com`;
+    const supplier = await createSupplier({
+      name: `Fast PO Email Retry Supplier ${ts}`,
+      email: supplierEmail,
+    });
+    const carrier = await createSupplier({
+      name: `Fast PO Email Retry Carrier ${ts}`,
+      email: carrierEmail,
+    });
+    expect(material.status).toBe(201);
+    expect(supplier.status).toBe(201);
+    expect(carrier.status).toBe(201);
+    const createResponse = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId: supplier.body.id,
+        expectedDate: "2026-05-13",
+        lines: [
+          {
+            itemId: material.body.id,
+            quantityOrdered: "1",
+            unitCost: "10.00",
+          },
+        ],
+        additionalCosts: [
+          {
+            costType: "shipping",
+            reference: "Freight",
+            vendorOverrideSupplierId: carrier.body.id,
+            distributionMethod: "by_value",
+            accountingPurchaseAccountCode: null,
+            amount: "12.00",
+          },
+        ],
+      }),
+    });
+    const order = await createResponse.json();
+    expect(createResponse.status).toBe(201);
+    expect((await submitPurchaseOrder(order.id)).status).toBe(200);
+    const supplierGroupKey = `supplier:${supplier.body.id}`;
+    const carrierGroupKey = `freight:${carrier.body.id}`;
+    await db.insert(accountingDocumentSyncs).values({
+      organizationId: getOrgId(),
+      provider: ACCOUNTING_PROVIDER_XERO,
+      documentType: ACCOUNTING_DOCUMENT_PURCHASE_ORDER,
+      documentId: order.id,
+      groupKey: supplierGroupKey,
+      emailStatus: "sent",
+      emailedAt: new Date(),
+    });
+
+    const retryResponse = await testFetch(
+      `/api/purchase-orders/${order.id}/email`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          groups: [
+            {
+              groupKey: supplierGroupKey,
+              include: true,
+              to: supplierEmail,
+              replyTo: "buyer@example.com",
+              bcc: null,
+              subject: "Supplier copy",
+              message: "Supplier copy",
+            },
+            {
+              groupKey: carrierGroupKey,
+              include: true,
+              to: carrierEmail,
+              replyTo: "buyer@example.com",
+              bcc: null,
+              subject: "Carrier copy",
+              message: "Carrier copy",
+            },
+          ],
+        }),
+      },
+    );
+    const retryBody = await retryResponse.json();
+    expect(retryResponse.status, JSON.stringify(retryBody)).toBe(200);
+    expect(retryBody.sent).toEqual([
+      { groupKey: carrierGroupKey, recipientEmail: carrierEmail },
+    ]);
+  });
+
+  test("purchase order email allows excluded carrier groups without an email", async () => {
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast PO Email Excluded Material ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-PO-EMAIL-EXCLUDED-${ts}`,
+      category: `Fast Purchasing ${ts}`,
+      description: null,
+      defaultPurchasePrice: "10.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    const supplierEmail = `supplier-excluded-${ts}@example.com`;
+    const supplier = await createSupplier({
+      name: `Fast PO Email Excluded Supplier ${ts}`,
+      email: supplierEmail,
+    });
+    const carrier = await createSupplier({
+      name: `Fast PO Email Excluded Carrier ${ts}`,
+    });
+    expect(material.status).toBe(201);
+    expect(supplier.status).toBe(201);
+    expect(carrier.status).toBe(201);
+
+    const createResponse = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId: supplier.body.id,
+        expectedDate: "2026-05-15",
+        lines: [
+          {
+            itemId: material.body.id,
+            quantityOrdered: "1",
+            unitCost: "10.00",
+          },
+        ],
+        additionalCosts: [
+          {
+            costType: "shipping",
+            reference: "Freight",
+            vendorOverrideSupplierId: carrier.body.id,
+            distributionMethod: "by_value",
+            accountingPurchaseAccountCode: null,
+            amount: "12.00",
+          },
+        ],
+      }),
+    });
+    const order = await createResponse.json();
+    expect(createResponse.status).toBe(201);
+    expect((await submitPurchaseOrder(order.id)).status).toBe(200);
+
+    const response = await testFetch(`/api/purchase-orders/${order.id}/email`, {
+      method: "POST",
+      body: JSON.stringify({
+        groups: [
+          {
+            groupKey: `supplier:${supplier.body.id}`,
+            include: true,
+            to: supplierEmail,
+            replyTo: "buyer@example.com",
+            bcc: null,
+            subject: "Supplier copy",
+            message: "Supplier copy",
+          },
+          {
+            groupKey: `freight:${carrier.body.id}`,
+            include: false,
+            to: "",
+            replyTo: "buyer@example.com",
+            bcc: null,
+            subject: "",
+            message: "",
+          },
+        ],
+      }),
+    });
+    const body = await response.json();
+    expect(response.status, JSON.stringify(body)).toBe(200);
+    expect(body.sent).toEqual([
+      { groupKey: `supplier:${supplier.body.id}`, recipientEmail: supplierEmail },
+    ]);
+  });
+
+  test("freight links and vendor overrides cannot cross organization boundaries", async ({ db }) => {
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast PO Freight RLS Material ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-PO-FREIGHT-RLS-${ts}`,
+      category: `Fast Purchasing ${ts}`,
+      description: null,
+      defaultPurchasePrice: "10.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    const supplier = await createSupplier({ name: `Fast Freight RLS Supplier ${ts}` });
+    const order = await createPurchaseOrder({
+      supplierId: supplier.body.id,
+      expectedDate: "2026-05-09",
+      lines: [
+        {
+          itemId: material.body.id,
+          quantityOrdered: "1",
+          unitCost: "10.00",
+        },
+      ],
+    });
+    expect(order.status).toBe(201);
+
+    const otherOrgId = `${getOrgId()}-other`;
+    const otherSupplierId = randomUUID();
+    const otherParentId = randomUUID();
+    const otherParentNumber = `OTHER-${ts}`.slice(0, 32);
+    await db.execute(sql`
+      WITH org_context AS (
+        SELECT set_config('app.current_org_id', ${otherOrgId}, true)
+      )
+      INSERT INTO purchasing.suppliers (id, organization_id, name)
+      SELECT ${otherSupplierId}, ${otherOrgId}, ${`Other Org Carrier ${ts}`}
+      FROM org_context
+    `);
+    await db.execute(sql`
+      WITH org_context AS (
+        SELECT set_config('app.current_org_id', ${otherOrgId}, true)
+      )
+      INSERT INTO purchasing.purchase_orders (
+        id,
+        organization_id,
+        order_number,
+        supplier_id,
+        supplier_name
+      )
+      SELECT
+        ${otherParentId},
+        ${otherOrgId},
+        ${otherParentNumber},
+        ${otherSupplierId},
+        ${`Other Org Carrier ${ts}`}
+      FROM org_context
+    `);
+
+    await expect(
+      (async () => {
+        await db.insert(purchaseOrderAdditionalCosts).values({
+          organizationId: getOrgId(),
+          purchaseOrderId: order.body.id,
+          vendorOverrideSupplierId: otherSupplierId,
+          costType: "shipping",
+          reference: "Cross-org carrier",
+          distributionMethod: "by_value",
+          amount: "1.00",
+        });
+      })(),
+    ).rejects.toThrow();
+
+    await expect(
+      (async () => {
+        await db.insert(purchaseOrders).values({
+          organizationId: getOrgId(),
+          orderNumber: `BAD-F-${ts}`.slice(0, 32),
+          parentPurchaseOrderId: otherParentId,
+          type: "freight",
+          supplierId: supplier.body.id,
+          supplierName: supplier.body.name,
+        });
+      })(),
+    ).rejects.toThrow();
+
+    const currentOrgFreightRows = await db
+      .select({ id: purchaseOrders.id })
+      .from(purchaseOrders)
+      .where(
+        and(
+          eq(purchaseOrders.parentPurchaseOrderId, otherParentId),
+          eq(purchaseOrders.type, "freight"),
+          isNull(purchaseOrders.deletedAt),
+        ),
+      );
+    expect(currentOrgFreightRows).toHaveLength(0);
   });
 });

@@ -30,6 +30,8 @@ type AccountingDocumentMetadata = {
   payloadSnapshot?: Record<string, unknown> | null;
 };
 
+const DEFAULT_DOCUMENT_GROUP_KEY = "default";
+
 function accountingDocumentMetadataValues(params: AccountingDocumentMetadata) {
   return {
     ...(params.pushStatus !== undefined ? { pushStatus: params.pushStatus } : {}),
@@ -52,6 +54,7 @@ export async function markAccountingDocumentPushAttempt(
     provider: string;
     documentType: string;
     documentId: string;
+    groupKey?: string;
     pushStatus?: string;
     providerDocumentType?: string | null;
     idempotencyKey?: string | null;
@@ -66,6 +69,7 @@ export async function markAccountingDocumentPushAttempt(
       provider: params.provider,
       documentType: params.documentType,
       documentId: params.documentId,
+      groupKey: params.groupKey ?? DEFAULT_DOCUMENT_GROUP_KEY,
       ...metadataValues,
       lastPushAttemptAt: new Date(),
       retryCount: 1,
@@ -76,6 +80,7 @@ export async function markAccountingDocumentPushAttempt(
         accountingDocumentSyncs.provider,
         accountingDocumentSyncs.documentType,
         accountingDocumentSyncs.documentId,
+        accountingDocumentSyncs.groupKey,
       ],
       set: {
         lastPushAttemptAt: new Date(),
@@ -94,6 +99,7 @@ export async function persistAccountingDocumentPushSuccess(
     provider: string;
     documentType: string;
     documentId: string;
+    groupKey?: string;
     externalDocumentId: string;
     externalDocumentNumber: string;
     payloadHash: string;
@@ -110,6 +116,7 @@ export async function persistAccountingDocumentPushSuccess(
       provider: params.provider,
       documentType: params.documentType,
       documentId: params.documentId,
+      groupKey: params.groupKey ?? DEFAULT_DOCUMENT_GROUP_KEY,
       externalDocumentId: params.externalDocumentId,
       externalDocumentNumber: params.externalDocumentNumber,
       pushStatus: "pushed",
@@ -125,6 +132,7 @@ export async function persistAccountingDocumentPushSuccess(
         accountingDocumentSyncs.provider,
         accountingDocumentSyncs.documentType,
         accountingDocumentSyncs.documentId,
+        accountingDocumentSyncs.groupKey,
       ],
       set: {
         externalDocumentId: params.externalDocumentId,
@@ -147,6 +155,7 @@ export async function persistAccountingDocumentPushFailure(
     provider: string;
     documentType: string;
     documentId: string;
+    groupKey?: string;
     error: string;
     providerDocumentType?: string | null;
     idempotencyKey?: string | null;
@@ -161,6 +170,7 @@ export async function persistAccountingDocumentPushFailure(
       provider: params.provider,
       documentType: params.documentType,
       documentId: params.documentId,
+      groupKey: params.groupKey ?? DEFAULT_DOCUMENT_GROUP_KEY,
       pushStatus: "failed",
       pushError: params.error,
       ...metadataValues,
@@ -171,6 +181,7 @@ export async function persistAccountingDocumentPushFailure(
         accountingDocumentSyncs.provider,
         accountingDocumentSyncs.documentType,
         accountingDocumentSyncs.documentId,
+        accountingDocumentSyncs.groupKey,
       ],
       set: {
         pushStatus: "failed",
@@ -188,6 +199,7 @@ export async function resetAccountingDocumentPushState(
     provider: string;
     documentType: string;
     documentId: string;
+    groupKey?: string;
   }
 ) {
   await tx
@@ -210,7 +222,11 @@ export async function resetAccountingDocumentPushState(
         eq(accountingDocumentSyncs.organizationId, params.organizationId),
         eq(accountingDocumentSyncs.provider, params.provider),
         eq(accountingDocumentSyncs.documentType, params.documentType),
-        eq(accountingDocumentSyncs.documentId, params.documentId)
+        eq(accountingDocumentSyncs.documentId, params.documentId),
+        eq(
+          accountingDocumentSyncs.groupKey,
+          params.groupKey ?? DEFAULT_DOCUMENT_GROUP_KEY
+        )
       )
     );
 }
@@ -222,6 +238,7 @@ export async function persistAccountingDocumentEmailOutcome(
     provider: string;
     documentType: string;
     documentId: string;
+    groupKey?: string;
     outcome:
       | { status: "sent"; error?: never }
       | { status: "failed"; error: string }
@@ -242,6 +259,7 @@ export async function persistAccountingDocumentEmailOutcome(
       provider: params.provider,
       documentType: params.documentType,
       documentId: params.documentId,
+      groupKey: params.groupKey ?? DEFAULT_DOCUMENT_GROUP_KEY,
       emailStatus: params.outcome.status,
       emailError: params.outcome.status === "failed" ? params.outcome.error : null,
       emailedAt: params.outcome.status === "sent" ? new Date() : undefined,
@@ -252,6 +270,7 @@ export async function persistAccountingDocumentEmailOutcome(
         accountingDocumentSyncs.provider,
         accountingDocumentSyncs.documentType,
         accountingDocumentSyncs.documentId,
+        accountingDocumentSyncs.groupKey,
       ],
       set: update,
     });

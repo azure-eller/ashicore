@@ -58,6 +58,10 @@ type LineFieldBase<TData> = {
   cellRenderer?: ColDef<TData>["cellRenderer"];
   values?: string[];
   getSelectLabel?: (value: string) => string;
+  createSelectOption?: {
+    label: string;
+    onCreate: () => Promise<{ value: string } | null>;
+  };
   options?: InventoryItemComboboxOption[];
   placeholder?: string;
   emptyMessage?: string;
@@ -164,6 +168,7 @@ function buildLineColumns<TData>(fields: LineField<TData>[]): ColDef<TData>[] {
         cellEditorParams: {
           values: field.values ?? [],
           getSelectLabel: field.getSelectLabel,
+          createOption: field.createSelectOption,
         },
       };
     }
@@ -419,11 +424,18 @@ type TextLineCellEditorProps<TData> = CustomCellEditorProps<TData, string | null
 type SelectLineCellEditorProps<TData> = CustomCellEditorProps<TData, string | null> & {
   values: string[];
   getSelectLabel?: (value: string) => string;
+  createOption?: {
+    label: string;
+    onCreate: () => Promise<{ value: string } | null>;
+  };
 };
+
+const CREATE_SELECT_OPTION_VALUE = "__create_select_option__";
 
 export function SelectLineCellEditor<TData>(props: SelectLineCellEditorProps<TData>) {
   const editorRef = useRef<HTMLSelectElement>(null);
   const [value, setValue] = useState(props.value ?? "");
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -440,8 +452,33 @@ export function SelectLineCellEditor<TData>(props: SelectLineCellEditorProps<TDa
     <select
       ref={editorRef}
       value={value}
-      onChange={(event) => {
+      disabled={creating}
+      onChange={async (event) => {
         const next = event.target.value;
+        if (next === CREATE_SELECT_OPTION_VALUE) {
+          if (!props.createOption) return;
+          setCreating(true);
+          try {
+            const created = await props.createOption.onCreate();
+            if (!created) {
+              setValue(props.value ?? "");
+              props.stopEditing(true);
+              return;
+            }
+            setValue(created.value);
+            props.onValueChange(created.value);
+            props.node.setDataValue(props.column, created.value, "data");
+            props.stopEditing(true);
+            return;
+          } catch (error) {
+            console.error("Failed to create select option", error);
+            setValue(props.value ?? "");
+            props.stopEditing(true);
+            return;
+          } finally {
+            setCreating(false);
+          }
+        }
         setValue(next);
         props.onValueChange(next);
         props.stopEditing();
@@ -453,6 +490,9 @@ export function SelectLineCellEditor<TData>(props: SelectLineCellEditorProps<TDa
           {props.getSelectLabel?.(option) ?? props.formatValue?.(option) ?? option}
         </option>
       ))}
+      {props.createOption ? (
+        <option value={CREATE_SELECT_OPTION_VALUE}>{props.createOption.label}</option>
+      ) : null}
     </select>
   );
 }

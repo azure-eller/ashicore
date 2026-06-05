@@ -5,6 +5,7 @@ import {
   FileViewIcon,
   Mail01Icon,
 } from "@hugeicons/core-free-icons";
+import { DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import type { StatusBlockTone } from "@/components/ui/status-block";
 import {
   StatusActionMenu,
@@ -13,6 +14,11 @@ import {
 
 type PurchaseOrderEmailStatus = "sent" | "failed" | "skipped" | "pending" | null;
 type PurchaseBillStatus = "pending" | "pushed" | "failed" | null;
+type ManualBillStatus = "not_billed" | "partly_billed" | "billed" | null;
+type BillRollupStatus = "not_billed" | "partly_billed" | "billed" | "failed";
+type BillGroupState = {
+  pushStatus: PurchaseBillStatus;
+};
 
 const TONE_SWATCH: Record<StatusBlockTone, string> = {
   success: "bg-[var(--color-success-solid)]",
@@ -37,14 +43,41 @@ function emailDisplay(status: PurchaseOrderEmailStatus): {
   return { label: "Not sent", tone: "muted" };
 }
 
-function billDisplay(status: PurchaseBillStatus): {
+function billDisplay(status: BillRollupStatus): {
   label: string;
   tone: StatusBlockTone;
 } {
-  if (status === "pushed") return { label: "Bill created", tone: "success" };
   if (status === "failed") return { label: "Bill failed", tone: "danger" };
-  if (status === "pending") return { label: "Bill pending", tone: "warning" };
+  if (status === "billed") return { label: "Billed", tone: "success" };
+  if (status === "partly_billed") return { label: "Partly billed", tone: "warning" };
   return { label: "Not billed", tone: "muted" };
+}
+
+function rollupBillStatus(params: {
+  status: PurchaseBillStatus;
+  manualStatus?: ManualBillStatus;
+  groupStates?: BillGroupState[];
+  billableGroupCount?: number;
+  busy?: boolean;
+}): BillRollupStatus {
+  const realStates = params.groupStates?.map((group) => group.pushStatus) ?? [];
+  const failed = realStates.includes("failed") || params.status === "failed";
+  if (failed) return "failed";
+
+  const billableGroupCount = Math.max(params.billableGroupCount ?? 1, 1);
+  const pushedCount =
+    realStates.length > 0
+      ? realStates.filter((status) => status === "pushed").length
+      : params.status === "pushed"
+        ? billableGroupCount
+        : 0;
+
+  if (pushedCount >= billableGroupCount) return "billed";
+  if (pushedCount > 0) return "partly_billed";
+  if (params.status === "pending" || (params.busy && pushedCount > 0)) {
+    return "partly_billed";
+  }
+  return params.manualStatus ?? "not_billed";
 }
 
 export function PurchaseOrderEmailActionControl({
@@ -108,25 +141,47 @@ export function PurchaseOrderEmailActionControl({
 
 export function PurchaseBillActionControl({
   status,
+  manualStatus = null,
+  groupStates,
+  billableGroupCount = 1,
   externalId,
   externalNumber,
   busy = false,
   disabled = false,
   disabledReason,
+  onSetManualStatus,
   onCreate,
 }: {
   status: PurchaseBillStatus;
+  manualStatus?: ManualBillStatus;
+  groupStates?: BillGroupState[];
+  billableGroupCount?: number;
   externalId?: string | null;
   externalNumber?: string | null;
   busy?: boolean;
   disabled?: boolean;
   disabledReason?: string | null;
+  onSetManualStatus?: (status: NonNullable<ManualBillStatus>) => void;
   onCreate: () => void;
 }) {
-  const display = busy
-    ? { label: "Creating bill", tone: "warning" as const }
-    : billDisplay(status);
-  const createDisabled = disabled || busy || status === "pushed";
+  const rollup = rollupBillStatus({
+    status,
+    manualStatus,
+    groupStates,
+    billableGroupCount,
+    busy,
+  });
+  const display = busy ? { label: "Creating bill", tone: "warning" as const } : billDisplay(rollup);
+  const manageDisabled = disabled || busy;
+  const settableStatuses: Array<{
+    value: NonNullable<ManualBillStatus>;
+    label: string;
+    tone: StatusBlockTone;
+  }> = [
+    { value: "not_billed", label: "Not billed", tone: "muted" },
+    { value: "partly_billed", label: "Partly billed", tone: "warning" },
+    { value: "billed", label: "Billed", tone: "success" },
+  ];
 
   return (
     <StatusActionMenu
@@ -135,13 +190,26 @@ export function PurchaseBillActionControl({
       ariaLabel="Bill actions"
       title={disabledReason ?? externalNumber ?? undefined}
     >
+      {settableStatuses.map((option) => (
+        <StatusActionMenuItem
+          key={option.value}
+          active={rollup === option.value}
+          swatchClassName={TONE_SWATCH[option.tone]}
+          disabled={busy || !onSetManualStatus}
+          onSelect={() => onSetManualStatus?.(option.value)}
+        >
+          {option.label}
+        </StatusActionMenuItem>
+      ))}
+      <DropdownMenuSeparator />
       <StatusActionMenuItem
-        active
-        swatchClassName={TONE_SWATCH[display.tone]}
+        icon={FileDollarIcon}
+        disabled={manageDisabled}
+        onSelect={onCreate}
       >
-        {display.label}
+        Manage bills...
       </StatusActionMenuItem>
-      {status === "pushed" ? (
+      {externalId ? (
         <StatusActionMenuItem
           icon={FileDollarIcon}
           href={xeroBillHref(externalId)}
@@ -150,15 +218,7 @@ export function PurchaseBillActionControl({
         >
           {externalNumber ?? "Open in Xero"}
         </StatusActionMenuItem>
-      ) : (
-        <StatusActionMenuItem
-          icon={FileDollarIcon}
-          disabled={createDisabled}
-          onSelect={onCreate}
-        >
-          {status === "failed" || status === "pending" ? "Retry bill" : "Create bill"}
-        </StatusActionMenuItem>
-      )}
+      ) : null}
     </StatusActionMenu>
   );
 }

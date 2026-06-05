@@ -178,11 +178,13 @@ export function PurchaseOrderDocument({
   lines,
   additionalCosts = [],
   organizationName,
+  variant = "standard",
 }: {
   order: PurchaseOrderPdf;
   lines: PurchaseOrderPdfLine[];
   additionalCosts?: PurchaseOrderPdfAdditionalCost[];
   organizationName: string;
+  variant?: "standard" | "freight";
 }) {
   const supplierLines = [
     order.supplierName,
@@ -209,18 +211,22 @@ export function PurchaseOrderDocument({
     ? order.orderedAt.toLocaleDateString("en-US")
     : "\u2014";
   const printedDisplay = new Date().toISOString().slice(0, 10);
+  const title =
+    variant === "freight"
+      ? `Freight purchase order: ${order.orderNumber}`
+      : `Purchase order: ${order.orderNumber}`;
 
   return (
     <Document
-      title={`Purchase Order ${order.orderNumber}`}
+      title={`${variant === "freight" ? "Freight Purchase Order" : "Purchase Order"} ${order.orderNumber}`}
       author={organizationName}
-      subject={`Purchase order ${order.orderNumber}`}
+      subject={`${variant === "freight" ? "Freight purchase order" : "Purchase order"} ${order.orderNumber}`}
     >
       <Page size="LETTER" style={styles.page}>
         <View style={styles.header}>
           <View>
             <Text style={styles.title}>
-              Purchase order: {order.orderNumber}
+              {title}
             </Text>
           </View>
           <View style={styles.meta}>
@@ -266,40 +272,44 @@ export function PurchaseOrderDocument({
           </View>
         </View>
 
-        <View style={styles.tableHeader}>
-          <Text style={styles.colItem}>Item</Text>
-          <Text style={styles.colQty}>Quantity</Text>
-          <Text style={styles.colPrice}>Unit price</Text>
-          <Text style={styles.colTotal}>Total</Text>
-          <Text style={styles.colTax}>Tax</Text>
-          <Text style={styles.colExpected}>Exp. arrival</Text>
-        </View>
-
-        {lines.map((line, index) => (
-          <View key={index} style={styles.tableRow}>
-            <View style={styles.colItem}>
-              <Text>{line.itemName}</Text>
-              {line.itemSku ? (
-                <Text style={{ fontSize: 8, color: "#666666" }}>
-                  {line.itemSku}
-                </Text>
-              ) : null}
+        {variant === "standard" ? (
+          <>
+            <View style={styles.tableHeader}>
+              <Text style={styles.colItem}>Item</Text>
+              <Text style={styles.colQty}>Quantity</Text>
+              <Text style={styles.colPrice}>Unit price</Text>
+              <Text style={styles.colTotal}>Total</Text>
+              <Text style={styles.colTax}>Tax</Text>
+              <Text style={styles.colExpected}>Exp. arrival</Text>
             </View>
-            <Text style={styles.colQty}>
-              {formatQuantityUnit(line.quantityOrdered, line.purchaseUnitName)}
-            </Text>
-            <Text style={styles.colPrice}>
-              {formatPrice(line.unitCost) ?? line.unitCost}
-            </Text>
-            <Text style={styles.colTotal}>
-              {formatPrice(line.lineTotal) ?? line.lineTotal}
-            </Text>
-            <Text style={styles.colTax}>{formatPercent(line.taxRatePercent)}</Text>
-            <Text style={styles.colExpected}>
-              {formatDate(order.expectedDate)}
-            </Text>
-          </View>
-        ))}
+
+            {lines.map((line, index) => (
+              <View key={index} style={styles.tableRow}>
+                <View style={styles.colItem}>
+                  <Text>{line.itemName}</Text>
+                  {line.itemSku ? (
+                    <Text style={{ fontSize: 8, color: "#666666" }}>
+                      {line.itemSku}
+                    </Text>
+                  ) : null}
+                </View>
+                <Text style={styles.colQty}>
+                  {formatQuantityUnit(line.quantityOrdered, line.purchaseUnitName)}
+                </Text>
+                <Text style={styles.colPrice}>
+                  {formatPrice(line.unitCost) ?? line.unitCost}
+                </Text>
+                <Text style={styles.colTotal}>
+                  {formatPrice(line.lineTotal) ?? line.lineTotal}
+                </Text>
+                <Text style={styles.colTax}>{formatPercent(line.taxRatePercent)}</Text>
+                <Text style={styles.colExpected}>
+                  {formatDate(order.expectedDate)}
+                </Text>
+              </View>
+            ))}
+          </>
+        ) : null}
 
         {additionalCosts.length > 0 ? (
           <View style={styles.section}>

@@ -60,6 +60,7 @@ export const accountingDocumentSyncs = accountingSchema
       provider: varchar("provider", { length: 50 }).notNull(),
       documentType: varchar("document_type", { length: 50 }).notNull(),
       documentId: uuid("document_id").notNull(),
+      groupKey: varchar("group_key", { length: 120 }).notNull().default("default"),
       externalDocumentId: text("external_document_id"),
       externalDocumentNumber: varchar("external_document_number", { length: 100 }),
       pushStatus: varchar("push_status", { length: 20 }),
@@ -86,7 +87,8 @@ export const accountingDocumentSyncs = accountingSchema
         table.organizationId,
         table.provider,
         table.documentType,
-        table.documentId
+        table.documentId,
+        table.groupKey
       ),
       pgPolicy("accounting_document_syncs_org_isolation", {
         for: "all",

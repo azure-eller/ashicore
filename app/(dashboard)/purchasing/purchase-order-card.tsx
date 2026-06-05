@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { Controller, useForm } from "react-hook-form";
@@ -35,6 +35,7 @@ import {
   normalizeLandedStockUnitCost,
   type LandedCostLineResult,
 } from "@/lib/purchasing/landed-cost";
+import { groupPurchaseOrderByResolvedVendor } from "@/lib/purchasing/resolved-vendor-groups";
 import { Button } from "@/components/ui/button";
 import {
   Field,
@@ -101,7 +102,9 @@ import { SupplierSelect } from "./supplier-select";
 import {
   PurchaseBillDialog,
   PurchaseOrderEmailDialog,
+  type PurchaseBillDialogGroupValues,
   type PurchaseBillDialogValues,
+  type PurchaseOrderEmailDialogGroupValues,
   type PurchaseOrderEmailDialogValues,
 } from "./purchase-order-workflow-dialogs";
 import { PurchaseBillActionControl } from "./purchase-order-workflow-actions";
@@ -166,6 +169,8 @@ const EMPTY_DELIVERY_ADDRESS = {
   shipCountry: null,
   shipDeliveryInstructions: null,
 };
+const LAST_CARRIER_BY_MATERIAL_STORAGE_KEY =
+  "purchasing.purchaseOrder.lastCarrierByMaterial";
 
 const ADDITIONAL_COST_TYPE_LABELS: Record<
   PurchaseOrderAdditionalCostType,
@@ -196,6 +201,7 @@ const blankPurchaseOrderLine = {
 const blankPurchaseOrderAdditionalCost = {
   costType: "shipping" as const,
   reference: null,
+  vendorOverrideSupplierId: null,
   distributionMethod: "by_value" as const,
   accountingPurchaseAccountCode: null,
   amount: null,
@@ -269,6 +275,9 @@ function createPurchaseOrderAdditionalCostRow(
         : null,
     costType: values?.costType ?? blankPurchaseOrderAdditionalCost.costType,
     reference: values?.reference ?? blankPurchaseOrderAdditionalCost.reference,
+    vendorOverrideSupplierId:
+      values?.vendorOverrideSupplierId ??
+      blankPurchaseOrderAdditionalCost.vendorOverrideSupplierId,
     distributionMethod:
       values?.distributionMethod ??
       blankPurchaseOrderAdditionalCost.distributionMethod,
@@ -411,6 +420,12 @@ type AddressDialogValues = {
   notes: string | null;
 };
 
+type CarrierDialogValues = {
+  name: string;
+  contactName: string | null;
+  email: string | null;
+};
+
 const ADDRESS_DIALOG_FIELD_NAMES = {
   line1: "line1",
   line2: "line2",
@@ -432,6 +447,12 @@ const EMPTY_ADDRESS_DIALOG_VALUES: AddressDialogValues = {
   country: null,
   deliveryInstructions: null,
   notes: null,
+};
+
+const EMPTY_CARRIER_DIALOG_VALUES: CarrierDialogValues = {
+  name: "",
+  contactName: null,
+  email: null,
 };
 
 function normalizeDeliveryAddress(
@@ -773,6 +794,9 @@ export function PurchaseOrderCard({
   const [purchaseBillStatus, setPurchaseBillStatus] = useState(
     initialData?.purchaseBillStatus ?? null,
   );
+  const [purchaseBillManualStatus, setPurchaseBillManualStatus] = useState(
+    initialData?.purchaseBillManualStatus ?? null,
+  );
   const [purchaseBillExternalNumber, setPurchaseBillExternalNumber] = useState(
     initialData?.purchaseBillExternalNumber ?? null,
   );
@@ -844,8 +868,21 @@ export function PurchaseOrderCard({
   const readOnly =
     !canWrite || displayStatus === "received" || displayStatus === "cancelled";
   const billAffectingReadOnly = readOnly || purchaseBillStatus === "pushed";
-  const supplierOptionsSorted = [...suppliers].sort((a, b) =>
-    a.name.localeCompare(b.name),
+  const [purchaseOrderSupplierOptions, setPurchaseOrderSupplierOptions] =
+    useState<SupplierOption[]>(suppliers);
+  useEffect(() => {
+    setPurchaseOrderSupplierOptions((current) => {
+      const byId = new Map(current.map((supplier) => [supplier.id, supplier]));
+      for (const supplier of suppliers) byId.set(supplier.id, supplier);
+      return [...byId.values()];
+    });
+  }, [suppliers]);
+  const supplierOptionsSorted = useMemo(
+    () =>
+      [...purchaseOrderSupplierOptions].sort((a, b) =>
+        a.name.localeCompare(b.name),
+      ),
+    [purchaseOrderSupplierOptions],
   );
   const taxRateMap = useMemo(
     () => new Map(taxRates.map((rate) => [rate.id, rate])),
@@ -942,6 +979,13 @@ export function PurchaseOrderCard({
   const addressForm = useForm<AddressDialogValues>({
     defaultValues: EMPTY_ADDRESS_DIALOG_VALUES,
   });
+  const carrierForm = useForm<CarrierDialogValues>({
+    defaultValues: EMPTY_CARRIER_DIALOG_VALUES,
+  });
+  const carrierDialogResolverRef = useRef<
+    ((result: { value: string } | null) => void) | null
+  >(null);
+  const [carrierDialogOpen, setCarrierDialogOpen] = useState(false);
   const [deliveryAddressOptions, setDeliveryAddressOptions] = useState<
     DeliveryAddressOption[]
   >(() => {
@@ -959,6 +1003,7 @@ export function PurchaseOrderCard({
   } | null>(null);
   const lineGridRows = draftValues.lines;
   const additionalCostGridRows = draftValues.additionalCosts;
+  const lastCarrierByMaterialRef = useRef<Map<string, string>>(new Map());
   const [additionalCostsExpanded, setAdditionalCostsExpanded] = useState(
     () =>
       initialDraft.additionalCosts.some(
@@ -966,10 +1011,31 @@ export function PurchaseOrderCard({
       ),
   );
 
+  useEffect(() => {
+    if (additionalCostsExpanded && additionalCostGridRows.length === 0) {
+      setAdditionalCostsExpanded(false);
+    }
+  }, [additionalCostGridRows.length, additionalCostsExpanded]);
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(LAST_CARRIER_BY_MATERIAL_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (!parsed || typeof parsed !== "object") return;
+      lastCarrierByMaterialRef.current = new Map(
+        Object.entries(parsed).filter(
+          (entry): entry is [string, string] =>
+            typeof entry[0] === "string" && typeof entry[1] === "string",
+        ),
+      );
+    } catch {
+      lastCarrierByMaterialRef.current = new Map();
+    }
+  }, []);
+
   const watchedSupplierId = draftValues.supplierId;
   const watchedAdditionalCosts = draftValues.additionalCosts;
   const watchedAdditionalInfo = draftValues.notes;
-  const additionalCostRows = watchedAdditionalCosts ?? [];
+  const additionalCostRows = draftValues.additionalCosts;
   const landedCostPreview = useMemo(
     () =>
       calculatePurchaseOrderLandedCosts({
@@ -1022,6 +1088,45 @@ export function PurchaseOrderCard({
     (cost) => !isBlankPurchaseOrderAdditionalCost(cost),
   ).length;
   const canAutosaveDraft = Boolean(watchedSupplierId?.trim());
+  const rememberCarrierForCurrentMaterials = useCallback(
+    (supplierId: string | null) => {
+      if (!supplierId) return;
+      const materialIds = lineGridRows
+        .map((line) => line.itemId?.trim() ?? "")
+        .filter(Boolean);
+      if (materialIds.length === 0) return;
+      for (const materialId of materialIds) {
+        lastCarrierByMaterialRef.current.set(materialId, supplierId);
+      }
+      try {
+        window.localStorage.setItem(
+          LAST_CARRIER_BY_MATERIAL_STORAGE_KEY,
+          JSON.stringify(
+            Object.fromEntries(lastCarrierByMaterialRef.current.entries()),
+          ),
+        );
+      } catch {
+        // Best-effort editor memory only.
+      }
+    },
+    [lineGridRows],
+  );
+  const lastCarrierForCurrentMaterials = useCallback(() => {
+    for (const line of lineGridRows) {
+      const materialId = line.itemId?.trim();
+      if (!materialId) continue;
+      const supplierId = lastCarrierByMaterialRef.current.get(materialId);
+      if (supplierId) return supplierId;
+    }
+    return null;
+  }, [lineGridRows]);
+  const createCarrierSupplier = useCallback(async () => {
+    return new Promise<{ value: string } | null>((resolve) => {
+      carrierDialogResolverRef.current = resolve;
+      carrierForm.reset(EMPTY_CARRIER_DIALOG_VALUES);
+      setCarrierDialogOpen(true);
+    });
+  }, [carrierForm]);
   const lineColumns = useMemo<LineField<PurchaseOrderLineGridRow>[]>(() => {
     const nonBlankRows = lineGridRows.filter(
       (row) => !isBlankPurchaseOrderLine(row),
@@ -1370,6 +1475,38 @@ export function PurchaseOrderCard({
         valueFormatter: ({ value }) => value ?? "",
       },
       {
+        field: "vendorOverrideSupplierId",
+        kind: "select",
+        headerName: "Vendor",
+        minWidth: 180,
+        flex: 1,
+        editable: !billAffectingReadOnly,
+        values: ["", ...supplierOptionsSorted.map((supplier) => supplier.id)],
+        createSelectOption: {
+          label: "Create carrier...",
+          onCreate: createCarrierSupplier,
+        },
+        valueFormatter: ({ value }) => {
+          if (!value) return "(PO supplier)";
+          return (
+            supplierOptionsSorted.find((supplier) => supplier.id === value)?.name ??
+            "Vendor"
+          );
+        },
+        valueSetter: (
+          params: ValueSetterParams<
+            PurchaseOrderAdditionalCostGridRow,
+            string | null
+          >,
+        ) => {
+          params.data.vendorOverrideSupplierId = params.newValue
+            ? String(params.newValue)
+            : null;
+          rememberCarrierForCurrentMaterials(params.data.vendorOverrideSupplierId);
+          return true;
+        },
+      },
+      {
         field: "distributionMethod",
         kind: "select",
         headerName: "Distribution",
@@ -1439,6 +1576,9 @@ export function PurchaseOrderCard({
     additionalCostGridRows,
     fieldErrors.additionalCosts,
     billAffectingReadOnly,
+    createCarrierSupplier,
+    rememberCarrierForCurrentMaterials,
+    supplierOptionsSorted,
   ]);
   const handleAdditionalCostRowsChange = useCallback(
     (
@@ -1456,8 +1596,11 @@ export function PurchaseOrderCard({
     [purchaseOrderController],
   );
   const createAdditionalCostRow = useCallback(
-    () => createPurchaseOrderAdditionalCostRow(),
-    [],
+    () =>
+      createPurchaseOrderAdditionalCostRow({
+        vendorOverrideSupplierId: lastCarrierForCurrentMaterials(),
+      }),
+    [lastCarrierForCurrentMaterials],
   );
   const getAdditionalCostRowId = useCallback(
     (row: PurchaseOrderAdditionalCostGridRow) => row.clientRowId,
@@ -1596,11 +1739,16 @@ export function PurchaseOrderCard({
       }
 
       return body as {
-        xeroBillId: string;
-        xeroBillNumber: string;
+        xeroBillId: string | null;
+        xeroBillNumber: string | null;
         status: "pushed";
         created: boolean;
         adopted: boolean;
+        bills?: Array<{
+          groupKey: string;
+          xeroBillId: string;
+          xeroBillNumber: string;
+        }>;
       };
     },
     onMutate: () => {
@@ -1610,14 +1758,46 @@ export function PurchaseOrderCard({
     },
     onSuccess: async (result) => {
       setPurchaseBillStatus("pushed");
-      setPurchaseBillExternalId(result.xeroBillId);
-      setPurchaseBillExternalNumber(result.xeroBillNumber);
+      setPurchaseBillExternalId(result.xeroBillId ?? null);
+      setPurchaseBillExternalNumber(result.xeroBillNumber ?? null);
       setPurchaseBillDialogOpen(false);
       await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
     },
     onError: (error: Error, _values, context) => {
       setPurchaseBillStatus(context?.previousStatus ?? null);
     },
+  });
+  const purchaseBillManualStatusMutation = useMutation({
+    mutationKey: [
+      "purchase-order-action",
+      savedOrderId ?? "__draft__",
+      "purchase-bill-manual-status",
+    ],
+    mutationFn: async (
+      status: "not_billed" | "partly_billed" | "billed",
+    ) => {
+      const orderId = savedOrderIdRef.current;
+      if (!orderId) throw new Error("Save the purchase order first.");
+      const response = await fetch(`/api/purchase-orders/${orderId}/bill-status`, {
+        method: "PATCH",
+        headers: createIdempotencyHeaders("purchase-order-bill-status", {
+          "Content-Type": "application/json",
+        }),
+        body: JSON.stringify({ status }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to update bill status.");
+      }
+      return body as {
+        purchaseBillManualStatus: "not_billed" | "partly_billed" | "billed" | null;
+      };
+    },
+    onSuccess: async (result) => {
+      setPurchaseBillManualStatus(result.purchaseBillManualStatus);
+      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+    },
+    onError: (error: Error) => setFormError(error.message),
   });
   const purchaseOrderEmailMutation = useMutation({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "email"],
@@ -1653,11 +1833,16 @@ export function PurchaseOrderCard({
           "Content-Type": "application/json",
         }),
         body: JSON.stringify({
-          to: poEmailDialogValues.to,
-          replyTo: poEmailDialogValues.replyTo || null,
-          bcc: poEmailDialogValues.bcc || null,
-          subject: poEmailDialogValues.subject,
-          message: poEmailDialogValues.message || null,
+          groups: (poEmailDialogValues.groups ?? []).map((group) => ({
+            groupKey: group.groupKey,
+            include: group.include,
+            resend: group.status === "sent" && group.include,
+            to: group.to,
+            replyTo: group.replyTo || null,
+            bcc: group.bcc || null,
+            subject: group.subject,
+            message: group.message || null,
+          })),
         }),
       });
       const body = await response.json().catch(() => null);
@@ -1666,7 +1851,10 @@ export function PurchaseOrderCard({
         throw new Error(body?.error ?? "Failed to send purchase order.");
       }
 
-      return body as { status: "sent"; recipientEmail: string };
+      return body as {
+        status: "sent";
+        sent: Array<{ groupKey: string; recipientEmail: string }>;
+      };
     },
     onMutate: () => {
       setFormError(null);
@@ -1682,7 +1870,40 @@ export function PurchaseOrderCard({
     onError: (error: Error) => {
       setPoEmailStatus("failed");
       setPoEmailError(error.message);
+      void queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
     },
+  });
+
+  const saveSupplierEmailMutation = useMutation({
+    mutationKey: ["supplier-email", savedOrderId ?? "__draft__"],
+    mutationFn: async (input: {
+      groupKey: string;
+      supplierId: string;
+      email: string;
+    }) => {
+      const response = await fetch(`/api/suppliers/${input.supplierId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: input.email }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to save supplier email.");
+      }
+      return input;
+    },
+    onSuccess: async (input) => {
+      setPoEmailDialogValues((current) => ({
+        ...current,
+        groups: (current.groups ?? []).map((group) =>
+          group.groupKey === input.groupKey
+            ? { ...group, to: input.email }
+            : group,
+        ),
+      }));
+      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+    },
+    onError: (error: Error) => setPoEmailError(error.message),
   });
 
   const ensureSavedOrder = useCallback(async () => {
@@ -1792,6 +2013,85 @@ export function PurchaseOrderCard({
     },
   });
 
+  const closeCarrierDialog = useCallback((result: { value: string } | null) => {
+    carrierDialogResolverRef.current?.(result);
+    carrierDialogResolverRef.current = null;
+    setCarrierDialogOpen(false);
+    carrierForm.reset(EMPTY_CARRIER_DIALOG_VALUES);
+  }, [carrierForm]);
+
+  const carrierMutation = useMutation({
+    mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "carrier"],
+    mutationFn: async (values: CarrierDialogValues) => {
+      const response = await fetch("/api/suppliers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: values.name,
+          contactName: values.contactName,
+          email: values.email,
+        }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw {
+          error: body?.error ?? "Failed to create carrier.",
+          errors: body?.errors,
+        } satisfies ApiError;
+      }
+      return {
+        id: String(body.id),
+        name: String(body.name ?? values.name),
+        code: null,
+        email: values.email,
+      } satisfies SupplierOption;
+    },
+    onSuccess: (created) => {
+      setPurchaseOrderSupplierOptions((current) => {
+        const byId = new Map(current.map((supplier) => [supplier.id, supplier]));
+        byId.set(created.id, created);
+        return [...byId.values()];
+      });
+      rememberCarrierForCurrentMaterials(created.id);
+      closeCarrierDialog({ value: created.id });
+    },
+    onError: (error: ApiError) => {
+      if (error.errors) {
+        Object.entries(error.errors).forEach(([field, messages]) => {
+          carrierForm.setError(field as keyof CarrierDialogValues, {
+            type: "server",
+            message: messages[0],
+          });
+        });
+      }
+      setFormError(error.error ?? "Failed to create carrier.");
+    },
+  });
+
+  const handleCarrierDialogSubmit = (values: CarrierDialogValues) => {
+    const name = values.name.trim();
+    if (!name) {
+      carrierForm.setError("name", {
+        type: "required",
+        message: "Name is required",
+      });
+      return;
+    }
+    const email = values.email?.trim() ?? "";
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      carrierForm.setError("email", {
+        type: "validate",
+        message: "Email must be a valid email address",
+      });
+      return;
+    }
+    carrierMutation.mutate({
+      name,
+      contactName: values.contactName?.trim() || null,
+      email: email || null,
+    });
+  };
+
   const handleCancel = useSmartBack(fallbackPath);
   const applyDeliveryAddress = (address: DeliveryAddressFields | null) => {
     const nextAddress = address
@@ -1880,6 +2180,133 @@ export function PurchaseOrderCard({
     initialData?.supplierId === watchedSupplierId
       ? initialData.supplierEmail
       : selectedSupplier?.email ?? null;
+  const accountingGroupStateByKey = useMemo(() => {
+    const rows = initialData?.accountingGroupStates ?? [];
+    return new Map(rows.map((state) => [state.groupKey, state]));
+  }, [initialData?.accountingGroupStates]);
+  const resolvedVendorGroups = useMemo(() => {
+    if (!watchedSupplierId) return [];
+    const supplier = selectedSupplier ?? {
+      id: watchedSupplierId,
+      name: "PO supplier",
+      email: currentSupplierEmail,
+    };
+    const suppliersById = new Map(
+      supplierOptionsSorted.map((row) => [
+        row.id,
+        { id: row.id, name: row.name, email: row.email ?? null },
+      ]),
+    );
+    return groupPurchaseOrderByResolvedVendor({
+      purchaseOrderSupplier: {
+        id: supplier.id,
+        name: supplier.name,
+        email: supplier.email ?? null,
+      },
+      suppliersById,
+      lines: lineGridRows
+        .filter((line) => !isBlankPurchaseOrderLine(line))
+        .map((line) => ({ ...line, id: line.id ?? line.clientRowId })),
+      additionalCosts: additionalCostRows
+        .filter((cost) => !isBlankPurchaseOrderAdditionalCost(cost))
+        .map((cost) => ({
+          ...cost,
+          id: cost.id ?? cost.clientRowId,
+          persistedId: cost.id,
+        })),
+    });
+  }, [
+    additionalCostRows,
+    currentSupplierEmail,
+    lineGridRows,
+    selectedSupplier,
+    supplierOptionsSorted,
+    watchedSupplierId,
+  ]);
+  const emailDialogGroups = useCallback((): PurchaseOrderEmailDialogGroupValues[] => {
+    return resolvedVendorGroups.map((group) => {
+      const state =
+        accountingGroupStateByKey.get(group.key) ??
+        (group.isPurchaseOrderSupplier
+          ? accountingGroupStateByKey.get("default")
+          : undefined);
+      const subjectPrefix = group.isPurchaseOrderSupplier
+        ? savedOrderNumber ?? "Purchase order"
+        : `${savedOrderNumber ?? "Purchase order"} freight`;
+      return {
+        groupKey: group.key,
+        supplierId: group.supplier.id,
+        label: group.isPurchaseOrderSupplier
+          ? selectedSupplier?.name ?? "PO supplier"
+          : group.supplier.name,
+        include: state?.emailStatus !== "sent",
+        isFreight: !group.isPurchaseOrderSupplier,
+        to: group.supplier.email ?? "",
+        replyTo: userEmail,
+        bcc: userEmail,
+        subject: `${subjectPrefix} from ${organizationName}`,
+        message: `Hi,\n\nYou should find the necessary documents for ${savedOrderNumber ?? "this order"} attached to this email.\nPlease let me know if anything is missing.\n\nBest regards,\n${userName || userEmail}\n${organizationName}`,
+        sentAt: state?.emailedAt ?? null,
+        status: state?.emailStatus ?? null,
+      };
+    });
+  }, [
+    accountingGroupStateByKey,
+    organizationName,
+    resolvedVendorGroups,
+    savedOrderNumber,
+    selectedSupplier?.name,
+    userEmail,
+    userName,
+  ]);
+  const billDialogGroups = useCallback((): PurchaseBillDialogGroupValues[] => {
+    return resolvedVendorGroups.map((group) => {
+      const state =
+        accountingGroupStateByKey.get(group.key) ??
+        (group.isPurchaseOrderSupplier
+          ? accountingGroupStateByKey.get("default")
+          : undefined);
+      const amount =
+        group.lines.reduce((sum, line) => {
+          const quantity = parsePositive(line.quantityOrdered);
+          const unitCost = parsePositive(line.unitCost);
+          return sum + (quantity != null && unitCost != null ? quantity * unitCost : 0);
+        }, 0) +
+        group.additionalCosts.reduce((sum, cost) => {
+          const amountValue = parseNonNegative(cost.amount);
+          return sum + (amountValue ?? 0);
+        }, 0);
+      const persistedCostIds = group.additionalCosts
+        .map((cost) => cost.persistedId)
+        .filter((id): id is string => Boolean(id));
+      return {
+        groupKey: group.key,
+        label: group.isPurchaseOrderSupplier
+          ? selectedSupplier?.name ?? "PO supplier"
+          : group.supplier.name,
+        include: state?.pushStatus !== "pushed",
+        invoiceNumber: "",
+        accountingPurchaseAccountCode:
+          initialData?.accountingPurchaseAccountCode ??
+          xeroPurchaseBillDefaultAccountCode ??
+          "",
+        amount: amount.toFixed(4),
+        additionalCostIds:
+          persistedCostIds.length === group.additionalCosts.length
+            ? persistedCostIds
+            : undefined,
+        pushedAt: state?.pushedAt ?? null,
+        status: state?.pushStatus ?? null,
+        externalNumber: state?.externalDocumentNumber ?? null,
+      };
+    });
+  }, [
+    accountingGroupStateByKey,
+    initialData?.accountingPurchaseAccountCode,
+    resolvedVendorGroups,
+    selectedSupplier?.name,
+    xeroPurchaseBillDefaultAccountCode,
+  ]);
   const currentDeliveryAddress: DeliveryAddressFields = {
     shipAddressEntryId: null,
     shipContactName: null,
@@ -1939,12 +2366,19 @@ export function PurchaseOrderCard({
             : null;
   const openPurchaseOrderEmailDialog = () => {
     setPoEmailError(null);
+    const groups = emailDialogGroups();
+    const first = groups[0];
     setPoEmailDialogValues({
-      to: currentSupplierEmail ?? "",
+      groups,
+      to: first?.to ?? currentSupplierEmail ?? "",
       replyTo: userEmail,
       bcc: userEmail,
-      subject: `${savedOrderNumber ?? "Purchase order"} from ${organizationName}`,
-      message: `Hi,\n\nYou should find the necessary documents for ${savedOrderNumber ?? "this order"} attached to this email.\nPlease let me know if anything is missing.\n\nBest regards,\n${userName || userEmail}\n${organizationName}`,
+      subject:
+        first?.subject ??
+        `${savedOrderNumber ?? "Purchase order"} from ${organizationName}`,
+      message:
+        first?.message ??
+        `Hi,\n\nYou should find the necessary documents for ${savedOrderNumber ?? "this order"} attached to this email.\nPlease let me know if anything is missing.\n\nBest regards,\n${userName || userEmail}\n${organizationName}`,
     });
     setPoEmailDialogOpen(true);
   };
@@ -1959,6 +2393,16 @@ export function PurchaseOrderCard({
     }
 
     setFormError(null);
+    const groups = billDialogGroups();
+    const first = groups[0];
+    setPurchaseBillDialogValues((current) => ({
+      ...current,
+      groups,
+      invoiceNumber: first?.invoiceNumber ?? "",
+      accountingPurchaseAccountCode:
+        first?.accountingPurchaseAccountCode ??
+        current.accountingPurchaseAccountCode,
+    }));
     setPurchaseBillDialogOpen(true);
   };
 
@@ -1995,11 +2439,24 @@ export function PurchaseOrderCard({
             savedOrderId ? (
               <PurchaseBillActionControl
                 status={purchaseBillStatus}
+                manualStatus={purchaseBillManualStatus}
+                groupStates={resolvedVendorGroups.map((group) => {
+                  const state =
+                    accountingGroupStateByKey.get(group.key) ??
+                    (group.isPurchaseOrderSupplier
+                      ? accountingGroupStateByKey.get("default")
+                      : undefined);
+                  return { pushStatus: state?.pushStatus ?? null };
+                })}
+                billableGroupCount={Math.max(resolvedVendorGroups.length, 1)}
                 busy={purchaseBillMutation.isPending}
                 externalId={purchaseBillExternalId}
                 externalNumber={purchaseBillExternalNumber}
                 disabled={!canWrite || Boolean(billActionDisabledReason)}
                 disabledReason={billActionDisabledReason}
+                onSetManualStatus={(status) =>
+                  purchaseBillManualStatusMutation.mutate(status)
+                }
                 onCreate={openPurchaseBillDialog}
               />
             ) : null
@@ -2030,7 +2487,7 @@ export function PurchaseOrderCard({
                     disabled:
                       !canWrite ||
                       purchaseOrderEmailMutation.isPending ||
-                      !currentSupplierEmail,
+                      resolvedVendorGroups.length === 0,
                     tooltip:
                       poEmailError ??
                       (displayStatus === "draft"
@@ -2327,6 +2784,13 @@ export function PurchaseOrderCard({
         onOpenChange={(open) => setPoEmailDialogOpen(open)}
         onAddDocuments={() => fileInputRef.current?.click()}
         onDeleteDocument={(fileId) => deleteFileMutation.mutate(fileId)}
+        onSaveRecipientEmail={(groupKey, supplierId, email) =>
+          saveSupplierEmailMutation.mutate({
+            groupKey,
+            supplierId,
+            email,
+          })
+        }
         onSend={() => purchaseOrderEmailMutation.mutate()}
       />
       <PurchaseBillDialog
@@ -2346,6 +2810,117 @@ export function PurchaseOrderCard({
         onOpenChange={(open) => setPurchaseBillDialogOpen(open)}
         onCreate={() => purchaseBillMutation.mutate(purchaseBillDialogValues)}
       />
+      <Dialog
+        open={carrierDialogOpen}
+        onOpenChange={(open) => {
+          if (!open && !carrierMutation.isPending) closeCarrierDialog(null);
+        }}
+      >
+        <DialogContent size="md">
+          <DialogHeader>
+            <DialogTitle>Add Carrier</DialogTitle>
+          </DialogHeader>
+          <form
+            id="add-carrier-form"
+            onSubmit={carrierForm.handleSubmit(handleCarrierDialogSubmit)}
+          >
+            {carrierMutation.error ? (
+              <FieldError>
+                {(carrierMutation.error as ApiError).error ??
+                  "Failed to create carrier."}
+              </FieldError>
+            ) : null}
+            <FieldGroup className="gap-4">
+              <Controller
+                control={carrierForm.control}
+                name="name"
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor="carrier-name">
+                      Name<span className={styles.requiredMark}> *</span>
+                    </FieldLabel>
+                    <Input
+                      {...field}
+                      id="carrier-name"
+                      value={field.value ?? ""}
+                      onChange={(event) => field.onChange(event.target.value)}
+                      aria-invalid={fieldState.invalid}
+                      autoComplete="organization"
+                    />
+                    {fieldState.invalid && (
+                      <FieldError errors={[fieldState.error]} />
+                    )}
+                  </Field>
+                )}
+              />
+              <Controller
+                control={carrierForm.control}
+                name="contactName"
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor="carrier-contact-name">
+                      Contact Name
+                    </FieldLabel>
+                    <Input
+                      {...field}
+                      id="carrier-contact-name"
+                      value={field.value ?? ""}
+                      onChange={(event) =>
+                        field.onChange(event.target.value || null)
+                      }
+                      aria-invalid={fieldState.invalid}
+                      autoComplete="name"
+                    />
+                    {fieldState.invalid && (
+                      <FieldError errors={[fieldState.error]} />
+                    )}
+                  </Field>
+                )}
+              />
+              <Controller
+                control={carrierForm.control}
+                name="email"
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor="carrier-email">Email</FieldLabel>
+                    <Input
+                      {...field}
+                      id="carrier-email"
+                      type="email"
+                      value={field.value ?? ""}
+                      onChange={(event) =>
+                        field.onChange(event.target.value || null)
+                      }
+                      aria-invalid={fieldState.invalid}
+                      autoComplete="email"
+                    />
+                    {fieldState.invalid && (
+                      <FieldError errors={[fieldState.error]} />
+                    )}
+                  </Field>
+                )}
+              />
+            </FieldGroup>
+          </form>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={carrierMutation.isPending}
+              onClick={() => closeCarrierDialog(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              form="add-carrier-form"
+              disabled={carrierMutation.isPending}
+            >
+              {carrierMutation.isPending ? "Saving..." : "Add Carrier"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={addressDialogState != null}
         onOpenChange={(open) => {

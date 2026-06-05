@@ -2,7 +2,9 @@ import "server-only";
 
 import { renderToBuffer } from "@react-pdf/renderer";
 import { and, eq, isNull, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import {
+  accountingDocumentSyncs,
   attachmentFiles,
   organization,
   purchaseOrderAdditionalCosts,
@@ -36,20 +38,44 @@ import {
 import { escapeHtml } from "@/lib/format";
 import type { SendPurchaseOrderEmail } from "@/lib/schemas/purchase-orders";
 import { DomainError } from "@/lib/errors/domain-error";
+import { groupPurchaseOrderByResolvedVendor } from "@/lib/purchasing/resolved-vendor-groups";
+
+const additionalCostVendorSuppliers = alias(
+  suppliers,
+  "email_additional_cost_vendor_suppliers",
+);
 
 type PurchaseOrderEmailData = {
   order: PurchaseOrderPdf & {
     id: string;
+    supplierId: string;
     status: string;
     supplierEmail: string | null;
   };
   organizationName: string;
-  lines: PurchaseOrderPdfLine[];
-  additionalCosts: PurchaseOrderPdfAdditionalCost[];
+  lines: (PurchaseOrderPdfLine & { id: string })[];
+  additionalCosts: (PurchaseOrderPdfAdditionalCost & {
+    id: string;
+    vendorOverrideSupplierId: string | null;
+    vendorOverrideSupplierName: string | null;
+    vendorOverrideSupplierEmail: string | null;
+    vendorOverrideSupplierContactName: string | null;
+    vendorOverrideSupplierPhone: string | null;
+    vendorOverrideSupplierBillingLine1: string | null;
+    vendorOverrideSupplierBillingLine2: string | null;
+    vendorOverrideSupplierBillingCity: string | null;
+    vendorOverrideSupplierBillingRegion: string | null;
+    vendorOverrideSupplierBillingPostcode: string | null;
+    vendorOverrideSupplierBillingCountry: string | null;
+  })[];
   attachments: {
     filename: string;
     contentType: string;
     blobUrl: string;
+  }[];
+  emailStates: {
+    groupKey: string;
+    emailStatus: string | null;
   }[];
 };
 
@@ -60,6 +86,7 @@ async function loadPurchaseOrderEmailDataInTx(
   const [order] = await tx
     .select({
       id: purchaseOrders.id,
+      supplierId: purchaseOrders.supplierId,
       organizationName: organization.name,
       orderNumber: purchaseOrders.orderNumber,
       status: purchaseOrders.status,
@@ -97,6 +124,7 @@ async function loadPurchaseOrderEmailDataInTx(
 
   const lines = await tx
     .select({
+      id: purchaseOrderLines.id,
       itemName: purchaseOrderLines.itemName,
       itemSku: purchaseOrderLines.itemSku,
       purchaseUnitName: purchaseOrderLines.purchaseUnitName,
@@ -145,13 +173,52 @@ async function loadPurchaseOrderEmailDataInTx(
     );
   const additionalCosts = await tx
     .select({
+      id: purchaseOrderAdditionalCosts.id,
       costType: purchaseOrderAdditionalCosts.costType,
       reference: purchaseOrderAdditionalCosts.reference,
       amount: purchaseOrderAdditionalCosts.amount,
+      vendorOverrideSupplierId:
+        purchaseOrderAdditionalCosts.vendorOverrideSupplierId,
+      vendorOverrideSupplierName: additionalCostVendorSuppliers.name,
+      vendorOverrideSupplierEmail: additionalCostVendorSuppliers.email,
+      vendorOverrideSupplierContactName: additionalCostVendorSuppliers.contactName,
+      vendorOverrideSupplierPhone: additionalCostVendorSuppliers.phone,
+      vendorOverrideSupplierBillingLine1:
+        additionalCostVendorSuppliers.billingLine1,
+      vendorOverrideSupplierBillingLine2:
+        additionalCostVendorSuppliers.billingLine2,
+      vendorOverrideSupplierBillingCity:
+        additionalCostVendorSuppliers.billingCity,
+      vendorOverrideSupplierBillingRegion:
+        additionalCostVendorSuppliers.billingRegion,
+      vendorOverrideSupplierBillingPostcode:
+        additionalCostVendorSuppliers.billingPostcode,
+      vendorOverrideSupplierBillingCountry:
+        additionalCostVendorSuppliers.billingCountry,
     })
     .from(purchaseOrderAdditionalCosts)
+    .leftJoin(
+      additionalCostVendorSuppliers,
+      eq(
+        additionalCostVendorSuppliers.id,
+        purchaseOrderAdditionalCosts.vendorOverrideSupplierId,
+      ),
+    )
     .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, orderId))
     .orderBy(purchaseOrderAdditionalCosts.sortOrder);
+  const emailStates = await tx
+    .select({
+      groupKey: accountingDocumentSyncs.groupKey,
+      emailStatus: accountingDocumentSyncs.emailStatus,
+    })
+    .from(accountingDocumentSyncs)
+    .where(
+      and(
+        eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_PURCHASE_ORDER),
+        eq(accountingDocumentSyncs.documentId, orderId),
+        eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+      ),
+    );
 
   return {
     organizationName: order.organizationName,
@@ -169,6 +236,7 @@ async function loadPurchaseOrderEmailDataInTx(
       shipCountry: order.shipCountry ?? deliveryLine?.shipCountry ?? null,
     },
     lines: lines.map((line) => ({
+      id: line.id,
       itemName: line.itemName,
       itemSku: line.itemSku,
       purchaseUnitName: line.purchaseUnitName,
@@ -183,13 +251,95 @@ async function loadPurchaseOrderEmailDataInTx(
         costType: cost.costType,
         reference: cost.reference,
         amount: cost.amount,
-      })),
+        id: cost.id,
+        vendorOverrideSupplierId: cost.vendorOverrideSupplierId,
+        vendorOverrideSupplierName: cost.vendorOverrideSupplierName,
+        vendorOverrideSupplierEmail: cost.vendorOverrideSupplierEmail,
+        vendorOverrideSupplierContactName: cost.vendorOverrideSupplierContactName,
+        vendorOverrideSupplierPhone: cost.vendorOverrideSupplierPhone,
+        vendorOverrideSupplierBillingLine1:
+          cost.vendorOverrideSupplierBillingLine1,
+        vendorOverrideSupplierBillingLine2:
+          cost.vendorOverrideSupplierBillingLine2,
+        vendorOverrideSupplierBillingCity:
+          cost.vendorOverrideSupplierBillingCity,
+        vendorOverrideSupplierBillingRegion:
+          cost.vendorOverrideSupplierBillingRegion,
+        vendorOverrideSupplierBillingPostcode:
+          cost.vendorOverrideSupplierBillingPostcode,
+        vendorOverrideSupplierBillingCountry:
+          cost.vendorOverrideSupplierBillingCountry,
+    })),
     attachments,
+    emailStates,
   };
 }
 
 function sanitizePdfFileSegment(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-|-$/g, "");
+}
+
+function moneySum(values: Array<{ amount: string }>) {
+  return values.reduce((sum, value) => sum + Number(value.amount), 0).toFixed(4);
+}
+
+function buildEmailGroups(data: PurchaseOrderEmailData) {
+  const supplierRows = data.additionalCosts
+    .filter((cost) => cost.vendorOverrideSupplierId)
+    .map((cost) => ({
+      id: cost.vendorOverrideSupplierId as string,
+      name: cost.vendorOverrideSupplierName ?? "Vendor",
+      email: cost.vendorOverrideSupplierEmail,
+    }));
+  const suppliersById = new Map(supplierRows.map((supplier) => [supplier.id, supplier]));
+
+  return groupPurchaseOrderByResolvedVendor({
+    purchaseOrderSupplier: {
+      id: data.order.supplierId,
+      name: data.order.supplierName,
+      email: data.order.supplierEmail,
+    },
+    suppliersById,
+    lines: data.lines,
+    additionalCosts: data.additionalCosts,
+  }).map((group) => {
+    const firstCost = group.additionalCosts[0];
+    const freightTotal = moneySum(group.additionalCosts);
+    const order: PurchaseOrderPdf = group.isPurchaseOrderSupplier
+      ? data.order
+      : {
+          ...data.order,
+          supplierName: group.supplier.name,
+          supplierContactName:
+            firstCost?.vendorOverrideSupplierContactName ?? null,
+          supplierEmail: group.supplier.email ?? null,
+          supplierPhone: firstCost?.vendorOverrideSupplierPhone ?? null,
+          supplierBillingLine1:
+            firstCost?.vendorOverrideSupplierBillingLine1 ?? null,
+          supplierBillingLine2:
+            firstCost?.vendorOverrideSupplierBillingLine2 ?? null,
+          supplierBillingCity:
+            firstCost?.vendorOverrideSupplierBillingCity ?? null,
+          supplierBillingRegion:
+            firstCost?.vendorOverrideSupplierBillingRegion ?? null,
+          supplierBillingPostcode:
+            firstCost?.vendorOverrideSupplierBillingPostcode ?? null,
+          supplierBillingCountry:
+            firstCost?.vendorOverrideSupplierBillingCountry ?? null,
+          subtotalAmount: freightTotal,
+          taxAmount: "0",
+          totalAmount: freightTotal,
+        };
+
+    return {
+      key: group.key,
+      order,
+      supplier: group.supplier,
+      isFreight: !group.isPurchaseOrderSupplier,
+      lines: group.isPurchaseOrderSupplier ? group.lines : [],
+      additionalCosts: group.additionalCosts,
+    };
+  });
 }
 
 async function attachmentContentBase64(blobUrl: string) {
@@ -213,6 +363,7 @@ async function persistPurchaseOrderEmailOutcome(
     | { status: "sent"; error?: never }
     | { status: "failed"; error: string }
     | { status: "skipped"; error?: never },
+  groupKey = "default",
 ) {
   await withOrgContext(orgId, async (tx) => {
     await persistAccountingDocumentEmailOutcome(tx, {
@@ -220,6 +371,7 @@ async function persistPurchaseOrderEmailOutcome(
       provider: ACCOUNTING_PROVIDER_XERO,
       documentType: ACCOUNTING_DOCUMENT_PURCHASE_ORDER,
       documentId: orderId,
+      groupKey,
       outcome,
     });
   });
@@ -255,7 +407,7 @@ export async function sendPurchaseOrderEmail(params: {
   actorUserId: string;
   idempotencyKey: string;
   input: SendPurchaseOrderEmail;
-}): Promise<{ status: "sent"; recipientEmail: string }> {
+}): Promise<{ status: "sent"; sent: Array<{ groupKey: string; recipientEmail: string }> }> {
   const data = await withOrgContext(params.orgId, async (tx) =>
     loadPurchaseOrderEmailDataInTx(tx, params.orderId),
   );
@@ -269,21 +421,20 @@ export async function sendPurchaseOrderEmail(params: {
     throw new DomainError("Cancelled purchase orders cannot be emailed.", 409);
   }
 
+  let currentGroupKey: string | null = null;
+  let firstSelectedGroupKey: string | null = null;
   try {
-    const pdf = await renderToBuffer(
-      <PurchaseOrderDocument
-        order={data.order}
-        lines={data.lines}
-        additionalCosts={data.additionalCosts}
-        organizationName={data.organizationName}
-      />,
+    const groups = buildEmailGroups(data);
+    const groupsByKey = new Map(groups.map((group) => [group.key, group]));
+    const sentGroupKeys = new Set(
+      data.emailStates
+        .filter((state) => state.emailStatus === "sent")
+        .map((state) => state.groupKey),
     );
-    const safeOrderNumber =
-      sanitizePdfFileSegment(data.order.orderNumber) || "purchase-order";
-    const message =
-      params.input.message?.trim() ||
-      `Please review purchase order ${data.order.orderNumber}. The PDF is attached.`;
-    const html = `<div>${escapeHtml(message).replace(/\n/g, "<br />")}</div>`;
+    const selectedInputs = params.input.groups.filter(
+      (group) => group.include !== false,
+    );
+    firstSelectedGroupKey = selectedInputs[0]?.groupKey ?? null;
 
     const uploadedAttachments = (
       await Promise.all(
@@ -303,28 +454,74 @@ export async function sendPurchaseOrderEmail(params: {
       Boolean(file),
     );
 
-    await sendTransactionalEmail({
-      tag: "purchase-order",
-      to: params.input.to,
-      replyTo: params.input.replyTo?.trim() || undefined,
-      bcc: params.input.bcc?.trim() || undefined,
-      subject: params.input.subject,
-      html,
-      text: message,
-      attachments: [
-        {
-          filename: `${safeOrderNumber}.pdf`,
-          content: pdf.toString("base64"),
-          contentType: "application/pdf",
-        },
-        ...uploadedAttachments,
-      ],
-      idempotencyKey: params.idempotencyKey,
-    });
+    const sent: Array<{ groupKey: string; recipientEmail: string }> = [];
+    for (const input of selectedInputs) {
+      const resolvedKey =
+        !input.groupKey || input.groupKey === "default"
+          ? groups[0]?.key
+          : input.groupKey;
+      const group = (resolvedKey ? groupsByKey.get(resolvedKey) : undefined) ?? groups[0];
+      if (!group) continue;
+      currentGroupKey = group.key;
+      const alreadySent =
+        sentGroupKeys.has(group.key) ||
+        (!group.isFreight && sentGroupKeys.has("default"));
+      if (alreadySent && input.resend !== true) {
+        currentGroupKey = null;
+        continue;
+      }
+      const recipientEmail = input.to?.trim();
+      if (!recipientEmail) {
+        throw new DomainError("Supplier email must be a valid email address.", 400);
+      }
+      const subject = input.subject?.trim();
+      if (!subject) {
+        throw new DomainError("Subject is required.", 400);
+      }
+      const pdf = await renderToBuffer(
+        <PurchaseOrderDocument
+          order={group.order}
+          lines={group.lines}
+          additionalCosts={group.additionalCosts}
+          organizationName={data.organizationName}
+          variant={group.isFreight ? "freight" : "standard"}
+        />,
+      );
+      const safeOrderNumber =
+        sanitizePdfFileSegment(data.order.orderNumber) || "purchase-order";
+      const fileSuffix = group.isFreight
+        ? `-${sanitizePdfFileSegment(group.supplier.name) || "freight"}`
+        : "";
+      const message =
+        input.message?.trim() ||
+        `Please review purchase order ${data.order.orderNumber}. The PDF is attached.`;
+      const html = `<div>${escapeHtml(message).replace(/\n/g, "<br />")}</div>`;
 
-    await persistPurchaseOrderEmailOutcome(params.orgId, params.orderId, {
-      status: "sent",
-    });
+      await sendTransactionalEmail({
+        tag: "purchase-order",
+        to: recipientEmail,
+        replyTo: input.replyTo?.trim() || undefined,
+        bcc: input.bcc?.trim() || undefined,
+        subject,
+        html,
+        text: message,
+        attachments: [
+          {
+            filename: `${safeOrderNumber}${fileSuffix}.pdf`,
+            content: pdf.toString("base64"),
+            contentType: "application/pdf",
+          },
+          ...uploadedAttachments,
+        ],
+        idempotencyKey: `${params.idempotencyKey}:${group.key}`,
+      });
+
+      await persistPurchaseOrderEmailOutcome(params.orgId, params.orderId, {
+        status: "sent",
+      }, group.key);
+      sent.push({ groupKey: group.key, recipientEmail });
+      currentGroupKey = null;
+    }
     await tryRecordAccountingAuditEvent({
       organizationId: params.orgId,
       actor: { type: "user", userId: params.actorUserId },
@@ -336,14 +533,14 @@ export async function sendPurchaseOrderEmail(params: {
       metadata: { status: "sent" },
     });
 
-    return { status: "sent", recipientEmail: params.input.to };
+    return { status: "sent", sent };
   } catch (error) {
     const message =
       error instanceof Error ? error.message.slice(0, 500) : "Failed to send PO.";
     await persistPurchaseOrderEmailOutcome(params.orgId, params.orderId, {
       status: "failed",
       error: message,
-    });
+    }, currentGroupKey ?? firstSelectedGroupKey ?? "default");
     await tryRecordAccountingAuditEvent({
       organizationId: params.orgId,
       actor: { type: "user", userId: params.actorUserId },
