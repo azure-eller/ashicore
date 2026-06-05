@@ -1405,6 +1405,7 @@ export async function getEditablePurchaseOrder(
       xeroPoEmailStatus:
         order.xeroPoEmailStatus as PurchaseOrderEditData["xeroPoEmailStatus"],
       lines: lines.map((line) => ({
+        id: line.id,
         itemId: line.itemId,
         quantityOrdered: line.quantityOrdered,
         quantityReceived: line.quantityReceived,
@@ -1426,6 +1427,7 @@ export async function getEditablePurchaseOrder(
       taxRates: taxSettings.rates,
       defaultTaxRateId: taxSettings.defaultPurchaseTaxRateId,
       additionalCosts: additionalCosts.map((cost) => ({
+        id: cost.id,
         costType:
           cost.costType as PurchaseOrderEditData["additionalCosts"][number]["costType"],
         reference: cost.reference,
@@ -1831,9 +1833,14 @@ export async function upsertImportedAccountingPurchaseOrderInTx(
 }
 
 export async function createPurchaseOrder(data: InsertPurchaseOrder) {
-  return withAuthedOrgContext((tx, orgId) =>
+  const created = await withAuthedOrgContext((tx, orgId) =>
     createPurchaseOrderInTx(tx, orgId, data),
   );
+  const order = await getPurchaseOrder(created.id);
+  if (!order) {
+    throw new PurchasingError("Purchase order not found after create.", 500);
+  }
+  return order;
 }
 
 export async function duplicatePurchaseOrder(id: string) {
@@ -1886,7 +1893,7 @@ export async function updatePurchaseOrder(
   id: string,
   data: UpdatePurchaseOrder,
 ) {
-  return withAuthedOrgContext(async (tx, orgId, userId) => {
+  const updatedId = await withAuthedOrgContext(async (tx, orgId, userId) => {
     const order = await getLockedPurchaseOrderInTx(tx, id);
 
     if (!order) {
@@ -2157,8 +2164,16 @@ export async function updatePurchaseOrder(
         );
     }
 
-    return { id, orderNumber: nextOrderNumber };
+    return id;
   });
+
+  if (!updatedId) return null;
+
+  const updated = await getPurchaseOrder(updatedId);
+  if (!updated) {
+    throw new PurchasingError("Purchase order not found after update.", 500);
+  }
+  return updated;
 }
 
 export async function submitPurchaseOrder(

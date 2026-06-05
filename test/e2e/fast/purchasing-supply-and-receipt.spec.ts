@@ -211,7 +211,13 @@ test.describe("purchasing supply and receipt heartbeat", () => {
         additionalCosts: [],
       }),
     });
-    expect(updateResponse.status, await updateResponse.text()).toBe(200);
+    const updateText = await updateResponse.text();
+    expect(updateResponse.status, updateText).toBe(200);
+    const updated = JSON.parse(updateText);
+    expect(updated.lines).toHaveLength(1);
+    expect(updated.additionalCosts).toEqual([]);
+    expect(updated.shippingCost).toBe("0");
+    expect(updated.totalAmount).toBe("10");
 
     const costs = await db
       .select({ id: purchaseOrderAdditionalCosts.id })

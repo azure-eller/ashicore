@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { Controller, useForm } from "react-hook-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { z } from "zod";
 import type {
   CellClassParams,
   ICellRendererParams,
@@ -67,7 +66,6 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { AddressFields } from "@/components/address-fields";
-import { useDraftSaveEngine } from "@/lib/hooks/use-draft-save-engine";
 import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
 import { CardPage, CardPageBody, CardSection } from "@/components/card-page/card-page";
@@ -93,6 +91,7 @@ import {
   PURCHASE_UNIT_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import type {
+  PurchaseOrderDetail,
   PurchaseOrderEditData,
   PurchaseOrderMaterialOption,
   PurchaseOrderTaxRateOption,
@@ -108,13 +107,16 @@ import {
 import { PurchaseBillActionControl } from "./purchase-order-workflow-actions";
 import { OrderStatusControl } from "@/components/card-page/order-status-control";
 import { purchaseOrderStatusConfig } from "@/components/card-page/order-status-configs";
+import {
+  purchaseOrderDefaultDraft,
+  purchaseOrderEditDataToDraft,
+  usePurchaseOrderDraftController,
+  type PurchaseOrderAdditionalCostDraftRow,
+  type PurchaseOrderDraft,
+  type PurchaseOrderFormValues,
+  type PurchaseOrderLineDraftRow,
+} from "./use-purchase-order-draft-controller";
 import styles from "@/components/card-page/card-page.module.css";
-
-type PurchaseOrderFormValues = z.input<typeof insertPurchaseOrderSchema>;
-type PurchaseOrderDraftOp = {
-  type: "patch";
-  patch: Partial<PurchaseOrderFormValues>;
-};
 
 type ApiError = {
   error?: string;
@@ -202,16 +204,11 @@ const blankPurchaseOrderAdditionalCost = {
 type PurchaseOrderAdditionalCostPayloadRow = NonNullable<
   PurchaseOrderFormValues["additionalCosts"]
 >[number];
-type PurchaseOrderAdditionalCostGridRow =
-  PurchaseOrderAdditionalCostPayloadRow & {
-    clientRowId: string;
-  };
+type PurchaseOrderAdditionalCostGridRow = PurchaseOrderAdditionalCostDraftRow;
 type PurchaseOrderAdditionalCostColumnKey =
   keyof PurchaseOrderAdditionalCostPayloadRow;
 type PurchaseOrderLinePayloadRow = PurchaseOrderFormValues["lines"][number];
-type PurchaseOrderLineGridRow = PurchaseOrderLinePayloadRow & {
-  clientRowId: string;
-};
+type PurchaseOrderLineGridRow = PurchaseOrderLineDraftRow;
 type PurchaseOrderLineColumnKey =
   | "itemId"
   | "quantityOrdered"
@@ -232,41 +229,13 @@ function createPurchaseOrderLineRow(
   return {
     ...blankPurchaseOrderLine,
     ...values,
+    id: "id" in (values ?? {}) ? ((values as PurchaseOrderLineGridRow).id ?? null) : null,
     itemId: values?.itemId ?? "",
-    clientRowId: crypto.randomUUID(),
+    clientRowId:
+      "clientRowId" in (values ?? {})
+        ? ((values as PurchaseOrderLineGridRow).clientRowId ?? crypto.randomUUID())
+        : crypto.randomUUID(),
   };
-}
-
-function toPurchaseOrderLineGridRows(
-  rows: PurchaseOrderFormValues["lines"] | undefined,
-) {
-  return (rows ?? [])
-    .filter((row) => !isBlankPurchaseOrderLine(row))
-    .map((row) => createPurchaseOrderLineRow(row));
-}
-
-function toPurchaseOrderLinePayloadRows(
-  rows: PurchaseOrderLineGridRow[],
-): PurchaseOrderLinePayloadRow[] {
-  return rows
-    .filter((row) => !isBlankPurchaseOrderLine(row))
-    .map((row) => ({
-      itemId: row.itemId,
-      quantityOrdered: row.quantityOrdered,
-      unitCost: row.unitCost,
-      taxRateId: row.taxRateId,
-      accountingPurchaseAccountCode: null,
-      shipAddressEntryId: row.shipAddressEntryId,
-      shipContactName: row.shipContactName,
-      shipContactPhone: row.shipContactPhone,
-      shipLine1: row.shipLine1,
-      shipLine2: row.shipLine2,
-      shipCity: row.shipCity,
-      shipRegion: row.shipRegion,
-      shipPostcode: row.shipPostcode,
-      shipCountry: row.shipCountry,
-      shipDeliveryInstructions: row.shipDeliveryInstructions,
-    }));
 }
 
 function isBlankPurchaseOrderAdditionalCost(
@@ -289,7 +258,15 @@ function createPurchaseOrderAdditionalCostRow(
   values?: Partial<PurchaseOrderAdditionalCostPayloadRow>,
 ): PurchaseOrderAdditionalCostGridRow {
   return {
-    clientRowId: crypto.randomUUID(),
+    clientRowId:
+      "clientRowId" in (values ?? {})
+        ? ((values as PurchaseOrderAdditionalCostGridRow).clientRowId ??
+          crypto.randomUUID())
+        : crypto.randomUUID(),
+    id:
+      "id" in (values ?? {})
+        ? ((values as PurchaseOrderAdditionalCostGridRow).id ?? null)
+        : null,
     costType: values?.costType ?? blankPurchaseOrderAdditionalCost.costType,
     reference: values?.reference ?? blankPurchaseOrderAdditionalCost.reference,
     distributionMethod:
@@ -300,28 +277,6 @@ function createPurchaseOrderAdditionalCostRow(
       blankPurchaseOrderAdditionalCost.accountingPurchaseAccountCode,
     amount: values?.amount ?? blankPurchaseOrderAdditionalCost.amount,
   };
-}
-
-function toPurchaseOrderAdditionalCostGridRows(
-  rows: PurchaseOrderFormValues["additionalCosts"] | undefined,
-) {
-  return (rows ?? []).map((row) => createPurchaseOrderAdditionalCostRow(row));
-}
-
-function toPurchaseOrderAdditionalCostPayloadRows(
-  rows: PurchaseOrderAdditionalCostGridRow[],
-): PurchaseOrderAdditionalCostPayloadRow[] {
-  return rows
-    .filter((row) => !isBlankPurchaseOrderAdditionalCost(row))
-    .map(
-      ({ costType, reference, distributionMethod, amount }) => ({
-        costType,
-        reference,
-        distributionMethod,
-        accountingPurchaseAccountCode: null,
-        amount,
-      }),
-    );
 }
 
 function normalizeGridText(value: unknown) {
@@ -676,10 +631,6 @@ function PurchaseLandedCostCell({
   );
 }
 
-function hasAutosaveMinimum(values: PurchaseOrderFormValues) {
-  return Boolean(values.supplierId?.trim());
-}
-
 function setFieldErrorPath(
   target: FieldErrorState,
   path: Array<string | number>,
@@ -902,51 +853,19 @@ export function PurchaseOrderCard({
   );
   const defaultTaxRate =
     defaultTaxRateId != null ? taxRateMap.get(defaultTaxRateId) ?? null : null;
-  const initialFormValues: PurchaseOrderFormValues = initialData
-    ? {
-        orderNumber: initialData.orderNumber,
-        supplierId: initialData.supplierId,
-        expectedDate: initialData.expectedDate,
-        shippingCost: initialData.shippingCost,
-        notes: initialData.notes,
-        accountingPurchaseAccountCode: null,
-        shipLine1: initialData.shipLine1,
-        shipLine2: initialData.shipLine2,
-        shipCity: initialData.shipCity,
-        shipRegion: initialData.shipRegion,
-        shipPostcode: initialData.shipPostcode,
-        shipCountry: initialData.shipCountry,
-        lines: initialData.lines.map((line) => ({
-          itemId: line.itemId,
-          quantityOrdered: line.quantityOrdered,
-          unitCost: line.unitCost,
-          taxRateId: line.taxRateId,
-          accountingPurchaseAccountCode: line.accountingPurchaseAccountCode,
-          ...EMPTY_DELIVERY_ADDRESS,
-        })),
-        additionalCosts: initialData.additionalCosts,
-      }
-    : {
-        ...(defaultValues ?? purchaseOrderDefaultValues),
-        orderNumber: defaultValues?.orderNumber ?? null,
-        accountingPurchaseAccountCode: null,
-        shipLine1: defaultValues?.shipLine1 ?? null,
-        shipLine2: defaultValues?.shipLine2 ?? null,
-        shipCity: defaultValues?.shipCity ?? null,
-        shipRegion: defaultValues?.shipRegion ?? null,
-        shipPostcode: defaultValues?.shipPostcode ?? null,
-        shipCountry: defaultValues?.shipCountry ?? null,
-        lines: (defaultValues ?? purchaseOrderDefaultValues).lines.map(
-          (line) => ({
-            ...line,
-            taxRateId: line.taxRateId ?? defaultTaxRate?.id ?? null,
-            ...EMPTY_DELIVERY_ADDRESS,
+  const initialDraft = useMemo(
+    () =>
+      initialData
+        ? purchaseOrderEditDataToDraft(initialData)
+        : purchaseOrderDefaultDraft({
+            defaultValues: defaultValues ?? purchaseOrderDefaultValues,
+            defaultTaxRateId: defaultTaxRate?.id ?? null,
           }),
-        ),
-      };
+    [defaultTaxRate?.id, defaultValues, initialData],
+  );
 
   const persistPurchaseOrder = useCallback(
-    async (orderId: string | null, values: PurchaseOrderFormValues) => {
+    async (orderId: string | null, values: InsertPurchaseOrder) => {
       const validationErrors = purchaseOrderValidationErrors(values);
       if (validationErrors) {
         setFieldErrors(validationErrors);
@@ -978,46 +897,17 @@ export function PurchaseOrderCard({
         throw error;
       }
 
-      return body as { id: string; orderNumber: string };
+      return body as PurchaseOrderDetail;
     },
     [],
   );
 
-  const purchaseOrderEngine = useDraftSaveEngine<
-    PurchaseOrderFormValues,
-    PurchaseOrderDraftOp,
-    { id: string; orderNumber: string }
-  >({
-    initialDraft: initialFormValues,
-    initialId: initialData?.id ?? null,
-    isSaveable: hasAutosaveMinimum,
-    applyOp: (draft, op) => ({ ...draft, ...op.patch }),
-    coalesceOps: (existing, next) => [
-      {
-        op: {
-          type: "patch",
-          patch: [...existing, next].reduce<Partial<PurchaseOrderFormValues>>(
-            (patch, queued) => ({ ...patch, ...queued.op.patch }),
-            {},
-          ),
-        },
-        revision: next.revision,
-      },
-    ],
-    create: (draft) => persistPurchaseOrder(null, draft),
-    save: (orderId, draft, ops) => {
-      if (ops.length === 0) return Promise.resolve(null);
-      return persistPurchaseOrder(orderId, draft);
-    },
-    getResultId: (result) => result.id,
-    applyPersistedIdentity: (draft, result) => ({
-      ...draft,
-      orderNumber: draft.orderNumber ?? result.orderNumber,
-    }),
-    mergeServerOwnedFields: (draft, result) => ({
-      ...draft,
-      orderNumber: result.orderNumber ?? draft.orderNumber,
-    }),
+  const purchaseOrderController = usePurchaseOrderDraftController({
+    initialData,
+    defaultValues: defaultValues ?? purchaseOrderDefaultValues,
+    defaultTaxRateId: defaultTaxRate?.id ?? null,
+    persist: persistPurchaseOrder,
+    queryClient,
     onPersisted: (id) => {
       savedOrderIdRef.current = id;
       setSavedOrderId(id);
@@ -1027,19 +917,19 @@ export function PurchaseOrderCard({
       savedOrderIdRef.current = result.id;
       setSavedOrderId(result.id);
       setSavedOrderNumber(result.orderNumber);
-      void queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+      setDisplayStatus(result.status);
     },
-    getErrorMessage: (error) =>
-      (error as ApiError)?.error ??
-      (error instanceof Error ? error.message : "Failed to save purchase order."),
   });
-  const draftValues = purchaseOrderEngine.draft;
+  const draftValues = purchaseOrderController.draft;
   const commitPurchaseOrderDraft = useCallback(
-    (patch: Partial<PurchaseOrderFormValues>, delayMs = 1200) => {
+    (
+      patch: Partial<Omit<PurchaseOrderDraft, "lines" | "additionalCosts">>,
+      delayMs = 1200,
+    ) => {
       setFormError(null);
-      purchaseOrderEngine.applyLocalOp({ type: "patch", patch }, delayMs);
+      purchaseOrderController.patchHeader(patch, delayMs);
     },
-    [purchaseOrderEngine],
+    [purchaseOrderController],
   );
   const addressForm = useForm<AddressDialogValues>({
     defaultValues: EMPTY_ADDRESS_DIALOG_VALUES,
@@ -1051,7 +941,7 @@ export function PurchaseOrderCard({
       .map(addressEntryToOption)
       .filter((option): option is DeliveryAddressOption => Boolean(option));
     const byId = new Map(entries.map((option) => [option.id, option]));
-    for (const option of collectDeliveryAddressOptions(initialFormValues)) {
+    for (const option of collectDeliveryAddressOptions(initialDraft)) {
       byId.set(option.id, option);
     }
     return [...byId.values()];
@@ -1059,19 +949,13 @@ export function PurchaseOrderCard({
   const [addressDialogState, setAddressDialogState] = useState<{
     option: DeliveryAddressOption | null;
   } | null>(null);
-  const [initialLineRows] = useState(() =>
-    toPurchaseOrderLineGridRows(initialFormValues.lines),
-  );
-  const [lineGridRows, setLineGridRows] =
-    useState<PurchaseOrderLineGridRow[]>(initialLineRows);
-  const [initialAdditionalCostRows] = useState(() =>
-    toPurchaseOrderAdditionalCostGridRows(initialFormValues.additionalCosts),
-  );
-  const [additionalCostGridRows, setAdditionalCostGridRows] = useState<
-    PurchaseOrderAdditionalCostGridRow[]
-  >(initialAdditionalCostRows);
+  const lineGridRows = draftValues.lines;
+  const additionalCostGridRows = draftValues.additionalCosts;
   const [additionalCostsExpanded, setAdditionalCostsExpanded] = useState(
-    () => initialAdditionalCostRows.some((row) => !isBlankPurchaseOrderAdditionalCost(row)),
+    () =>
+      initialDraft.additionalCosts.some(
+        (row) => !isBlankPurchaseOrderAdditionalCost(row),
+      ),
   );
 
   useEffect(() => {
@@ -1387,12 +1271,9 @@ export function PurchaseOrderCard({
   ]);
   const handleLineRowsChange = useCallback(
     (rows: PurchaseOrderLineGridRow[]) => {
-      setLineGridRows(rows);
-      commitPurchaseOrderDraft({
-        lines: toPurchaseOrderLinePayloadRows(rows),
-      });
+      purchaseOrderController.replaceLines(rows);
     },
-    [commitPurchaseOrderDraft],
+    [purchaseOrderController],
   );
   const createLineRow = useCallback(
     () => createPurchaseOrderLineRow({ taxRateId: defaultTaxRate?.id ?? null }),
@@ -1562,18 +1443,15 @@ export function PurchaseOrderCard({
       rows: PurchaseOrderAdditionalCostGridRow[],
       change?: { type?: string },
     ) => {
-      setAdditionalCostGridRows(rows);
       if (
         change?.type === "row_deleted" &&
         rows.every((row) => isBlankPurchaseOrderAdditionalCost(row))
       ) {
         setAdditionalCostsExpanded(false);
       }
-      commitPurchaseOrderDraft({
-        additionalCosts: toPurchaseOrderAdditionalCostPayloadRows(rows),
-      });
+      purchaseOrderController.replaceAdditionalCosts(rows);
     },
-    [commitPurchaseOrderDraft],
+    [purchaseOrderController],
   );
   const createAdditionalCostRow = useCallback(
     () => createPurchaseOrderAdditionalCostRow(),
@@ -1659,10 +1537,11 @@ export function PurchaseOrderCard({
   const statusMutation = useMutation({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "status"],
     mutationFn: async (status: PurchaseOrderStatus) => {
-      await purchaseOrderEngine.flush();
-      if (!savedOrderId) throw new Error("Save the purchase order first.");
+      await purchaseOrderController.flush();
+      const orderId = savedOrderIdRef.current;
+      if (!orderId) throw new Error("Save the purchase order first.");
       const response = await fetch(
-        `/api/purchase-orders/${savedOrderId}/status`,
+        `/api/purchase-orders/${orderId}/status`,
         {
           method: "PATCH",
           headers: createIdempotencyHeaders("purchase-order-status", {
@@ -1690,10 +1569,11 @@ export function PurchaseOrderCard({
   const purchaseBillMutation = useMutation({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "purchase-bill"],
     mutationFn: async (values: PurchaseBillDialogValues) => {
-      await purchaseOrderEngine.flush();
-      if (!savedOrderId) throw new Error("Save the purchase order first.");
+      await purchaseOrderController.flush();
+      const orderId = savedOrderIdRef.current;
+      if (!orderId) throw new Error("Save the purchase order first.");
       const response = await fetch(
-        `/api/purchase-orders/${savedOrderId}/accounting-bill`,
+        `/api/purchase-orders/${orderId}/accounting-bill`,
         {
           method: "POST",
           headers: createIdempotencyHeaders("purchase-order-bill", {
@@ -1740,11 +1620,12 @@ export function PurchaseOrderCard({
   const purchaseOrderEmailMutation = useMutation({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "email"],
     mutationFn: async () => {
-      await purchaseOrderEngine.flush();
-      if (!savedOrderId) throw new Error("Save the purchase order first.");
+      await purchaseOrderController.flush();
+      const orderId = savedOrderIdRef.current;
+      if (!orderId) throw new Error("Save the purchase order first.");
       if (displayStatus === "draft") {
         const statusResponse = await fetch(
-          `/api/purchase-orders/${savedOrderId}/status`,
+          `/api/purchase-orders/${orderId}/status`,
           {
             method: "PATCH",
             headers: createIdempotencyHeaders("purchase-order-status", {
@@ -1764,7 +1645,7 @@ export function PurchaseOrderCard({
         setDisplayStatus("ordered");
       }
 
-      const response = await fetch(`/api/purchase-orders/${savedOrderId}/email`, {
+      const response = await fetch(`/api/purchase-orders/${orderId}/email`, {
         method: "POST",
         headers: createIdempotencyHeaders("purchase-order-email", {
           "Content-Type": "application/json",
@@ -1803,18 +1684,18 @@ export function PurchaseOrderCard({
   });
 
   const ensureSavedOrder = useCallback(async () => {
-    await purchaseOrderEngine.flush();
+    await purchaseOrderController.flush();
     const orderId = savedOrderIdRef.current;
     if (!orderId) {
       const message =
-        purchaseOrderEngine.error ??
+        purchaseOrderController.error ??
         firstFieldErrorMessage(fieldErrors) ??
         "Choose a supplier before uploading files.";
       setFormError(message);
       throw new Error(message);
     }
     return orderId;
-  }, [fieldErrors, purchaseOrderEngine]);
+  }, [fieldErrors, purchaseOrderController]);
 
   const handleFileInput = useCallback(async (files: FileList | File[] | null) => {
     const filesToUpload = files ? Array.from(files) : [];
@@ -2009,11 +1890,11 @@ export function PurchaseOrderCard({
     shipCountry: draftValues.shipCountry,
     shipDeliveryInstructions: null,
   };
-  const autosaveState = canAutosaveDraft ? purchaseOrderEngine.status : "idle";
+  const autosaveState = canAutosaveDraft ? purchaseOrderController.status : "idle";
   const autosaveMessage = canAutosaveDraft
-    ? purchaseOrderEngine.status === "saved" || purchaseOrderEngine.status === "idle"
+    ? purchaseOrderController.status === "saved" || purchaseOrderController.status === "idle"
       ? "All changes saved"
-      : purchaseOrderEngine.error
+      : purchaseOrderController.error
     : "All changes saved";
   const cardSaveState: CardSaveState = (() => {
     if (readOnly) return "readonly";
@@ -2337,9 +2218,11 @@ export function PurchaseOrderCard({
                       disabled={billAffectingReadOnly}
                       onClick={() => {
                         setAdditionalCostsExpanded(true);
-                        setAdditionalCostGridRows((rows) =>
-                          rows.length > 0 ? rows : [createAdditionalCostRow()],
-                        );
+                        if (additionalCostGridRows.length === 0) {
+                          purchaseOrderController.replaceAdditionalCosts([
+                            createAdditionalCostRow(),
+                          ]);
+                        }
                       }}
                     >
                       <span aria-hidden="true">+</span>

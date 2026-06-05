@@ -217,6 +217,7 @@ export type PurchaseOrderEditData = {
   xeroPoEmailError: string | null;
   xeroPoEmailedAt: Date | null;
   lines: Array<{
+    id: string;
     itemId: string;
     quantityOrdered: string;
     quantityReceived: string;
@@ -238,6 +239,7 @@ export type PurchaseOrderEditData = {
   taxRates: PurchaseOrderTaxRateOption[];
   defaultTaxRateId: string | null;
   additionalCosts: Array<{
+    id: string;
     costType: PurchaseOrderAdditionalCostType;
     reference: string | null;
     distributionMethod: PurchaseOrderAdditionalCostDistributionMethod;
