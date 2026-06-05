@@ -325,6 +325,12 @@ export type ManufacturingOrderDetail = {
   producedLots: ManufacturingOrderProducedLot[];
 };
 
+export type ManufacturingProducedLotOption = {
+  lotId: string;
+  lotNumber: string;
+  quantity: string;
+};
+
 export type ManufacturingExecutionBatch = {
   id: string;
   batchNumber: number;
@@ -364,6 +370,8 @@ export type ManufacturingExecutionDetail = {
   currentBatch: ManufacturingExecutionBatch | null;
   batches: ManufacturingExecutionBatch[];
   ingredients: ManufacturingOrderIngredientDetail[];
+  productLotTrackingMode: "tracked" | "untracked";
+  availableProducedLots: ManufacturingProducedLotOption[];
 };
 
 export type ManufacturingOrderEditData = {

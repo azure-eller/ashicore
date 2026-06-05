@@ -2405,16 +2405,114 @@ async function getOutputQuantityInTx(
   return parseFloat(row?.quantity ?? "0");
 }
 
-async function getProducedLotIdInTx(tx: Tx, manufacturingOrderId: string) {
+/**
+ * The lot a production unit's output already lives in. A unit is a single batch
+ * (batchId set) or — for discrete MOs — the whole order (batchId null, matching
+ * the always-null batch column on discrete outputs). Scoping by batch is what
+ * keeps each batch in its own lot rather than collapsing into the first one
+ * (ERP-169).
+ */
+async function getProducedLotIdInTx(
+  tx: Tx,
+  manufacturingOrderId: string,
+  manufacturingOrderBatchId: string | null = null
+) {
   const [row] = await tx
     .select({ lotId: manufacturingOrderOutputs.lotId })
     .from(manufacturingOrderOutputs)
-    .where(eq(manufacturingOrderOutputs.manufacturingOrderId, manufacturingOrderId))
+    .where(
+      and(
+        eq(manufacturingOrderOutputs.manufacturingOrderId, manufacturingOrderId),
+        manufacturingOrderBatchId
+          ? eq(
+              manufacturingOrderOutputs.manufacturingOrderBatchId,
+              manufacturingOrderBatchId
+            )
+          : sql`${manufacturingOrderOutputs.manufacturingOrderBatchId} IS NULL`
+      )
+    )
     .orderBy(asc(manufacturingOrderOutputs.outputNumber))
     .limit(1)
     .for("update");
 
   return row?.lotId ?? null;
+}
+
+type ProducedLotSelection = {
+  producedLotId?: string | null;
+  producedLotNumber?: string | null;
+};
+
+/**
+ * Decide which lot a unit's output should land in (ERP-169). A unit — one batch,
+ * or a whole discrete MO — is exactly one lot: once any output exists for it,
+ * that lot is reused and the caller's selection is ignored. Before then, the
+ * caller may append to an existing lot of the same product (`producedLotId`) or
+ * name a new one (`producedLotNumber`); absent both, a date lot is generated.
+ */
+async function resolveProducedLotForUnitInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    manufacturingOrderId: string;
+    manufacturingOrderBatchId: string | null;
+    productId: string;
+    selection?: ProducedLotSelection;
+  }
+): Promise<{ lotId: string | null; newLotNumber: string | null }> {
+  const existingLotId = await getProducedLotIdInTx(
+    tx,
+    params.manufacturingOrderId,
+    params.manufacturingOrderBatchId
+  );
+  if (existingLotId) {
+    return { lotId: existingLotId, newLotNumber: null };
+  }
+
+  const requestedLotId = params.selection?.producedLotId?.trim() || null;
+  if (requestedLotId) {
+    const [lot] = await tx
+      .select({ id: lots.id })
+      .from(lots)
+      .where(
+        and(
+          eq(lots.id, requestedLotId),
+          eq(lots.organizationId, params.organizationId),
+          eq(lots.itemId, params.productId)
+        )
+      )
+      .for("update");
+    if (!lot) {
+      throw new ManufacturingError(
+        "Selected lot is not valid for this product.",
+        400
+      );
+    }
+    return { lotId: lot.id, newLotNumber: null };
+  }
+
+  const requestedLotNumber = params.selection?.producedLotNumber?.trim() || null;
+  if (requestedLotNumber) {
+    const [clash] = await tx
+      .select({ id: lots.id })
+      .from(lots)
+      .where(
+        and(
+          eq(lots.organizationId, params.organizationId),
+          eq(lots.itemId, params.productId),
+          eq(lots.lotNumber, requestedLotNumber)
+        )
+      )
+      .for("update");
+    if (clash) {
+      throw new ManufacturingError(
+        `Lot ${requestedLotNumber} already exists for this product. Choose it as an existing lot or use a different number.`,
+        400
+      );
+    }
+  }
+
+  return { lotId: null, newLotNumber: requestedLotNumber };
 }
 
 async function getConsumedQuantityByIngredientInTx(tx: Tx, ingredientIds: string[]) {
@@ -2842,7 +2940,11 @@ async function reverseManufacturingOutputInTx(
     ],
   });
 
-  const lotId = await getProducedLotIdInTx(tx, params.manufacturingOrderId);
+  const lotId = await getProducedLotIdInTx(
+    tx,
+    params.manufacturingOrderId,
+    params.manufacturingOrderBatchId
+  );
   if (!lotId) {
     throw new ManufacturingError("Produced lot not found.", 400);
   }
@@ -5436,7 +5538,11 @@ export async function recordManufacturingOutput(
         })
         .where(eq(manufacturingOrders.id, orderId));
 
-      const result = { id: orderId, lotId: (await getProducedLotIdInTx(tx, orderId)) ?? "" };
+      const result = {
+        id: orderId,
+        lotId:
+          (await getProducedLotIdInTx(tx, orderId, options?.batchId ?? null)) ?? "",
+      };
       await finishInventoryOperationInTx(tx, {
         organizationId: orgId,
         idempotencyKey: options?.idempotencyKey ?? null,
@@ -5718,7 +5824,13 @@ export async function recordManufacturingOutput(
       existingOrderOutputQuantity,
       outputQuantity
     );
-    const producedLotId = await getProducedLotIdInTx(tx, orderId);
+    const targetLot = await resolveProducedLotForUnitInTx(tx, {
+      organizationId: orgId,
+      manufacturingOrderId: orderId,
+      manufacturingOrderBatchId: options?.batchId ?? null,
+      productId: order.productId,
+      selection: payload,
+    });
     const produced = await produceManufacturedStockInTx(tx, {
       organizationId: orgId,
       manufacturingOrderId: orderId,
@@ -5726,7 +5838,8 @@ export async function recordManufacturingOutput(
       quantity: outputQuantity,
       actorUserId: userId,
       outputDisposition: payload.outputDisposition,
-      lotId: producedLotId,
+      lotId: targetLot.lotId,
+      newLotNumber: targetLot.newLotNumber,
       idempotencyKey: deriveInventoryIdempotencyKey(
         options?.idempotencyKey,
         "output-lot"
@@ -5884,6 +5997,13 @@ async function completeBatchModeManufacturingOrder(
       plannedQuantity - existingOutputQuantity
     );
 
+    // A produced-lot choice on the order-level /complete applies to the single batch
+    // being completed; if several batches are closed in one call, only the first takes
+    // it (a shared name would clash) and the rest get their own auto lots.
+    const lotForThisBatch = completedBatchCount === 0;
+    const batchProducedLotId = lotForThisBatch ? payload.producedLotId : undefined;
+    const batchProducedLotNumber = lotForThisBatch ? payload.producedLotNumber : null;
+
     if (remainingOutputQuantity > 0) {
       await recordManufacturingOutput(
         id,
@@ -5892,6 +6012,8 @@ async function completeBatchModeManufacturingOrder(
           outputDisposition: payload.outputDisposition,
           notes: null,
           confirmNegativeStock: payload.confirmNegativeStock,
+          producedLotId: batchProducedLotId,
+          producedLotNumber: batchProducedLotNumber,
         },
         {
           batchId: batch.id,
@@ -5911,6 +6033,8 @@ async function completeBatchModeManufacturingOrder(
         outputDisposition: payload.outputDisposition,
         ingredientActuals: [],
         confirmNegativeStock: payload.confirmNegativeStock,
+        producedLotId: batchProducedLotId,
+        producedLotNumber: batchProducedLotNumber,
       },
       {
         idempotencyKey: deriveInventoryIdempotencyKey(
@@ -6126,6 +6250,13 @@ async function completeDiscreteManufacturingOrder(
     );
     const actualCostPerUnit = (totalMaterialCost + absorbedOperationCost) / actualQuantity;
 
+    const targetLot = await resolveProducedLotForUnitInTx(tx, {
+      organizationId: orgId,
+      manufacturingOrderId: id,
+      manufacturingOrderBatchId: null,
+      productId: order.productId,
+      selection: payload,
+    });
     const produced = await produceManufacturedStockInTx(tx, {
       organizationId: orgId,
       manufacturingOrderId: id,
@@ -6133,6 +6264,8 @@ async function completeDiscreteManufacturingOrder(
       quantity: actualQuantity,
       actorUserId: userId,
       outputDisposition: payload.outputDisposition,
+      lotId: targetLot.lotId,
+      newLotNumber: targetLot.newLotNumber,
       idempotencyKey: deriveInventoryIdempotencyKey(
         options?.idempotencyKey,
         "complete-output"
@@ -6383,7 +6516,7 @@ export async function completeManufacturingBatch(
         });
       }
 
-      const producedLotId = await getProducedLotIdInTx(tx, orderId);
+      const producedLotId = await getProducedLotIdInTx(tx, orderId, batchId);
       await tx
         .update(manufacturingOrderBatches)
         .set({
@@ -6564,6 +6697,13 @@ export async function completeManufacturingBatch(
       actualQuantity,
       { absorbFullFixedCost: completesOrder }
     );
+    const targetLot = await resolveProducedLotForUnitInTx(tx, {
+      organizationId: orgId,
+      manufacturingOrderId: orderId,
+      manufacturingOrderBatchId: batchId,
+      productId: order.productId,
+      selection: payload,
+    });
     const produced = await produceManufacturedStockInTx(tx, {
       organizationId: orgId,
       manufacturingOrderId: orderId,
@@ -6571,6 +6711,8 @@ export async function completeManufacturingBatch(
       quantity: actualQuantity,
       actorUserId: userId,
       outputDisposition: payload.outputDisposition,
+      lotId: targetLot.lotId,
+      newLotNumber: targetLot.newLotNumber,
       idempotencyKey: deriveInventoryIdempotencyKey(
         options?.idempotencyKey,
         `complete-batch:${batchId}`
@@ -7093,8 +7235,48 @@ export async function getManufacturingExecutionDetail(
       manufacturingOrderBatchId: currentBatch?.id ?? null,
     });
 
+    // Candidate lots the completion picker can merge a batch into (ERP-169).
+    // Untracked finished goods use internal lots, so no lot choice is offered.
+    const productLotTrackingMode = await getItemLotTrackingModeInTx(
+      tx,
+      order.productId
+    );
+    const availableProducedLots =
+      productLotTrackingMode === "untracked"
+        ? []
+        : (
+            await tx
+              .select({
+                lotId: inventoryLotBalances.lotId,
+                lotNumber: lots.lotNumber,
+                quantity: trimScale(
+                  sql`SUM(${inventoryLotBalances.quantity})`
+                ).as("quantity"),
+              })
+              .from(inventoryLotBalances)
+              .innerJoin(lots, eq(lots.id, inventoryLotBalances.lotId))
+              .where(
+                and(
+                  eq(inventoryLotBalances.organizationId, orgId),
+                  eq(inventoryLotBalances.itemId, order.productId),
+                  eq(inventoryLotBalances.disposition, "available"),
+                  sql`${inventoryLotBalances.quantity} > 0`
+                )
+              )
+              .groupBy(inventoryLotBalances.lotId, lots.lotNumber, lots.receivedAt)
+              .orderBy(desc(lots.receivedAt))
+              .limit(50)
+          ).map((row) => ({
+            lotId: row.lotId,
+            lotNumber: row.lotNumber,
+            quantity: row.quantity,
+          }));
+
     return {
       ...order,
+      productLotTrackingMode:
+        productLotTrackingMode === "untracked" ? "untracked" : "tracked",
+      availableProducedLots,
       productName: canonicalItemName(itemDisplayById, order.productId, order.productName),
       status: order.status as ManufacturingOrderStatus,
       pickProgressStatus:

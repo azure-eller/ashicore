@@ -576,6 +576,7 @@ export async function produceManufacturedStockInTx(
     actorUserId?: string | null;
     idempotencyKey?: string | null;
     lotId?: string | null;
+    newLotNumber?: string | null;
     outputDisposition?: Extract<InventoryDisposition, "available" | "blocked">;
     overheadCostTotal?: number;
     expectedReleaseQuantity?: number | null;
@@ -597,6 +598,7 @@ export async function produceManufacturedStockInTx(
       overheadCostTotal: params.overheadCostTotal ?? 0,
       outputDisposition: params.outputDisposition ?? "available",
       lotId: params.lotId ?? null,
+      newLotNumber: params.newLotNumber ?? null,
       expectedReleaseQuantity: params.expectedReleaseQuantity ?? null,
       ingredientRows: params.ingredientRows,
     },
@@ -646,7 +648,10 @@ export async function produceManufacturedStockInTx(
         ...stockEventParams,
         lotId: params.lotId,
       })
-    : await createPositiveStockEventInTx(tx, stockEventParams);
+    : await createPositiveStockEventInTx(tx, {
+        ...stockEventParams,
+        lotNumber: params.newLotNumber ?? null,
+      });
 
   const existingExpected = await tx
     .select({

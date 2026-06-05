@@ -48,6 +48,8 @@ export async function completeManufacturingOrder(
     batchCount?: number;
     outputDisposition: OutputDisposition;
     confirmNegativeStock?: boolean;
+    producedLotId?: string;
+    producedLotNumber?: string;
   },
 ): Promise<{ id: string }> {
   const path = `/api/manufacturing-orders/${orderId}/complete`;
@@ -60,6 +62,8 @@ export async function completeManufacturingOrder(
       outputDisposition: input.outputDisposition,
       ingredientActuals: [],
       confirmNegativeStock: input.confirmNegativeStock ?? false,
+      producedLotId: input.producedLotId,
+      producedLotNumber: input.producedLotNumber,
     },
   });
 }
@@ -74,6 +78,8 @@ export async function recordManufacturingOutput(
     quantity: string;
     outputDisposition: OutputDisposition;
     confirmNegativeStock?: boolean;
+    producedLotId?: string;
+    producedLotNumber?: string;
   },
 ): Promise<{ id: string }> {
   const path = `/api/manufacturing-orders/${orderId}/outputs`;
@@ -84,6 +90,8 @@ export async function recordManufacturingOutput(
       quantity: input.quantity,
       outputDisposition: input.outputDisposition,
       confirmNegativeStock: input.confirmNegativeStock ?? false,
+      producedLotId: input.producedLotId,
+      producedLotNumber: input.producedLotNumber,
     },
   });
 }

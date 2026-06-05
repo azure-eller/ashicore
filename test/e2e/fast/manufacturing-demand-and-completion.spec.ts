@@ -4,6 +4,8 @@ import {
   inventoryDemandSummary,
   inventoryEvents,
   inventoryItemBalances,
+  lots,
+  manufacturingOrderBatches,
   manufacturingOrderIngredients,
   manufacturingOrders,
 } from "../../../lib/db/schema";
@@ -227,6 +229,129 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       .where(eq(manufacturingOrders.id, order.body.id));
 
     expect(componentBalance.onHandQty).toBe("-2.0000");
+    expect(savedOrder.status).toBe("done");
+  });
+
+  test("batch order completion lots each batch into its own produced lot", async ({
+    db,
+  }) => {
+    const component = await createItem({
+      itemType: "material",
+      name: `Fast MO Batch Component ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-MO-BATCH-COMP-${ts}`,
+      category: `Fast Manufacturing ${ts}`,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "100",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(component.status).toBe(201);
+
+    const product = await createItem({
+      itemType: "product",
+      name: `Fast MO Batch Product ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-MO-BATCH-PRODUCT-${ts}`,
+      category: `Fast Manufacturing ${ts}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "20.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: component.body.id, quantity: "1" }],
+    });
+    expect(product.status).toBe(201);
+
+    const batchRevision = await testFetch(
+      `/api/items/${product.body.id}/bom-revisions`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          recipeBasis: "batch",
+          expectedBatchYield: "10",
+          outputQuantity: "10",
+          bom: [{ componentId: component.body.id, quantity: "1" }],
+        }),
+      }
+    );
+    expect([200, 201]).toContain(batchRevision.status);
+
+    const order = await createManufacturingOrder({
+      productId: product.body.id,
+      plannedQuantity: "20", // 2 batches of 10
+      ingredients: [{ itemId: component.body.id, quantityPerUnit: "1" }],
+      confirmShortage: false,
+    });
+    expect(order.status).toBe(201);
+    expect((await releaseManufacturingOrder(order.body.id)).status).toBe(200);
+    const orderId = order.body.id as string;
+
+    async function currentBatchId() {
+      const execution = await testFetch(
+        `/api/manufacturing-orders/${orderId}/execution`
+      );
+      expect(execution.status).toBe(200);
+      const body = await execution.json();
+      const batch =
+        body.currentBatch ??
+        body.batches.find((b: { status: string }) => b.status !== "completed");
+      return batch.id as string;
+    }
+
+    // Each batch records and completes on its own — the field workflow where the
+    // first batch must not swallow the second batch's output.
+    const batch1 = await currentBatchId();
+    const batch1Output = await testFetch(
+      `/api/manufacturing-orders/${orderId}/batches/${batch1}/outputs`,
+      {
+        method: "POST",
+        body: JSON.stringify({ quantity: "10", producedLotNumber: "BATCH-A" }),
+      }
+    );
+    expect(batch1Output.status).toBe(200);
+    const batch1Complete = await testFetch(
+      `/api/manufacturing-orders/${orderId}/batches/${batch1}/complete`,
+      { method: "POST", body: JSON.stringify({}) }
+    );
+    expect(batch1Complete.status).toBe(200);
+
+    const batch2 = await currentBatchId();
+    const batch2Output = await testFetch(
+      `/api/manufacturing-orders/${orderId}/batches/${batch2}/outputs`,
+      { method: "POST", body: JSON.stringify({ quantity: "10" }) }
+    );
+    expect(batch2Output.status).toBe(200);
+    const batch2Complete = await testFetch(
+      `/api/manufacturing-orders/${orderId}/batches/${batch2}/complete`,
+      { method: "POST", body: JSON.stringify({}) }
+    );
+    expect(batch2Complete.status).toBe(200);
+
+    const batches = await db
+      .select({
+        id: manufacturingOrderBatches.id,
+        lotId: manufacturingOrderBatches.lotId,
+      })
+      .from(manufacturingOrderBatches)
+      .where(eq(manufacturingOrderBatches.manufacturingOrderId, orderId));
+    expect(batches).toHaveLength(2);
+    expect(new Set(batches.map((b) => b.lotId)).size).toBe(2);
+
+    const [namedBatch] = await db
+      .select({ lotNumber: lots.lotNumber, quantity: lots.quantity })
+      .from(lots)
+      .innerJoin(manufacturingOrderBatches, eq(manufacturingOrderBatches.lotId, lots.id))
+      .where(eq(manufacturingOrderBatches.id, batch1));
+    expect(namedBatch.lotNumber).toBe("BATCH-A");
+    expect(namedBatch.quantity).toBe("10.0000");
+
+    const [savedOrder] = await db
+      .select({ status: manufacturingOrders.status })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, orderId));
     expect(savedOrder.status).toBe("done");
   });
 

@@ -35,6 +35,14 @@ import { formatQuantity } from "@/lib/format";
 
 export type CompletionMode = "complete" | "output";
 
+/** The date lot the server will generate by default; used as a placeholder. */
+function proposedLotNumber(date: Date) {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `LOT-${yyyy}-${mm}-${dd}`;
+}
+
 /**
  * Dialog behind the status dropdown's "Done" (complete) and "Partially complete"
  * (output) transitions, usable from the order header and from list rows: it fetches the
@@ -99,8 +107,17 @@ function CompletionDialogForm({
       : "";
   const defaultBatchCount = completesPartialBatchOrder ? "1" : "";
 
+  // A discrete MO is one lot; it can be named once, on the first output. Batch
+  // MOs lot per batch in the execution flow, not from this all-at-once dialog.
+  const showLotField =
+    order.productLotTrackingMode !== "untracked" &&
+    !hasRecordedOutput &&
+    !completesBatchOrder &&
+    !completesPartialBatchOrder;
+
   const [rawQuantity, setRawQuantity] = useState(defaultQuantity);
   const [rawBatchCount, setRawBatchCount] = useState(defaultBatchCount);
+  const [rawLotNumber, setRawLotNumber] = useState("");
   const [disposition, setDisposition] = useState<OutputDisposition>("available");
   const [shortage, setShortage] = useState<ManufacturingReleaseWarningPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -124,6 +141,10 @@ function CompletionDialogForm({
   const quantityValid =
     !quantityRequired || (Number.isFinite(quantityNumber) && quantityNumber > 0);
 
+  const producedLotNumber = showLotField
+    ? rawLotNumber.trim() || undefined
+    : undefined;
+
   const submit = useMutation({
     mutationFn: (confirmNegativeStock: boolean) =>
       mode === "complete"
@@ -131,6 +152,7 @@ function CompletionDialogForm({
             actualQuantity: hasRecordedOutput || completesBatchOrder ? undefined : quantity,
             outputDisposition: disposition,
             confirmNegativeStock,
+            producedLotNumber,
           })
         : completesPartialBatchOrder
           ? completeManufacturingOrder(order.id, {
@@ -142,6 +164,7 @@ function CompletionDialogForm({
             quantity,
             outputDisposition: disposition,
             confirmNegativeStock,
+            producedLotNumber,
           }),
     onSuccess: () => onDone(),
     onError: (err) => {
@@ -224,6 +247,23 @@ function CompletionDialogForm({
               />
             </div>
           )}
+
+          {showLotField ? (
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium" htmlFor="mo-lot-number">
+                Lot number
+              </label>
+              <Input
+                id="mo-lot-number"
+                value={rawLotNumber}
+                onChange={(event) => setRawLotNumber(event.target.value)}
+                placeholder={proposedLotNumber(new Date())}
+              />
+              <p className="text-xs text-muted-foreground">
+                Leave blank to use {proposedLotNumber(new Date())}.
+              </p>
+            </div>
+          ) : null}
 
           <div className="space-y-1.5">
             <label className="text-sm font-medium" htmlFor="mo-disposition">

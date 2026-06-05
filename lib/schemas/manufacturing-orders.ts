@@ -307,12 +307,29 @@ const ingredientActualSchema = z.object({
     .refine(isNonNegativeNumberString, "Actual consumed must be zero or greater"),
 });
 
+/**
+ * Produced-lot selection (ERP-169). A production unit — one discrete MO, or one
+ * batch of a batch MO — lands in exactly one lot. The caller may target an
+ * existing lot (`producedLotId`) or name a new one (`producedLotNumber`); absent
+ * both, the server generates a date lot. Ignored once the unit already has a lot.
+ */
+const producedLotSelectionFields = {
+  producedLotId: z.string().uuid("Produced lot is invalid").optional(),
+  producedLotNumber: z
+    .string()
+    .trim()
+    .max(128, "Lot number must be 128 characters or fewer")
+    .transform((value) => (value.length > 0 ? value : null))
+    .optional(),
+};
+
 export const completeManufacturingOrderSchema = z.object({
   actualQuantity: positiveDecimalString("Actual quantity").optional(),
   batchCount: z.number().int("Batches must be a whole number").positive("Batches must be positive").optional(),
   outputDisposition: z.enum(["available", "blocked"]).default("available"),
   ingredientActuals: z.array(ingredientActualSchema).default([]),
   confirmNegativeStock: z.boolean().optional(),
+  ...producedLotSelectionFields,
 });
 export type CompleteManufacturingOrder = z.infer<
   typeof completeManufacturingOrderSchema
@@ -323,6 +340,7 @@ export const completeManufacturingBatchSchema = z.object({
   outputDisposition: z.enum(["available", "blocked"]).default("available"),
   ingredientActuals: z.array(ingredientActualSchema).default([]),
   confirmNegativeStock: z.boolean().optional(),
+  ...producedLotSelectionFields,
 });
 export type CompleteManufacturingBatch = z.infer<
   typeof completeManufacturingBatchSchema
@@ -406,6 +424,7 @@ export const recordManufacturingOutputSchema = z.object({
   outputDisposition: z.enum(["available", "blocked"]).default("available"),
   notes: nullableString,
   confirmNegativeStock: z.boolean().optional(),
+  ...producedLotSelectionFields,
 });
 export type RecordManufacturingOutput = z.infer<
   typeof recordManufacturingOutputSchema

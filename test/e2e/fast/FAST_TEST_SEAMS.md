@@ -11,6 +11,6 @@ that is worth running on every serious PR.
 | `sales-demand-and-shipment.spec.ts` | Sales creates demand without premature stock consumption, Shopify paid-order import uses the same demand path, and shipment consumes stock exactly once. |
 | `purchasing-supply-and-receipt.spec.ts` | Purchasing creates expected supply, receipt converts it into physical stock, explicit PO edits clear additional costs without reviving legacy shipping, and editing freight after receipt rebases landed cost on eligible available tracked stock via an append-only `landed_cost_revaluation` event without mutating the receipt or blocking the PO edit. |
 | `xero-purchase-bill-gates.spec.ts` | Purchase bill sync blocks unsafe accounting pushes before contacting Xero. |
-| `manufacturing-demand-and-completion.spec.ts` | Manufacturing creates ingredient demand and completion consumes inputs while producing output once. |
+| `manufacturing-demand-and-completion.spec.ts` | Manufacturing creates ingredient demand, completion consumes inputs while producing output once, and a batch order lots each batch into its own (nameable) produced lot. |
 | `planning-demand-queue.spec.ts` | Demand queue scarce-stock math covers higher-ranked demand first without overclaiming available stock. |
 | `produced-today.spec.ts` | "Produced today" counts every completed production for the org day, including non-sellable intermediates — not only sellable finished goods. |
