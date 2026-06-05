@@ -90,10 +90,18 @@ test.describe("purchasing receiving operating story", () => {
   });
 
   test("partial receipt converts only received quantity into physical stock", async ({ db, page }) => {
-    const receipt = await receivePurchaseOrder(orderId, {
-      lines: [{ lineId, quantityReceived: "5" }],
-    });
-    expect(receipt.status).toBe(200);
+    await page.goto(`/purchasing/order/${orderId}`);
+    await page.getByLabel("Change status: Ordered").click();
+    await page.getByRole("menuitem", { name: "Partially received" }).click();
+    await expect(page.getByRole("dialog", { name: "Receive purchase order" })).toBeVisible();
+    await page.getByLabel(`Quantity received for ${materialName}`).fill("5");
+    const receiveResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes(`/api/purchase-orders/${orderId}/receive`) &&
+        response.request().method() === "POST"
+    );
+    await page.getByRole("button", { name: "Receive selected" }).click();
+    expect((await receiveResponse).status()).toBe(200);
 
     const [balance] = await db
       .select({
@@ -113,15 +121,25 @@ test.describe("purchasing receiving operating story", () => {
       .where(eq(purchaseOrders.id, orderId));
     expect(order.status).toBe("partial");
 
-    await page.goto(`/purchasing/order/${orderId}`);
     await expect(page.locator("main")).toContainText(materialName);
   });
 
-  test("final receipt closes expected supply and leaves lot-backed stock truth", async ({ db }) => {
-    const receipt = await receivePurchaseOrder(orderId, {
-      lines: [{ lineId, quantityReceived: "7" }],
-    });
-    expect(receipt.status).toBe(200);
+  test("final receipt closes expected supply and leaves lot-backed stock truth", async ({
+    db,
+    page,
+  }) => {
+    await page.goto(`/purchasing/order/${orderId}`);
+    await page.getByLabel("Change status: Partially received").click();
+    await page.getByRole("menuitem", { name: "Partially received" }).click();
+    await expect(page.getByRole("dialog", { name: "Receive purchase order" })).toBeVisible();
+    await page.getByLabel(`Quantity received for ${materialName}`).fill("7");
+    const receiveResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes(`/api/purchase-orders/${orderId}/receive`) &&
+        response.request().method() === "POST"
+    );
+    await page.getByRole("button", { name: "Receive selected" }).click();
+    expect((await receiveResponse).status()).toBe(200);
 
     const [balance] = await db
       .select({

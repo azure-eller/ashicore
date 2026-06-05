@@ -38,11 +38,14 @@ export type ReceivePurchaseOrderInput = {
 export async function receivePurchaseOrder(
   orderId: string,
   input: ReceivePurchaseOrderInput,
-): Promise<{ id: string }> {
-  return apiJson<{ id: string }>(`/api/purchase-orders/${orderId}/receive`, {
-    method: "POST",
-    idempotencyKey: "receive-purchase-order",
-    body: input,
-    fallbackError: "Failed to receive purchase order.",
-  });
+): Promise<{ id: string; status: PurchaseOrderStatus }> {
+  return apiJson<{ id: string; status: PurchaseOrderStatus }>(
+    `/api/purchase-orders/${orderId}/receive`,
+    {
+      method: "POST",
+      idempotencyKey: "receive-purchase-order",
+      body: input,
+      fallbackError: "Failed to receive purchase order.",
+    },
+  );
 }

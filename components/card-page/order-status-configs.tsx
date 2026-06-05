@@ -503,8 +503,8 @@ function purchaseStatusOptions(status: PurchaseOrderStatus) {
 function canPurchaseOrderTransition(from: PurchaseOrderStatus, to: PurchaseOrderStatus) {
   if (to === "cancelled") return from === "draft" || from === "ordered";
   if (from === "draft") return to === "ordered";
-  if (from === "ordered") return to === "received";
-  if (from === "partial") return to === "received";
+  if (from === "ordered") return to === "partial" || to === "received";
+  if (from === "partial") return to === "partial" || to === "received";
   return false;
 }
 
@@ -513,38 +513,52 @@ export const purchaseOrderStatusConfig: OrderStatusControlConfig<PurchaseStatusC
   options: ({ status }) => purchaseStatusOptions(status),
   current: ({ status }) => status,
   transitionKind: (from, to) => {
-    if (to === from) return "noop";
     if (!canPurchaseOrderTransition(from as PurchaseOrderStatus, to as PurchaseOrderStatus)) {
       return "disabled";
     }
-    return to === "received" ? "dialog" : "instant";
+    return to === "partial" || to === "received" ? "dialog" : "instant";
   },
   runInstant: (to, { orderId }) =>
     updatePurchaseOrderStatus(orderId, to as PurchaseOrderStatus).then(() => undefined),
   renderDialog: ({ to, ctx, onClose, onDone }) => {
-    if (to !== "received") return null;
-    return <ReceiveConfirmDialog orderId={ctx.orderId} onClose={onClose} onDone={onDone} />;
+    if (to !== "partial" && to !== "received") return null;
+    return (
+      <ReceiveConfirmDialog
+        mode={to}
+        orderId={ctx.orderId}
+        onClose={onClose}
+        onDone={onDone}
+      />
+    );
   },
 };
 
 function ReceiveConfirmDialog({
+  mode,
   orderId,
   onClose,
   onDone,
 }: {
+  mode: "partial" | "received";
   orderId: string;
   onClose: () => void;
-  onDone: () => void;
+  onDone: (status?: PurchaseOrderStatus) => void;
 }) {
   const orderQuery = useQuery({
     queryKey: ["purchase-order-receive", orderId],
     queryFn: () => getPurchaseOrderDetail(orderId),
   });
+  const order = orderQuery.data;
   const initialRows =
-    orderQuery.data?.lines.flatMap((line) => {
+    order?.lines.flatMap((line) => {
       const row = toReceivableRow(line);
       if (!row || Number(row.remainingQuantity) <= 0) return [];
-      return [{ ...row, quantity: row.remainingQuantity }];
+      return [
+        {
+          ...row,
+          quantity: mode === "received" ? row.remainingQuantity : "",
+        },
+      ];
     }) ?? [];
 
   return (
@@ -567,6 +581,7 @@ function ReceiveConfirmDialog({
         ) : (
           <ReceiveForm
             key={orderQuery.dataUpdatedAt}
+            mode={mode}
             orderId={orderId}
             initialRows={initialRows}
             onClose={onClose}
@@ -579,15 +594,17 @@ function ReceiveConfirmDialog({
 }
 
 function ReceiveForm({
+  mode,
   orderId,
   initialRows,
   onClose,
   onDone,
 }: {
+  mode: "partial" | "received";
   orderId: string;
   initialRows: ReceiveDialogRow[];
   onClose: () => void;
-  onDone: () => void;
+  onDone: (status?: PurchaseOrderStatus) => void;
 }) {
   const [rows, setRows] = useState<ReceiveDialogRow[]>(initialRows);
   const mutation = useMutation({
@@ -601,7 +618,7 @@ function ReceiveForm({
           }))
           .filter((line) => Number(line.quantityReceived) > 0),
       }),
-    onSuccess: () => onDone(),
+    onSuccess: (result) => onDone(result.status),
   });
   const invalidRows = rows.filter((row) => {
     const quantity = Number(normalizeDialogQuantity(row.quantity));
@@ -668,6 +685,7 @@ function ReceiveForm({
                 <FramedTableCell className="text-right">
                   <div className="flex items-center justify-end gap-(--space-2)">
                     <Input
+                      aria-label={`Quantity received for ${row.itemName}`}
                       className="h-(--height-input-sm) w-28 text-right font-mono tabular-nums"
                       inputMode="decimal"
                       value={row.quantity}
@@ -701,7 +719,11 @@ function ReceiveForm({
             Cancel
           </Button>
           <Button onClick={() => mutation.mutate()} disabled={!canSubmit}>
-            {mutation.isPending ? "Receiving..." : "Mark received"}
+            {mutation.isPending
+              ? "Receiving..."
+              : mode === "partial"
+                ? "Receive selected"
+                : "Mark received"}
           </Button>
         </DialogFooter>
     </>

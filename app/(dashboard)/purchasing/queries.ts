@@ -3045,7 +3045,10 @@ export async function receivePurchaseOrder(
   options?: { idempotencyKey?: string },
 ) {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
-    const replay = await beginInventoryOperationInTx<{ id: string } | null>(
+    const replay = await beginInventoryOperationInTx<{
+      id: string;
+      status: PurchaseOrderStatus;
+    } | null>(
       tx,
       {
         organizationId: orgId,
@@ -3383,7 +3386,7 @@ export async function receivePurchaseOrder(
       })
       .where(eq(purchaseOrders.id, id));
 
-    const result = { id };
+    const result = { id, status: allReceived ? "received" : "partial" };
 
     await finishInventoryOperationInTx(tx, {
       organizationId: orgId,
