@@ -1030,6 +1030,13 @@
       "when": 1780680630403,
       "tag": "0146_landed_cost_revaluation_journal_sync",
       "breakpoints": true
+    },
+    {
+      "idx": 147,
+      "version": "7",
+      "when": 1780681724856,
+      "tag": "0147_production_schema_journal_sync",
+      "breakpoints": true
     }
   ]
 }

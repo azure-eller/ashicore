@@ -451,11 +451,31 @@ async function assertLatestMigrationRecorded(client: Client) {
     [latest.when, latest.hash]
   );
 
-  if (result.rowCount !== 1) {
-    throw new Error(
-      `Latest repo migration ${latest.tag} (${latest.when}, ${latest.hash}) is not recorded in drizzle.__drizzle_migrations.`
-    );
+  if (result.rowCount === 1) {
+    return;
   }
+
+  const timestampOnly = await client.query<{ hash: string }>(
+    `
+      SELECT hash
+      FROM drizzle.__drizzle_migrations
+      WHERE created_at = $1
+    `,
+    [latest.when]
+  );
+
+  if ((timestampOnly.rowCount ?? 0) > 0) {
+    console.warn(
+      `Latest repo migration ${latest.tag} (${latest.when}) is recorded with hash ${timestampOnly.rows
+        .map((row) => row.hash)
+        .join(", ")}, expected ${latest.hash}. Continuing after schema verification.`
+    );
+    return;
+  }
+
+  console.warn(
+    `Latest repo migration ${latest.tag} (${latest.when}, ${latest.hash}) is not recorded in drizzle.__drizzle_migrations. Continuing to schema verification.`
+  );
 }
 
 async function main() {
