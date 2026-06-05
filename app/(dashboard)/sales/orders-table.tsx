@@ -319,7 +319,7 @@ function salesOrderMatchesSearch(
   ].some((value) => value?.toLowerCase().includes(normalizedSearch));
 }
 
-function RankCell({ rowIndex, order }: { rowIndex: number; order: SalesOrderListRow }) {
+function RankCell({ order }: { order: SalesOrderListRow }) {
   if (!isOpenSalesOrder(order)) {
     return <span className="text-muted-foreground">-</span>;
   }
@@ -327,7 +327,7 @@ function RankCell({ rowIndex, order }: { rowIndex: number; order: SalesOrderList
   return (
     <div className="flex h-full min-w-0 items-center">
       <span className="block w-(--space-16) shrink-0 text-right text-muted-foreground tabular-nums">
-        {order.priorityRank ?? rowIndex + 1}
+        {order.priorityRank ?? "-"}
       </span>
     </div>
   );
@@ -472,12 +472,9 @@ function OrdersTableContent({
         rowDrag: reorderEnabled,
         rowDragText: ({ defaultTextValue }) => `Move ${defaultTextValue}`,
         hide: statusFilter !== "open",
-        cellRenderer: ({
-          data,
-          node,
-        }: ICellRendererParams<SalesOrderListRow>) =>
+        cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
           data ? (
-            <RankCell rowIndex={node.rowIndex ?? 0} order={data} />
+            <RankCell order={data} />
           ) : null,
         getQuickFilterText: () => "",
       },

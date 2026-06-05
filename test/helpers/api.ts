@@ -246,11 +246,11 @@ export async function updateItem(id: string, data: Record<string, unknown>) {
     const bom = normalizeBomRows(data.bom);
     const operationCosts = Array.isArray(data.operationCosts)
       ? data.operationCosts
-      : [];
+      : undefined;
 
     if (
       snapshot.itemType !== "product" &&
-      (bom.length > 0 || operationCosts.length > 0)
+      (bom.length > 0 || (operationCosts?.length ?? 0) > 0)
     ) {
       return {
         status: 400,
@@ -261,7 +261,7 @@ export async function updateItem(id: string, data: Record<string, unknown>) {
     if (snapshot.itemType === "product") {
       latest = await jsonMutation(`/api/items/${id}/bom-revisions`, "POST", {
         bom,
-        operationCosts,
+        ...(operationCosts !== undefined ? { operationCosts } : {}),
         note: data.revisionNote ?? null,
       });
       if (latest.status >= 400) return latest;

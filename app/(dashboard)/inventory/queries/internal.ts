@@ -1891,7 +1891,9 @@ export async function updateItem(
       stock != null ? stock - (await getCurrentOnHandQtyInTx(tx, id)) : null;
     const currentBom = bom !== undefined ? await getCurrentBomComponentsInTx(tx, id) : [];
     const currentOperationCosts =
-      operationCosts !== undefined ? await getCurrentBomOperationCostsInTx(tx, id) : [];
+      bom !== undefined || operationCosts !== undefined
+        ? await getCurrentBomOperationCostsInTx(tx, id)
+        : [];
     const normalizedCurrentStockUnitCost =
       existingItem.itemType === "material"
         ? normalizeCurrentStockUnitCost(itemData.currentStockUnitCost)

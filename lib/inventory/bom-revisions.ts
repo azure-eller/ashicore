@@ -10,6 +10,7 @@ import type {
   BomInputRow,
   BomOperationCostInputRow,
 } from "@/app/(dashboard)/inventory/queries/bom-write";
+import { getCurrentBomOperationCostsInTx } from "@/lib/bom/operation-costs";
 
 const bomRowSchema = z.object({
   componentId: z.string().uuid("Component is required"),
@@ -102,6 +103,18 @@ export async function createBomRevision(
       })
       .where(eq(items.id, productId));
 
+    const operationCosts =
+      data.operationCosts ??
+      (await getCurrentBomOperationCostsInTx(tx, productId)).map((row) => ({
+        operationName: row.operationName,
+        resourceId: row.resourceId,
+        costScalingMode:
+          row.costScalingMode as BomOperationCostInputRow["costScalingMode"],
+        crewSize: row.crewSize,
+        plannedMinutes: row.plannedMinutes,
+        loadedCostPerHour: row.loadedCostPerHour,
+      }));
+
     const result = await createBomRevisionInTx(tx, {
       orgId,
       userId,
@@ -110,7 +123,7 @@ export async function createBomRevision(
       outputQuantity,
       recipeBasis,
       bom: data.bom as BomInputRow[],
-      operationCosts: data.operationCosts as BomOperationCostInputRow[] | undefined,
+      operationCosts,
     });
     return { revisionId: result.id, revisionNumber: result.revisionNumber };
   });

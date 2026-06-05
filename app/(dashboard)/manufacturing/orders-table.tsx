@@ -348,10 +348,8 @@ type ManufacturingResourceFilterOption = {
 };
 
 function RankCell({
-  rowIndex,
   order,
 }: {
-  rowIndex: number;
   order: ManufacturingOrderListRow;
 }) {
   if (!(OPEN_MANUFACTURING_STATUSES as readonly string[]).includes(order.status)) {
@@ -361,7 +359,7 @@ function RankCell({
   return (
     <div className="flex h-full items-center">
       <span className="w-(--space-16) text-muted-foreground tabular-nums">
-        {order.priorityRank ?? rowIndex + 1}
+        {order.priorityRank ?? "-"}
       </span>
     </div>
   );
@@ -492,12 +490,9 @@ export function OrdersTable({
         sortable: false,
         rowDrag: reorderAvailable,
         hide: statusFilter !== "open",
-        cellRenderer: ({
-          data,
-          node,
-        }: ICellRendererParams<ManufacturingOrderListRow>) =>
+        cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
           data ? (
-            <RankCell rowIndex={node.rowIndex ?? 0} order={data} />
+            <RankCell order={data} />
           ) : null,
         getQuickFilterText: () => "",
       },

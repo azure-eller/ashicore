@@ -42,6 +42,7 @@ import {
   getSessionCookie,
   getUnitId,
   testFetch,
+  updateItem,
 } from "../../helpers/api";
 
 test.describe("inventory mutation kernel heartbeat", () => {
@@ -1122,6 +1123,113 @@ test.describe("inventory mutation kernel heartbeat", () => {
     expect(clonedOptions).toHaveLength(1);
     expect(clonedValues).toHaveLength(3);
     expect(clonedAssignments).toHaveLength(3);
+  });
+
+  test("recipe-only BOM revision preserves production operations", async ({ db }) => {
+    const unique = randomUUID().slice(0, 8);
+    const [resource] = await db
+      .insert(manufacturingResources)
+      .values({
+        organizationId: orgId,
+        name: `Fast Recipe Labor ${unique}`,
+        resourceType: "labor",
+        loadedCostPerHour: "60.000000",
+      })
+      .returning({ id: manufacturingResources.id });
+
+    const component = await createItem({
+      itemType: "material",
+      name: `Fast Recipe Component ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-RECIPE-COMP-${unique}`,
+      category: `Fast Recipe ${unique}`,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(component.status).toBe(201);
+
+    const product = await createItem({
+      itemType: "product",
+      name: `Fast Recipe Product ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-RECIPE-PROD-${unique}`,
+      category: `Fast Recipe ${unique}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: component.body.id, quantity: "1" }],
+      operationCosts: [
+        {
+          operationName: "Mixing",
+          resourceId: resource.id,
+          costScalingMode: "per_output_unit",
+          crewSize: "1",
+          plannedMinutes: "10",
+          loadedCostPerHour: "60",
+        },
+      ],
+    });
+    expect(product.status).toBe(201);
+    const productId = product.body.id as string;
+
+    const saveRecipe = await testFetch(`/api/items/${productId}/bom-revisions`, {
+      method: "POST",
+      body: JSON.stringify({
+        recipeBasis: "unit",
+        outputQuantity: "1",
+        bom: [{ componentId: component.body.id, quantity: "2" }],
+        note: "Recipe-only change",
+      }),
+    });
+    expect(saveRecipe.status).toBe(201);
+
+    const [currentRevision] = await db
+      .select({ id: bomRevisions.id })
+      .from(bomRevisions)
+      .where(and(eq(bomRevisions.productId, productId), eq(bomRevisions.isCurrent, true)));
+    expect(currentRevision).toBeTruthy();
+
+    const componentRows = await db
+      .select({ quantity: bomRevisionComponents.quantity })
+      .from(bomRevisionComponents)
+      .where(eq(bomRevisionComponents.bomRevisionId, currentRevision.id));
+    expect(componentRows.map((row) => Number(row.quantity))).toEqual([2]);
+
+    const operationRows = await db
+      .select({ operationName: bomRevisionOperationCosts.operationName })
+      .from(bomRevisionOperationCosts)
+      .where(eq(bomRevisionOperationCosts.bomRevisionId, currentRevision.id));
+    expect(operationRows.map((row) => row.operationName)).toEqual(["Mixing"]);
+
+    const updateRecipeOnly = await updateItem(productId, {
+      bom: [{ componentId: component.body.id, quantity: "3" }],
+      revisionNote: "BOM-only helper change",
+    });
+    expect(updateRecipeOnly.status).toBe(200);
+
+    const [nextRevision] = await db
+      .select({ id: bomRevisions.id })
+      .from(bomRevisions)
+      .where(and(eq(bomRevisions.productId, productId), eq(bomRevisions.isCurrent, true)));
+    expect(nextRevision).toBeTruthy();
+
+    const nextComponentRows = await db
+      .select({ quantity: bomRevisionComponents.quantity })
+      .from(bomRevisionComponents)
+      .where(eq(bomRevisionComponents.bomRevisionId, nextRevision.id));
+    expect(nextComponentRows.map((row) => Number(row.quantity))).toEqual([3]);
+
+    const nextOperationRows = await db
+      .select({ operationName: bomRevisionOperationCosts.operationName })
+      .from(bomRevisionOperationCosts)
+      .where(eq(bomRevisionOperationCosts.bomRevisionId, nextRevision.id));
+    expect(nextOperationRows.map((row) => row.operationName)).toEqual(["Mixing"]);
   });
 
   test("product recipe deep links drop deleted variant focus", async ({ page }) => {
