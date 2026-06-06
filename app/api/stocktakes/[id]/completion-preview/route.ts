@@ -5,7 +5,7 @@ import { assertModuleReadAccess } from "@/lib/dal/auth";
 import {
   getStocktakeCompletionPreview,
   StocktakeError,
-} from "@/app/(dashboard)/inventory/stocktakes/queries";
+} from "@/lib/dal/stocktakes";
 
 export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;

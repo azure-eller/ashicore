@@ -1,4 +1,5 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
+import type { NextResponse } from "next/server";
 import { jsonError, jsonNotFound } from "@/lib/api/responses";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import {
@@ -9,7 +10,10 @@ import {
 import type { Tx } from "@/lib/db/with-org-context";
 import { roundQuantity } from "@/lib/format";
 import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
-import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
+import {
+  getDefaultInventoryLocationInTx,
+  getExistingDefaultInventoryLocationInTx,
+} from "@/lib/inventory/kernel/locations";
 import { readInventoryIdempotencyReplayInTx } from "@/lib/inventory/kernel/idempotency";
 import { reconcilePhysicalInventoryCountInTx } from "@/lib/inventory/kernel/operations/stocktakes";
 import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
@@ -21,7 +25,7 @@ import type {
 export async function adjustItemStock(
   itemId: string,
   input: StockAdjustmentInput,
-  options: { idempotencyKey: string }
+  options: { idempotencyKey: string; allowDefaultLocationCreate?: boolean }
 ) {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
     const idempotencyPayload = buildAdjustmentIdempotencyPayload(itemId, input);
@@ -46,7 +50,13 @@ export async function adjustItemStock(
       return jsonNotFound("Item not found");
     }
 
-    const location = await getDefaultInventoryLocationInTx(tx, orgId);
+    const location =
+      options.allowDefaultLocationCreate === false
+        ? await getExistingDefaultInventoryLocationInTx(tx, orgId)
+        : await getDefaultInventoryLocationInTx(tx, orgId);
+    if (!location) {
+      return jsonError("Default inventory location not found.", 400);
+    }
     const lotTrackingMode = await getItemLotTrackingModeInTx(tx, itemId);
 
     if (lotTrackingMode === "tracked") {
@@ -113,58 +123,15 @@ async function adjustLotTrackedStock(
     input: StockAdjustmentInput;
   }
 ) {
-  const adjustLots = params.input.lots;
-  if (!adjustLots || adjustLots.length === 0) {
-    return jsonError("At least one lot is required.", 400);
+  const validationError = await validateStockAdjustmentLotsInTx(tx, {
+    orgId: params.orgId,
+    itemId: params.itemId,
+    lots: params.input.lots,
+  });
+  if (validationError) {
+    return validationError;
   }
-
-  for (const lot of adjustLots) {
-    if (!lot.lotId && !lot.lotNumber) {
-      return jsonError("New lots require a lot number.", 400);
-    }
-  }
-
-  const newLotNumbers = adjustLots
-    .filter((lot) => !lot.lotId && lot.lotNumber)
-    .map((lot) => lot.lotNumber as string);
-  const duplicateRequestLotNumber = newLotNumbers.find(
-    (lotNumber, index) => newLotNumbers.indexOf(lotNumber) !== index
-  );
-  if (duplicateRequestLotNumber) {
-    return jsonError(
-      `Lot ${duplicateRequestLotNumber} was submitted more than once.`,
-      400
-    );
-  }
-
-  const existingLotIds = adjustLots
-    .map((lot) => lot.lotId)
-    .filter((lotId): lotId is string => Boolean(lotId));
-  const duplicateRequestLotId = existingLotIds.find(
-    (lotId, index) => existingLotIds.indexOf(lotId) !== index
-  );
-  if (duplicateRequestLotId) {
-    return jsonError("A lot was submitted more than once.", 400);
-  }
-
-  if (newLotNumbers.length > 0) {
-    const existingNumberRows = await tx
-      .select({ lotNumber: lots.lotNumber })
-      .from(lots)
-      .where(
-        and(
-          eq(lots.organizationId, params.orgId),
-          eq(lots.itemId, params.itemId),
-          inArray(lots.lotNumber, newLotNumbers)
-        )
-      );
-    if (existingNumberRows.length > 0) {
-      return jsonError(
-        `Lot ${existingNumberRows[0].lotNumber} already exists for this item — count it as the listed lot.`,
-        400
-      );
-    }
-  }
+  const adjustLots = params.input.lots!;
 
   const balanceRows = await tx
     .select({
@@ -226,6 +193,70 @@ async function adjustLotTrackedStock(
   });
 
   return { ok: true } as const;
+}
+
+export async function validateStockAdjustmentLotsInTx(
+  tx: Tx,
+  params: {
+    orgId: string;
+    itemId: string;
+    lots: StockAdjustmentLotInput[] | undefined;
+  }
+): Promise<NextResponse | null> {
+  const adjustLots = params.lots;
+  if (!adjustLots || adjustLots.length === 0) {
+    return jsonError("At least one lot is required.", 400);
+  }
+
+  for (const lot of adjustLots) {
+    if (!lot.lotId && !lot.lotNumber) {
+      return jsonError("New lots require a lot number.", 400);
+    }
+  }
+
+  const newLotNumbers = adjustLots
+    .filter((lot) => !lot.lotId && lot.lotNumber)
+    .map((lot) => lot.lotNumber as string);
+  const duplicateRequestLotNumber = newLotNumbers.find(
+    (lotNumber, index) => newLotNumbers.indexOf(lotNumber) !== index
+  );
+  if (duplicateRequestLotNumber) {
+    return jsonError(
+      `Lot ${duplicateRequestLotNumber} was submitted more than once.`,
+      400
+    );
+  }
+
+  const existingLotIds = adjustLots
+    .map((lot) => lot.lotId)
+    .filter((lotId): lotId is string => Boolean(lotId));
+  const duplicateRequestLotId = existingLotIds.find(
+    (lotId, index) => existingLotIds.indexOf(lotId) !== index
+  );
+  if (duplicateRequestLotId) {
+    return jsonError("A lot was submitted more than once.", 400);
+  }
+
+  if (newLotNumbers.length > 0) {
+    const existingNumberRows = await tx
+      .select({ lotNumber: lots.lotNumber })
+      .from(lots)
+      .where(
+        and(
+          eq(lots.organizationId, params.orgId),
+          eq(lots.itemId, params.itemId),
+          inArray(lots.lotNumber, newLotNumbers)
+        )
+      );
+    if (existingNumberRows.length > 0) {
+      return jsonError(
+        `Lot ${existingNumberRows[0].lotNumber} already exists for this item — count it as the listed lot.`,
+        400
+      );
+    }
+  }
+
+  return null;
 }
 
 function buildAdjustmentIdempotencyPayload(

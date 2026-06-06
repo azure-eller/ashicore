@@ -91,6 +91,24 @@ test.describe("stocktake workflow operating story", () => {
     expect(complete.status).toBe(400);
   });
 
+  test("rejects stocktake reconciliation requests with inline lines", async () => {
+    const response = await testFetch("/api/inventory/reconciliations/preview", {
+      method: "POST",
+      body: JSON.stringify({
+        source: { kind: "stocktake", stocktakeId },
+        lines: [
+          {
+            itemId: materialId,
+            reason: "cycle_count",
+            newQuantity: "4",
+          },
+        ],
+      }),
+    });
+
+    expect(response.status).toBe(400);
+  });
+
   test("commits the saved count as authoritative stock truth", async ({ db }) => {
     const complete = await testFetch(`/api/stocktakes/${stocktakeId}/complete`, {
       method: "POST",
@@ -235,11 +253,50 @@ test.describe("stocktake found-lot operating story", () => {
     expect(savedFound.countedQty).toBe("7.0000");
     expect(savedFound.expectedQty).toBe("0.0000");
 
+    const deleteFound = await testFetch(`/api/stocktakes/${foundStocktakeId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        lines: [],
+        lotLines: [{ lotLineId: savedFound.id, delete: true }],
+      }),
+    });
+    expect(deleteFound.status, await deleteFound.text()).toBe(200);
+
+    const deletedFoundRows = await db
+      .select({ id: stocktakeLotItems.id })
+      .from(stocktakeLotItems)
+      .where(eq(stocktakeLotItems.id, savedFound.id));
+    expect(deletedFoundRows).toHaveLength(0);
+
+    const resave = await testFetch(`/api/stocktakes/${foundStocktakeId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        lines: [],
+        lotLines: [
+          {
+            isFound: true,
+            stocktakeItemId: foundLineId,
+            lotNumber: foundLotNumber,
+            countedQty: "7",
+          },
+        ],
+      }),
+    });
+    expect(resave.status, await resave.text()).toBe(200);
+
     const complete = await testFetch(
-      `/api/stocktakes/${foundStocktakeId}/complete`,
+      "/api/inventory/reconciliations",
       {
         method: "POST",
-        body: JSON.stringify({ confirmStale: false, reason: "Cycle count" }),
+        body: JSON.stringify({
+          source: {
+            kind: "stocktake",
+            stocktakeId: foundStocktakeId,
+            confirmStale: false,
+            reason: "Cycle count",
+          },
+          lines: [],
+        }),
       }
     );
     expect(complete.status, await complete.text()).toBe(200);

@@ -6,7 +6,7 @@ import { cloneStocktakeSchema } from "@/lib/schemas/stocktakes";
 import {
   cloneStocktake,
   StocktakeError,
-} from "@/app/(dashboard)/inventory/stocktakes/queries";
+} from "@/lib/dal/stocktakes";
 
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;

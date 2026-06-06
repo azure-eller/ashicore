@@ -5,7 +5,6 @@ import {
   inventoryEvents,
   inventoryEventAdjustmentReasons,
   inventoryItemBalances,
-  inventoryLocations,
   inventoryLotBalances,
   items,
   lots,
@@ -15,6 +14,7 @@ import {
   createPositiveStockEventInTx,
   resolvePositiveStockUnitCostInTx,
 } from "../../../lib/inventory/kernel";
+import { getDefaultInventoryLocationInTx } from "../../../lib/inventory/kernel/locations";
 import { createItem, getOrgId, getUnitId, testFetch } from "../../helpers/api";
 
 async function getAdjustmentReason(
@@ -77,16 +77,9 @@ test.describe("non-lot stock adjustment route", () => {
     ).toBe(200);
 
     if (stock > 0) {
-      const [location] = await db
-        .select({ id: inventoryLocations.id })
-        .from(inventoryLocations)
-        .where(
-          and(
-            eq(inventoryLocations.organizationId, orgId),
-            eq(inventoryLocations.isDefault, true)
-          )
-        );
-      if (!location?.id) throw new Error("Default inventory location not found.");
+      const location = await db.transaction((tx) =>
+        getDefaultInventoryLocationInTx(tx, orgId)
+      );
 
       await db.transaction(async (tx) => {
         await createPositiveStockEventInTx(tx, {
@@ -231,6 +224,124 @@ test.describe("non-lot stock adjustment route", () => {
     expect(itemBalance.onHandQty).toBe("9.0000");
   });
 
+  test("generic reconciliation preview reports current counted and variance", async ({
+    db,
+  }) => {
+    const itemId = await createUntrackedMaterialWithStock(db, {
+      name: `Stock Reconcile Preview ${ts}`,
+      sku: `STOCK-RECONCILE-PREVIEW-${ts}`,
+      category: `Stock Reconcile ${ts}`,
+      stock: 5,
+    });
+
+    const response = await testFetch("/api/inventory/reconciliations/preview", {
+      method: "POST",
+      body: JSON.stringify({
+        source: { kind: "manual_adjustment" },
+        lines: [
+          {
+            itemId,
+            reason: "cycle_count",
+            newQuantity: "8",
+          },
+        ],
+      }),
+    });
+    expect(response.status, await response.text()).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      source: { kind: "manual_adjustment" },
+      lines: [
+        {
+          itemId,
+          currentQty: "5",
+          countedQty: "8",
+          varianceQty: "3",
+          lots: [],
+        },
+      ],
+    });
+  });
+
+  test("generic reconciliation apply routes through stock adjustment kernel", async ({
+    db,
+  }) => {
+    const itemId = await createUntrackedMaterialWithStock(db, {
+      name: `Stock Reconcile Apply ${ts}`,
+      sku: `STOCK-RECONCILE-APPLY-${ts}`,
+      category: `Stock Reconcile ${ts}`,
+      stock: 5,
+    });
+
+    const response = await testFetch("/api/inventory/reconciliations", {
+      method: "POST",
+      body: JSON.stringify({
+        source: { kind: "manual_adjustment" },
+        lines: [
+          {
+            itemId,
+            reason: "found_stock",
+            note: "mobile review",
+            newQuantity: "8",
+          },
+        ],
+      }),
+    });
+    expect(response.status, await response.text()).toBe(200);
+
+    const [event] = await db
+      .select({
+        id: inventoryEvents.id,
+        eventType: inventoryEvents.eventType,
+        quantity: inventoryEvents.quantity,
+      })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, itemId),
+          eq(inventoryEvents.eventType, "manual_adjustment_increase")
+        )
+      )
+      .orderBy(desc(inventoryEvents.occurredAt), desc(inventoryEvents.id));
+    expect(event).toMatchObject({
+      eventType: "manual_adjustment_increase",
+      quantity: "3.0000",
+    });
+    await expect(getAdjustmentReason(db, event.id)).resolves.toMatchObject({
+      reason: "found_stock",
+      note: "mobile review",
+    });
+  });
+
+  test("generic reconciliation rejects multi-line manual adjustments", async ({
+    db,
+  }) => {
+    const firstItemId = await createUntrackedMaterialWithStock(db, {
+      name: `Stock Reconcile Multi A ${ts}`,
+      sku: `STOCK-RECONCILE-MULTI-A-${ts}`,
+      category: `Stock Reconcile ${ts}`,
+      stock: 5,
+    });
+    const secondItemId = await createUntrackedMaterialWithStock(db, {
+      name: `Stock Reconcile Multi B ${ts}`,
+      sku: `STOCK-RECONCILE-MULTI-B-${ts}`,
+      category: `Stock Reconcile ${ts}`,
+      stock: 6,
+    });
+
+    const response = await testFetch("/api/inventory/reconciliations/preview", {
+      method: "POST",
+      body: JSON.stringify({
+        source: { kind: "manual_adjustment" },
+        lines: [
+          { itemId: firstItemId, reason: "cycle_count", newQuantity: "8" },
+          { itemId: secondItemId, reason: "cycle_count", newQuantity: "7" },
+        ],
+      }),
+    });
+    expect(response.status, await response.text()).toBe(400);
+  });
+
   test("adjustment sets absolute on-hand even from negative stock", async ({
     db,
   }) => {
@@ -241,16 +352,9 @@ test.describe("non-lot stock adjustment route", () => {
       stock: 0,
     });
 
-    const [location] = await db
-      .select({ id: inventoryLocations.id })
-      .from(inventoryLocations)
-      .where(
-        and(
-          eq(inventoryLocations.organizationId, orgId),
-          eq(inventoryLocations.isDefault, true)
-        )
-      );
-    if (!location?.id) throw new Error("Default inventory location not found.");
+    const location = await db.transaction((tx) =>
+      getDefaultInventoryLocationInTx(tx, orgId)
+    );
 
     // Drive the item into stock debt (-3) via a negative-allowed consume.
     await db.transaction(async (tx) => {
@@ -521,16 +625,9 @@ test.describe("lot-tracked stock adjustment route", () => {
   async function getDefaultLocationId(
     db: Parameters<Parameters<typeof test>[2]>[0]["db"]
   ) {
-    const [location] = await db
-      .select({ id: inventoryLocations.id })
-      .from(inventoryLocations)
-      .where(
-        and(
-          eq(inventoryLocations.organizationId, orgId),
-          eq(inventoryLocations.isDefault, true)
-        )
-      );
-    if (!location?.id) throw new Error("Default inventory location not found.");
+    const location = await db.transaction((tx) =>
+      getDefaultInventoryLocationInTx(tx, orgId)
+    );
     return location.id;
   }
 
@@ -992,6 +1089,131 @@ test.describe("lot-tracked stock adjustment route", () => {
         )
       );
     expect(adjustmentEvents).toHaveLength(0);
+  });
+
+  test("generic reconciliation preview rejects duplicate existing lot ids", async ({
+    db,
+  }) => {
+    const { itemId, lotId } = await createTrackedMaterialWithLot(db, {
+      name: `Lot Reconcile Duplicate ${ts}`,
+      sku: `LOT-RECONCILE-DUPLICATE-${ts}`,
+      category: `Lot Reconcile Duplicate ${ts}`,
+      lotNumber: `LOT-RECONCILE-DUPLICATE-${ts}`,
+      stock: 5,
+    });
+    expect(lotId).toBeTruthy();
+
+    const response = await testFetch("/api/inventory/reconciliations/preview", {
+      method: "POST",
+      body: JSON.stringify({
+        source: { kind: "manual_adjustment" },
+        lines: [
+          {
+            itemId,
+            reason: "data_correction",
+            lots: [
+              { lotId, newQuantity: "3" },
+              { lotId, newQuantity: "2" },
+            ],
+          },
+        ],
+      }),
+    });
+    expect(response.status, await response.text()).toBe(400);
+  });
+
+  test("generic reconciliation preview names known zero-balance lots", async ({
+    db,
+  }) => {
+    const lotNumber = `LOT-RECONCILE-KNOWN-${ts}`;
+    const { itemId } = await createTrackedMaterialWithLot(db, {
+      name: `Lot Reconcile Known ${ts}`,
+      sku: `LOT-RECONCILE-KNOWN-${ts}`,
+      category: `Lot Reconcile Known ${ts}`,
+    });
+    const [createdLot] = await db
+      .insert(lots)
+      .values({ organizationId: orgId, itemId, lotNumber })
+      .returning({ id: lots.id });
+
+    const response = await testFetch("/api/inventory/reconciliations/preview", {
+      method: "POST",
+      body: JSON.stringify({
+        source: { kind: "manual_adjustment" },
+        lines: [
+          {
+            itemId,
+            reason: "data_correction",
+            lots: [{ lotId: createdLot.id, newQuantity: "3" }],
+          },
+        ],
+      }),
+    });
+    expect(response.status, await response.text()).toBe(200);
+    const body = await response.json();
+    expect(body.lines[0].lots[0]).toMatchObject({
+      lotId: createdLot.id,
+      lotNumber,
+      currentQty: "0",
+      countedQty: "3",
+      varianceQty: "3",
+      isFound: false,
+    });
+  });
+
+  test("generic reconciliation preview rolls up unsubmitted tracked lots", async ({
+    db,
+  }) => {
+    const { itemId, lotId } = await createTrackedMaterialWithLot(db, {
+      name: `Lot Reconcile Partial ${ts}`,
+      sku: `LOT-RECONCILE-PARTIAL-${ts}`,
+      category: `Lot Reconcile Partial ${ts}`,
+      lotNumber: `LOT-RECONCILE-PARTIAL-A-${ts}`,
+      stock: 5,
+    });
+    expect(lotId).toBeTruthy();
+    const locationId = await getDefaultLocationId(db);
+    await db.transaction(async (tx) => {
+      await createPositiveStockEventInTx(tx, {
+        organizationId: orgId,
+        locationId,
+        itemId,
+        quantity: 7,
+        unitCost: "2.00",
+        eventType: "manual_adjustment_increase",
+        eventSubtype: "lot_reconciliation_partial_seed",
+        referenceType: "item",
+        referenceId: itemId,
+        lotNumber: `LOT-RECONCILE-PARTIAL-B-${ts}`,
+      });
+    });
+
+    const response = await testFetch("/api/inventory/reconciliations/preview", {
+      method: "POST",
+      body: JSON.stringify({
+        source: { kind: "manual_adjustment" },
+        lines: [
+          {
+            itemId,
+            reason: "cycle_count",
+            lots: [{ lotId, newQuantity: "3" }],
+          },
+        ],
+      }),
+    });
+    expect(response.status, await response.text()).toBe(200);
+    const body = await response.json();
+    expect(body.lines[0]).toMatchObject({
+      currentQty: "5",
+      countedQty: "3",
+      varianceQty: "-2",
+    });
+    expect(body.lines[0].lots[0]).toMatchObject({
+      lotId,
+      currentQty: "5",
+      countedQty: "3",
+      varianceQty: "-2",
+    });
   });
 
   test("unknown lotId for this item is rejected with 404", async ({ db }) => {

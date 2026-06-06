@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getItems } from "@/app/(dashboard)/inventory/queries";
 import { getInventoryLedger } from "@/app/(dashboard)/inventory/ledger/queries";
-import { getStocktakes } from "@/app/(dashboard)/inventory/stocktakes/queries";
+import { getStocktakes } from "@/lib/dal/stocktakes";
 import { getManufacturingOrders } from "@/app/(dashboard)/manufacturing/queries";
 import { getPurchaseOrders, getSuppliers } from "@/app/(dashboard)/purchasing/queries";
 import {

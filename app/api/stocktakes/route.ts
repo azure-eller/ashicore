@@ -11,7 +11,7 @@ import {
   deleteStocktakes,
   getStocktakes,
   StocktakeError,
-} from "@/app/(dashboard)/inventory/stocktakes/queries";
+} from "@/lib/dal/stocktakes";
 
 export const GET = apiHandler(async (request) => {
   await assertModuleReadAccess("inventory", request.headers);

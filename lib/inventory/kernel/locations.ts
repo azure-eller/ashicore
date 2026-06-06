@@ -5,18 +5,25 @@ import type { Tx } from "@/lib/db/with-org-context";
 const DEFAULT_LOCATION_CODE = "main";
 const DEFAULT_LOCATION_NAME = "Main";
 
+export async function getExistingDefaultInventoryLocationInTx(
+  tx: Tx,
+  organizationId: string
+) {
+  return tx.query.inventoryLocations.findFirst({
+    where: and(
+      eq(inventoryLocations.organizationId, organizationId),
+      eq(inventoryLocations.isDefault, true),
+      isNull(inventoryLocations.deletedAt)
+    ),
+  });
+}
+
 export async function getDefaultInventoryLocationInTx(
   tx: Tx,
   organizationId: string
 ) {
   const findExisting = () =>
-    tx.query.inventoryLocations.findFirst({
-      where: and(
-        eq(inventoryLocations.organizationId, organizationId),
-        eq(inventoryLocations.isDefault, true),
-        isNull(inventoryLocations.deletedAt)
-      ),
-    });
+    getExistingDefaultInventoryLocationInTx(tx, organizationId);
 
   const existing = await findExisting();
 

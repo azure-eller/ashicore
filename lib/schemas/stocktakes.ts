@@ -143,6 +143,11 @@ const rawCountLotLineSchema = z.object({
   notes: nullableString.optional(),
 });
 
+const rawDeleteFoundLotLineSchema = z.object({
+  lotLineId: z.string().min(1),
+  delete: z.literal(true),
+});
+
 const rawFoundLotLineSchema = z.object({
   isFound: z.literal(true),
   stocktakeItemId: z.string().min(1),
@@ -152,6 +157,7 @@ const rawFoundLotLineSchema = z.object({
 });
 
 const rawLotLineSchema = z.union([
+  rawDeleteFoundLotLineSchema,
   rawFoundLotLineSchema,
   rawCountLotLineSchema,
 ]);
@@ -160,6 +166,12 @@ function isFoundLotLine(
   line: z.infer<typeof rawLotLineSchema>
 ): line is z.infer<typeof rawFoundLotLineSchema> {
   return "isFound" in line && line.isFound === true;
+}
+
+function isDeleteFoundLotLine(
+  line: z.infer<typeof rawLotLineSchema>
+): line is z.infer<typeof rawDeleteFoundLotLineSchema> {
+  return "delete" in line && line.delete === true;
 }
 
 export const updateStocktakeSchema = z
@@ -208,6 +220,19 @@ export const updateStocktakeSchema = z
     });
 
     data.lotLines.forEach((line, index) => {
+      if (isDeleteFoundLotLine(line)) {
+        if (seenLots.has(line.lotLineId)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Each lot can only be submitted once",
+            path: ["lotLines", index, "lotLineId"],
+          });
+        } else {
+          seenLots.add(line.lotLineId);
+        }
+        return;
+      }
+
       if (isFoundLotLine(line)) {
         const trimmedLotNumber = line.lotNumber.trim();
         if (trimmedLotNumber.length === 0) {
@@ -283,7 +308,7 @@ export const updateStocktakeSchema = z
       ...(line.notes !== undefined ? { notes: line.notes?.trim() ?? null } : {}),
     })),
     lotLines: lotLines
-      .filter((line) => !isFoundLotLine(line))
+      .filter((line) => !isFoundLotLine(line) && !isDeleteFoundLotLine(line))
       .map((line) => {
         const existing = line as z.infer<typeof rawCountLotLineSchema>;
         return {
@@ -302,6 +327,9 @@ export const updateStocktakeSchema = z
         countedQty: line.countedQty?.trim() ?? null,
         ...(line.notes !== undefined ? { notes: line.notes?.trim() ?? null } : {}),
       })),
+    deletedLotLineIds: lotLines
+      .filter(isDeleteFoundLotLine)
+      .map((line) => line.lotLineId),
   }));
 
 export const updateStocktakeCountsSchema = updateStocktakeSchema;
