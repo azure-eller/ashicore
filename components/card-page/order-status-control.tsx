@@ -64,7 +64,7 @@ export type OrderStatusDialogArgs<Ctx> = {
   /** Close the dialog without advancing. */
   onClose: () => void;
   /** Operation succeeded — close and refresh. */
-  onDone: () => void;
+  onDone: (status?: string) => void;
 };
 
 export type OrderStatusControlConfig<Ctx> = {
@@ -182,9 +182,9 @@ export function OrderStatusControl<Ctx>({
             to: dialogTarget,
             ctx,
             onClose: () => setDialogTarget(null),
-            onDone: () => {
+            onDone: (status) => {
               setDialogTarget(null);
-              onChanged?.(dialogTarget);
+              onChanged?.(status ?? dialogTarget);
             },
           })
         : null}
