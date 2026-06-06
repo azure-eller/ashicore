@@ -2,14 +2,6 @@
 
 import { useState } from "react";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -17,6 +9,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -30,11 +23,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { formatPrice } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
+  ArrowDown01Icon,
+  Attachment01Icon,
+  Cancel01Icon,
   CheckmarkCircle02Icon,
-  Delete02Icon,
   File01Icon,
   Upload01Icon,
 } from "@hugeicons/core-free-icons";
@@ -139,6 +135,45 @@ export function xeroAccountLabel(
   return `${account.code} - ${account.name}${metadata ? ` (${metadata})` : ""}`;
 }
 
+function AttachmentChip({
+  href,
+  filename,
+  onRemove,
+  disabled,
+}: {
+  href: string;
+  filename: string;
+  onRemove: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-1.5 border bg-muted/40 px-2 py-1 text-[length:var(--text-xs)]">
+      <HugeiconsIcon
+        icon={Attachment01Icon}
+        size={12}
+        className="shrink-0 text-muted-foreground"
+      />
+      <a
+        className="min-w-0 truncate hover:text-[var(--color-accent)]"
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+      >
+        {filename}
+      </a>
+      <button
+        type="button"
+        className="shrink-0 text-muted-foreground hover:text-foreground disabled:opacity-50"
+        aria-label={`Remove ${filename}`}
+        onClick={onRemove}
+        disabled={disabled}
+      >
+        <HugeiconsIcon icon={Cancel01Icon} size={12} />
+      </button>
+    </span>
+  );
+}
+
 export function PurchaseOrderEmailDialog({
   open,
   orderId,
@@ -210,22 +245,38 @@ export function PurchaseOrderEmailDialog({
       return next;
     });
   };
+  const setGroupIncluded = (
+    index: number,
+    groupKey: string,
+    included: boolean,
+  ) => {
+    updateGroup(index, { include: included });
+    if (!included) {
+      // Excluded cards collapse as well as dim.
+      setExpandedGroupKeys((current) => {
+        if (!current.has(groupKey)) return current;
+        const next = new Set(current);
+        next.delete(groupKey);
+        return next;
+      });
+    }
+  };
   const selectedCount = groups.filter((group) => group.include).length;
 
   return (
     <Sheet open={open} onOpenChange={pending ? undefined : handleOpenChange}>
       <SheetContent
         side="right"
-        className="gap-0 p-0 data-[side=right]:w-[min(100vw,48rem)] data-[side=right]:sm:max-w-none"
+        className="gap-0 p-0 data-[side=right]:w-[min(100vw,520px)] data-[side=right]:sm:max-w-[520px]"
       >
-        <SheetHeader className="px-8 pb-4 pt-8">
+        <SheetHeader className="px-6 pb-4 pt-6">
           <SheetTitle>Send documents for {orderNumber ?? "purchase order"}</SheetTitle>
-          <SheetDescription className="sr-only">
-            Send the purchase order PDF and attachments to the supplier.
+          <SheetDescription>
+            Emails each supplier their copy of the order.
           </SheetDescription>
         </SheetHeader>
         {orderId ? (
-          <div className="grid flex-1 content-start gap-7 overflow-y-auto px-8 pb-8">
+          <div className="grid flex-1 content-start gap-3 overflow-y-auto px-6 pb-6">
             {groups.map((group, index) => {
               const expanded = expandedGroupKeys.has(group.groupKey);
               const pdfFileName = group.isFreight
@@ -236,246 +287,297 @@ export function PurchaseOrderEmailDialog({
                 .filter((file): file is { id: string; filename: string } =>
                   Boolean(file),
                 );
+              const includePdf = group.includePdf !== false;
+              const documentCount =
+                (includePdf ? 1 : 0) + selectedAttachments.length;
+              const recipientLabel = group.to.trim() || "Missing email";
+              const subjectLabel = group.subject.trim() || "Missing subject";
+              const availableAttachments = attachments.filter(
+                (file) => !(group.attachmentFileIds ?? []).includes(file.id),
+              );
 
               return (
-              <div key={group.groupKey} className="grid gap-4 border p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <label className="flex items-center gap-3 text-sm font-medium">
+                <div
+                  key={group.groupKey}
+                  className={cn("border", group.include ? null : "opacity-50")}
+                >
+                  <div className="flex items-center gap-3 p-4">
                     <Checkbox
+                      aria-label={`Include ${group.label}`}
                       checked={group.include}
                       onCheckedChange={(checked) =>
-                        updateGroup(index, { include: checked === true })
+                        setGroupIncluded(index, group.groupKey, checked === true)
                       }
                     />
-                    {group.label}
-                  </label>
-                  <div className="flex items-center gap-3">
-                    {group.status === "sent" ? (
-                      <span className="text-xs text-muted-foreground">
-                        Sent{group.sentAt ? ` ${new Date(group.sentAt).toLocaleString()}` : ""}
-                      </span>
-                    ) : null}
                     <button
                       type="button"
-                      className="text-xs text-muted-foreground hover:text-foreground"
+                      aria-expanded={expanded}
                       onClick={() => toggleExpanded(group.groupKey)}
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
                     >
-                      {expanded ? "Done" : "Edit message"}
+                      {expanded ? (
+                        <div className="flex min-w-0 flex-1 items-center gap-2 text-[length:var(--text-sm)] font-medium">
+                          <span className="truncate">{group.label}</span>
+                          {group.isFreight ? (
+                            <Badge variant="secondary">Freight</Badge>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <div className="flex min-w-0 flex-1 items-center gap-2 text-[length:var(--text-sm)]">
+                          <span
+                            className={cn(
+                              "shrink-0 font-medium",
+                              group.to.trim() ? null : "text-destructive",
+                            )}
+                          >
+                            {recipientLabel}
+                          </span>
+                          <span className="text-muted-foreground">·</span>
+                          <span className="truncate text-muted-foreground">
+                            {subjectLabel}
+                          </span>
+                        </div>
+                      )}
+                      <span
+                        className={cn(
+                          "shrink-0 text-[length:var(--text-xs)] text-muted-foreground",
+                          documentCount === 0 ? "text-destructive" : null,
+                        )}
+                      >
+                        {documentCount} doc{documentCount === 1 ? "" : "s"}
+                      </span>
+                      {group.status === "sent" ? (
+                        <span className="shrink-0 text-[length:var(--text-xs)] text-muted-foreground">
+                          Sent
+                          {group.sentAt
+                            ? ` ${new Date(group.sentAt).toLocaleDateString()}`
+                            : ""}
+                        </span>
+                      ) : null}
+                      <HugeiconsIcon
+                        icon={ArrowDown01Icon}
+                        size={16}
+                        className={cn(
+                          "shrink-0 text-muted-foreground transition-transform",
+                          expanded ? "rotate-180" : null,
+                        )}
+                      />
                     </button>
                   </div>
-                </div>
-                <Field>
-                  <div className="flex items-center justify-between gap-3">
-                    <FieldLabel
-                      htmlFor={`po-email-to-${group.groupKey}`}
-                      className="text-destructive"
-                    >
-                      Send to
-                    </FieldLabel>
-                    {onSaveRecipientEmail && group.supplierId ? (
-                      <button
-                        type="button"
-                        className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
-                        disabled={group.to.trim() === "" || pending}
-                        onClick={() =>
-                          onSaveRecipientEmail(
-                            group.groupKey,
-                            group.supplierId,
-                            group.to,
-                          )
-                        }
-                      >
-                        Save email
-                      </button>
-                    ) : null}
-                  </div>
-                  <Input
-                    id={`po-email-to-${group.groupKey}`}
-                    className="border-x-0 border-t-0 border-destructive px-0 shadow-none focus-visible:shadow-none"
-                    value={group.to}
-                    onChange={(event) => updateGroup(index, { to: event.target.value })}
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor={`po-email-subject-${group.groupKey}`}>
-                    Subject
-                  </FieldLabel>
-                  <Input
-                    id={`po-email-subject-${group.groupKey}`}
-                    className="border-x-0 border-t-0 px-0 shadow-none focus-visible:shadow-none"
-                    value={group.subject}
-                    onChange={(event) =>
-                      updateGroup(index, { subject: event.target.value })
-                    }
-                  />
-                </Field>
-                {expanded ? (
-                  <>
-                    <Field>
-                      <FieldLabel htmlFor={`po-email-reply-to-${group.groupKey}`}>
-                        Reply to
-                      </FieldLabel>
-                      <Input
-                        id={`po-email-reply-to-${group.groupKey}`}
-                        className="border-x-0 border-t-0 px-0 shadow-none focus-visible:shadow-none"
-                        value={group.replyTo}
-                        onChange={(event) =>
-                          updateGroup(index, { replyTo: event.target.value })
-                        }
-                      />
-                    </Field>
-                    <Field>
-                      <div className="border">
-                        <FieldLabel
-                          htmlFor={`po-email-message-${group.groupKey}`}
-                          className="border-b bg-muted/40 px-3 py-2"
-                        >
-                          Email body
+
+                  {expanded ? (
+                    <div className="grid gap-2 px-4 pb-4">
+                      <p className="text-[length:var(--text-xs)] font-semibold uppercase tracking-[var(--tracking-caps)] text-muted-foreground">
+                        Attachments
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {includePdf ? (
+                          <AttachmentChip
+                            href={`/api/purchase-orders/${orderId}/pdf?groupKey=${encodeURIComponent(group.groupKey)}`}
+                            filename={pdfFileName}
+                            onRemove={() =>
+                              updateGroup(index, { includePdf: false })
+                            }
+                            disabled={pending}
+                          />
+                        ) : null}
+                        {selectedAttachments.map((file) => (
+                          <AttachmentChip
+                            key={file.id}
+                            href={`/api/purchase-orders/${orderId}/files/${file.id}`}
+                            filename={file.filename}
+                            onRemove={() =>
+                              onRemoveDocument(group.groupKey, file.id)
+                            }
+                            disabled={pending}
+                          />
+                        ))}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon-xs"
+                              aria-label={`Add documents to ${group.label}`}
+                              disabled={uploadPending || pending}
+                            >
+                              <HugeiconsIcon icon={Add01Icon} size={15} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start" className="min-w-72">
+                            {!includePdf ? (
+                              <DropdownMenuItem
+                                onSelect={() =>
+                                  updateGroup(index, { includePdf: true })
+                                }
+                              >
+                                <HugeiconsIcon icon={CheckmarkCircle02Icon} size={16} />
+                                Add PO
+                              </DropdownMenuItem>
+                            ) : null}
+                            <DropdownMenuItem disabled>
+                              <HugeiconsIcon icon={File01Icon} size={16} />
+                              Request for quote
+                            </DropdownMenuItem>
+                            {availableAttachments.map((file) => (
+                              <DropdownMenuItem
+                                key={file.id}
+                                onSelect={() =>
+                                  updateGroup(index, {
+                                    attachmentFileIds: [
+                                      ...(group.attachmentFileIds ?? []),
+                                      file.id,
+                                    ],
+                                  })
+                                }
+                              >
+                                <HugeiconsIcon icon={File01Icon} size={16} />
+                                {file.filename}
+                              </DropdownMenuItem>
+                            ))}
+                            <DropdownMenuItem
+                              onSelect={() => onAddDocuments(group.groupKey)}
+                            >
+                              <HugeiconsIcon icon={Upload01Icon} size={16} />
+                              Custom attachment
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                      {documentCount === 0 ? (
+                        <p className="text-[length:var(--text-xs)] text-muted-foreground">
+                          No documents selected
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {expanded ? (
+                    <div className="grid gap-4 border-t p-4">
+                      <Field>
+                        <div className="flex items-center justify-between gap-3">
+                          <FieldLabel htmlFor={`po-email-to-${group.groupKey}`}>
+                            To
+                          </FieldLabel>
+                          {onSaveRecipientEmail && group.supplierId ? (
+                            <button
+                              type="button"
+                              className="text-[length:var(--text-xs)] text-muted-foreground hover:text-foreground disabled:opacity-50"
+                              disabled={group.to.trim() === "" || pending}
+                              onClick={() =>
+                                onSaveRecipientEmail(
+                                  group.groupKey,
+                                  group.supplierId,
+                                  group.to,
+                                )
+                              }
+                            >
+                              Save email
+                            </button>
+                          ) : null}
+                        </div>
+                        <Input
+                          id={`po-email-to-${group.groupKey}`}
+                          value={group.to}
+                          onChange={(event) =>
+                            updateGroup(index, { to: event.target.value })
+                          }
+                        />
+                      </Field>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <Field>
+                          <FieldLabel htmlFor={`po-email-bcc-${group.groupKey}`}>
+                            BCC
+                          </FieldLabel>
+                          <Input
+                            id={`po-email-bcc-${group.groupKey}`}
+                            value={group.bcc}
+                            onChange={(event) =>
+                              updateGroup(index, { bcc: event.target.value })
+                            }
+                          />
+                        </Field>
+                        <Field>
+                          <FieldLabel
+                            htmlFor={`po-email-reply-to-${group.groupKey}`}
+                          >
+                            Reply-to
+                          </FieldLabel>
+                          <Input
+                            id={`po-email-reply-to-${group.groupKey}`}
+                            value={group.replyTo}
+                            onChange={(event) =>
+                              updateGroup(index, { replyTo: event.target.value })
+                            }
+                          />
+                        </Field>
+                      </div>
+                      <Field>
+                        <FieldLabel htmlFor={`po-email-subject-${group.groupKey}`}>
+                          Subject
+                        </FieldLabel>
+                        <Input
+                          id={`po-email-subject-${group.groupKey}`}
+                          value={group.subject}
+                          onChange={(event) =>
+                            updateGroup(index, { subject: event.target.value })
+                          }
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel htmlFor={`po-email-message-${group.groupKey}`}>
+                          Body
                         </FieldLabel>
                         <Textarea
                           id={`po-email-message-${group.groupKey}`}
                           rows={8}
-                          className="min-h-52 resize-none border-0 shadow-none focus-visible:shadow-none"
+                          className="min-h-32 resize-none"
                           value={group.message}
                           onChange={(event) =>
                             updateGroup(index, { message: event.target.value })
                           }
                         />
-                      </div>
-                    </Field>
-                  </>
-                ) : null}
-                <div className="grid gap-2">
-                  <p className="text-sm font-medium">Documents</p>
-                  <div className="divide-y border">
-                    {group.includePdf !== false ? (
-                      <div className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                        <a
-                          className="min-w-0 truncate hover:text-[var(--color-accent)]"
-                          href={`/api/purchase-orders/${orderId}/pdf?groupKey=${encodeURIComponent(group.groupKey)}`}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {pdfFileName}
-                        </a>
-                        <button
-                          type="button"
-                          className="shrink-0 text-muted-foreground hover:text-foreground disabled:opacity-50"
-                          aria-label={`Remove ${pdfFileName} from ${group.label}`}
-                          onClick={() => updateGroup(index, { includePdf: false })}
-                          disabled={pending}
-                        >
-                          <HugeiconsIcon icon={Delete02Icon} size={14} />
-                        </button>
-                      </div>
-                    ) : null}
-                    {selectedAttachments.map((file) => (
-                        <div
-                          key={file.id}
-                          className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
-                        >
-                          <a
-                            className="min-w-0 truncate hover:text-[var(--color-accent)]"
-                            href={`/api/purchase-orders/${orderId}/files/${file.id}`}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {file.filename}
-                          </a>
-                          <button
-                            type="button"
-                            className="shrink-0 text-muted-foreground hover:text-foreground disabled:opacity-50"
-                            aria-label={`Remove ${file.filename} from ${group.label}`}
-                            onClick={() => onRemoveDocument(group.groupKey, file.id)}
-                            disabled={pending}
-                          >
-                            <HugeiconsIcon icon={Delete02Icon} size={14} />
-                          </button>
-                        </div>
-                    ))}
-                  </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        type="button"
-                        className="w-fit"
-                        disabled={uploadPending || pending}
-                      >
-                        <HugeiconsIcon icon={Add01Icon} size={16} />
-                        Add documents
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="min-w-72">
-                      {group.includePdf === false ? (
-                        <DropdownMenuItem
-                          onSelect={() => updateGroup(index, { includePdf: true })}
-                        >
-                          <HugeiconsIcon icon={CheckmarkCircle02Icon} size={16} />
-                          Add PO
-                        </DropdownMenuItem>
-                      ) : null}
-                      <DropdownMenuItem disabled>
-                        <HugeiconsIcon icon={File01Icon} size={16} />
-                        Request for quote
-                      </DropdownMenuItem>
-                      {attachments
-                        .filter(
-                          (file) => !(group.attachmentFileIds ?? []).includes(file.id),
-                        )
-                        .map((file) => (
-                          <DropdownMenuItem
-                            key={file.id}
-                            onSelect={() =>
-                              updateGroup(index, {
-                                attachmentFileIds: [
-                                  ...(group.attachmentFileIds ?? []),
-                                  file.id,
-                                ],
-                              })
-                            }
-                          >
-                            <HugeiconsIcon icon={File01Icon} size={16} />
-                            {file.filename}
-                          </DropdownMenuItem>
-                        ))}
-                      <DropdownMenuItem onSelect={() => onAddDocuments(group.groupKey)}>
-                        <HugeiconsIcon icon={Upload01Icon} size={16} />
-                        Custom attachment
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                      </Field>
+                    </div>
+                  ) : null}
                 </div>
-              </div>
               );
             })}
             {fileError ? <FieldError>{fileError}</FieldError> : null}
             {error ? <FieldError>{error}</FieldError> : null}
           </div>
         ) : null}
-        <SheetFooter className="mt-auto flex-row justify-end border-t px-8 py-4">
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => onOpenChange(false)}
-            disabled={pending}
-          >
-            Close
-          </Button>
-          <Button
-            type="button"
-            onClick={onSend}
-            disabled={
-              pending ||
-              selectedCount === 0 ||
-              groups.some(
-                (group) =>
-                  group.include &&
-                  (group.to.trim() === "" || group.subject.trim() === ""),
-              )
-            }
-          >
-            {pending ? "Sending..." : `Send selected (${selectedCount})`}
-          </Button>
+        <SheetFooter className="mt-auto flex-row items-center justify-between border-t px-6 py-4">
+          <span className="text-[length:var(--text-sm)] text-muted-foreground">
+            {selectedCount} of {groups.length} selected
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => handleOpenChange(false)}
+              disabled={pending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={onSend}
+              disabled={
+                pending ||
+                selectedCount === 0 ||
+                groups.some(
+                  (group) =>
+                    group.include &&
+                    (group.to.trim() === "" || group.subject.trim() === ""),
+                )
+              }
+            >
+              {pending
+                ? "Sending..."
+                : `Send ${selectedCount} email${selectedCount === 1 ? "" : "s"}`}
+            </Button>
+          </div>
         </SheetFooter>
       </SheetContent>
     </Sheet>
@@ -506,6 +608,15 @@ export function PurchaseBillDialog({
       additionalCostIds: [],
     },
   ];
+  const [expandedGroupKeys, setExpandedGroupKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setExpandedGroupKeys(new Set());
+    }
+    onOpenChange(nextOpen);
+  };
   const updateGroup = (
     index: number,
     patch: Partial<PurchaseBillDialogGroupValues>,
@@ -522,18 +633,58 @@ export function PurchaseBillDialog({
         first?.accountingPurchaseAccountCode ?? "",
     });
   };
+  const toggleExpanded = (groupKey: string) => {
+    setExpandedGroupKeys((current) => {
+      const next = new Set(current);
+      if (next.has(groupKey)) {
+        next.delete(groupKey);
+      } else {
+        next.add(groupKey);
+      }
+      return next;
+    });
+  };
+  const setGroupIncluded = (
+    index: number,
+    groupKey: string,
+    included: boolean,
+  ) => {
+    updateGroup(index, { include: included });
+    if (!included) {
+      // Excluded cards collapse as well as dim.
+      setExpandedGroupKeys((current) => {
+        if (!current.has(groupKey)) return current;
+        const next = new Set(current);
+        next.delete(groupKey);
+        return next;
+      });
+    }
+  };
+  const isAccountValid = (code: string) =>
+    code.trim() !== "" &&
+    (xeroAccounts.length === 0 ||
+      xeroAccounts.some((account) => account.code === code));
   const selectedGroups = groups.filter((group) => group.include);
+  const selectedCount = selectedGroups.length;
+  const incompleteCount = selectedGroups.filter(
+    (group) =>
+      group.invoiceNumber.trim() === "" ||
+      !isAccountValid(group.accountingPurchaseAccountCode),
+  ).length;
 
   return (
-    <Dialog open={open} onOpenChange={pending ? undefined : onOpenChange}>
-      <DialogContent size="md">
-        <DialogHeader>
-          <DialogTitle>Create {providerLabel} bill</DialogTitle>
-          <DialogDescription>
-            Creates selected supplier bills in {providerLabel}.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-4">
+    <Sheet open={open} onOpenChange={pending ? undefined : handleOpenChange}>
+      <SheetContent
+        side="right"
+        className="gap-0 p-0 data-[side=right]:w-[min(100vw,520px)] data-[side=right]:sm:max-w-[520px]"
+      >
+        <SheetHeader className="px-6 pb-4 pt-6">
+          <SheetTitle>Create {providerLabel} bills</SheetTitle>
+          <SheetDescription>
+            Pushes selected supplier bills to {providerLabel}.
+          </SheetDescription>
+        </SheetHeader>
+        <div className="grid flex-1 content-start gap-4 overflow-y-auto px-6 pb-6">
           <div className="grid gap-4 sm:grid-cols-2">
             <Field>
               <FieldLabel htmlFor="purchase-bill-date">Bill date</FieldLabel>
@@ -563,86 +714,142 @@ export function PurchaseBillDialog({
               </option>
             ))}
           </datalist>
-          {groups.map((group, index) => (
-            <div key={group.groupKey} className="grid gap-4 border p-4">
-              <div className="flex items-center justify-between gap-3">
-                <label className="flex items-center gap-3 text-sm font-medium">
-                  <Checkbox
-                    checked={group.include}
-                    onCheckedChange={(checked) =>
-                      updateGroup(index, { include: checked === true })
-                    }
-                  />
-                  {group.label}
-                </label>
-                <span className="text-xs text-muted-foreground">
-                  {group.status === "pushed"
-                    ? `Billed${group.externalNumber ? ` ${group.externalNumber}` : ""}`
-                    : formatPrice(group.amount) ?? "$0.00"}
-                </span>
-              </div>
-              <Field>
-                <FieldLabel htmlFor={`purchase-bill-invoice-${group.groupKey}`}>
-                  Supplier invoice number
-                </FieldLabel>
-                <Input
-                  id={`purchase-bill-invoice-${group.groupKey}`}
-                  value={group.invoiceNumber}
-                  onChange={(event) =>
-                    updateGroup(index, { invoiceNumber: event.target.value })
-                  }
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor={`purchase-bill-account-${group.groupKey}`}>
-                  Bill account
-                </FieldLabel>
-                <Input
-                  id={`purchase-bill-account-${group.groupKey}`}
-                  list="purchase-bill-xero-accounts"
-                  value={group.accountingPurchaseAccountCode}
-                  onChange={(event) =>
-                    updateGroup(index, {
-                      accountingPurchaseAccountCode: event.target.value,
-                    })
-                  }
-                />
-              </Field>
-            </div>
-          ))}
+          <div className="grid gap-3">
+            {groups.map((group, index) => {
+              const expanded = expandedGroupKeys.has(group.groupKey);
+              const account = xeroAccounts.find(
+                (option) => option.code === group.accountingPurchaseAccountCode,
+              );
+              const accountSummary = group.accountingPurchaseAccountCode
+                ? `Account ${account ? `${account.code} — ${account.name}` : group.accountingPurchaseAccountCode}`
+                : "Choose account";
+              const invoice = group.invoiceNumber.trim();
+              const pushed = group.status === "pushed";
+
+              return (
+                <div
+                  key={group.groupKey}
+                  className={cn("border", group.include ? null : "opacity-50")}
+                >
+                  <div className="flex items-center gap-3 p-4">
+                    <Checkbox
+                      aria-label={`Include ${group.label}`}
+                      checked={group.include}
+                      onCheckedChange={(checked) =>
+                        setGroupIncluded(index, group.groupKey, checked === true)
+                      }
+                    />
+                    <button
+                      type="button"
+                      aria-expanded={expanded}
+                      onClick={() => toggleExpanded(group.groupKey)}
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                    >
+                      <div className="grid min-w-0 flex-1 gap-0.5">
+                        <span className="truncate text-[length:var(--text-sm)] font-medium">
+                          {group.label}
+                        </span>
+                        <span className="truncate text-[length:var(--text-xs)] text-muted-foreground">
+                          {accountSummary}
+                          {invoice ? ` · Inv ${invoice}` : ""}
+                          {pushed && group.externalNumber
+                            ? ` · Billed ${group.externalNumber}`
+                            : ""}
+                        </span>
+                      </div>
+                      <span className="shrink-0 text-[length:var(--text-sm)] font-medium tabular-nums">
+                        {formatPrice(group.amount) ?? "$0.00"}
+                      </span>
+                      <HugeiconsIcon
+                        icon={ArrowDown01Icon}
+                        size={16}
+                        className={cn(
+                          "shrink-0 text-muted-foreground transition-transform",
+                          expanded ? "rotate-180" : null,
+                        )}
+                      />
+                    </button>
+                  </div>
+
+                  {expanded ? (
+                    <div className="grid gap-4 border-t p-4">
+                      <Field>
+                        <FieldLabel
+                          htmlFor={`purchase-bill-invoice-${group.groupKey}`}
+                        >
+                          Supplier invoice number
+                        </FieldLabel>
+                        <Input
+                          id={`purchase-bill-invoice-${group.groupKey}`}
+                          placeholder="e.g. INV-2043"
+                          value={group.invoiceNumber}
+                          onChange={(event) =>
+                            updateGroup(index, {
+                              invoiceNumber: event.target.value,
+                            })
+                          }
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel
+                          htmlFor={`purchase-bill-account-${group.groupKey}`}
+                        >
+                          Bill account
+                        </FieldLabel>
+                        <Input
+                          id={`purchase-bill-account-${group.groupKey}`}
+                          list="purchase-bill-xero-accounts"
+                          placeholder="e.g. 310 — Cost of goods"
+                          value={group.accountingPurchaseAccountCode}
+                          onChange={(event) =>
+                            updateGroup(index, {
+                              accountingPurchaseAccountCode: event.target.value,
+                            })
+                          }
+                        />
+                      </Field>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
           {hasAdditionalCosts && groups.length === 1 ? (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-[length:var(--text-xs)] text-muted-foreground">
               Additional costs total {formatPrice(additionalCostTotal) ?? "$0.00"}.
             </p>
           ) : null}
           {error ? <FieldError>{error}</FieldError> : null}
         </div>
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={pending}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            onClick={onCreate}
-            disabled={
-              pending ||
-              selectedGroups.length === 0 ||
-              selectedGroups.some(
-                (group) =>
-                  group.invoiceNumber.trim() === "" ||
-                  group.accountingPurchaseAccountCode.trim() === "",
-              )
-            }
-          >
-            {pending ? "Creating..." : `Create selected (${selectedGroups.length})`}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        <SheetFooter className="mt-auto flex-row items-center justify-between border-t px-6 py-4">
+          <span className="text-[length:var(--text-sm)] text-muted-foreground">
+            {incompleteCount > 0
+              ? `${incompleteCount} bill${incompleteCount === 1 ? "" : "s"} need an invoice & account`
+              : `${selectedCount} of ${groups.length} selected`}
+          </span>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => handleOpenChange(false)}
+              disabled={pending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={onCreate}
+              disabled={
+                pending || selectedCount === 0 || incompleteCount > 0
+              }
+            >
+              {pending
+                ? "Pushing..."
+                : `Push ${selectedCount} to ${providerLabel}`}
+            </Button>
+          </div>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }
