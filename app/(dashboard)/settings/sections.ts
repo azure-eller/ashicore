@@ -9,7 +9,6 @@ export function getSettingsSections({
   showAgentAccess,
   showIntegrations,
   showTaxes,
-  showReports,
   showAddresses,
   showBilling,
   showUnits,
@@ -18,7 +17,6 @@ export function getSettingsSections({
   showAgentAccess: boolean;
   showIntegrations: boolean;
   showTaxes: boolean;
-  showReports: boolean;
   showAddresses: boolean;
   showBilling: boolean;
   showUnits: boolean;
@@ -29,10 +27,6 @@ export function getSettingsSections({
 
   if (showTeam) {
     sections.push({ id: "team", title: "Team", href: "/settings/team" });
-  }
-
-  if (showReports) {
-    sections.push({ id: "reports", title: "Reports", href: "/settings/reports" });
   }
 
   if (showBilling) {
