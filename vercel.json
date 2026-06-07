@@ -14,10 +14,6 @@
       "schedule": "*/30 * * * *"
     },
     {
-      "path": "/api/internal/daily-reports",
-      "schedule": "0 * * * *"
-    },
-    {
       "path": "/api/internal/xero-signup-cleanup",
       "schedule": "0 2 * * *"
     },

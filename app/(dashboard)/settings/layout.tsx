@@ -36,7 +36,6 @@ export default async function SettingsLayout({
     showAgentAccess: showTeam,
     showIntegrations: canManageSalesXero || canManagePurchasingXero,
     showTaxes,
-    showReports: showTeam,
     showAddresses,
     showBilling: showTeam,
     showUnits,
