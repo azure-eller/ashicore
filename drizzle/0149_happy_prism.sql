@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS "sales"."customer_project_notes" (
 );
 --> statement-breakpoint
 ALTER TABLE "sales"."customer_project_notes" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint ALTER TABLE "sales"."customer_project_notes" DROP CONSTRAINT IF EXISTS "customer_project_notes_customer_id_customers_id_fk";--> statement-breakpoint
-ALTER TABLE "sales"."customer_project_notes" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
+ALTER TABLE "sales"."customer_project_notes" FORCE ROW LEVEL SECURITY;--> statement-breakpoint ALTER TABLE "sales"."customer_project_notes" DROP CONSTRAINT IF EXISTS "customer_project_notes_customer_id_customers_id_fk";--> statement-breakpoint
 ALTER TABLE "sales"."customer_project_notes" ADD CONSTRAINT "customer_project_notes_customer_id_customers_id_fk" FOREIGN KEY ("customer_id") REFERENCES "sales"."customers"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint ALTER TABLE "sales"."customer_project_notes" DROP CONSTRAINT IF EXISTS "customer_project_notes_project_id_customer_projects_id_fk";--> statement-breakpoint
 ALTER TABLE "sales"."customer_project_notes" ADD CONSTRAINT "customer_project_notes_project_id_customer_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "sales"."customer_projects"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "sales_customer_project_notes_org_id_idx" ON "sales"."customer_project_notes" USING btree ("organization_id");--> statement-breakpoint
