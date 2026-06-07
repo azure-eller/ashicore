@@ -1,6 +1,7 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import { test, expect } from "../fixtures";
 import {
+  customerProjectNotes,
   inventoryDemandSummary,
   inventoryEvents,
   inventoryItemBalances,
@@ -128,6 +129,84 @@ test.describe("sales fulfillment operating story", () => {
 
     const row = await searchOrderList(page, orderNumber);
     await expect(row).toContainText(customer.name);
+  });
+
+  test("persists customer project notes from the customer card sheet", async ({ db, page }) => {
+    const run = Date.now();
+    const projectName = `Sales Story Project ${run}`;
+    const noteBody = `Confirm delivery gate access ${run}`;
+
+    const projectResponse = await testFetch(`/api/customers/${customerId}/projects`, {
+      method: "POST",
+      body: JSON.stringify({
+        name: projectName,
+        status: "active",
+        startDate: "2026-06-01",
+        targetEndDate: "2026-06-30",
+        summary: "Sales story project notes",
+      }),
+    });
+    expect(projectResponse.status).toBe(201);
+    const project = (await projectResponse.json()) as { id: string };
+
+    await page.goto(`/sales/customers/${customerId}`);
+    await page.getByRole("button", { name: new RegExp(projectName) }).click();
+    const sheet = page.getByRole("dialog", { name: "Project" });
+    await expect(sheet).toBeVisible();
+
+    await sheet.getByPlaceholder("Add a project note...").fill(noteBody);
+    const createNoteResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes(`/api/customers/${customerId}/projects/${project.id}/notes`) &&
+        response.request().method() === "POST"
+    );
+    await sheet.getByRole("button", { name: "Add note" }).click();
+    const createNoteResponse = await createNoteResponsePromise;
+    expect(createNoteResponse.status(), await createNoteResponse.text()).toBe(201);
+    await expect(sheet.locator("li", { hasText: noteBody })).toBeVisible();
+
+    const [createdNote] = await db
+      .select()
+      .from(customerProjectNotes)
+      .where(
+        and(
+          eq(customerProjectNotes.customerId, customerId),
+          eq(customerProjectNotes.projectId, project.id),
+          eq(customerProjectNotes.body, noteBody),
+          isNull(customerProjectNotes.deletedAt)
+        )
+      );
+    expect(createdNote).toBeTruthy();
+
+    await page.reload();
+    await page.getByRole("button", { name: new RegExp(projectName) }).click();
+    const reloadedSheet = page.getByRole("dialog", { name: "Project" });
+    await expect(reloadedSheet.locator("li", { hasText: noteBody })).toBeVisible();
+
+    const deleteNoteResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes(
+          `/api/customers/${customerId}/projects/${project.id}/notes/${createdNote.id}`
+        ) && response.request().method() === "DELETE"
+    );
+    await reloadedSheet
+      .locator("li", { hasText: noteBody })
+      .getByRole("button", { name: "Delete" })
+      .click();
+    const deleteNoteResponse = await deleteNoteResponsePromise;
+    expect(deleteNoteResponse.status(), await deleteNoteResponse.text()).toBe(200);
+    await expect(reloadedSheet.locator("li", { hasText: noteBody })).toBeHidden();
+
+    const [deletedNote] = await db
+      .select({ id: customerProjectNotes.id, deletedAt: customerProjectNotes.deletedAt })
+      .from(customerProjectNotes)
+      .where(
+        and(
+          eq(customerProjectNotes.id, createdNote.id),
+          isNotNull(customerProjectNotes.deletedAt)
+        )
+      );
+    expect(deletedNote?.deletedAt).toBeTruthy();
   });
 
   test("partial shipping keeps the order open and consumes only shipped stock", async ({ db, page }) => {
