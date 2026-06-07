@@ -28,7 +28,6 @@ export function DisabledTooltipButton({
           aria-disabled="true"
           data-disabled-reason={tooltip}
           tabIndex={0}
-          title={tooltip}
           className={cn(
             buttonVariants({ variant, size }),
             "cursor-not-allowed opacity-50",

@@ -68,6 +68,11 @@ export type CardPageHeaderProps = {
   fallbackHref?: string;
 };
 
+function getTooltipText(tooltip: string | null | undefined, label: string) {
+  const value = tooltip?.trim();
+  return value && value !== label ? value : null;
+}
+
 export function CardPageHeader({
   eyebrow,
   title,
@@ -196,12 +201,12 @@ function HeaderActionButton({ action }: { action: CardHeaderAction }) {
 }
 
 function IconActionButton({ action }: { action: CardHeaderIconAction }) {
+  const tooltip = getTooltipText(action.tooltip, action.label);
   const button = (
     <button
       type="button"
       className={styles.iconBtn}
       aria-label={action.label}
-      title={action.tooltip ?? action.label}
       onClick={action.onClick}
       disabled={action.disabled}
     >
@@ -232,16 +237,32 @@ function IconActionButton({ action }: { action: CardHeaderIconAction }) {
     </button>
   );
 
-  if (!action.tooltip) return button;
+  if (!tooltip) return button;
+  const trigger = action.disabled ? (
+    <span
+      role="button"
+      aria-disabled="true"
+      tabIndex={0}
+      aria-label={action.label}
+      className="inline-flex"
+    >
+      {button}
+    </span>
+  ) : (
+    button
+  );
+
   return (
     <Tooltip>
-      <TooltipTrigger asChild>{button}</TooltipTrigger>
-      <TooltipContent>{action.tooltip}</TooltipContent>
+      <TooltipTrigger asChild>{trigger}</TooltipTrigger>
+      <TooltipContent>{tooltip}</TooltipContent>
     </Tooltip>
   );
 }
 
 function MenuActionItem({ action }: { action: CardHeaderAction }) {
+  const tooltip = getTooltipText(action.tooltip, action.label);
+
   if (action.destructive) {
     return (
       <>
@@ -269,15 +290,30 @@ function MenuActionItem({ action }: { action: CardHeaderAction }) {
     );
   }
 
-  return (
+  const item = (
     <DropdownMenuItem
-      disabled={action.disabled}
-      title={action.tooltip ?? undefined}
-      onSelect={() => {
-        if (!action.disabled) action.onClick?.();
+      aria-disabled={action.disabled || undefined}
+      className={
+        action.disabled && tooltip ? "cursor-not-allowed opacity-50" : undefined
+      }
+      disabled={action.disabled && !tooltip}
+      onSelect={(event) => {
+        if (action.disabled) {
+          event.preventDefault();
+          return;
+        }
+        action.onClick?.();
       }}
     >
       {action.label}
     </DropdownMenuItem>
+  );
+
+  if (!tooltip) return item;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{item}</TooltipTrigger>
+      <TooltipContent>{tooltip}</TooltipContent>
+    </Tooltip>
   );
 }
