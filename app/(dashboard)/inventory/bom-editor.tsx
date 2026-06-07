@@ -222,7 +222,7 @@ function ComponentCell({
   componentMap: Map<string, AvailableComponent>;
 }) {
   if (!data?.componentId) {
-    return <span className="text-muted-foreground">Search items...</span>;
+    return <span className="text-[var(--color-ink-faint)]">Search items...</span>;
   }
 
   return (
@@ -291,7 +291,7 @@ function RequirementsCell({
           size="sm"
           className={cn(
             "h-full w-full justify-start px-(--space-3)",
-            summary === "None" && "text-muted-foreground"
+            summary === "None" && "text-[var(--color-ink-faint)]"
           )}
         >
           {summary}
@@ -322,7 +322,7 @@ function RequirementsCell({
             </Label>
             <Label
               htmlFor={`minimum-lot-age-days-${data.clientRowId}`}
-              className="text-[length:var(--text-xs)] text-muted-foreground"
+              className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]"
             >
               Minimum age
             </Label>
@@ -335,20 +335,20 @@ function RequirementsCell({
                 aria-invalid={hasDayError}
                 onChange={(event) => setDraftDays(event.target.value)}
               />
-              <span className="text-[length:var(--text-sm)] text-muted-foreground">
+              <span className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
                 days
               </span>
             </div>
-            <p className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-muted-foreground">
+            <p className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-[var(--color-ink-faint)]">
               Lots are eligible when their received date is at least this many days old.
             </p>
             {enabled && !hasDayError && draftDays.trim() !== "" ? (
-              <p className="text-[length:var(--text-xs)] text-muted-foreground">
+              <p className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                 {formatMinimumLotAgeRequirementLabel(Number(draftDays))}
               </p>
             ) : null}
             {hasDayError ? (
-              <p className="text-[length:var(--text-xs)] text-destructive">
+              <p className="text-[length:var(--text-xs)] text-[var(--status-danger-ink)]">
                 Minimum age must be a positive whole number.
               </p>
             ) : null}
@@ -438,7 +438,7 @@ function AlternatesCell({
           size="sm"
           className={cn(
             "h-full w-full justify-start px-(--space-3)",
-            alternates.length === 0 && "text-muted-foreground"
+            alternates.length === 0 && "text-[var(--color-ink-faint)]"
           )}
         >
           {summarizeAlternates(data)}
@@ -465,7 +465,7 @@ function AlternatesCell({
                       <p className="truncate text-[length:var(--text-sm)] font-medium">
                         {item?.displayName ?? item?.name ?? alternate.itemId}
                       </p>
-                      <p className="truncate text-[length:var(--text-xs)] text-muted-foreground">
+                      <p className="truncate text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                         {item?.unit ?? "Unit unavailable"}
                       </p>
                     </div>
@@ -489,7 +489,7 @@ function AlternatesCell({
               })}
             </div>
           ) : (
-            <p className="text-[length:var(--text-sm)] text-muted-foreground">
+            <p className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
               No alternates.
             </p>
           )}
@@ -533,7 +533,7 @@ function QuantityCell({
     <span className="flex min-w-0 items-center gap-(--space-3)">
       <span className="min-w-0 truncate">{data?.quantity ?? ""}</span>
       {unit ? (
-        <span className="ml-auto truncate text-muted-foreground">{unit}</span>
+        <span className="ml-auto truncate text-[var(--color-ink-faint)]">{unit}</span>
       ) : null}
     </span>
   );

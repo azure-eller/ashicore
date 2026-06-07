@@ -22,8 +22,8 @@ function RailTopo() {
       preserveAspectRatio="xMidYMid slice"
       aria-hidden
       style={{
-        WebkitMaskImage: "radial-gradient(120% 90% at 75% 18%, #000 0%, transparent 70%)",
-        maskImage: "radial-gradient(120% 90% at 75% 18%, #000 0%, transparent 70%)",
+        WebkitMaskImage: "radial-gradient(120% 90% at 75% 18%, black 0%, transparent 70%)",
+        maskImage: "radial-gradient(120% 90% at 75% 18%, black 0%, transparent 70%)",
       }}
     >
       {rings}

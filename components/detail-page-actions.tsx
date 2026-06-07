@@ -65,7 +65,7 @@ export function DetailPageActions({ children, editHref, menu }: Props) {
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="end"
-            className="bg-popover text-popover-foreground"
+            className="bg-[var(--color-surface)] text-[var(--color-ink)]"
           >
             {orderedMenu.map((item) => (
               <DropdownMenuItem

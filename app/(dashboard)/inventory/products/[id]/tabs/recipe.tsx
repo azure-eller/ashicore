@@ -274,7 +274,7 @@ export function ProductRecipeTab({
         </div>
       </div>
 
-      <p className={styles.helper} style={{ marginTop: "var(--space-2)" }}>
+      <p className={`${styles.helper} mt-(--space-2)`}>
         {activeVariant ? (
           <>
             Any changes made here only affect <strong>{activeVariant.displayName}</strong>.
@@ -287,7 +287,7 @@ export function ProductRecipeTab({
       {recipeBasis === "batch" ? (
         <div className="mt-(--space-3) w-full max-w-xs space-y-(--space-1)">
           <Label htmlFor="expected-output-per-batch">Output per batch</Label>
-          <div className="flex h-(--height-input-md) items-center border border-input bg-background">
+          <div className="flex h-(--height-input-md) items-center overflow-hidden rounded-[var(--radius-md)] border-[1.5px] border-[var(--color-line)] bg-[var(--color-surface)] transition-colors focus-within:border-[var(--color-accent)] focus-within:shadow-[0_0_0_4px_var(--color-accent-soft)]">
             <Input
               id="expected-output-per-batch"
               aria-label="Output per batch"
@@ -298,9 +298,9 @@ export function ProductRecipeTab({
                 setDirty(true);
               }}
               disabled={!recipeData?.canEditProduct || tabLoading}
-              className="h-full border-0 shadow-none focus-visible:ring-0"
+              className="h-full rounded-none border-0 bg-transparent shadow-none focus-visible:shadow-none"
             />
-            <span className="border-l border-border px-(--space-3) text-[length:var(--text-sm)] text-muted-foreground">
+            <span className="flex h-full items-center border-l border-[var(--color-line)] bg-[var(--color-surface-alt)] px-(--space-4) text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
               {outputUnitName}
             </span>
           </div>
@@ -380,8 +380,8 @@ export function ProductRecipeTab({
       </div>
 
       {tabLoading ? (
-        <div className="flex min-h-[220px] items-center justify-center border border-border bg-muted/20">
-          <Spinner className="size-5 text-muted-foreground" />
+        <div className="flex min-h-[220px] items-center justify-center rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface-alt)]">
+          <Spinner className="size-5" />
         </div>
       ) : (
         <>

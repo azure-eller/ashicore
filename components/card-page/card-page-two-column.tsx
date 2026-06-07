@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import styles from "./card-page.module.css";
 
 export type CardPageTwoColumnProps = {
   left: ReactNode;
@@ -12,7 +13,7 @@ export type CardPageTwoColumnProps = {
  */
 export function CardPageTwoColumn({ left, right }: CardPageTwoColumnProps) {
   return (
-    <div className="grid md:grid-cols-2" style={{ rowGap: 24, columnGap: 36 }}>
+    <div className={styles.twoColumn}>
       <div className="space-y-(--space-4)">{left}</div>
       <div className="space-y-(--space-4)">{right}</div>
     </div>

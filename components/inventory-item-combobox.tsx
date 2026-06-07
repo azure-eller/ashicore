@@ -114,7 +114,7 @@ export function InventoryItemCombobox<TOption extends InventoryItemComboboxOptio
         autoFocus={defaultOpen}
         placeholder={placeholder}
       />
-      <ComboboxContent className={cn("bg-popover text-popover-foreground", contentClassName)}>
+      <ComboboxContent className={cn("bg-[var(--color-surface)] text-[var(--color-ink)]", contentClassName)}>
         <ComboboxEmpty>{emptyMessage}</ComboboxEmpty>
         <ComboboxList>
           {(id: string) => {
@@ -130,7 +130,7 @@ export function InventoryItemCombobox<TOption extends InventoryItemComboboxOptio
                   {option && renderSecondary ? (
                     renderSecondary(option)
                   ) : secondary ? (
-                    <span className="block truncate text-xs text-muted-foreground">
+                    <span className="block truncate text-xs text-[var(--color-ink-faint)]">
                       {secondary}
                     </span>
                   ) : null}

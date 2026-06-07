@@ -5,8 +5,8 @@ type InsetPanelTone = "muted" | "subtle";
 type InsetPanelPadding = "sm" | "md" | "lg" | "xl";
 
 const toneClass: Record<InsetPanelTone, string> = {
-  muted: "bg-muted",
-  subtle: "bg-muted/30",
+  muted: "bg-[var(--color-surface-sunk)]",
+  subtle: "bg-[var(--color-surface-alt)]",
 };
 
 const paddingClass: Record<InsetPanelPadding, string> = {
@@ -36,7 +36,12 @@ export function InsetPanel<TAs extends ElementType = "div">({
 
   return (
     <Component
-      className={cn("border", toneClass[tone], paddingClass[padding], className)}
+      className={cn(
+        "rounded-[var(--radius-md)] border border-[var(--color-line)]",
+        toneClass[tone],
+        paddingClass[padding],
+        className,
+      )}
       {...props}
     >
       {children}

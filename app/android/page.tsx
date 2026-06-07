@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { MobileProtectionIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { SurfacePanel } from "@/components/surface-panel";
 import { Button } from "@/components/ui/button";
 import { APP_NAME } from "@/lib/app-brand";
@@ -15,23 +17,26 @@ export const metadata: Metadata = {
 
 export default function AndroidDownloadPage() {
   return (
-    <main className="min-h-screen bg-background text-foreground">
+    <main className="min-h-screen bg-[var(--color-bg)] text-[var(--color-ink)]">
       <section className="mx-auto flex min-h-screen w-full max-w-2xl flex-col justify-center px-(--space-12) py-(--space-24)">
         <div className="space-y-(--space-16)">
           <div className="space-y-(--space-6)">
-            <p className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-semibold tracking-[var(--tracking-caps)] text-muted-foreground uppercase">
+            <div className="grid size-(--space-16) place-items-center rounded-md bg-[var(--color-accent-soft)] text-[var(--color-accent-ink)]">
+              <HugeiconsIcon icon={MobileProtectionIcon} size={22} strokeWidth={2} />
+            </div>
+            <p className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-semibold tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)] uppercase">
               Mobile app
             </p>
-            <h1 className="text-[length:var(--text-2xl)] leading-[var(--leading-2xl)] font-semibold tracking-[var(--tracking-tight)]">
+            <h1 className="font-display text-[length:var(--text-2xl)] leading-[var(--leading-2xl)] font-semibold tracking-normal text-[var(--color-ink)]">
               Download the mobile app
             </h1>
-            <p className="max-w-xl text-[length:var(--text-base)] leading-[var(--leading-base)] text-muted-foreground">
+            <p className="max-w-xl text-[length:var(--text-base)] leading-[var(--leading-base)] text-[var(--color-ink-faint)]">
               Use this link on an Android phone to install the employee app.
             </p>
           </div>
 
-          <SurfacePanel className="p-(--space-10) shadow-none">
-            <ol className="list-decimal space-y-(--space-6) pl-(--space-10) text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-muted-foreground">
+          <SurfacePanel className="p-(--space-10)">
+            <ol className="list-decimal space-y-(--space-6) pl-(--space-10) text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-[var(--color-ink-faint)]">
               <li>Open this page on the phone.</li>
               <li>Tap download.</li>
               <li>If the phone asks for permission, allow the install.</li>
@@ -47,7 +52,7 @@ export default function AndroidDownloadPage() {
             </Button>
           </div>
 
-          <p className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-muted-foreground">
+          <p className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-[var(--color-ink-faint)]">
             Updates use this same page.
           </p>
         </div>

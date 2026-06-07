@@ -199,7 +199,7 @@ export function CardTabs({
         >
           {isRouteTabLoading ? (
             <div className={styles.tabLoading} role="status" aria-live="polite">
-              <Spinner className="size-5 text-muted-foreground" />
+              <Spinner className="size-5" />
             </div>
           ) : (
             children ?? panels?.[renderedTab] ?? null

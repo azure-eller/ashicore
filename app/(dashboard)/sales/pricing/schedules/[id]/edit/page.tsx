@@ -23,12 +23,10 @@ export default async function EditPricingSchedulePage({
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl py-8">
-      <PricingScheduleForm
-        initialData={pricingSchedule}
-        customerCategories={customerCategories}
-        itemOptions={itemOptions}
-      />
-    </div>
+    <PricingScheduleForm
+      initialData={pricingSchedule}
+      customerCategories={customerCategories}
+      itemOptions={itemOptions}
+    />
   );
 }

@@ -210,7 +210,7 @@ export function DeliveryAddressInput({
             showClear={currentAddressId !== ""}
             className={inputClassName ?? "w-full min-w-0"}
           />
-          <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))] bg-popover text-popover-foreground">
+          <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))] bg-[var(--color-surface)] text-[var(--color-ink)]">
             <ComboboxEmpty>No addresses found</ComboboxEmpty>
             <ComboboxList>
               {(itemId: string) => {
@@ -243,11 +243,11 @@ export function DeliveryAddressInput({
                         {optionMap.get(itemId)?.label}
                       </span>
                       {optionMap.get(itemId)?.shipContactName ? (
-                        <span className="truncate text-[length:var(--text-xs)] text-muted-foreground">
+                        <span className="truncate text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                           {optionMap.get(itemId)?.shipContactName}
                         </span>
                       ) : null}
-                      <span className="truncate text-[length:var(--text-xs)] text-muted-foreground">
+                      <span className="truncate text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                         {deliveryAddressLabel(optionMap.get(itemId) ?? {})}
                       </span>
                     </span>

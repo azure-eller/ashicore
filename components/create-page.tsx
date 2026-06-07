@@ -27,18 +27,18 @@ export function CreatePageHeader({
   return (
     <div
       className={cn(
-        "mb-(--space-12) flex flex-col gap-(--space-8) md:flex-row md:items-start md:justify-between",
+        "mb-(--space-8) flex flex-col gap-(--space-8) px-(--space-3) md:flex-row md:items-center md:justify-between",
         className
       )}
     >
       <div className="min-w-0 space-y-(--space-2)">
         {eyebrow ? (
-          <div className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-semibold tracking-[var(--tracking-caps)] text-muted-foreground uppercase">
+          <div className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-semibold tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)] uppercase">
             {eyebrow}
           </div>
         ) : null}
         <div className="flex flex-wrap items-center gap-(--space-4)">
-          <h1 className="text-[length:var(--text-xl)] leading-[var(--leading-xl)] font-semibold tracking-[var(--tracking-tight)]">
+          <h1 className="font-display text-[length:var(--text-xl)] leading-[var(--leading-xl)] font-semibold tracking-normal text-[var(--color-ink)]">
             {title}
           </h1>
           {badge}
@@ -59,7 +59,7 @@ export function CreatePageShell({
   className?: string;
 }) {
   return (
-    <div className={cn("mx-auto w-full max-w-[1480px] px-0 pb-(--space-24)", className)}>
+    <div className={cn("w-full px-0 pb-(--space-18)", className)}>
       {children}
     </div>
   );
@@ -150,13 +150,13 @@ export function CreateSidebarCard({
 type CreateCardDensity = "default" | "compact";
 
 const createCardHeaderClass: Record<CreateCardDensity, string> = {
-  default: "border-b bg-muted px-(--space-12) py-(--space-10)",
-  compact: "border-b bg-muted px-(--space-10) py-(--space-8)",
+  default: "border-b border-[var(--color-line-soft)] bg-[var(--color-surface-sunk)] px-(--space-12) py-(--space-9)",
+  compact: "border-b border-[var(--color-line-soft)] bg-[var(--color-surface-sunk)] px-(--space-10) py-(--space-7)",
 };
 
 const createCardFooterClass: Record<CreateCardDensity, string> = {
-  default: "border-t bg-muted px-(--space-12) py-(--space-8)",
-  compact: "border-t bg-muted px-(--space-10) py-(--space-8)",
+  default: "border-t border-[var(--color-line-soft)] bg-[var(--color-surface-sunk)] px-(--space-12) py-(--space-8)",
+  compact: "border-t border-[var(--color-line-soft)] bg-[var(--color-surface-sunk)] px-(--space-10) py-(--space-8)",
 };
 
 function CreateCard({
@@ -167,7 +167,12 @@ function CreateCard({
   className?: string;
 }) {
   return (
-    <Card className={cn("gap-0 border bg-card py-0 shadow-none ring-0", className)}>
+    <Card
+      className={cn(
+        "gap-0 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] py-0 shadow-[var(--shadow-grid-card)] ring-0",
+        className
+      )}
+    >
       {children}
     </Card>
   );
@@ -189,8 +194,8 @@ function CreateCardHeader({
       <CardTitle
         className={
           density === "compact"
-            ? "text-[length:var(--text-sm)] leading-[var(--leading-sm)]"
-            : undefined
+            ? "font-mono text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-semibold tracking-[var(--tracking-caps)] text-[var(--color-ink)] uppercase"
+            : "font-mono text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-semibold tracking-[var(--tracking-caps)] text-[var(--color-ink)] uppercase"
         }
       >
         {title}
@@ -238,7 +243,7 @@ export function SummaryRows({
     <div className={cn("space-y-(--space-6) text-[length:var(--text-sm)] leading-[var(--leading-sm)]", className)}>
       {rows.map((row, index) => (
         <div key={index} className="flex items-center justify-between gap-(--space-8)">
-          <span className="text-muted-foreground">{row.label}</span>
+          <span className="text-[var(--color-ink-faint)]">{row.label}</span>
           <span
             className={cn(
               "text-right font-mono font-medium tabular-nums",
@@ -267,7 +272,7 @@ export function AffixedInput({
   return (
     <div className={cn("relative", className)}>
       {prefix ? (
-        <span className="pointer-events-none absolute top-1/2 left-(--space-6) z-10 -translate-y-1/2 text-[length:var(--text-sm)] text-muted-foreground">
+        <span className="pointer-events-none absolute top-1/2 left-(--space-6) z-10 -translate-y-1/2 text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
           {prefix}
         </span>
       ) : null}
@@ -281,7 +286,7 @@ export function AffixedInput({
         {...props}
       />
       {suffix ? (
-        <span className="pointer-events-none absolute top-1/2 right-(--space-6) z-10 -translate-y-1/2 text-[length:var(--text-xs)] text-muted-foreground">
+        <span className="pointer-events-none absolute top-1/2 right-(--space-6) z-10 -translate-y-1/2 text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
           {suffix}
         </span>
       ) : null}

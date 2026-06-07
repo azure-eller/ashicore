@@ -43,10 +43,8 @@ export default async function SettingsLayout({
 
   return (
     <DashboardModuleShell>
-      <div className="grid min-h-0 gap-(--space-10) xl:grid-cols-[220px_minmax(0,1fr)]">
-        <SettingsNav sections={sections} />
-        <div className="min-w-0">{children}</div>
-      </div>
+      <SettingsNav sections={sections} />
+      <div className="min-w-0">{children}</div>
     </DashboardModuleShell>
   );
 }

@@ -33,6 +33,11 @@ import {
   getSalesItemsDisplayState,
   type FulfillmentDisplayState,
 } from "@/lib/sales/fulfillment-status";
+import {
+  ProductionStatusCell,
+  StatusDetailCell,
+  ingredientsStatusEmptyMessage,
+} from "../../sales-order-table-action-cells";
 import { apiJson } from "@/lib/client/api";
 import type {
   SalesLinePricingResult,
@@ -135,9 +140,9 @@ export function LineItemsTable({
           data ? (
             <div className="flex flex-col justify-center leading-tight py-(--space-1)">
               <span className="font-medium">
-                {data.itemName || <span className="text-muted-foreground">Search items...</span>}
+                {data.itemName || <span className="text-[var(--color-ink-faint)]">Search items...</span>}
               </span>
-              <span className="text-[length:var(--text-sm)] text-muted-foreground">
+              <span className="text-[length:var(--text-card-caption)] text-[var(--color-ink-faint)]">
                 {data.unitName}
               </span>
             </div>
@@ -169,7 +174,7 @@ export function LineItemsTable({
             <div className="flex flex-col items-end justify-center leading-tight py-(--space-1) font-mono tabular-nums">
               <span>{formatQuantity(data.quantity) ?? "0"}</span>
               {shipped > 0 ? (
-                <span className="text-[length:var(--text-sm)] text-muted-foreground">
+                <span className="text-[length:var(--text-card-caption)] text-[var(--color-ink-faint)]">
                   {formatQuantity(data.shippedQuantity)} shipped
                 </span>
               ) : null}
@@ -276,9 +281,12 @@ export function LineItemsTable({
         cellClass: "statusBlockCell",
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderDetailLine>) =>
           data ? (
-            <FulfillmentStatusBlock
+            <StatusDetailCell
+              label="Ingredients"
+              menuLabel="Short ingredients"
               state={lineIngredientsState(data)}
-              className="w-full justify-center"
+              emptyMessage={ingredientsStatusEmptyMessage(lineIngredientsState(data), "line")}
+              rows={lineIngredientShortageRows(data)}
             />
           ) : null,
       },
@@ -290,9 +298,9 @@ export function LineItemsTable({
         cellClass: "statusBlockCell",
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderDetailLine>) =>
           data ? (
-            <FulfillmentStatusBlock
+            <ProductionStatusCell
               state={lineProductionState(data)}
-              className="w-full justify-center"
+              openManufacturingOrders={data.linkedManufacturingOrders ?? []}
             />
           ) : null,
       },
@@ -400,7 +408,7 @@ export function LineItemsTable({
       />
 
       {pricingLookupError ? (
-        <div className="px-(--space-3) pt-(--space-2) text-[length:var(--text-sm)] text-destructive">
+        <div className="px-(--space-3) pt-(--space-2) text-[length:var(--text-card-caption)] text-[var(--status-danger-ink)]">
           {pricingLookupError}
         </div>
       ) : null}
@@ -423,6 +431,7 @@ export function LineItemsTable({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
+              variant="danger"
               onClick={(event) => {
                 event.preventDefault();
                 if (confirmDelete) controller.removeLine(confirmDelete.id);
@@ -623,6 +632,17 @@ function lineIngredientsState(line: SalesOrderDetailLine): FulfillmentDisplaySta
     line.fulfillmentSummary.ingredientsState,
     line.fulfillmentSummary.ingredientsExpectedDate,
   );
+}
+
+function lineIngredientShortageRows(line: SalesOrderDetailLine) {
+  return line.fulfillmentSummary.ingredientShortages.map((shortage) => ({
+    id: shortage.itemId,
+    item: shortage.itemName,
+    needed: formatQuantity(shortage.requiredQty),
+    available: formatQuantity(shortage.availableQty),
+    expected: formatQuantity(shortage.expectedQty),
+    short: shortage.availabilityStatus === "missing",
+  }));
 }
 
 function lineProductionState(line: SalesOrderDetailLine): FulfillmentDisplayState {

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { GridApi, ICellRendererParams } from "ag-grid-community";
 import { Add01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
@@ -23,7 +23,6 @@ import { DateTimeText } from "@/components/date-time-text";
 import { fulfillmentStatusBlockTone } from "@/components/fulfillment-status-block";
 import { clampProgressPercent, ProgressMeter } from "@/components/progress-meter";
 import { StatusDetailMenuTable } from "@/components/status-detail-menu-table";
-import { AttributeBadges } from "@/components/attribute-badges";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -100,10 +99,16 @@ function keepManufacturingRankVisible(
 }
 
 function ProductCell({ order }: { order: ManufacturingOrderListRow }) {
+  const productName =
+    order.productAttrs.length > 0
+      ? `${order.productMasterName} / ${order.productAttrs.join(" / ")}`
+      : order.productMasterName;
+
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-      <span className="truncate">{order.productMasterName}</span>
-      <AttributeBadges attrs={order.productAttrs} />
+    <div className="flex min-w-0 items-center">
+      <span className="truncate" title={productName}>
+        {productName}
+      </span>
     </div>
   );
 }
@@ -353,12 +358,12 @@ function RankCell({
   order: ManufacturingOrderListRow;
 }) {
   if (!(OPEN_MANUFACTURING_STATUSES as readonly string[]).includes(order.status)) {
-    return <span className="text-muted-foreground">-</span>;
+    return <span className="text-[var(--color-ink-faint)]">-</span>;
   }
 
   return (
     <div className="flex h-full items-center">
-      <span className="w-(--space-16) text-muted-foreground tabular-nums">
+      <span className="w-(--space-16) text-[var(--color-ink-faint)] tabular-nums">
         {order.priorityRank ?? "-"}
       </span>
     </div>
@@ -471,12 +476,6 @@ export function OrdersTable({
     () => keepManufacturingRankVisible(ordersPreference.grid),
     [ordersPreference.grid]
   );
-  const clearSort = useCallback(() => {
-    gridApiRef.current?.applyColumnState({
-      defaultState: { sort: null },
-    });
-    setHasActiveSort(false);
-  }, []);
   const gridColumns = useMemo<ColDef<ManufacturingOrderListRow>[]>(
     () => [
       {
@@ -518,9 +517,10 @@ export function OrdersTable({
       {
         field: "productName",
         headerName: "Product",
-        width: 270,
-        minWidth: 200,
+        width: 320,
+        minWidth: 240,
         flex: 1.3,
+        cellClass: "emphasis",
         cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
           data ? <ProductCell order={data} /> : null,
       },
@@ -537,6 +537,7 @@ export function OrdersTable({
         headerTooltip: MANUFACTURING_PLANNED_QTY_TOOLTIP,
         width: 156,
         minWidth: 150,
+        cellClass: "num",
         comparator: (left, right) =>
           parseFloat(String(left ?? "0")) - parseFloat(String(right ?? "0")),
         cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
@@ -577,6 +578,7 @@ export function OrdersTable({
         headerName: "Actual",
         headerTooltip: MANUFACTURING_ACTUAL_QTY_TOOLTIP,
         width: 130,
+        cellClass: "num",
         cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
           data?.actualQuantity != null ? (
             <QuantityWithUnit
@@ -736,26 +738,9 @@ export function OrdersTable({
             </Button>
           </>
         }
-        statusBarContent={
-          <>
-            <span>
-              {displayedOrders.length} of {orders.length} rows
-            </span>
-            <div className="flex-1" />
-            <button
-              type="button"
-              className="hover:text-foreground"
-              aria-label={
-                hasActiveSort
-                  ? "Reset sort to reorder manufacturing orders"
-                  : "Manufacturing orders sorted by rank"
-              }
-              onClick={clearSort}
-            >
-              Sort: {hasActiveSort ? "Custom" : "Rank ↑"}
-            </button>
-          </>
-        }
+        className="flex h-[calc(100dvh_-_var(--height-nav)_-_var(--height-subnav))] min-h-0 flex-col gap-(--space-7) bg-[var(--color-bg)]"
+        gridClassName="min-h-0 flex-1"
+        height="100%"
       />
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
@@ -776,6 +761,7 @@ export function OrdersTable({
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
+              variant="danger"
               disabled={deleteMutation.isPending || selectedCount === 0}
               onClick={(event) => {
                 event.preventDefault();
@@ -811,21 +797,21 @@ function ManufacturingResourceFilter({
       <SelectTrigger
         size="sm"
         aria-label="Filter manufacturing orders by resource"
-        className="max-w-[220px] bg-background"
+        className="max-w-[220px] bg-[var(--color-bg)]"
       >
         <SelectValue placeholder="All resources" />
       </SelectTrigger>
       <SelectContent align="start">
         <SelectItem value={ALL_RESOURCES_FILTER}>
           All resources
-          <span className="font-mono text-[length:var(--text-2xs)] text-muted-foreground tabular-nums">
+          <span className="font-mono text-[length:var(--text-2xs)] text-[var(--color-ink-faint)] tabular-nums">
             {orderCount}
           </span>
         </SelectItem>
         {options.map((option) => (
           <SelectItem key={option.value} value={option.value}>
             {option.label}
-            <span className="font-mono text-[length:var(--text-2xs)] text-muted-foreground tabular-nums">
+            <span className="font-mono text-[length:var(--text-2xs)] text-[var(--color-ink-faint)] tabular-nums">
               {option.count}
             </span>
           </SelectItem>

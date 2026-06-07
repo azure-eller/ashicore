@@ -5,24 +5,25 @@ import { Slot } from "radix-ui"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-(--radius-none) border border-transparent bg-clip-padding font-medium whitespace-nowrap transition-colors duration-(--duration-1) ease-(--ease-out) outline-none select-none focus-visible:shadow-[var(--focus-ring)] disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:shadow-[var(--focus-ring)] [&_svg]:pointer-events-none [&_svg]:shrink-0",
+  "group/button inline-flex shrink-0 items-center justify-center rounded-full border border-transparent bg-clip-padding font-semibold whitespace-nowrap transition-all duration-(--duration-1) ease-(--ease-out) outline-none select-none focus-visible:shadow-[0_0_0_4px_var(--color-accent-soft)] disabled:pointer-events-none disabled:cursor-not-allowed aria-invalid:border-[var(--color-danger)] aria-invalid:shadow-[0_0_0_4px_color-mix(in_oklch,var(--color-danger),transparent_88%)] [&_svg]:pointer-events-none [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-[var(--color-accent-hover)]",
-        primary: "bg-primary text-primary-foreground hover:bg-[var(--color-accent-hover)]",
+        default: "bg-[var(--color-accent)] text-[var(--color-accent-text)] shadow-[var(--shadow-sm)] hover:brightness-[0.97] hover:-translate-y-px disabled:opacity-50",
+        primary: "bg-[var(--color-accent)] text-[var(--color-accent-text)] shadow-[var(--shadow-sm)] hover:brightness-[0.97] hover:-translate-y-px disabled:opacity-50",
         outline:
-          "border-border bg-[var(--color-surface)] text-foreground hover:bg-muted aria-expanded:bg-muted aria-expanded:text-foreground",
+          "border-[var(--color-line)] bg-[var(--color-surface)] text-[var(--color-ink)] hover:bg-[var(--color-surface-alt)] aria-expanded:bg-[var(--color-surface-alt)] aria-expanded:text-[var(--color-ink)] disabled:opacity-50",
         secondary:
-          "border-border bg-[var(--color-surface)] text-foreground hover:bg-muted aria-expanded:bg-muted aria-expanded:text-foreground",
+          "border-[var(--color-line)] bg-[var(--color-surface)] text-[var(--color-ink)] hover:bg-[var(--color-surface-alt)] aria-expanded:bg-[var(--color-surface-alt)] aria-expanded:text-[var(--color-ink)] disabled:opacity-50",
         "secondary-muted":
-          "border-border bg-muted text-muted-foreground hover:bg-[var(--color-surface-sunk)] hover:text-foreground aria-expanded:bg-[var(--color-surface-sunk)]",
+          "border-[var(--color-line)] bg-[var(--color-surface-alt)] text-[var(--color-ink-faint)] hover:bg-[var(--color-surface-sunk)] hover:text-[var(--color-ink)] aria-expanded:bg-[var(--color-surface-sunk)] disabled:opacity-50",
         ghost:
-          "bg-transparent text-foreground hover:bg-muted aria-expanded:bg-muted aria-expanded:text-foreground",
+          "bg-transparent text-[var(--color-ink)] hover:bg-[var(--color-surface-alt)] aria-expanded:bg-[var(--color-surface-alt)] aria-expanded:text-[var(--color-ink)] disabled:opacity-50",
         destructive:
-          "bg-destructive text-primary-foreground hover:bg-destructive/90",
-        danger: "bg-destructive text-primary-foreground hover:bg-destructive/90",
-        link: "text-primary underline-offset-4 hover:underline",
+          "bg-[var(--color-danger-soft)] text-[var(--color-danger)] hover:bg-[color-mix(in_oklch,var(--color-danger-soft),black_4%)] disabled:opacity-50",
+        danger:
+          "bg-[var(--color-danger-soft)] text-[var(--color-danger)] hover:bg-[color-mix(in_oklch,var(--color-danger-soft),black_4%)] disabled:opacity-50",
+        link: "text-[var(--color-accent-ink)] underline-offset-4 hover:underline disabled:opacity-50",
       },
       size: {
         default:

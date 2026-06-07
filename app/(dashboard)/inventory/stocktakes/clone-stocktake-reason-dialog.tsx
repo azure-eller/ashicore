@@ -41,7 +41,7 @@ export function CloneStocktakeReasonDialog({
         </DialogHeader>
         <div className="space-y-2">
           <Label htmlFor="stocktake-clone-reason">
-            Reason <span className="text-destructive">*</span>
+            Reason <span className="text-[var(--status-danger-ink)]">*</span>
           </Label>
           <Input
             id="stocktake-clone-reason"

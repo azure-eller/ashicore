@@ -771,7 +771,7 @@ export function PricingScheduleForm({
                       tone="muted"
                       className="grid gap-(--space-3) p-(--space-4)"
                     >
-                      <div className="flex items-center justify-between gap-(--space-4) text-[length:var(--text-xs)] text-muted-foreground">
+                      <div className="flex items-center justify-between gap-(--space-4) text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                         <span>{range}</span>
                         <span>{Number.isFinite(discount) ? discount : 0}% discount</span>
                       </div>
@@ -879,12 +879,12 @@ export function PricingScheduleForm({
                   </FieldLabel>
                   <button
                     type="button"
-                    className="flex min-h-(--height-input-md) w-full items-center justify-between gap-(--space-4) rounded-(--radius-none) border border-input bg-background px-(--space-4) py-(--space-3) text-left text-[length:var(--text-sm)] leading-[var(--leading-sm)] shadow-xs outline-none transition-colors hover:bg-muted focus-visible:border-ring focus-visible:shadow-[var(--focus-ring)] data-[invalid=true]:border-destructive data-[invalid=true]:shadow-[var(--focus-ring)]"
+                    className="flex min-h-(--height-input-md) w-full items-center justify-between gap-(--space-4) rounded-[var(--radius-md)] border-[1.5px] border-[var(--color-line)] bg-[var(--color-surface)] px-(--space-5) py-(--space-3) text-left text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-[var(--color-ink)] outline-none transition-colors duration-(--duration-1) ease-(--ease-out) hover:border-[var(--color-ink-soft)] focus-visible:border-[var(--color-accent)] focus-visible:shadow-[0_0_0_4px_var(--color-accent-soft)] data-[invalid=true]:border-[var(--color-danger)] data-[invalid=true]:shadow-[0_0_0_4px_color-mix(in_oklch,var(--color-danger),transparent_88%)]"
                     data-invalid={itemScopeInvalid ? "true" : undefined}
                     onClick={openItemPicker}
                   >
                     <span className="min-w-0 truncate">{itemScopeSummary}</span>
-                    <span className="shrink-0 text-[length:var(--text-xs)] text-muted-foreground">
+                    <span className="shrink-0 font-medium text-[length:var(--text-xs)] text-[var(--color-accent-ink)]">
                       Change
                     </span>
                   </button>
@@ -915,7 +915,7 @@ export function PricingScheduleForm({
           <CreateSection
             title="Quantity breaks"
             action={
-              <span className="text-[length:var(--text-xs)] text-muted-foreground">
+              <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                 {breakRows.length} break{breakRows.length === 1 ? "" : "s"}
               </span>
             }
@@ -967,7 +967,7 @@ export function PricingScheduleForm({
             <div className="relative">
               <HugeiconsIcon
                 icon={Search01Icon}
-                className="pointer-events-none absolute left-(--space-4) top-1/2 size-(--space-6) -translate-y-1/2 text-muted-foreground"
+                className="pointer-events-none absolute left-(--space-4) top-1/2 size-(--space-6) -translate-y-1/2 text-[var(--color-ink-faint)]"
                 aria-hidden
               />
               <Input
@@ -1001,7 +1001,7 @@ export function PricingScheduleForm({
                         key={category}
                         type="button"
                         selected={selected}
-                        className="border-x-0 border-b-0 text-[length:var(--text-sm)] font-medium first:border-t-0"
+                        className="text-[length:var(--text-sm)] font-medium"
                         onClick={() => selectCategoryScope(category)}
                       >
                         <span className="min-w-0 truncate">{category}</span>
@@ -1026,7 +1026,7 @@ export function PricingScheduleForm({
                         key={`${option.optionCode}:${option.valueCode}`}
                         type="button"
                         selected={selected}
-                        className="border-x-0 border-b-0 text-[length:var(--text-sm)] font-medium first:border-t-0"
+                        className="text-[length:var(--text-sm)] font-medium"
                         onClick={() =>
                           selectVariantScope(option.optionCode, option.valueCode)
                         }
@@ -1066,7 +1066,7 @@ export function PricingScheduleForm({
                           <span className="block truncate text-[length:var(--text-sm)] font-medium">
                             {label}
                           </span>
-                          <span className="block truncate text-[length:var(--text-xs)] text-muted-foreground">
+                          <span className="block truncate text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                             {[item.sku, item.unitName].filter(Boolean).join(" / ")}
                           </span>
                         </span>

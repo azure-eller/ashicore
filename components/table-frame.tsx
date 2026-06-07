@@ -1,15 +1,27 @@
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
+import { Search01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { cn } from "@/lib/utils";
 
 export function TableFrame({
   children,
   className,
+  variant = "default",
 }: {
   children: ReactNode;
   className?: string;
+  variant?: "default" | "card";
 }) {
   return (
-    <div className={cn("overflow-x-auto border border-border", className)}>
+    <div
+      data-slot="table-frame"
+      data-variant={variant}
+      className={cn(
+        "overflow-x-auto rounded-(--radius-md) border border-[var(--color-line)] bg-[var(--color-surface)]",
+        variant === "card" ? "shadow-[var(--shadow-sm)]" : "shadow-none",
+        className
+      )}
+    >
       {children}
     </div>
   );
@@ -22,7 +34,7 @@ type TableFrameEdgeProps = {
 
 export function TableFrameHeader({ children, className }: TableFrameEdgeProps) {
   return (
-    <div className={cn("border-b bg-muted/20 px-(--space-8) py-(--space-4)", className)}>
+    <div className={cn("border-b border-[var(--color-line-soft)] bg-[var(--color-surface-sunk)] px-(--space-8) py-(--space-4)", className)}>
       {children}
     </div>
   );
@@ -30,7 +42,7 @@ export function TableFrameHeader({ children, className }: TableFrameEdgeProps) {
 
 export function TableFrameFooter({ children, className }: TableFrameEdgeProps) {
   return (
-    <div className={cn("border-t px-(--space-8) py-(--space-4)", className)}>
+    <div className={cn("border-t border-[var(--color-line-soft)] px-(--space-8) py-(--space-4)", className)}>
       {children}
     </div>
   );
@@ -74,7 +86,7 @@ export function FramedTableHead({
   return (
     <thead
       className={cn(
-        "bg-[var(--color-surface-muted)] text-left text-[length:var(--text-sm)] leading-[var(--leading-sm)] font-medium text-muted-foreground",
+        "bg-[var(--color-surface-sunk)] text-left font-sans text-[length:var(--text-card-header)] leading-[var(--leading-xs)] font-bold tracking-[0.04em] text-[var(--color-ink-2)] uppercase",
         sticky && "sticky top-0 z-10",
         className,
       )}
@@ -91,7 +103,7 @@ export function FramedTableBody({
   ...props
 }: ComponentPropsWithoutRef<"tbody">) {
   return (
-    <tbody className={cn("[&_tr:last-child]:border-0", className)} {...props}>
+    <tbody className={cn("[&_tr:last-child]:border-0 [&_tr:last-child_td]:border-b-0", className)} {...props}>
       {children}
     </tbody>
   );
@@ -114,7 +126,7 @@ export function FramedTableRow({
       {...props}
       data-state={dataState}
       className={cn(
-        "border-b border-border transition-colors hover:bg-muted data-[state=selected]:bg-[var(--color-accent-soft)]",
+        "border-b border-[var(--color-line-soft)] transition-colors hover:bg-[var(--color-surface-alt)] data-[state=selected]:bg-[var(--color-accent-soft)]",
         className,
       )}
     >
@@ -135,7 +147,7 @@ export function FramedTableHeaderCell({
   return (
     <th
       className={cn(
-        "px-[var(--table-cell-px)] py-[var(--table-cell-py)] align-middle font-medium tracking-[var(--tracking-caps)] whitespace-nowrap uppercase",
+        "h-(--height-framed-table-header) border-r border-b border-[var(--color-line-soft)] px-(--space-7) py-[var(--table-cell-py)] align-middle font-bold tracking-[0.04em] whitespace-nowrap uppercase last:border-r-0",
         align === "right" && "text-right",
         align === "center" && "text-center",
         className,
@@ -167,12 +179,12 @@ export function FramedTableCell({
     <td
       colSpan={colSpan}
       className={cn(
-        "px-[var(--table-cell-px)] py-[var(--table-cell-py)] align-middle whitespace-nowrap text-foreground",
+        "h-(--height-framed-table-row) border-r border-b border-[var(--color-line-soft)] px-(--space-7) py-[var(--table-cell-py)] align-middle text-[length:var(--text-card-control)] whitespace-nowrap text-[var(--color-ink)] last:border-r-0",
         align === "right" && "text-right",
         align === "center" && "text-center",
         numeric && "font-mono tabular-nums",
         strong && "font-semibold",
-        muted && "text-muted-foreground",
+        muted && "text-[var(--color-ink-faint)]",
         className,
       )}
       {...props}
@@ -198,15 +210,21 @@ export function FramedTableEmptyRow({
       <FramedTableCell
         colSpan={colSpan}
         align="center"
-        muted
         className={cn(
           height === "compact"
-            ? "h-[calc(var(--space-20)+var(--space-8))]"
-            : "h-[calc(var(--space-20)*2)]",
+            ? "h-[calc(var(--space-20)*2)]"
+            : "h-[calc(var(--space-20)*3)]",
           className,
         )}
       >
-        {children}
+        <span className="flex flex-col items-center justify-center gap-(--space-4)">
+          <span className="grid size-(--space-16) place-items-center rounded-(--radius-md) border border-[var(--color-line)] bg-[var(--color-accent-soft)] text-[var(--color-accent-ink)] shadow-[var(--shadow-sticky)]">
+            <HugeiconsIcon icon={Search01Icon} size={18} strokeWidth={2} aria-hidden />
+          </span>
+          <span className="max-w-sm font-display text-[length:var(--text-sm)] font-medium leading-[var(--leading-sm)] text-[var(--color-ink-soft)]">
+            {children}
+          </span>
+        </span>
       </FramedTableCell>
     </FramedTableRow>
   );

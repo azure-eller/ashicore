@@ -580,7 +580,7 @@ function PurchaseMaterialCell({
   materialMap: Map<string, PurchaseOrderMaterialOption>;
 }) {
   if (!data?.itemId) {
-    return <span className="text-muted-foreground">Search items...</span>;
+    return <span className="text-[var(--color-ink-faint)]">Search items...</span>;
   }
 
   return (
@@ -599,7 +599,7 @@ function PurchaseUnitCell({
   const material = data?.itemId ? materialMap.get(data.itemId) : undefined;
 
   return (
-    <span className="text-muted-foreground">
+    <span className="text-[var(--color-ink-faint)]">
       {material?.purchaseUnitName ?? material?.stockingUnitName ?? "\u2014"}
     </span>
   );
@@ -638,13 +638,13 @@ function PurchaseLandedCostCell({
   const material = data?.itemId ? materialMap.get(data.itemId) : undefined;
 
   if (!unitCost) {
-    return <span className="text-muted-foreground">—</span>;
+    return <span className="text-[var(--color-ink-faint)]">—</span>;
   }
 
   return (
     <span className="block truncate font-medium">
       {formatPrice(unitCost) ?? "$0.00"}
-      <span className="text-muted-foreground">
+      <span className="text-[var(--color-ink-faint)]">
         {" / "}
         {material?.stockingUnitName ?? "unit"}
       </span>
@@ -1223,7 +1223,7 @@ export function PurchaseOrderCard({
         headerName: "Supplier item code",
         minWidth: 160,
         flex: 0.8,
-        cellRenderer: () => <span className="text-muted-foreground">—</span>,
+        cellRenderer: () => <span className="text-[var(--color-ink-faint)]">—</span>,
       },
       {
         colId: "internalBarcode",
@@ -1231,7 +1231,7 @@ export function PurchaseOrderCard({
         headerName: "Internal barcode",
         minWidth: 160,
         flex: 0.8,
-        cellRenderer: () => <span className="text-muted-foreground">—</span>,
+        cellRenderer: () => <span className="text-[var(--color-ink-faint)]">—</span>,
       },
       {
         field: "quantityOrdered",
@@ -2648,7 +2648,7 @@ export function PurchaseOrderCard({
                   !additionalCostsExpanded ? (
                     <button
                       type="button"
-                      className="inline-flex min-h-7 items-center gap-(--space-1) rounded-(--radius-none) border-0 bg-transparent px-(--space-3) py-0 text-sm font-medium text-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)] disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex min-h-7 items-center gap-(--space-1) rounded-[var(--radius-md)] border-0 bg-transparent px-(--space-3) py-0 text-[length:var(--text-sm)] font-medium text-[var(--color-accent-ink)] outline-none transition-colors duration-(--duration-1) ease-(--ease-out) hover:bg-[var(--color-accent-soft)] focus-visible:shadow-[0_0_0_4px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-50"
                       disabled={billAffectingReadOnly}
                       onClick={() => {
                         setAdditionalCostsExpanded(true);
@@ -3152,7 +3152,7 @@ function DeliveryAddressInput({
           showClear={currentAddressId !== ""}
           className={inputClassName ?? "w-full min-w-0"}
         />
-        <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))] bg-popover text-popover-foreground">
+        <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))] bg-[var(--color-surface)] text-[var(--color-ink)]">
           <ComboboxEmpty>No addresses found</ComboboxEmpty>
           <ComboboxList>
             {(itemId: string) => {
@@ -3178,7 +3178,7 @@ function DeliveryAddressInput({
                       {optionMap.get(itemId)?.label}
                     </span>
                     {optionMap.get(itemId)?.shipContactName ? (
-                      <span className="truncate text-xs text-muted-foreground">
+                      <span className="truncate text-xs text-[var(--color-ink-faint)]">
                         {optionMap.get(itemId)?.shipContactName}
                       </span>
                     ) : null}

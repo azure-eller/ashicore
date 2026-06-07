@@ -14,7 +14,7 @@ function InputGroup({ className, ...props }: React.ComponentProps<"div">) {
       data-slot="input-group"
       role="group"
       className={cn(
-        "group/input-group relative flex h-(--height-input-md) w-full min-w-0 items-center rounded-(--radius-none) border border-input bg-background transition-colors duration-(--duration-1) ease-(--ease-out) outline-none in-data-[slot=combobox-content]:focus-within:border-inherit in-data-[slot=combobox-content]:focus-within:shadow-none has-disabled:bg-muted has-disabled:opacity-50 has-[[data-slot=input-group-control]:focus-visible]:border-ring has-[[data-slot=input-group-control]:focus-visible]:shadow-[var(--focus-ring)] has-[[data-slot][aria-invalid=true]]:border-destructive has-[[data-slot][aria-invalid=true]]:shadow-[var(--focus-ring)] has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>textarea]:h-auto has-[>[data-align=block-end]]:[&>input]:pt-(--space-3) has-[>[data-align=block-start]]:[&>input]:pb-(--space-3) has-[>[data-align=inline-end]]:[&>input]:pr-(--space-3) has-[>[data-align=inline-start]]:[&>input]:pl-(--space-3)",
+        "group/input-group relative flex h-(--height-input-md) w-full min-w-0 items-center rounded-md border-[1.5px] border-[var(--color-line)] bg-[var(--color-surface)] transition-colors duration-(--duration-1) ease-(--ease-out) outline-none hover:border-[var(--color-ink-soft)] in-data-[slot=combobox-content]:focus-within:border-inherit in-data-[slot=combobox-content]:focus-within:shadow-none has-disabled:cursor-not-allowed has-disabled:border-transparent has-disabled:bg-[var(--color-surface-sunk)] has-disabled:opacity-100 has-[[data-slot=input-group-control]:focus-visible]:border-[var(--color-accent)] has-[[data-slot=input-group-control]:focus-visible]:shadow-[0_0_0_4px_var(--color-accent-soft)] has-[[data-slot][aria-invalid=true]]:border-[var(--color-danger)] has-[[data-slot][aria-invalid=true]]:shadow-[0_0_0_4px_color-mix(in_oklch,var(--color-danger),transparent_88%)] has-[>[data-align=block-end]]:h-auto has-[>[data-align=block-end]]:flex-col has-[>[data-align=block-start]]:h-auto has-[>[data-align=block-start]]:flex-col has-[>textarea]:h-auto has-[>[data-align=block-end]]:[&>input]:pt-(--space-3) has-[>[data-align=block-start]]:[&>input]:pb-(--space-3) has-[>[data-align=inline-end]]:[&>input]:pr-(--space-3) has-[>[data-align=inline-start]]:[&>input]:pl-(--space-3)",
         className
       )}
       {...props}
@@ -23,7 +23,7 @@ function InputGroup({ className, ...props }: React.ComponentProps<"div">) {
 }
 
 const inputGroupAddonVariants = cva(
-  "flex h-auto cursor-text items-center justify-center gap-(--space-4) py-(--space-3) text-[length:var(--text-sm)] font-medium text-muted-foreground select-none group-data-[disabled=true]/input-group:opacity-50 [&>kbd]:rounded-(--radius-none) [&>svg:not([class*='size-'])]:size-(--space-7)",
+  "flex h-auto cursor-text items-center justify-center gap-(--space-4) py-(--space-3) text-[length:var(--text-sm)] font-medium text-[var(--color-ink-faint)] select-none group-data-[disabled=true]/input-group:opacity-50 [&>kbd]:rounded-md [&>svg:not([class*='size-'])]:size-(--space-7)",
   {
     variants: {
       align: {
@@ -70,10 +70,10 @@ const inputGroupButtonVariants = cva(
   {
     variants: {
       size: {
-        xs: "h-(--height-input-sm) gap-(--space-2) rounded-(--radius-none) px-(--space-3) [&>svg:not([class*='size-'])]:size-(--space-7)",
+        xs: "h-(--height-input-sm) gap-(--space-2) rounded-md px-(--space-3) [&>svg:not([class*='size-'])]:size-(--space-7)",
         sm: "",
         "icon-xs":
-          "size-(--space-10) rounded-(--radius-none) p-0 has-[>svg]:p-0",
+          "size-(--space-10) rounded-md p-0 has-[>svg]:p-0",
         "icon-sm": "size-(--height-input-md) p-0 has-[>svg]:p-0",
       },
     },
@@ -106,7 +106,7 @@ function InputGroupText({ className, ...props }: React.ComponentProps<"span">) {
   return (
     <span
       className={cn(
-        "flex items-center gap-(--space-4) text-[length:var(--text-sm)] text-muted-foreground [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-(--space-7)",
+        "flex items-center gap-(--space-4) text-[length:var(--text-sm)] text-[var(--color-ink-faint)] [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-(--space-7)",
         className
       )}
       {...props}

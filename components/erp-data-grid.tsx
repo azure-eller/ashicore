@@ -32,7 +32,14 @@ import {
   type SelectionChangedEvent,
   type StateUpdatedEvent,
 } from "ag-grid-community";
-import { Input } from "@/components/ui/input";
+import { Search01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { GridEmptyOverlay } from "@/components/grid-empty-overlay";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group";
 import { cn } from "@/lib/utils";
 import styles from "./erp-data-grid.module.css";
 
@@ -71,22 +78,23 @@ export const erpGridTheme = themeQuartz.withParams({
   backgroundColor: "var(--color-surface)",
   borderColor: "var(--color-line)",
   browserColorScheme: "light",
-  cellHorizontalPadding: 10,
+  cellHorizontalPadding: 12,
   cellTextColor: "var(--color-ink)",
   dataBackgroundColor: "var(--color-surface)",
+  fontFamily: "var(--font-sans)",
   foregroundColor: "var(--color-ink)",
   headerBackgroundColor: "var(--color-surface-sunk)",
   headerColumnBorder: true,
   headerColumnResizeHandleColor: "var(--color-line)",
-  headerTextColor: "var(--color-muted)",
-  oddRowBackgroundColor: "var(--color-surface-alt)",
+  headerTextColor: "var(--color-ink)",
+  oddRowBackgroundColor: "var(--color-surface)",
   rowBorder: true,
   rowHoverColor: "var(--color-accent-soft)",
   selectedRowBackgroundColor: "var(--color-accent-soft)",
   tooltipBackgroundColor: "var(--color-surface)",
   tooltipBorder: "1px solid var(--color-line)",
   tooltipTextColor: "var(--color-ink)",
-  wrapperBorderRadius: 0,
+  wrapperBorderRadius: 14,
 });
 
 export type ERPDataGridProps<TData extends { id: string }> = {
@@ -114,6 +122,7 @@ export type ERPDataGridProps<TData extends { id: string }> = {
   gridClassName?: string;
   className?: string;
   enableRowSelection?: boolean;
+  hideHeaderSelectionCheckbox?: boolean;
   isRowSelectable?: (row: TData) => boolean;
   onSelectionChange?: (rows: TData[]) => void;
   onCellValueChanged?: (event: CellValueChangedEvent<TData>) => void;
@@ -258,8 +267,8 @@ export function ERPDataGrid<TData extends { id: string }>({
   pinnedBottomRows,
   getRowId,
   height = "calc(100dvh - 10.75rem)",
-  rowHeight = 45,
-  headerHeight = 45,
+  rowHeight = 48,
+  headerHeight = 44,
   groupHeaderHeight,
   defaultColDef: defaultColDefOverrides,
   emptyMessage = "No rows found.",
@@ -276,6 +285,7 @@ export function ERPDataGrid<TData extends { id: string }>({
   gridClassName,
   className,
   enableRowSelection = false,
+  hideHeaderSelectionCheckbox = false,
   isRowSelectable,
   onSelectionChange,
   onCellValueChanged,
@@ -329,12 +339,12 @@ export function ERPDataGrid<TData extends { id: string }>({
         ? {
             mode: "multiRow" as const,
             checkboxes: true,
-            headerCheckbox: true,
+            headerCheckbox: !hideHeaderSelectionCheckbox,
             enableClickSelection: false,
             selectAll: "filtered" as const,
           }
         : undefined,
-    [enableRowSelection]
+    [enableRowSelection, hideHeaderSelectionCheckbox]
   );
   const selectionColumnDef = useMemo<ColDef>(
     () => ({
@@ -511,24 +521,31 @@ export function ERPDataGrid<TData extends { id: string }>({
   };
 
   return (
-    <section className={cn("space-y-3", styles.root, className)}>
+    <section
+      className={cn("flex flex-col gap-(--space-7)", styles.root, className)}
+    >
       {(onSearchChange || toolbarContent || actions) && (
         <div
           className={cn(
-            "flex flex-col gap-(--space-4) sm:flex-row sm:items-center sm:justify-between",
+            "erp-grid-toolbar flex flex-col gap-(--space-4) px-(--space-1) sm:flex-row sm:items-center sm:justify-between",
             toolbarClassName
           )}
         >
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-(--space-4)">
             {onSearchChange && (
-              <Input
-                ref={searchInputRef}
-                value={searchValue ?? ""}
-                onChange={(event) => onSearchChange(event.target.value)}
-                placeholder="Search..."
-                aria-label={searchAriaLabel}
-                className="w-full sm:w-64"
-              />
+              <InputGroup className="h-(--height-grid-toolbar-control) w-full rounded-(--radius-md) sm:w-[280px]">
+                <InputGroupAddon align="inline-start" className="pr-(--space-2)">
+                  <HugeiconsIcon icon={Search01Icon} size={16} aria-hidden />
+                </InputGroupAddon>
+                <InputGroupInput
+                  ref={searchInputRef}
+                  value={searchValue ?? ""}
+                  onChange={(event) => onSearchChange(event.target.value)}
+                  placeholder="Search..."
+                  aria-label={searchAriaLabel}
+                  className="h-full text-[length:var(--text-control)]"
+                />
+              </InputGroup>
             )}
             {toolbarContent}
           </div>
@@ -541,7 +558,7 @@ export function ERPDataGrid<TData extends { id: string }>({
         ref={gridRootRef}
         data-slot="erp-data-grid"
         className={cn(
-          "ashicore-grid min-w-0 overflow-hidden rounded-(--radius-none) border",
+          "ashicore-grid min-w-0 rounded-(--radius-lg)",
           styles.grid,
           gridClassName
         )}
@@ -602,11 +619,18 @@ export function ERPDataGrid<TData extends { id: string }>({
           }
           suppressColumnMoveAnimation
           rowDragText={(params) => params.defaultTextValue}
-          noRowsOverlayComponent={() => (
-            <span className="text-[length:var(--text-sm)] text-muted-foreground">
-              {emptyMessage}
-            </span>
-          )}
+          noRowsOverlayComponent={() => {
+            const activeSearch = searchValue?.trim();
+            return (
+              <GridEmptyOverlay
+                message={
+                  activeSearch
+                    ? `No results match "${activeSearch}".`
+                    : emptyMessage
+                }
+              />
+            );
+          }}
           onSelectionChanged={(event: SelectionChangedEvent<TData>) => {
             onSelectionChange?.(event.api.getSelectedRows());
           }}
@@ -630,7 +654,7 @@ export function ERPDataGrid<TData extends { id: string }>({
       {statusBarContent ? (
         <div
           className={cn(
-            "flex h-(--height-statusbar) shrink-0 items-center gap-(--space-6) border-t border-border bg-card px-(--space-8) text-[length:var(--text-xs)] text-muted-foreground tabular-nums",
+            "flex h-(--space-12) shrink-0 items-center gap-(--space-6) bg-transparent px-(--space-2) font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)] tabular-nums",
             statusBarClassName
           )}
         >

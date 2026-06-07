@@ -86,6 +86,16 @@ Slow tests are operating stories, not bug archives. A slow spec must be a realis
 - Canonical local login: `test@test.com` / `TestPassword123!`. `pnpm dev:seed-user` keeps this user on fake org `test-paonia-soil-co` and loads Paonia-style data.
 - Playwright global setup creates isolated generated test data in `test-org`.
 
+## Scratch UI Screenshot Review
+
+UI screenshot review is a development-time scratch loop for UI-affecting changes,
+not a permanent fast/slow lane and not a CI gate. Write a throwaway spec in
+`test/e2e/scratch/` using `reviewTest`, drive the changed UI through its
+important states against the Paonia review session from `pnpm sandbox` or
+`pnpm review`, call `captureForReview`, inspect the PNGs in `.tmp/ui-shots/`,
+fix what the screenshots reveal, rerun, and delete the scratch spec before the
+PR. The rubric and copyable template live in `docs/ui-review-checklist.md`.
+
 ### Playwright email outbox
 
 Email assertions must force outbox mode with the runtime flag file, not only process env. The dev server may inherit repo-root Resend vars before tests start.
@@ -118,7 +128,8 @@ Failed scheduled slow runs open/update an investigation PR, comment with run det
 
 ## Key files
 
-- `test/e2e/fixtures.ts` — custom `test` with `db` fixture (Drizzle + Neon + RLS)
+- `test/e2e/fixtures.ts` — custom `test` with `db` fixture (Drizzle + Neon + RLS), plus `reviewTest` for Paonia-backed scratch UI screenshot specs
+- `test/helpers/evidence-screenshots.ts` — `captureForReview` viewport/element screenshot helper
 - `test/e2e/fast/` — heartbeat mutation-seam specs
 - `test/e2e/slow/` — serial operational stories by domain
 - `test/e2e/slow/SLOW_TEST_STORIES.md` — allowed slow-story registry
@@ -134,4 +145,4 @@ The step-by-step loop lives in the workflow skills, which fire on intent: the
 the `sandbox-workflow` skill (triage against a production copy). This doc is the
 test-guardrail reference those skills point back to.
 
-**Orgs:** scratch/fast/slow run against the isolated `test-org` (session in `test/.test-env.json`). `pnpm review` / `pnpm sandbox` seed the live Paonia snapshot into `test-paonia-soil-co` (separate session in `test/.review-env.json`) for manual eyeballing only — automated tests never depend on snapshot breadth, and agents never run a destructive reseed against `test-org`.
+**Orgs:** scratch/fast/slow run against the isolated `test-org` (session in `test/.test-env.json`). The exception is throwaway UI screenshot review specs, which import `reviewTest` and use the Paonia review session in `test/.review-env.json`. `pnpm review` / `pnpm sandbox` seed the live Paonia snapshot into `test-paonia-soil-co`; permanent automated tests never depend on snapshot breadth, and agents never run a destructive reseed against `test-org`.

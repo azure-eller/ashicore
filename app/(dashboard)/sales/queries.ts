@@ -17,6 +17,7 @@ import {
   customerCorrespondence,
   customerCorrespondenceAttendees,
   customerProjectFiles,
+  customerProjectNotes,
   customerProjects,
   accountingDocumentSyncs,
   customers,
@@ -107,6 +108,7 @@ import type {
   CustomerCorrespondenceInput,
   CustomerProjectFileRenameInput,
   CustomerProjectInput,
+  CustomerProjectNoteInput,
 } from "@/lib/schemas/customer-crm";
 import type {
   InsertCustomerCategory,
@@ -134,6 +136,7 @@ import type {
   CustomerCategoryRow,
   CustomerDetailData,
   CustomerProjectFileRow,
+  CustomerProjectNoteRow,
   CustomerProjectRow,
   CustomerOption,
   CustomerRow,
@@ -3950,6 +3953,27 @@ async function getCustomerProjectsInTx(
             )
           )
           .orderBy(desc(customerProjectFiles.createdAt));
+  const noteRows =
+    projectIds.length === 0
+      ? []
+      : await tx
+          .select({
+            id: customerProjectNotes.id,
+            projectId: customerProjectNotes.projectId,
+            body: customerProjectNotes.body,
+            createdByUserId: customerProjectNotes.createdByUserId,
+            createdByName: customerProjectNotes.createdByName,
+            createdAt: customerProjectNotes.createdAt,
+            updatedAt: customerProjectNotes.updatedAt,
+          })
+          .from(customerProjectNotes)
+          .where(
+            and(
+              inArray(customerProjectNotes.projectId, projectIds),
+              isNull(customerProjectNotes.deletedAt)
+            )
+          )
+          .orderBy(desc(customerProjectNotes.createdAt));
 
   const filesByProject = new Map<string, CustomerProjectFileRow[]>();
   for (const file of fileRows) {
@@ -3957,10 +3981,24 @@ async function getCustomerProjectsInTx(
     files.push(mapCustomerProjectFileRow(file));
     filesByProject.set(file.projectId, files);
   }
+  const notesByProject = new Map<string, CustomerProjectNoteRow[]>();
+  for (const note of noteRows) {
+    const notes = notesByProject.get(note.projectId) ?? [];
+    notes.push({
+      id: note.id,
+      body: note.body,
+      createdByUserId: note.createdByUserId,
+      createdByName: note.createdByName,
+      createdAt: note.createdAt,
+      updatedAt: note.updatedAt,
+    });
+    notesByProject.set(note.projectId, notes);
+  }
 
   return rows.map((row) => ({
     ...row,
     status: row.status as CustomerProjectRow["status"],
+    notes: notesByProject.get(row.id) ?? [],
     files: filesByProject.get(row.id) ?? [],
     salesOrders: [],
     orderCount: 0,
@@ -4213,6 +4251,7 @@ export async function createCustomerProject(
       ? {
           ...project,
           status: project.status as CustomerProjectRow["status"],
+          notes: [],
           files: [],
           salesOrders: [],
           orderCount: 0,
@@ -4266,6 +4305,7 @@ export async function updateCustomerProject(
     return fullProject ?? {
       ...project,
       status: project.status as CustomerProjectRow["status"],
+      notes: [],
       files: [],
       salesOrders: [],
       orderCount: 0,
@@ -4320,10 +4360,93 @@ export async function deleteCustomerProject(customerId: string, projectId: strin
         );
     }
 
+    await tx
+      .update(customerProjectNotes)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(
+        and(
+          eq(customerProjectNotes.customerId, customerId),
+          eq(customerProjectNotes.projectId, projectId),
+          isNull(customerProjectNotes.deletedAt)
+        )
+      );
+
     return {
       deleted: true,
       blobUrls: files.map((file) => file.blobUrl),
     };
+  });
+}
+
+export async function createCustomerProjectNote(
+  customerId: string,
+  projectId: string,
+  data: CustomerProjectNoteInput,
+  actor: { userId: string; name: string }
+): Promise<CustomerProjectNoteRow | null> {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const customer = await ensureActiveCustomerInTx(tx, customerId);
+    if (!customer) return null;
+
+    const [project] = await tx
+      .select({ id: customerProjects.id })
+      .from(customerProjects)
+      .where(
+        and(
+          eq(customerProjects.id, projectId),
+          eq(customerProjects.customerId, customerId),
+          isNull(customerProjects.deletedAt)
+        )
+      );
+
+    if (!project) return null;
+
+    const [note] = await tx
+      .insert(customerProjectNotes)
+      .values({
+        organizationId: orgId,
+        customerId,
+        projectId,
+        body: data.body,
+        createdByUserId: actor.userId,
+        createdByName: actor.name || null,
+      })
+      .returning({
+        id: customerProjectNotes.id,
+        body: customerProjectNotes.body,
+        createdByUserId: customerProjectNotes.createdByUserId,
+        createdByName: customerProjectNotes.createdByName,
+        createdAt: customerProjectNotes.createdAt,
+        updatedAt: customerProjectNotes.updatedAt,
+      });
+
+    return note ?? null;
+  });
+}
+
+export async function deleteCustomerProjectNote(
+  customerId: string,
+  projectId: string,
+  noteId: string
+) {
+  return withAuthedOrgContext(async (tx) => {
+    const customer = await ensureActiveCustomerInTx(tx, customerId);
+    if (!customer) return { deleted: false };
+
+    const [note] = await tx
+      .update(customerProjectNotes)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(customerProjectNotes.id, noteId),
+          eq(customerProjectNotes.customerId, customerId),
+          eq(customerProjectNotes.projectId, projectId),
+          isNull(customerProjectNotes.deletedAt)
+        )
+      )
+      .returning({ id: customerProjectNotes.id });
+
+    return { deleted: note != null };
   });
 }
 
@@ -5897,6 +6020,11 @@ export async function getSalesOrder(
       ...line,
       fulfillmentSummary:
         lineFulfillmentSummariesByLineId.get(line.id) ?? fulfillmentSummary,
+      linkedManufacturingOrders: openLinkedManufacturingOrders(
+        linkedManufacturingOrders.filter(
+          (linkedOrder) => linkedOrder.salesOrderLineId === line.id
+        )
+      ).map(serializeLinkedManufacturingOrder),
     })) as SalesOrderDetailLine[];
     const lotPickPlansByLineId = await getSalesLotPickPlansByLineInTx(
       tx,

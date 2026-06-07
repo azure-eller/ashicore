@@ -113,7 +113,7 @@ export function SortableDragHandle({
       variant="ghost"
       size="icon-sm"
       aria-label={label}
-      className={cn("cursor-grab text-muted-foreground active:cursor-grabbing", className)}
+      className={cn("cursor-grab text-[var(--color-ink-faint)] active:cursor-grabbing", className)}
       {...attributes}
       {...listeners}
     >

@@ -2,10 +2,11 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { FieldDescription, FieldGroup } from "@/components/ui/field";
+import { FieldGroup } from "@/components/ui/field";
 
 const MESSAGES: Record<string, string> = {
   access_denied: "Xero authorization was declined.",
@@ -31,13 +32,15 @@ export default async function XeroSignupErrorPage({
     MESSAGES[reason ?? ""] ?? "Xero signup could not be completed.";
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Xero signup needs attention</CardTitle>
+    <Card className="mx-auto w-full max-w-[460px] gap-0 py-0">
+      <CardHeader className="border-b border-[var(--color-line-soft)] bg-[var(--color-surface-sunk)] py-(--space-10)">
+        <CardTitle className="font-display text-[length:var(--text-lg)] leading-[var(--leading-lg)] font-semibold">
+          Xero signup needs attention
+        </CardTitle>
+        <CardDescription>{message}</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-(--space-10)">
         <FieldGroup>
-          <FieldDescription>{message}</FieldDescription>
           <Button asChild>
             <a href="/api/xero/sign-up">Try again</a>
           </Button>

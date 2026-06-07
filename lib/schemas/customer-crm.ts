@@ -82,6 +82,12 @@ export const customerProjectSchema = z.object({
 
 export type CustomerProjectInput = z.infer<typeof customerProjectSchema>;
 
+export const customerProjectNoteSchema = z.object({
+  body: z.string().trim().min(1, "Note is required").max(4000),
+});
+
+export type CustomerProjectNoteInput = z.infer<typeof customerProjectNoteSchema>;
+
 export const customerProjectFileRenameSchema = z.object({
   filename: z.string().trim().min(1, "Filename is required").max(255),
 });

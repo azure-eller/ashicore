@@ -4,10 +4,11 @@ import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { FieldDescription, FieldGroup } from "@/components/ui/field";
+import { FieldGroup } from "@/components/ui/field";
 
 export default async function XeroSignupLinkPage({
   searchParams,
@@ -27,17 +28,19 @@ export default async function XeroSignupLinkPage({
   const signInHref = `/sign-in?callbackURL=${encodeURIComponent(continueHref)}`;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Connect Xero to Ashicore</CardTitle>
+    <Card className="mx-auto w-full max-w-[460px] gap-0 py-0">
+      <CardHeader className="border-b border-[var(--color-line-soft)] bg-[var(--color-surface-sunk)] py-(--space-10)">
+        <CardTitle className="font-display text-[length:var(--text-lg)] leading-[var(--leading-lg)] font-semibold">
+          Connect Xero to Ashicore
+        </CardTitle>
+        <CardDescription>
+          {session
+            ? `Continue as ${session.user.email}.`
+            : "Sign in to link this Xero organization to your Ashicore account."}
+        </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-(--space-10)">
         <FieldGroup>
-          <FieldDescription>
-            {session
-              ? `Continue as ${session.user.email}.`
-              : "Sign in to link this Xero organization to your Ashicore account."}
-          </FieldDescription>
           <Button asChild>
             <a href={session ? continueHref : signInHref}>
               {session ? "Continue" : "Sign in"}

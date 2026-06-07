@@ -34,9 +34,11 @@ function CommitmentStat({
   highlight?: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-1">
-      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
-      <dd className="flex items-center gap-2 text-sm font-medium">
+    <div className="flex flex-col gap-(--space-1)">
+      <dt className="font-mono text-[length:var(--text-xs)] font-semibold tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)] uppercase">
+        {label}
+      </dt>
+      <dd className="flex items-center gap-(--space-2) text-[length:var(--text-sm)] font-medium text-[var(--color-ink)]">
         <span>{quantityWithUnit(value, unitName)}</span>
         {highlight ? <Badge variant="warning">Shortfall</Badge> : null}
       </dd>
@@ -80,8 +82,8 @@ export function ItemCommitmentSummaryCard({
         <CardTitle>Stock Commitments</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="flex flex-col gap-5">
-          <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="flex flex-col gap-(--space-8)">
+          <dl className="grid gap-x-(--space-8) gap-y-(--space-6) sm:grid-cols-2 lg:grid-cols-5">
             <CommitmentStat
               label="On hand"
               value={summary.onHandQty}
@@ -110,8 +112,8 @@ export function ItemCommitmentSummaryCard({
             />
           </dl>
 
-          <div className="flex max-w-xl flex-col gap-2">
-            <h3 className="text-sm font-medium">On-hand stock breakdown</h3>
+          <div className="flex max-w-xl flex-col gap-(--space-3)">
+            <h3 className="text-[length:var(--text-sm)] font-medium text-[var(--color-ink)]">On-hand stock breakdown</h3>
             {summary.slices.length > 0 ? (
               <InventoryCommitmentDonut
                 slices={summary.slices}
@@ -119,9 +121,9 @@ export function ItemCommitmentSummaryCard({
                 unitName={summary.unitName}
               />
             ) : (
-              <p className="text-sm text-muted-foreground">No on-hand stock to chart.</p>
+              <p className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">No on-hand stock to chart.</p>
             )}
-            {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
+            {message ? <p className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">{message}</p> : null}
           </div>
         </div>
       </CardContent>

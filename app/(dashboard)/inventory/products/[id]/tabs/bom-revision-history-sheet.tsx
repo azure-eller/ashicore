@@ -81,7 +81,7 @@ export function BomRevisionHistorySheet({
         side="right"
         className="data-[side=right]:w-[min(90vw,1120px)] data-[side=right]:sm:max-w-none gap-(--space-4)"
       >
-        <SheetHeader className="border-b border-border">
+        <SheetHeader className="border-b border-[var(--color-line)]">
           <SheetTitle>Recipe history</SheetTitle>
           <SheetDescription>{productName}</SheetDescription>
         </SheetHeader>
@@ -89,7 +89,7 @@ export function BomRevisionHistorySheet({
         {selectedRevision ? (
           <div className="grid min-h-0 flex-1 grid-cols-1 gap-(--space-4) overflow-hidden px-(--space-8) pb-(--space-8) lg:grid-cols-[150px_minmax(0,1fr)]">
             <div
-              className="flex gap-(--space-2) overflow-x-auto border-b border-border pb-(--space-3) lg:flex-col lg:overflow-x-visible lg:border-b-0 lg:border-r lg:pr-(--space-3)"
+              className="flex gap-(--space-2) overflow-x-auto border-b border-[var(--color-line)] pb-(--space-3) lg:flex-col lg:overflow-x-visible lg:border-b-0 lg:border-r lg:pr-(--space-3)"
               aria-label="BOM revisions"
             >
               {revisions.map((revision) => {
@@ -103,8 +103,8 @@ export function BomRevisionHistorySheet({
                     className={cn(
                       "h-auto shrink-0 justify-start px-(--space-3) py-(--space-2) text-left lg:w-full",
                       isSelected
-                        ? "bg-muted text-foreground"
-                        : "text-muted-foreground hover:text-foreground",
+                        ? "bg-[var(--color-accent-soft)] text-[var(--color-accent-ink)]"
+                        : "text-[var(--color-ink-faint)] hover:bg-[var(--color-surface-alt)] hover:text-[var(--color-ink)]",
                     )}
                     aria-pressed={isSelected}
                     onClick={() => setSelectedRevisionId(revision.id)}
@@ -118,7 +118,7 @@ export function BomRevisionHistorySheet({
                           <Badge variant="secondary">Current</Badge>
                         ) : null}
                       </span>
-                      <span className="text-[length:var(--text-xs)] text-muted-foreground">
+                      <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                         {formatDate(toDateOnlyString(revision.createdAt))}
                       </span>
                     </span>
@@ -137,14 +137,14 @@ export function BomRevisionHistorySheet({
                     <Badge variant="secondary">Current</Badge>
                   ) : null}
                 </div>
-                <p className="text-[length:var(--text-sm)] text-muted-foreground">
+                <p className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
                   {formatDate(toDateOnlyString(selectedRevision.createdAt))}
                   {selectedRevision.createdByName
                     ? ` by ${selectedRevision.createdByName}`
                     : ""}
                 </p>
                 {selectedRevision.note ? (
-                  <p className="text-[length:var(--text-sm)] text-muted-foreground">
+                  <p className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
                     {selectedRevision.note}
                   </p>
                 ) : null}
@@ -199,7 +199,7 @@ export function BomRevisionHistorySheet({
             </div>
           </div>
         ) : (
-          <div className="px-(--space-8) pb-(--space-8) text-[length:var(--text-sm)] text-muted-foreground">
+          <div className="px-(--space-8) pb-(--space-8) text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
             No BOM revisions yet.
           </div>
         )}

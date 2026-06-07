@@ -22,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { CreatePageHeader, CreatePageShell } from "@/components/create-page";
+import { CreatePageShell } from "@/components/create-page";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { ERPDataGridList } from "@/components/erp-data-grid-list";
 import type { ColDef } from "@/components/erp-data-grid";
@@ -190,10 +190,6 @@ export function ManufacturingResourcesClient({
 
   return (
     <CreatePageShell>
-      <CreatePageHeader
-        title="Manufacturing Resources"
-        actions={null}
-      />
       <ERPDataGridList
         rows={initialResources}
         columns={columns}

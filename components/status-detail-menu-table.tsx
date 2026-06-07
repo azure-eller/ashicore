@@ -23,7 +23,7 @@ export function StatusDetailMenuTable({
 
   if (rows.length === 0) {
     return (
-      <div className="px-(--space-3) py-(--space-4) text-[length:var(--text-sm)] text-muted-foreground">
+      <div className="px-(--space-3) py-(--space-4) text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
         {emptyMessage}
       </div>
     );
@@ -33,7 +33,7 @@ export function StatusDetailMenuTable({
     <div className="max-h-[320px] overflow-y-auto">
       <div
         className={cn(
-          "grid gap-x-(--space-5) border-b border-border px-(--space-3) py-(--space-2) text-[length:var(--text-xs)] font-medium text-muted-foreground",
+          "grid gap-x-(--space-5) border-b border-[var(--color-line)] bg-[var(--color-surface-alt)] px-(--space-3) py-(--space-2) font-mono text-[length:var(--text-xs)] font-medium uppercase tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)]",
           gridTemplate,
         )}
       >
@@ -43,14 +43,16 @@ export function StatusDetailMenuTable({
         {showExpected ? <div className="text-right">Expected</div> : null}
       </div>
       {rows.map((row) => {
-        const valueClassName = row.short ? "text-destructive" : "text-muted-foreground";
+        const valueClassName = row.short
+          ? "text-[var(--status-danger-ink)]"
+          : "text-[var(--color-ink-faint)]";
 
         return (
           <div
             key={row.id}
             className={cn(
-              "grid items-start gap-x-(--space-5) border-b border-border/60 px-(--space-3) py-(--space-3) text-[length:var(--text-sm)] last:border-b-0",
-              row.short && "text-destructive",
+              "grid items-start gap-x-(--space-5) border-b border-[var(--color-line-soft)] px-(--space-3) py-(--space-3) text-[length:var(--text-sm)] last:border-b-0",
+              row.short && "text-[var(--status-danger-ink)]",
               gridTemplate,
             )}
           >
@@ -72,7 +74,7 @@ export function StatusDetailMenuTable({
               {row.available}
             </div>
             {showExpected ? (
-              <div className="min-w-0 text-right font-mono text-[length:var(--text-xs)] tabular-nums text-muted-foreground">
+              <div className="min-w-0 text-right font-mono text-[length:var(--text-xs)] tabular-nums text-[var(--color-ink-faint)]">
                 {row.expected ?? "0"}
               </div>
             ) : null}

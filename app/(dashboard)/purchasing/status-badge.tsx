@@ -117,7 +117,7 @@ export function PurchaseOrderStatusBadge({
       >
         <SelectTrigger
           size="sm"
-          className={cn("w-full min-w-32 bg-background", className)}
+          className={cn("w-full min-w-32 bg-[var(--color-bg)]", className)}
           aria-label="Change purchase order status"
           onClick={(event) => event.stopPropagation()}
         >

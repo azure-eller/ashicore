@@ -58,31 +58,21 @@ type StatusBlockActionableProps = StatusBlockBaseProps & {
 type StatusBlockProps = StatusBlockDerivedProps | StatusBlockActionableProps;
 
 const TONE_FG: Record<StatusBlockTone, string> = {
-  success: "#fff",
-  warning: "var(--color-ink)",
-  danger: "#fff",
-  muted: "var(--color-muted-2)",
-};
-
-const TONE_ACTIONABLE_FG: Record<StatusBlockTone, string> = {
-  success: "#fff",
-  warning: "var(--color-ink)",
-  danger: "#fff",
-  muted: "var(--color-ink-2)",
+  success: "var(--status-success-ink)",
+  warning: "var(--status-warning-ink)",
+  danger: "var(--status-danger-ink)",
+  muted: "var(--status-muted-ink)",
 };
 
 const TONE_DIVIDER: Record<StatusBlockTone, string> = {
-  success: "rgba(255,255,255,0.28)",
-  warning: "color-mix(in oklab, var(--color-ink), transparent 82%)",
-  danger: "rgba(255,255,255,0.28)",
-  muted: "color-mix(in oklab, var(--color-muted), transparent 78%)",
+  success: "var(--status-success-divider)",
+  warning: "var(--status-warning-divider)",
+  danger: "var(--status-danger-divider)",
+  muted: "var(--status-muted-divider)",
 };
 
-function statusBlockBg(tone: StatusBlockTone, actionable: boolean) {
-  if (tone === "muted" && actionable) {
-    return "var(--color-muted-actionable-solid)";
-  }
-  return `var(--color-${tone}-solid)`;
+function statusBlockBg(tone: StatusBlockTone) {
+  return `var(--status-${tone}-bg)`;
 }
 
 function StatusBlockContent({
@@ -122,7 +112,9 @@ function StatusBlockContent({
               className="mr-(--space-2) opacity-90"
             />
           ) : null}
-          <span className="truncate">{children}</span>
+          <span className="truncate text-[length:var(--text-status)] font-bold uppercase tracking-[0.03em]">
+            {children}
+          </span>
         </span>
         {footer ? (
           <span className="absolute inset-x-(--space-5) bottom-(--space-1) min-w-0 normal-case tracking-normal">
@@ -161,19 +153,19 @@ export function StatusBlock({
   ...props
 }: StatusBlockProps) {
   const baseClassName = cn(
-    "inline-flex h-(--height-input-sm) shrink-0 items-stretch overflow-hidden rounded-(--radius-none)",
-    "text-[length:var(--text-sm)] leading-none font-bold uppercase tracking-[var(--tracking-wide)]",
+    "inline-flex min-h-(--height-input-sm) h-full w-full shrink-0 items-stretch overflow-hidden rounded-(--radius-none)",
+    "font-sans text-[length:var(--text-status)] leading-none font-bold uppercase tracking-[0.03em]",
     "text-[color:var(--status-block-fg)]",
     "bg-[var(--tone-bg)]",
     actionable &&
       "cursor-pointer outline-none transition-colors duration-(--duration-1) ease-(--ease-out) " +
         "hover:bg-[color-mix(in_oklab,var(--tone-bg),black_6%)] " +
-        "focus-visible:shadow-[var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-[var(--tone-bg)]",
+        "focus-visible:shadow-[0_0_0_4px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-[var(--tone-bg)]",
     className
   );
   const baseStyle = {
-    "--tone-bg": statusBlockBg(tone, actionable),
-    "--status-block-fg": actionable ? TONE_ACTIONABLE_FG[tone] : TONE_FG[tone],
+    "--tone-bg": statusBlockBg(tone),
+    "--status-block-fg": TONE_FG[tone],
     "--status-block-divider": TONE_DIVIDER[tone],
     ...style,
   } as CSSProperties;

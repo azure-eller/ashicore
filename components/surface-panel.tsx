@@ -5,8 +5,8 @@ type SurfacePanelTone = "card" | "background";
 type SurfacePanelPadding = "sm" | "md";
 
 const toneClass: Record<SurfacePanelTone, string> = {
-  background: "bg-background text-foreground",
-  card: "bg-card text-card-foreground",
+  background: "bg-[var(--color-surface-alt)] text-[var(--color-ink)]",
+  card: "bg-[var(--color-surface)] text-[var(--color-ink)]",
 };
 
 const paddingClass: Record<SurfacePanelPadding, string> = {
@@ -37,10 +37,10 @@ export function SurfacePanel<TAs extends ElementType = "div">({
   return (
     <Component
       className={cn(
-        "border",
+        "min-w-0 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-line)] shadow-[var(--shadow-sm)]",
         toneClass[tone],
         paddingClass[padding],
-        interactive && "transition-colors hover:bg-muted focus-visible:bg-muted",
+        interactive && "outline-none transition-colors duration-(--duration-1) ease-(--ease-out) hover:bg-[var(--color-surface-alt)] focus-visible:border-[var(--color-accent)] focus-visible:shadow-[0_0_0_4px_var(--color-accent-soft)]",
         className,
       )}
       {...props}

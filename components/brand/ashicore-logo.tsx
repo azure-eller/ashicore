@@ -15,7 +15,7 @@ export function AshicoreLogo({
     <span className={cn("inline-flex items-center gap-[11px]", className)}>
       <AshicoreMark className={markClassName} />
       {showWordmark ? (
-        <span className="font-semibold tracking-[0]">Ashicore</span>
+        <span className="font-display font-semibold tracking-[0]">Ashicore</span>
       ) : null}
     </span>
   );

@@ -10,7 +10,7 @@ function Spinner({ className, ...props }: SpinnerProps) {
       viewBox="0 0 50 50"
       role="status"
       aria-label="Loading"
-      className={cn("size-4 animate-spin text-foreground", className)}
+      className={cn("size-4 animate-spin text-[var(--color-accent-ink)] motion-reduce:animate-none", className)}
       {...props}
     >
       <circle
@@ -18,9 +18,8 @@ function Spinner({ className, ...props }: SpinnerProps) {
         cy="25"
         r="20"
         fill="none"
-        stroke="currentColor"
+        stroke="var(--color-line)"
         strokeWidth="4"
-        opacity="0.16"
       />
       <circle
         cx="25"

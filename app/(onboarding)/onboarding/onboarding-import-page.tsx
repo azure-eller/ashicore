@@ -254,7 +254,7 @@ function ConfidenceCell({ value }: ICellRendererParams<ReviewRow, number>) {
   const confidence = typeof value === "number" ? value : 0;
   return (
     <span className="flex h-full items-center gap-(--space-3)">
-      <span className={cn("w-16", confidenceTone(confidence) === "success" && "text-[var(--color-success)]", confidenceTone(confidence) === "warning" && "text-[var(--color-warning)]", confidenceTone(confidence) === "danger" && "text-[var(--color-danger)]")}>
+      <span className={cn("w-16", confidenceTone(confidence) === "success" && "text-[var(--status-success-ink)]", confidenceTone(confidence) === "warning" && "text-[var(--status-warning-ink)]", confidenceTone(confidence) === "danger" && "text-[var(--status-danger-ink)]")}>
         <ProgressMeter label={`${Math.round(confidence * 100)}% confidence`} percent={confidence * 100} />
       </span>
       <span className="font-mono tabular-nums">{Math.round(confidence * 100)}%</span>
@@ -1006,9 +1006,9 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
       />
 
       {finalizing ? (
-        <div className="fixed inset-0 z-50 grid place-content-center justify-items-center gap-(--space-4) bg-background text-center">
+        <div className="fixed inset-0 z-50 grid place-content-center justify-items-center gap-(--space-4) bg-[var(--color-bg)] text-center">
           <Spinner className="size-6" />
-          <p className="text-[length:var(--text-sm)] text-muted-foreground">
+          <p className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
             Confirming your payment and importing your data…
           </p>
         </div>
@@ -1035,7 +1035,7 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
           <p className="ob-form-sub ob-stagger">
             Add the people who&apos;ll work in your ERP. Skip if it&apos;s just you for now.
           </p>
-          <div className="ob-form-stack" style={{ gap: 12 }}>
+          <div className="ob-form-stack ob-form-stack--tight">
             {inviteRows.map((row, index) => (
               <div key={row.id} className="ob-invite-row">
                 <input
@@ -1096,10 +1096,7 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
             </button>
           </div>
           {message ? <p className="ob-form-error">{message}</p> : null}
-          <div
-            className="ob-form-actions ob-form-actions--split"
-            style={{ borderTop: "1px solid var(--ob-line)", paddingTop: 18 }}
-          >
+          <div className="ob-form-actions ob-form-actions--split ob-form-actions--ruled">
             <button
               type="button"
               className="ob-btn ob-btn--quiet"
@@ -1215,7 +1212,7 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
               ) : null}
             </div>
             {message ? (
-              <p className="ob-form-error" style={{ textAlign: "center" }}>
+              <p className="ob-form-error ob-form-error--center">
                 {message}
               </p>
             ) : null}
@@ -1264,7 +1261,7 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
                 : "Files queued for extraction."}
             </p>
             {message ? (
-              <p className="ob-form-error" style={{ marginTop: 16 }}>
+              <p className="ob-form-error ob-form-error--spaced">
                 {message}
               </p>
             ) : null}
@@ -1332,11 +1329,8 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
           />
 
           <div className="ob-review-footbar">
-            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 16 }}>
-              <label
-                className="ob-review-count"
-                style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
-              >
+            <div className="ob-review-meta">
+              <label className="ob-review-count ob-review-check">
                 <Checkbox checked={includeBoms} onCheckedChange={(value) => setIncludeBoms(value === true)} />
                 Create BOM revisions
               </label>
@@ -1345,17 +1339,17 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
                 {preview?.blockingIssueCount ?? 0} blocking · {preview?.warningIssueCount ?? 0} warnings
               </span>
               {paymentCanceled ? (
-                <span className="ob-review-count" style={{ color: "var(--ob-amber)" }}>
+                <span className="ob-review-count ob-review-count--warn">
                   Payment canceled — your data isn&apos;t imported yet.
                 </span>
               ) : null}
               {message ? (
-                <span className="ob-review-count" style={{ color: "var(--ob-ink-soft)" }}>
+                <span className="ob-review-count ob-review-count--soft">
                   {message}
                 </span>
               ) : null}
             </div>
-            <div style={{ display: "flex", gap: 10 }}>
+            <div className="ob-review-actions">
               <button
                 type="button"
                 className="ob-btn ob-btn--quiet"

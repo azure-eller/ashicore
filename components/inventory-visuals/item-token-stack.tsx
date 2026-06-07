@@ -22,17 +22,17 @@ export type ItemTokenStackProps = React.ComponentProps<"div"> & {
 };
 
 const STACK_OFFSET_CLASS: Record<ItemVisualSize, string> = {
-  xs: "-ml-4",
-  sm: "-ml-5",
-  md: "-ml-7",
-  lg: "-ml-10",
+  xs: "-ml-(--space-4)",
+  sm: "-ml-(--space-5)",
+  md: "-ml-(--space-7)",
+  lg: "-ml-(--space-10)",
 };
 
 const OVERFLOW_SIZE_CLASS: Record<ItemVisualSize, string> = {
-  xs: "h-6 min-w-7 rounded-full px-2 text-xs",
-  sm: "h-7 min-w-8 rounded-full px-2 text-xs",
-  md: "h-8 min-w-9 rounded-full px-2.5 text-sm",
-  lg: "h-9 min-w-10 rounded-full px-3 text-base",
+  xs: "h-(--space-6) min-w-(--space-7) rounded-full px-(--space-2) text-[length:var(--text-xs)]",
+  sm: "h-(--space-7) min-w-(--space-8) rounded-full px-(--space-2) text-[length:var(--text-xs)]",
+  md: "h-(--space-8) min-w-(--space-10) rounded-full px-(--space-3) text-[length:var(--text-sm)]",
+  lg: "h-(--space-10) min-w-(--space-12) rounded-full px-(--space-4) text-[length:var(--text-base)]",
 };
 
 export function ItemTokenStack({
@@ -74,7 +74,7 @@ export function ItemTokenStack({
           as="span"
           tone="background"
           className={cn(
-            "ml-1 inline-flex items-center justify-center p-0 font-semibold text-muted-foreground shadow-xs",
+            "ml-1 inline-flex items-center justify-center p-0 font-semibold text-[var(--color-ink-faint)] shadow-[var(--shadow-sm)]",
             OVERFLOW_SIZE_CLASS[size]
           )}
           style={{ zIndex: visibleCount + 1 }}

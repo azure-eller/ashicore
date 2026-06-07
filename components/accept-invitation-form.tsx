@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Alert02Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import type { PublicInvitationDetails } from "@/app/(dashboard)/settings/types";
 import { authClient } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
@@ -21,6 +23,33 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 
+const authCardClass = "mx-auto w-full max-w-[460px] gap-0 py-0";
+const authCardHeaderClass = "border-b border-[var(--color-line-soft)] bg-[var(--color-surface-sunk)] py-(--space-10)";
+const authCardTitleClass = "font-display text-[length:var(--text-lg)] leading-[var(--leading-lg)] font-semibold";
+const authCardContentClass = "p-(--space-10)";
+
+function AuthUnavailableCard({
+  description,
+  title,
+}: {
+  description: string;
+  title: string;
+}) {
+  return (
+    <Card className={`${authCardClass} overflow-hidden`}>
+      <CardHeader className={`${authCardHeaderClass} items-center text-center`}>
+        <div className="mb-(--space-5) grid h-(--space-14) w-(--space-14) place-items-center justify-self-center rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-accent-soft)] text-[var(--color-accent-ink)]">
+          <HugeiconsIcon icon={Alert02Icon} size={20} aria-hidden />
+        </div>
+        <CardTitle className={authCardTitleClass}>{title}</CardTitle>
+        <CardDescription className="max-w-sm text-[var(--color-ink-soft)]">
+          {description}
+        </CardDescription>
+      </CardHeader>
+    </Card>
+  );
+}
+
 export function AcceptInvitationForm({
   invitation,
 }: {
@@ -36,27 +65,19 @@ export function AcceptInvitationForm({
 
   if (!invitation) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Invitation not found</CardTitle>
-          <CardDescription>
-            This invite link is missing or no longer valid.
-          </CardDescription>
-        </CardHeader>
-      </Card>
+      <AuthUnavailableCard
+        title="Invitation not found"
+        description="This invite link is missing or no longer valid."
+      />
     );
   }
 
   if (invitation.status !== "pending" || invitation.isExpired) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Invitation expired</CardTitle>
-          <CardDescription>
-            Ask your team admin to resend the invite for {invitation.organizationName}.
-          </CardDescription>
-        </CardHeader>
-      </Card>
+      <AuthUnavailableCard
+        title="Invitation expired"
+        description={`Ask your team admin to resend the invite for ${invitation.organizationName}.`}
+      />
     );
   }
 
@@ -195,14 +216,14 @@ export function AcceptInvitationForm({
 
   if (session.data && !hasMatchingSession) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Switch accounts to continue</CardTitle>
+      <Card className={authCardClass}>
+        <CardHeader className={authCardHeaderClass}>
+          <CardTitle className={authCardTitleClass}>Switch accounts to continue</CardTitle>
           <CardDescription>
             You are signed in as {session.data.user.email}, but this invite was sent to {activeInvitation.email}.
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className={authCardContentClass}>
           <Button onClick={handleLogout} disabled={loading}>
             {loading ? "Signing out..." : "Log out"}
           </Button>
@@ -213,14 +234,14 @@ export function AcceptInvitationForm({
 
   if (hasMatchingSession) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Join {activeInvitation.organizationName}</CardTitle>
+      <Card className={authCardClass}>
+        <CardHeader className={authCardHeaderClass}>
+          <CardTitle className={authCardTitleClass}>Join {activeInvitation.organizationName}</CardTitle>
           <CardDescription>
             Signed in as {activeInvitation.email}.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className={`${authCardContentClass} space-y-(--space-6)`}>
           {error ? <FieldError>{error}</FieldError> : null}
           <Button onClick={handleContinue} disabled={loading}>
             {loading ? "Opening workspace..." : "Join workspace"}
@@ -231,15 +252,15 @@ export function AcceptInvitationForm({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Set up your account</CardTitle>
+    <Card className={authCardClass}>
+      <CardHeader className={authCardHeaderClass}>
+        <CardTitle className={authCardTitleClass}>Set up your account</CardTitle>
         <CardDescription>
           You have been invited to join {activeInvitation.organizationName} on
           Ashicore. Please set up your account.
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className={authCardContentClass}>
         <form onSubmit={handleSubmit}>
           <FieldGroup>
             <Field>

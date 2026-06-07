@@ -338,7 +338,7 @@ export function CreateManufacturingOrdersDialog({
       ) : null}
       <DialogContent
         size="3xl"
-        className="max-h-[calc(100vh-2rem)] overflow-y-auto bg-background text-foreground"
+        className="max-h-[calc(100vh-2rem)] overflow-y-auto bg-[var(--color-bg)] text-[var(--color-ink)]"
       >
         <DialogHeader>
           <DialogTitle>
@@ -360,7 +360,7 @@ export function CreateManufacturingOrdersDialog({
         {orderQuery.isLoading ? (
           <EmptyState>Loading sales order...</EmptyState>
         ) : orderQuery.isError ? (
-          <p className="text-sm text-destructive">{orderQuery.error.message}</p>
+          <p className="text-sm text-[var(--status-danger-ink)]">{orderQuery.error.message}</p>
         ) : order ? (
           <div className="flex flex-col gap-5">
             <div className="grid gap-4 md:grid-cols-3">
@@ -398,14 +398,14 @@ export function CreateManufacturingOrdersDialog({
                       ? "New Make-to-Stock Orders"
                       : "New Manufacturing Orders"}
                 </h3>
-                <span className="text-sm text-muted-foreground">
+                <span className="text-sm text-[var(--color-ink-faint)]">
                   {orderLabel(effectiveSelectedLineIds.length)}
                 </span>
               </div>
               {previewQuery.isLoading ? (
                 <EmptyState>Loading manufacturing preview...</EmptyState>
               ) : previewQuery.isError ? (
-                <p className="text-sm text-destructive">
+                <p className="text-sm text-[var(--status-danger-ink)]">
                   {previewQuery.error.message}
                 </p>
               ) : previewQuery.data ? (
@@ -460,7 +460,7 @@ export function CreateManufacturingOrdersDialog({
                             <FramedTableCell>
                               <div className="font-medium">{line.itemName}</div>
                               {line.itemSku ? (
-                                <div className="text-xs text-muted-foreground">
+                                <div className="text-xs text-[var(--color-ink-faint)]">
                                   {line.itemSku}
                                 </div>
                               ) : null}
@@ -498,7 +498,7 @@ export function CreateManufacturingOrdersDialog({
                               {canEditQuantity && lineIsBatch ? (
                                 <div>
                                   <div>batches</div>
-                                  <div className="text-xs text-muted-foreground">
+                                  <div className="text-xs text-[var(--color-ink-faint)]">
                                     {line.expectedBatchYield} {line.unitName} each
                                   </div>
                                 </div>
@@ -513,7 +513,7 @@ export function CreateManufacturingOrdersDialog({
                                     {isCreatable ? "Will create" : "Skipped"}
                                   </Badge>
                                 </FramedTableCell>
-                                <FramedTableCell className="text-sm text-muted-foreground">
+                                <FramedTableCell className="text-sm text-[var(--color-ink-faint)]">
                                   {line.skipMessage ?? "-"}
                                 </FramedTableCell>
                               </>
@@ -530,7 +530,7 @@ export function CreateManufacturingOrdersDialog({
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-medium">Open Manufacturing Orders</h3>
-                <span className="text-sm text-muted-foreground">
+                <span className="text-sm text-[var(--color-ink-faint)]">
                   {orderLabel(effectiveOpenManufacturingOrders.length)}
                 </span>
               </div>
@@ -553,7 +553,7 @@ export function CreateManufacturingOrdersDialog({
                             <div className="font-medium">
                               {manufacturingOrder.orderNumber}
                             </div>
-                            <div className="text-xs text-muted-foreground">
+                            <div className="text-xs text-[var(--color-ink-faint)]">
                               {manufacturingOrder.status}
                             </div>
                           </FramedTableCell>
@@ -576,7 +576,7 @@ export function CreateManufacturingOrdersDialog({
             </div>
 
             {mutation.error ? (
-              <p className="text-sm text-destructive">{mutation.error.message}</p>
+              <p className="text-sm text-[var(--status-danger-ink)]">{mutation.error.message}</p>
             ) : null}
           </div>
         ) : null}

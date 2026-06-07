@@ -1142,7 +1142,7 @@ function AllocationProductCell({
         className="flex-col items-start gap-(--space-1) whitespace-nowrap px-(--space-4) py-(--space-2)"
       >
         <span className="font-medium">{product.label}</span>
-        <span className="font-mono text-muted-foreground">
+        <span className="font-mono text-[var(--color-ink-faint)]">
           {allocationLabel}
         </span>
       </TooltipContent>
@@ -1390,7 +1390,7 @@ function AllocationToolbar({
             >
               <HugeiconsIcon
                 icon={Search01Icon}
-                className="size-3.5 text-muted-foreground"
+                className="size-3.5 text-[var(--color-ink-faint)]"
               />
               <input
                 value={columnsSearch}
@@ -1398,7 +1398,7 @@ function AllocationToolbar({
                 onKeyDown={(event) => event.stopPropagation()}
                 placeholder="Search families, variants, SKU..."
                 aria-label="Search allocation columns"
-                className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
+                className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-[var(--color-ink-faint)]"
               />
             </SurfacePanel>
           </div>
@@ -1426,7 +1426,7 @@ function AllocationToolbar({
             </DropdownMenuCheckboxItem>
           ))}
           {filteredFamilies.length === 0 ? (
-            <div className="px-2 py-3 text-sm text-muted-foreground">
+            <div className="px-2 py-3 text-sm text-[var(--color-ink-faint)]">
               No visible families match.
             </div>
           ) : null}
@@ -1448,7 +1448,7 @@ function AllocationToolbar({
               </div>
               {[...filteredHiddenProductsByFamily.entries()].map(([family, products]) => (
                 <div key={`hidden:${family}`}>
-                  <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  <DropdownMenuLabel className="text-xs text-[var(--color-ink-faint)]">
                     {family}
                   </DropdownMenuLabel>
                   {products.map((product) => (
@@ -1463,7 +1463,7 @@ function AllocationToolbar({
                 </div>
               ))}
               {hiddenProductsMatchCount === 0 ? (
-                <div className="px-2 py-3 text-sm text-muted-foreground">
+                <div className="px-2 py-3 text-sm text-[var(--color-ink-faint)]">
                   No hidden columns match.
                 </div>
               ) : null}
@@ -1477,11 +1477,13 @@ function AllocationToolbar({
 
 export function SalesAllocationTable({
   initialData,
+  initialInventory = [],
   initialProductCoverage = [],
   initialManufacturingDemandRows = [],
   organizationId,
 }: {
   initialData: SalesOrderListRow[];
+  initialInventory?: ItemRow[];
   initialProductCoverage?: ProductCoverageRow[];
   initialManufacturingDemandRows?: ManufacturingAllocationDemandRow[];
   organizationId: string;
@@ -1530,7 +1532,7 @@ export function SalesAllocationTable({
       apiJson<ItemRow[]>("/api/items", {
         fallbackError: "Failed to fetch item inventory.",
       }),
-    initialData: [] as ItemRow[],
+    initialData: initialInventory,
     staleTime: 0,
     refetchOnMount: "always",
   });
@@ -1586,8 +1588,8 @@ export function SalesAllocationTable({
     [collapsedWeeks, manufacturingOpen, searchedRows]
   );
   const coverageById = useMemo(
-    () => getCoverage(visibleProducts, searchedRowsInScope),
-    [visibleProducts, searchedRowsInScope]
+    () => getCoverage(visibleProducts, searchedRows),
+    [visibleProducts, searchedRows]
   );
 
   const familiesAll = useMemo(() => {

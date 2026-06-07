@@ -80,7 +80,7 @@ export function GenerateBarcodesButton({
           : "Generate internal barcodes"}
       </Button>
       {errorMessage ? (
-        <span className="text-[length:var(--text-xs)] text-destructive">
+        <span className="text-[length:var(--text-xs)] text-[var(--status-danger-ink)]">
           {errorMessage}
         </span>
       ) : null}

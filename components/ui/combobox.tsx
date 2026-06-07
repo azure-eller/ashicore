@@ -32,7 +32,7 @@ function ComboboxTrigger({
       {...props}
     >
       {children}
-      <HugeiconsIcon icon={ArrowDown01Icon} strokeWidth={2} className="pointer-events-none size-(--space-7) text-muted-foreground" />
+      <HugeiconsIcon icon={ArrowDown01Icon} strokeWidth={2} className="pointer-events-none size-(--space-7) text-[var(--color-ink-faint)]" />
     </ComboboxPrimitive.Trigger>
   )
 }
@@ -135,7 +135,7 @@ function ComboboxContent({
           data-slot="combobox-content"
           data-chips={!!anchor}
         className={cn(
-            "ag-custom-component-popup group/combobox-content relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) min-w-[calc(var(--anchor-width)+--spacing(7))] origin-(--transform-origin) overflow-hidden rounded-(--radius-none) bg-popover text-popover-foreground shadow-[var(--shadow-overlay)] duration-(--duration-2) data-[chips=true]:min-w-(--anchor-width) data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 *:data-[slot=input-group]:m-(--space-2) *:data-[slot=input-group]:mb-0 *:data-[slot=input-group]:h-(--height-input-md) *:data-[slot=input-group]:border-input *:data-[slot=input-group]:bg-background *:data-[slot=input-group]:shadow-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+            "ag-custom-component-popup group/combobox-content relative max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) min-w-[calc(var(--anchor-width)+--spacing(7))] origin-(--transform-origin) overflow-hidden rounded-md border border-[var(--color-line)] bg-[var(--color-surface)] text-[var(--color-ink)] shadow-[var(--shadow-overlay)] duration-(--duration-2) data-[chips=true]:min-w-(--anchor-width) data-[side=bottom]:slide-in-from-top-2 data-[side=inline-end]:slide-in-from-left-2 data-[side=inline-start]:slide-in-from-right-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 *:data-[slot=input-group]:m-(--space-2) *:data-[slot=input-group]:mb-0 *:data-[slot=input-group]:h-(--height-input-md) *:data-[slot=input-group]:border-[var(--color-line)] *:data-[slot=input-group]:bg-[var(--color-surface)] *:data-[slot=input-group]:shadow-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
             className
           )}
           {...props}
@@ -167,7 +167,7 @@ function ComboboxItem({
     <ComboboxPrimitive.Item
       data-slot="combobox-item"
       className={cn(
-        "relative flex w-full cursor-default items-center gap-(--space-4) rounded-(--radius-none) py-(--space-2) pr-(--space-16) pl-(--space-3) text-[length:var(--text-sm)] outline-hidden select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground not-data-[variant=destructive]:data-highlighted:**:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-(--space-7)",
+        "relative flex w-full cursor-default items-center gap-(--space-4) rounded-md py-(--space-2) pr-(--space-16) pl-(--space-3) text-[length:var(--text-sm)] outline-hidden select-none data-highlighted:bg-[var(--color-accent-soft)] data-highlighted:text-[var(--color-accent-ink)] not-data-[variant=destructive]:data-highlighted:**:text-[var(--color-accent-ink)] data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-(--space-7)",
         className
       )}
       {...props}
@@ -201,7 +201,7 @@ function ComboboxLabel({
   return (
     <ComboboxPrimitive.GroupLabel
       data-slot="combobox-label"
-      className={cn("px-(--space-4) py-(--space-3) text-[length:var(--text-xs)] text-muted-foreground", className)}
+      className={cn("px-(--space-4) py-(--space-3) font-mono text-[length:var(--text-xs)] font-semibold tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)] uppercase", className)}
       {...props}
     />
   )
@@ -218,7 +218,7 @@ function ComboboxEmpty({ className, ...props }: ComboboxPrimitive.Empty.Props) {
     <ComboboxPrimitive.Empty
       data-slot="combobox-empty"
       className={cn(
-        "hidden w-full justify-center py-(--space-4) text-center text-[length:var(--text-sm)] text-muted-foreground group-data-empty/combobox-content:flex",
+        "hidden w-full justify-center py-(--space-4) text-center text-[length:var(--text-sm)] text-[var(--color-ink-faint)] group-data-empty/combobox-content:flex",
         className
       )}
       {...props}
@@ -233,7 +233,7 @@ function ComboboxSeparator({
   return (
     <ComboboxPrimitive.Separator
       data-slot="combobox-separator"
-      className={cn("-mx-1 my-1 h-px bg-border", className)}
+      className={cn("-mx-1 my-1 h-px bg-[var(--color-line-soft)]", className)}
       {...props}
     />
   )
@@ -248,7 +248,7 @@ function ComboboxChips({
     <ComboboxPrimitive.Chips
       data-slot="combobox-chips"
       className={cn(
-        "flex min-h-(--height-input-md) flex-wrap items-center gap-(--space-2) rounded-(--radius-none) border border-input bg-background bg-clip-padding px-(--space-5) py-(--space-2) text-[length:var(--text-sm)] transition-colors focus-within:border-ring focus-within:shadow-[var(--focus-ring)] has-aria-invalid:border-destructive has-aria-invalid:shadow-[var(--focus-ring)] has-data-[slot=combobox-chip]:px-(--space-2)",
+        "flex min-h-(--height-input-md) flex-wrap items-center gap-(--space-2) rounded-md border-[1.5px] border-[var(--color-line)] bg-[var(--color-surface)] bg-clip-padding px-(--space-5) py-(--space-2) text-[length:var(--text-sm)] transition-colors hover:border-[var(--color-ink-soft)] focus-within:border-[var(--color-accent)] focus-within:shadow-[0_0_0_4px_var(--color-accent-soft)] has-aria-invalid:border-[var(--color-danger)] has-aria-invalid:shadow-[0_0_0_4px_color-mix(in_oklch,var(--color-danger),transparent_88%)] has-data-[slot=combobox-chip]:px-(--space-2)",
         className
       )}
       {...props}
@@ -268,7 +268,7 @@ function ComboboxChip({
     <ComboboxPrimitive.Chip
       data-slot="combobox-chip"
       className={cn(
-        "flex h-(--space-10) w-fit items-center justify-center gap-(--space-2) rounded-(--radius-none) bg-muted px-(--space-3) text-[length:var(--text-xs)] font-medium whitespace-nowrap text-foreground has-disabled:pointer-events-none has-disabled:cursor-not-allowed has-disabled:opacity-50 has-data-[slot=combobox-chip-remove]:pr-0",
+        "flex h-(--space-10) w-fit items-center justify-center gap-(--space-2) rounded-md bg-[var(--color-surface-sunk)] px-(--space-3) text-[length:var(--text-xs)] font-medium whitespace-nowrap text-[var(--color-ink)] has-disabled:pointer-events-none has-disabled:cursor-not-allowed has-disabled:opacity-50 has-data-[slot=combobox-chip-remove]:pr-0",
         className
       )}
       {...props}

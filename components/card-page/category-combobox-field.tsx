@@ -121,7 +121,7 @@ export function CategoryComboboxField({
             if (event.key === "Enter") event.currentTarget.blur();
           }}
         />
-        <ComboboxContent id={comboboxId} className="bg-popover text-popover-foreground">
+        <ComboboxContent id={comboboxId} className="bg-[var(--color-surface)] text-[var(--color-ink)]">
           <ComboboxEmpty>No categories found</ComboboxEmpty>
           <ComboboxList>
             {(category: string) => (

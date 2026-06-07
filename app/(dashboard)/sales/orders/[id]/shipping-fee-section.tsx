@@ -1,19 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { CardSection } from "@/components/card-page/card-page";
-import {
-  FramedTable,
-  FramedTableCell,
-  FramedTableHead,
-  FramedTableHeaderCell,
-  FramedTableRow,
-  TableFrame,
-} from "@/components/table-frame";
+import { cn } from "@/lib/utils";
 import { formatPrice } from "@/lib/format";
 import type { SalesOrderDetail } from "@/app/(dashboard)/sales/types";
 import type { SalesOrderDraftController } from "./use-sales-order-draft-controller";
+import cardStyles from "@/components/card-page/card-page.module.css";
 
 type ShippingFeePatch = Pick<
   SalesOrderDetail,
@@ -29,6 +23,9 @@ export function ShippingFeeSection({
   editable: boolean;
   controller: SalesOrderDraftController;
 }) {
+  const descriptionId = useId();
+  const amountId = useId();
+  const taxId = useId();
   const [descriptionEdit, setDescriptionEdit] = useState<InputEdit | null>(null);
   const [amountEdit, setAmountEdit] = useState<InputEdit | null>(null);
   const [taxEdit, setTaxEdit] = useState<InputEdit | null>(null);
@@ -44,73 +41,69 @@ export function ShippingFeeSection({
 
   return (
     <CardSection title="Shipping fee">
-      <TableFrame>
-        <FramedTable>
-          <FramedTableHead>
-            <FramedTableRow>
-              <FramedTableHeaderCell>Description</FramedTableHeaderCell>
-              <FramedTableHeaderCell className="w-40">Cost</FramedTableHeaderCell>
-              <FramedTableHeaderCell className="w-40">Tax</FramedTableHeaderCell>
-            </FramedTableRow>
-          </FramedTableHead>
-          <tbody>
-            <FramedTableRow>
-              <FramedTableCell>
-                <Input
-                  value={description}
-                  disabled={!editable}
-                  onChange={(event) => setDescriptionEdit({ value: event.target.value })}
-                  onBlur={() => {
-                    const next = description.trim() || null;
-                    setDescriptionEdit(null);
-                    if (next === order.shippingFeeDescription) return;
-                    save({ shippingFeeDescription: next });
-                  }}
-                  placeholder="Shipping fee"
-                />
-              </FramedTableCell>
-              <FramedTableCell>
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step="0.01"
-                  value={amount}
-                  disabled={!editable}
-                  onChange={(event) => setAmountEdit({ value: event.target.value })}
-                  onBlur={() => {
-                    const next = normalizeMoneyInput(amount);
-                    setAmountEdit(null);
-                    if (next === order.shippingFeeAmount) return;
-                    save({ shippingFeeAmount: next });
-                  }}
-                  className="text-right font-mono"
-                />
-              </FramedTableCell>
-              <FramedTableCell>
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step="0.01"
-                  value={tax}
-                  disabled={!editable}
-                  onChange={(event) => setTaxEdit({ value: event.target.value })}
-                  onBlur={() => {
-                    const next = normalizeMoneyInput(tax);
-                    setTaxEdit(null);
-                    if (next === order.shippingFeeTaxAmount) return;
-                    save({ shippingFeeTaxAmount: next });
-                  }}
-                  className="text-right font-mono"
-                />
-              </FramedTableCell>
-            </FramedTableRow>
-          </tbody>
-        </FramedTable>
-      </TableFrame>
+      <div className={cardStyles.shippingFeeGrid}>
+        <label className={cardStyles.shippingFeeField} htmlFor={descriptionId}>
+          <span className={cardStyles.formLabel}>Description</span>
+          <Input
+            id={descriptionId}
+            value={description}
+            disabled={!editable}
+            onChange={(event) => setDescriptionEdit({ value: event.target.value })}
+            onBlur={() => {
+              const next = description.trim() || null;
+              setDescriptionEdit(null);
+              if (next === order.shippingFeeDescription) return;
+              save({ shippingFeeDescription: next });
+            }}
+            placeholder="Shipping fee description"
+            className={cardStyles.underlineControl}
+          />
+        </label>
+        <label className={cardStyles.shippingFeeField} htmlFor={amountId}>
+          <span className={cardStyles.formLabel}>Fee</span>
+          <Input
+            id={amountId}
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="0.01"
+            value={amount}
+            disabled={!editable}
+            onChange={(event) => setAmountEdit({ value: event.target.value })}
+            onBlur={() => {
+              const next = normalizeMoneyInput(amount);
+              setAmountEdit(null);
+              if (next === order.shippingFeeAmount) return;
+              save({ shippingFeeAmount: next });
+            }}
+            placeholder="0.00"
+            className={cn(cardStyles.underlineControl, "text-right font-mono")}
+          />
+        </label>
+        <label className={cardStyles.shippingFeeField} htmlFor={taxId}>
+          <span className={cardStyles.formLabel}>Tax</span>
+          <Input
+            id={taxId}
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="0.01"
+            value={tax}
+            disabled={!editable}
+            onChange={(event) => setTaxEdit({ value: event.target.value })}
+            onBlur={() => {
+              const next = normalizeMoneyInput(tax);
+              setTaxEdit(null);
+              if (next === order.shippingFeeTaxAmount) return;
+              save({ shippingFeeTaxAmount: next });
+            }}
+            placeholder="0.00"
+            className={cn(cardStyles.underlineControl, "text-right font-mono")}
+          />
+        </label>
+      </div>
       <div className="mt-(--space-4) flex justify-end gap-(--space-6) text-[length:var(--text-base)] leading-[var(--leading-base)]">
-        <span className="text-muted-foreground">Total shipping fee</span>
+        <span className="text-[var(--color-ink-faint)]">Total shipping fee</span>
         <span className="font-mono font-semibold tabular-nums">
           {formatPrice(String(total)) ?? "$0.00"}
         </span>

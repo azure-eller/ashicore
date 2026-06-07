@@ -86,9 +86,9 @@ export function EmailMfaForm({ next, mode }: EmailMfaFormProps) {
   }
 
   return (
-    <Card className="w-full max-w-[420px]">
-      <CardHeader className="border-b">
-        <CardTitle className="text-[length:var(--text-xl)] leading-[var(--leading-xl)]">
+    <Card className="mx-auto w-full max-w-[460px] gap-0 py-0">
+      <CardHeader className="border-b border-[var(--color-line-soft)] bg-[var(--color-surface-sunk)] py-(--space-10)">
+        <CardTitle className="font-display text-[length:var(--text-lg)] leading-[var(--leading-lg)] font-semibold">
           {codeSent ? "Check your email" : "Verify with email"}
         </CardTitle>
         <CardDescription>
@@ -99,7 +99,7 @@ export function EmailMfaForm({ next, mode }: EmailMfaFormProps) {
               : "Send a one-time code to the email address on this account."}
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-(--space-10)">
         <form onSubmit={handleSubmit}>
           <FieldGroup className="gap-(--space-6)">
             {!codeSent ? (
@@ -142,7 +142,7 @@ export function EmailMfaForm({ next, mode }: EmailMfaFormProps) {
                     className="mt-(--space-1)"
                   />
                   <div className="flex flex-col gap-(--space-1)">
-                    <FieldLabel htmlFor="mfa-trust-device" className="font-normal">
+                    <FieldLabel htmlFor="mfa-trust-device" className="font-[var(--font-body)] text-[length:var(--text-sm)] font-normal normal-case tracking-normal text-[var(--color-ink)]">
                       Trust this device for 30 days
                     </FieldLabel>
                     <FieldDescription>

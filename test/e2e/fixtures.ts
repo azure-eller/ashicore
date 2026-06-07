@@ -3,15 +3,9 @@ import dotenv from "dotenv";
 import { sql } from "drizzle-orm";
 import { test as base, expect } from "@playwright/test";
 import { db as appDb } from "../../lib/db";
-import { parseCookie, readTestEnv } from "../helpers/test-env";
+import { parseCookie, readReviewEnv, readTestEnv } from "../helpers/test-env";
 
 dotenv.config({ path: ".env.local" });
-
-// Read the test env from the global-setup output.
-const env = readTestEnv();
-const testOrgId: string = env.TEST_ORG_ID;
-const sessionCookie: string = env.TEST_SESSION_COOKIE;
-const testBaseUrl = new URL(env.TEST_BASE_URL);
 
 export type TestDb = typeof appDb;
 
@@ -33,11 +27,16 @@ function isRetryableConnectionError(error: unknown) {
   );
 }
 
-async function runWithOrgContext<T>(callback: (db: TestDb) => Promise<T>) {
+async function runWithOrgContext<T>(
+  organizationId: string,
+  callback: (db: TestDb) => Promise<T>
+) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       return await appDb.transaction(async (tx) => {
-        await tx.execute(sql`SELECT set_config('app.current_org_id', ${testOrgId}, true)`);
+        await tx.execute(
+          sql`SELECT set_config('app.current_org_id', ${organizationId}, true)`
+        );
         return callback(tx as unknown as TestDb);
       });
     } catch (error) {
@@ -67,6 +66,7 @@ function applyQueryOperations(query: unknown, operations: QueryOperation[]) {
 }
 
 function createAwaitableQuery(
+  organizationId: string,
   start: (db: TestDb) => unknown,
   operations: QueryOperation[] = []
 ): unknown {
@@ -77,7 +77,7 @@ function createAwaitableQuery(
       }
 
       if (property === "then" || property === "catch" || property === "finally") {
-        const promise = runWithOrgContext(async (db) => {
+        const promise = runWithOrgContext(organizationId, async (db) => {
           const query = applyQueryOperations(start(db), operations);
           return await query;
         });
@@ -86,16 +86,16 @@ function createAwaitableQuery(
       }
 
       return (...args: unknown[]) =>
-        createAwaitableQuery(start, [...operations, { property, args }]);
+        createAwaitableQuery(organizationId, start, [...operations, { property, args }]);
     },
   });
 }
 
-function createTestDb() {
+function createTestDb(organizationId: string) {
   return new Proxy({} as TestDb, {
     get(_target, property) {
       return (...args: unknown[]) =>
-        createAwaitableQuery((db) => {
+        createAwaitableQuery(organizationId, (db) => {
           const method = (db as unknown as Record<PropertyKey, unknown>)[property];
 
           if (typeof method !== "function") {
@@ -118,12 +118,14 @@ export const test = base.extend<{ db: TestDb }>({
   // Auto-inject the session cookie into every browser context.
   // Specs no longer need their own beforeEach for cookie injection.
   context: async ({ context }, runFixture) => {
-    const { name, value } = parseCookie(sessionCookie);
+    const env = readTestEnv();
+    const { name, value } = parseCookie(env.TEST_SESSION_COOKIE);
+    const baseUrl = new URL(env.TEST_BASE_URL);
     await context.addCookies([
       {
         name,
         value,
-        domain: testBaseUrl.hostname,
+        domain: baseUrl.hostname,
         path: "/",
       },
     ]);
@@ -131,7 +133,28 @@ export const test = base.extend<{ db: TestDb }>({
   },
 
   db: async ({}, runFixture) => {
-    await runFixture(createTestDb());
+    await runFixture(createTestDb(readTestEnv().TEST_ORG_ID));
+  },
+});
+
+export const reviewTest = base.extend<{ db: TestDb }>({
+  context: async ({ context }, runFixture) => {
+    const env = readReviewEnv();
+    const { name, value } = parseCookie(env.TEST_SESSION_COOKIE);
+    const baseUrl = new URL(env.TEST_BASE_URL);
+    await context.addCookies([
+      {
+        name,
+        value,
+        domain: baseUrl.hostname,
+        path: "/",
+      },
+    ]);
+    await runFixture(context);
+  },
+
+  db: async ({}, runFixture) => {
+    await runFixture(createTestDb(readReviewEnv().TEST_ORG_ID));
   },
 });
 

@@ -33,8 +33,8 @@ These are non-negotiable repo rules. They are repeated here because violating th
 - **Inventory kernel.** Stock, lots, costs, commitments, expected supply, dispositions, and allocations must go through canonical inventory/domain paths. Never "just update a quantity." Lot-untracked items still use internal lots for kernel storage, costing, and audit.
 - **Mobile contract.** The Android app (`~/Projects/erp-android`) consumes this app's REST API and mirrors its behavior — assume any change here can reach it. Before finishing work that could affect what the app sees or relies on, spawn a subagent to assess mobile impact: it MUST read `~/Projects/erp-android/CLAUDE.md` first (sibling-repo memory does not auto-load), then trace the affected surface in that repo. Judge by whether the app's assumptions could have shifted, not by which files you changed.
 - **Icons.** HugeIcons only. Never Lucide.
-- **Design tokens.** shadcn semantic color classes, V2 raw tokens for spacing/sizing/type. Never hardcode Tailwind colors. Sharp corners.
-- **Testing model.** Playwright is the app test path with real DB assertions. No bug-souvenir tests. Fast tests must protect a listed core mutation seam and avoid incidental UI assertions. Slow tests are operating stories, not bug archives; edge cases belong only when they naturally occur inside that story. Do not add Vitest, unit tests, or mocking frameworks unless explicitly asked. Scratch-first: drive each change with a throwaway suite in `test/e2e/scratch/` (red→green), distill only the essential invariant into fast/slow, delete the scratch suite before the PR.
+- **Design tokens.** Use shadcn semantic color classes and app raw tokens for spacing/sizing/type/radius. Runtime token values live only in `app/globals.css`; docs explain intent and must not duplicate raw token values. Never hardcode Tailwind colors.
+- **Testing model.** Playwright is the app test path with real DB assertions. No bug-souvenir tests. Fast tests must protect a listed core mutation seam and avoid incidental UI assertions. Slow tests are operating stories, not bug archives; edge cases belong only when they naturally occur inside that story. Do not add Vitest, unit tests, or mocking frameworks unless explicitly asked. Scratch-first: drive each change with a throwaway suite in `test/e2e/scratch/` (red→green), distill only the essential invariant into fast/slow, delete the scratch suite before the PR. UI-affecting changes also get a throwaway Paonia screenshot pass per `docs/ui-review-checklist.md`, then delete the scratch spec before the PR.
 - **No `git add .` / `git add -A`.** Stage specific files.
 - **Never `--no-verify`.** Never bypass hooks or safety checks without explicit ask.
 
@@ -67,9 +67,10 @@ This file is a constitution + map. Deep reference lives in `docs/` — read the 
 | Task area | Read |
 |-----------|------|
 | Forms / form fields | `docs/references/field-example.md`, `docs/references/react-hook-form-example.md` |
-| Reusable components / before creating UI | `docs/reusable-components.md` |
-| UI, components, layout | `docs/ui-patterns.md` |
-| Design system (tokens, color, type, density) | `docs/design-system/01_DESIGN_SYSTEM.md` |
+| Reusable components / before creating UI | `docs/design/components.md` |
+| UI, components, layout | `docs/design/patterns.md`, `docs/ui-patterns.md` |
+| UI screenshot review | `docs/ui-review-checklist.md` |
+| Design system (tokens, color, type, density) | `docs/design/README.md` |
 | API routes, mutations | `docs/api-patterns.md` |
 | Schema, migrations, DAL, roles | `docs/database.md` |
 | Testing lanes, CI labels, fixtures | `docs/testing.md` |

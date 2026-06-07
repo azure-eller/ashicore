@@ -154,7 +154,7 @@ export function MaterialGeneralInfoTab({
         }
       >
         {variantsActive ? null : (
-          <label className="mb-(--space-2) flex items-center gap-(--space-2) text-[length:var(--text-sm)] text-muted-foreground">
+          <label className="mb-(--space-2) flex items-center gap-(--space-2) text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
             <Checkbox
               checked={false}
               disabled={isDraft}

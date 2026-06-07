@@ -335,9 +335,9 @@ function TaxSelect({
 function XeroLogo() {
   return (
     <ProviderIconFrame tone="primary">
-      <span className="relative flex size-(--space-10) items-center justify-center border border-primary-foreground/40">
-        <span className="absolute h-(--space-1) w-(--space-8) rotate-45 bg-primary-foreground" />
-        <span className="absolute h-(--space-1) w-(--space-8) -rotate-45 bg-primary-foreground" />
+      <span className="relative flex size-(--space-10) items-center justify-center border border-[color-mix(in_oklch,var(--color-accent-text),transparent_60%)]">
+        <span className="absolute h-(--space-1) w-(--space-8) rotate-45 bg-[var(--color-accent-text)]" />
+        <span className="absolute h-(--space-1) w-(--space-8) -rotate-45 bg-[var(--color-accent-text)]" />
       </span>
     </ProviderIconFrame>
   );
@@ -364,7 +364,7 @@ function SectionHeading({
 }) {
   return (
     <div className="flex min-w-0 items-center justify-between gap-(--space-6)">
-      <h3 className="text-[length:var(--text-sm)] font-semibold text-foreground">{title}</h3>
+      <h3 className="text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">{title}</h3>
       {action ? <div className="shrink-0">{action}</div> : null}
     </div>
   );
@@ -398,8 +398,8 @@ function AutomationRow({
           className="mt-(--space-1)"
         />
         <span className="min-w-0">
-          <span className="block text-[length:var(--text-sm)] font-medium text-foreground">{title}</span>
-          <span className="text-[length:var(--text-xs)] text-muted-foreground">{meta}</span>
+          <span className="block text-[length:var(--text-sm)] font-medium text-[var(--color-ink)]">{title}</span>
+          <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">{meta}</span>
         </span>
       </label>
       <div className="flex flex-wrap items-center gap-(--space-4) sm:justify-end">{children}</div>
@@ -487,14 +487,14 @@ function PostingDefaultsSummary({
 
         <ListFrameItem className="grid gap-(--space-3) py-(--space-3) sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
           <span className="min-w-0">
-            <span className="block text-[length:var(--text-sm)] font-medium text-foreground">
+            <span className="block text-[length:var(--text-sm)] font-medium text-[var(--color-ink)]">
               Purchase bills
             </span>
-            <span className="text-[length:var(--text-xs)] text-muted-foreground">
+            <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
               Default ledger account for Xero bills created from ERP purchase orders.
             </span>
           </span>
-          <div className="flex flex-wrap items-center gap-(--space-2) text-[length:var(--text-xs)] text-muted-foreground sm:justify-end">
+          <div className="flex flex-wrap items-center gap-(--space-2) text-[length:var(--text-xs)] text-[var(--color-ink-faint)] sm:justify-end">
             <DefaultChip>
               <span className="font-mono">{purchaseAccount ?? "Account"}</span>
             </DefaultChip>
@@ -521,7 +521,7 @@ function PostingDefaultsSummary({
           <NoticePanel
             tone="destructive"
             padding="md"
-            className="mt-(--space-4) flex gap-(--space-4) text-[length:var(--text-xs)] text-destructive"
+            className="mt-(--space-4) flex gap-(--space-4) text-[length:var(--text-xs)] text-[var(--status-danger-ink)]"
           >
             <HugeiconsIcon
               icon={Alert02Icon}
@@ -583,7 +583,7 @@ function AccountingProviderCard({
           {icon}
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-(--space-4)">
-              <h3 className="text-[length:var(--text-base)] leading-[var(--leading-base)] font-semibold text-foreground">
+              <h3 className="text-[length:var(--text-base)] leading-[var(--leading-base)] font-semibold text-[var(--color-ink)]">
                 {title}
               </h3>
               {connected ? (
@@ -595,7 +595,7 @@ function AccountingProviderCard({
                 <Badge variant="secondary">Not connected</Badge>
               )}
             </div>
-            <p className="mt-(--space-2) truncate text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-muted-foreground">
+            <p className="mt-(--space-2) truncate text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-[var(--color-ink-faint)]">
               {summary}
             </p>
           </div>
@@ -725,7 +725,7 @@ function XeroRow({
                     <>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
-                        className="text-destructive focus:text-destructive"
+                        className="text-[var(--status-danger-ink)] focus:text-[var(--status-danger-ink)]"
                         onSelect={() => setOpenDialog("disconnect")}
                       >
                         <HugeiconsIcon icon={Unlink03Icon} strokeWidth={2} />
@@ -957,7 +957,7 @@ function QuickBooksRow({
         </AutomationRow>
       ) : null}
       {summary ? (
-        <ListFrameItem className="px-(--space-10) py-(--space-6) text-[length:var(--text-sm)] text-muted-foreground">
+        <ListFrameItem className="px-(--space-10) py-(--space-6) text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
           {summary.created} created, {summary.updated} updated, {summary.skipped} skipped
           {summary.errors.length > 0 ? `, ${summary.errors.length} errors` : null}
         </ListFrameItem>
@@ -1091,7 +1091,7 @@ function QuickBooksDefaultsDialog({
           </FieldError>
         ) : null}
         <DialogFooter justify="between">
-          <p className="flex items-center gap-(--space-2) text-[length:var(--text-xs)] text-muted-foreground">
+          <p className="flex items-center gap-(--space-2) text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
             <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} />
             Changes apply to new exports.
           </p>
@@ -1185,7 +1185,7 @@ function ShopifyRow({
       }
     >
       {summary ? (
-        <ListFrameItem className="px-(--space-10) py-(--space-6) text-[length:var(--text-sm)] text-muted-foreground">
+        <ListFrameItem className="px-(--space-10) py-(--space-6) text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
           {summary.created} created, {summary.skipped} skipped
           {summary.errors.length > 0 ? `, ${summary.errors.length} errors` : null}
         </ListFrameItem>
@@ -1447,7 +1447,7 @@ function PostingDefaultsDialog({
           <InsetPanel
             tone="muted"
             padding="lg"
-            className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-muted-foreground"
+            className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-[var(--color-ink-faint)]"
           >
             <p>{TAX_DESCRIPTIONS[taxType] ?? "Xero tax code saved as entered."}</p>
             <p className="mt-1">
@@ -1458,7 +1458,7 @@ function PostingDefaultsDialog({
         ) : null}
 
         <DialogFooter justify="between">
-          <p className="flex items-center gap-(--space-2) text-[length:var(--text-xs)] text-muted-foreground">
+          <p className="flex items-center gap-(--space-2) text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
             <HugeiconsIcon icon={InformationCircleIcon} strokeWidth={2} />
             Changes apply to new exports.
           </p>
@@ -1505,7 +1505,7 @@ function DisconnectDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <NoticePanel padding="lg" className="text-[length:var(--text-sm)] text-warning">
+        <NoticePanel padding="lg" className="text-[length:var(--text-sm)] text-[var(--status-warning-ink)]">
           <div className="flex gap-(--space-6)">
             <HugeiconsIcon icon={Alert02Icon} className="mt-(--space-1) size-(--space-8)" strokeWidth={2} />
             <div>
@@ -1661,12 +1661,12 @@ function SwitchOrgDialog({
               >
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-(--space-4)">
-                    <span className="font-medium text-foreground">
+                    <span className="font-medium text-[var(--color-ink)]">
                       {tenant.tenantName}
                     </span>
                     {current ? <Badge variant="secondary">Current</Badge> : null}
                   </span>
-                  <span className="mt-(--space-1) block truncate text-[length:var(--text-xs)] text-muted-foreground">
+                  <span className="mt-(--space-1) block truncate text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                     {tenant.tenantId}
                   </span>
                 </span>
@@ -1719,12 +1719,12 @@ function ConnectDialog({
             ["Avoid duplicates", "Existing records are matched before import."],
           ].map(([title, description]) => (
             <div key={title} className="flex gap-(--space-6)">
-              <span className="mt-(--space-1) flex size-(--space-10) items-center justify-center border bg-[var(--color-success-soft)] text-success">
+              <span className="mt-(--space-1) flex size-(--space-10) items-center justify-center border border-[color-mix(in_oklch,var(--color-success),transparent_65%)] bg-[var(--color-success-soft)] text-[var(--status-success-ink)]">
                 <HugeiconsIcon icon={Tick02Icon} strokeWidth={2} />
               </span>
               <div>
-                <p className="text-[length:var(--text-sm)] font-medium text-foreground">{title}</p>
-                <p className="text-[length:var(--text-xs)] text-muted-foreground">{description}</p>
+                <p className="text-[length:var(--text-sm)] font-medium text-[var(--color-ink)]">{title}</p>
+                <p className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">{description}</p>
               </div>
             </div>
           ))}
@@ -1781,14 +1781,14 @@ function ExportHistoryDialog({
           <InsetPanel tone="muted" padding="xl" className="text-center">
             <SurfacePanel
               tone="background"
-              className="mx-auto flex size-(--space-20) items-center justify-center p-0 text-muted-foreground"
+              className="mx-auto flex size-(--space-20) items-center justify-center p-0 text-[var(--color-ink-faint)]"
             >
               <HugeiconsIcon icon={FileExportIcon} strokeWidth={2} />
             </SurfacePanel>
-            <p className="mt-(--space-6) text-[length:var(--text-sm)] font-medium text-foreground">
+            <p className="mt-(--space-6) text-[length:var(--text-sm)] font-medium text-[var(--color-ink)]">
               No sync history yet.
             </p>
-            <p className="mx-auto mt-(--space-2) max-w-md text-[length:var(--text-sm)] text-muted-foreground">
+            <p className="mx-auto mt-(--space-2) max-w-md text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
               Xero imports and sent invoices will appear here.
             </p>
           </InsetPanel>
@@ -1796,7 +1796,7 @@ function ExportHistoryDialog({
           <div className="max-h-[420px] space-y-(--space-8) overflow-auto">
             {syncEvents.length > 0 ? (
               <div>
-                <h3 className="mb-(--space-3) text-[length:var(--text-sm)] font-medium text-foreground">
+                <h3 className="mb-(--space-3) text-[length:var(--text-sm)] font-medium text-[var(--color-ink)]">
                   Automation
                 </h3>
                 <ListFrame>
@@ -1810,7 +1810,7 @@ function ExportHistoryDialog({
                       >
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-(--space-4)">
-                            <p className="truncate text-[length:var(--text-sm)] font-medium text-foreground">
+                            <p className="truncate text-[length:var(--text-sm)] font-medium text-[var(--color-ink)]">
                               {syncEventTitle(event.eventType)}
                             </p>
                             <ConfiguredBadge
@@ -1818,7 +1818,7 @@ function ExportHistoryDialog({
                               config={syncOutcomeBadgeConfig}
                             />
                           </div>
-                          <p className="mt-(--space-2) text-[length:var(--text-xs)] text-muted-foreground">
+                          <p className="mt-(--space-2) text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                             {event.tenantName ?? "Xero"} · {event.source}
                           </p>
                           {detail ? (
@@ -1826,15 +1826,15 @@ function ExportHistoryDialog({
                               className={cn(
                                 "mt-(--space-2) text-[length:var(--text-xs)]",
                                 event.outcome === "failure"
-                                  ? "text-destructive"
-                                  : "text-muted-foreground"
+                                  ? "text-[var(--status-danger-ink)]"
+                                  : "text-[var(--color-ink-faint)]"
                               )}
                             >
                               {detail}
                             </p>
                           ) : null}
                         </div>
-                        <p className="text-[length:var(--text-xs)] text-muted-foreground">
+                        <p className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                           {formatDateTimeLabel(event.occurredAt, timeZone)}
                         </p>
                       </ListFrameItem>
@@ -1846,7 +1846,7 @@ function ExportHistoryDialog({
 
             {importRuns.length > 0 ? (
               <div>
-                <h3 className="mb-(--space-3) text-[length:var(--text-sm)] font-medium text-foreground">
+                <h3 className="mb-(--space-3) text-[length:var(--text-sm)] font-medium text-[var(--color-ink)]">
                   Imports
                 </h3>
                 <ListFrame>
@@ -1857,7 +1857,7 @@ function ExportHistoryDialog({
                     >
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-(--space-4)">
-                          <p className="truncate text-[length:var(--text-sm)] font-medium text-foreground">
+                          <p className="truncate text-[length:var(--text-sm)] font-medium text-[var(--color-ink)]">
                             {importRunTitle(run.entityType)}
                           </p>
                           <ConfiguredBadge
@@ -1869,12 +1869,12 @@ function ExportHistoryDialog({
                             <Badge variant="destructive">{run.errorCount} errors</Badge>
                           ) : null}
                         </div>
-                        <p className="mt-(--space-2) text-[length:var(--text-xs)] text-muted-foreground">
+                        <p className="mt-(--space-2) text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                           {run.tenantName} · {run.createdCount} created,{" "}
                           {run.updatedCount} updated, {run.skippedCount} skipped
                         </p>
                       </div>
-                      <p className="text-[length:var(--text-xs)] text-muted-foreground">
+                      <p className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                         {formatDateTimeLabel(run.createdAt, timeZone)}
                       </p>
                     </ListFrameItem>
@@ -1885,7 +1885,7 @@ function ExportHistoryDialog({
 
             {rows.length > 0 ? (
               <div>
-                <h3 className="mb-(--space-3) text-[length:var(--text-sm)] font-medium text-foreground">
+                <h3 className="mb-(--space-3) text-[length:var(--text-sm)] font-medium text-[var(--color-ink)]">
                   Invoices
                 </h3>
                 <ListFrame>
@@ -1896,7 +1896,7 @@ function ExportHistoryDialog({
                     >
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-(--space-4)">
-                          <p className="truncate text-[length:var(--text-sm)] font-medium text-foreground">
+                          <p className="truncate text-[length:var(--text-sm)] font-medium text-[var(--color-ink)]">
                             {row.sourceNumber}
                           </p>
                           <ConfiguredBadge
@@ -1905,7 +1905,7 @@ function ExportHistoryDialog({
                             fallback={(value) => ({ label: value, variant: "secondary" })}
                           />
                         </div>
-                        <p className="mt-(--space-2) text-[length:var(--text-xs)] text-muted-foreground">
+                        <p className="mt-(--space-2) text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                           {row.sourceType === "sales_order"
                             ? "Sales invoice"
                             : "Purchase order"}{" "}
@@ -1913,12 +1913,12 @@ function ExportHistoryDialog({
                           {row.xeroDocumentNumber ? ` · Xero ${row.xeroDocumentNumber}` : ""}
                         </p>
                         {row.xeroPushError ? (
-                          <p className="mt-(--space-2) text-[length:var(--text-xs)] text-destructive">
+                          <p className="mt-(--space-2) text-[length:var(--text-xs)] text-[var(--status-danger-ink)]">
                             {row.xeroPushError}
                           </p>
                         ) : null}
                       </div>
-                      <p className="text-[length:var(--text-xs)] text-muted-foreground">
+                      <p className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                         {formatDateTimeLabel(row.xeroPushedAt ?? row.updatedAt, timeZone)}
                       </p>
                     </ListFrameItem>

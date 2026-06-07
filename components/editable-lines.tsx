@@ -105,7 +105,7 @@ function classNameFor<TData>(field: LineField<TData>): ColDef<TData>["cellClass"
   const staticClasses = [
     field.rightAligned ? "text-right" : null,
     field.mono ? "font-mono tabular-nums" : null,
-    field.muted ? "text-muted-foreground" : null,
+    field.muted ? "text-[var(--color-ink-faint)]" : null,
     field.strong ? "font-semibold" : null,
   ].filter(Boolean).join(" ");
 
@@ -532,7 +532,7 @@ export function TextLineCellEditor<TData>(props: TextLineCellEditorProps<TData>)
         className="h-full min-w-0 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:shadow-none"
       />
       {suffix ? (
-        <span className="shrink-0 truncate text-[length:var(--text-sm)] text-muted-foreground">
+        <span className="shrink-0 truncate text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
           {suffix}
         </span>
       ) : null}

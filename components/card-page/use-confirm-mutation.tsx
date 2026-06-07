@@ -53,7 +53,7 @@ export function useConfirmMutation<TVariables = void>({
           <AlertDialogDescription>
             {description}
             {mutation.error ? (
-              <span className="mt-(--space-2) block text-destructive">
+              <span className="mt-(--space-2) block text-[var(--status-danger-ink)]">
                 {mutation.error.message}
               </span>
             ) : null}
@@ -62,6 +62,7 @@ export function useConfirmMutation<TVariables = void>({
         <AlertDialogFooter>
           <AlertDialogCancel onClick={close}>{cancelLabel}</AlertDialogCancel>
           <AlertDialogAction
+            variant="danger"
             onClick={(event) => {
               event.preventDefault();
               if (request == null) return;

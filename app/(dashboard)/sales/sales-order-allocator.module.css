@@ -4,7 +4,7 @@
   width: min(860px, calc(100vw - var(--space-16)));
   max-height: calc(100vh - var(--space-16));
   overflow: hidden;
-  border-radius: var(--radius-none);
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-modal);
   color: var(--color-ink);
   font-family: var(--font-sans);
@@ -23,7 +23,7 @@
   gap: var(--space-8);
   margin-bottom: var(--space-7);
   border: 1px solid var(--color-line);
-  border-radius: var(--radius-none);
+  border-radius: var(--radius-md);
   background: var(--color-surface-alt);
   padding: var(--space-5) var(--space-6);
 }
@@ -69,14 +69,14 @@
   flex: 1 1 auto;
   height: var(--space-2);
   overflow: hidden;
-  border-radius: var(--radius-none);
+  border-radius: var(--radius-md);
   background: var(--color-surface-sunk);
 }
 
 .demandFill {
   display: block;
   height: 100%;
-  border-radius: var(--radius-none);
+  border-radius: var(--radius-md);
   background: var(--color-ink);
   transition: width var(--duration-2) var(--ease-out);
 }
@@ -104,7 +104,7 @@
 .sourcesTable {
   overflow: hidden;
   border: 1px solid var(--color-line);
-  border-radius: var(--radius-none);
+  border-radius: var(--radius-md);
 }
 
 .sourcesHeader,
@@ -165,7 +165,7 @@
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-none);
+  border-radius: var(--radius-md);
   background: var(--color-surface-sunk);
   color: var(--color-muted);
   font-size: var(--text-2xs);
@@ -176,7 +176,7 @@
 
 .sourceBadge[data-type="manufacturing_order"] {
   background: var(--color-accent-soft);
-  color: var(--color-accent);
+  color: var(--color-accent-ink);
 }
 
 .sourceIdentity {
@@ -238,7 +238,7 @@
 .sourceInput {
   width: 78px;
   border-color: var(--color-line);
-  border-radius: var(--radius-none);
+  border-radius: var(--radius-md);
   padding: var(--space-3) var(--space-4);
   text-align: right;
   font-family: var(--font-mono);

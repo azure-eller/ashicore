@@ -193,7 +193,7 @@ function ERPDataGridListInner<TData extends { id: string }>({
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="end"
-              className="bg-popover text-popover-foreground"
+              className="bg-[var(--color-surface)] text-[var(--color-ink)]"
             >
               {selectionActions.map((action) => {
                 const disabled =
@@ -308,7 +308,7 @@ function ERPDataGridListInner<TData extends { id: string }>({
                   role="alert"
                   tone="destructive"
                   padding="md"
-                  className="text-[length:var(--text-sm)] text-destructive"
+                  className="text-[length:var(--text-sm)] text-[var(--status-danger-ink)]"
                 >
                   {deleteError}
                 </NoticePanel>
@@ -319,6 +319,7 @@ function ERPDataGridListInner<TData extends { id: string }>({
                 Cancel
               </AlertDialogCancel>
               <AlertDialogAction
+                variant="danger"
                 disabled={deleteMutation.isPending || selectedCount === 0}
                 onClick={(event) => {
                   event.preventDefault();

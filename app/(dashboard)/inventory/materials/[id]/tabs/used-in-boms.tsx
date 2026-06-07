@@ -29,10 +29,7 @@ export function MaterialUsedInBomsTab({ usedInBoms }: MaterialUsedInBomsTabProps
           return (
             <Link
               href={`/inventory/products/${params.data.id}/recipe`}
-              style={{
-                color: "var(--color-accent)",
-                textDecoration: "underline",
-              }}
+              className="font-medium text-[var(--color-accent-ink)] underline underline-offset-2 hover:text-[var(--color-ink)]"
             >
               {params.data.displayName}
             </Link>

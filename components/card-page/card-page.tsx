@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import styles from "./card-page.module.css";
 
@@ -15,12 +16,12 @@ export function CardPage({
   if (framed) {
     return (
       <div className={styles.pageFrame}>
-        <div className={cn(styles.sheet, className)}>{children}</div>
+        <div data-slot="card-page-sheet" className={cn(styles.sheet, className)}>{children}</div>
       </div>
     );
   }
 
-  return <div className={cn(styles.sheet, className)}>{children}</div>;
+  return <div data-slot="card-page-sheet" className={cn(styles.sheet, className)}>{children}</div>;
 }
 
 export function CardPageBody({
@@ -30,7 +31,15 @@ export function CardPageBody({
   children: ReactNode;
   className?: string;
 }) {
-  return <div className={cn(styles.body, className)}>{children}</div>;
+  return (
+    <ScrollArea
+      data-slot="card-page-body"
+      className={cn(styles.body, className)}
+      viewportClassName={styles.bodyViewport}
+    >
+      {children}
+    </ScrollArea>
+  );
 }
 
 export function CardPageBanner({
@@ -45,8 +54,8 @@ export function CardPageBanner({
   return (
     <div
       className={cn(
-        "border-b border-[var(--color-line)] bg-[var(--color-danger-soft)] px-(--space-5) py-(--space-3) text-[length:var(--text-sm)] text-destructive",
-        tone === "destructive" && "text-destructive",
+        "border-b border-[var(--color-line)] bg-[var(--color-danger-soft)] px-(--space-5) py-(--space-3) text-[length:var(--text-sm)] text-[var(--status-danger-ink)]",
+        tone === "destructive" && "text-[var(--status-danger-ink)]",
         className,
       )}
     >

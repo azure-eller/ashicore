@@ -66,7 +66,7 @@ export function EditNameDialog({
           <DialogTitle>Edit name</DialogTitle>
         </DialogHeader>
         <form
-          className="flex flex-col gap-6"
+          className="flex flex-col gap-(--space-6)"
           onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
         >
           <Field data-invalid={form.formState.errors.name != null}>

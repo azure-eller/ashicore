@@ -227,7 +227,7 @@ export function AccountingSyncStatus({
         {canOpenProviderDocument ? (
           <button
             type="button"
-            className="text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground disabled:pointer-events-none disabled:no-underline"
+            className="text-[var(--color-ink-faint)] underline underline-offset-4 transition-colors hover:text-[var(--color-ink)] disabled:pointer-events-none disabled:no-underline"
             onClick={() => {
               if (providerAction.href) {
                 window.open(providerAction.href, "_blank", "noopener,noreferrer");
@@ -240,10 +240,10 @@ export function AccountingSyncStatus({
             {providerAction.pending ? "Opening..." : documentSummary}
           </button>
         ) : (
-          <span className="text-muted-foreground">{documentSummary}</span>
+          <span className="text-[var(--color-ink-faint)]">{documentSummary}</span>
         )}
         {emailSummary ? (
-          <span className="text-muted-foreground">· {emailSummary}</span>
+          <span className="text-[var(--color-ink-faint)]">· {emailSummary}</span>
         ) : null}
         {onRetryPush ? (
           <Button
@@ -279,7 +279,7 @@ export function AccountingSyncStatus({
             <h2 className="text-[length:var(--text-base)] font-semibold tracking-tight">Accounting Sync</h2>
             <SyncBadge state={pushStage.state} />
           </div>
-          <p className="text-[length:var(--text-sm)] text-muted-foreground">
+          <p className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
             {document.providerName}
             {document.documentNumber ? ` · ${document.documentNumber}` : ""}
           </p>
@@ -347,7 +347,7 @@ export function AccountingSyncStatus({
       </div>
 
       {document.retryCount > 1 ? (
-        <p className="text-[length:var(--text-xs)] text-muted-foreground">Sync attempts: {document.retryCount}</p>
+        <p className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">Sync attempts: {document.retryCount}</p>
       ) : null}
     </SurfacePanel>
   );
@@ -493,9 +493,9 @@ function ActionTimelineStep({
             <p className="text-[length:var(--text-sm)] font-medium">{title}</p>
             {badge ? <Badge variant="secondary">{badge}</Badge> : null}
           </div>
-          <p className="mt-(--space-2) truncate text-[length:var(--text-sm)] text-muted-foreground">{detail}</p>
+          <p className="mt-(--space-2) truncate text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">{detail}</p>
           {meta ? (
-            <p className="mt-(--space-1) truncate text-[length:var(--text-xs)] text-muted-foreground">{meta}</p>
+            <p className="mt-(--space-1) truncate text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">{meta}</p>
           ) : null}
         </div>
         {checkboxId ? (
@@ -568,12 +568,12 @@ export function AccountingSyncDialog({
           <AccountingSyncWarnings warnings={warnings} />
         ) : null}
 
-        {error ? <p className="text-[length:var(--text-sm)] text-destructive">{error}</p> : null}
+        {error ? <p className="text-[length:var(--text-sm)] text-[var(--status-danger-ink)]">{error}</p> : null}
 
         {showResultActions ? (
           <div className="flex flex-col gap-(--space-4) pl-(--space-20)">
             {documentId ? (
-              <p className="break-all text-[length:var(--text-xs)] text-muted-foreground">
+              <p className="break-all text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                 {documentIdLabel}: {documentId}
               </p>
             ) : null}
@@ -638,18 +638,18 @@ function AccountingSyncWarnings({
   warnings: AccountingSyncWarning[];
 }) {
   return (
-    <InsetPanel className="flex flex-col gap-(--space-4) bg-muted/40">
+    <InsetPanel tone="muted" className="flex flex-col gap-(--space-4)">
       {warnings.map((warning) => (
         <div key={`${warning.title}-${warning.detail}`} className="flex gap-(--space-4)">
           <HugeiconsIcon
             icon={AlertCircleIcon}
             size={16}
-            className="mt-(--space-1) shrink-0 text-muted-foreground"
+            className="mt-(--space-1) shrink-0 text-[var(--color-ink-faint)]"
             aria-hidden
           />
           <div className="min-w-0">
             <p className="text-[length:var(--text-sm)] font-medium">{warning.title}</p>
-            <p className="text-[length:var(--text-sm)] text-muted-foreground">
+            <p className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
               {warning.detail}
             </p>
           </div>
@@ -670,7 +670,7 @@ function Timeline({
     <FieldGroup className={cn("relative gap-(--space-6)", className)}>
       <div
         aria-hidden
-        className="absolute bottom-8 left-4 top-8 border-l border-border"
+        className="absolute bottom-8 left-4 top-8 border-l border-[var(--color-line)]"
       />
       {children}
     </FieldGroup>
@@ -688,8 +688,8 @@ function TimelineNode({
     <div
       aria-hidden
       className={cn(
-        "absolute -left-(--space-20) top-1/2 flex size-(--space-16) -translate-y-1/2 items-center justify-center border bg-background text-[length:var(--text-xs)] font-medium",
-        active && "bg-primary text-primary-foreground"
+        "absolute -left-(--space-20) top-1/2 flex size-(--space-16) -translate-y-1/2 items-center justify-center rounded-[var(--radius-full)] border border-[var(--color-line)] bg-[var(--color-surface)] text-[length:var(--text-xs)] font-medium text-[var(--color-ink-faint)]",
+        active && "border-[var(--color-accent)] bg-[var(--color-accent)] text-[var(--color-accent-text)]"
       )}
     >
       {children}
@@ -731,7 +731,7 @@ function StatusTimelineStep({
             <SyncBadge state={stage.state} />
           </div>
           {stage.detail ? (
-            <p className="mt-(--space-2) break-words text-[length:var(--text-sm)] text-muted-foreground">{stage.detail}</p>
+            <p className="mt-(--space-2) break-words text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">{stage.detail}</p>
           ) : null}
           {action ? (
             <Button
@@ -876,7 +876,7 @@ function StatusLine({ stage }: { stage: AccountingSyncStage }) {
           <SyncBadge state={stage.state} />
         </div>
         {stage.detail ? (
-          <p className="mt-(--space-2) break-words text-[length:var(--text-xs)] text-muted-foreground">{stage.detail}</p>
+          <p className="mt-(--space-2) break-words text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">{stage.detail}</p>
         ) : null}
       </div>
     </SurfacePanel>
@@ -901,10 +901,10 @@ function StatusIcon({ state }: { state: AccountingSyncStageState }) {
       size={18}
       aria-hidden
       className={cn(
-        "mt-(--space-1) shrink-0 text-muted-foreground",
+        "mt-(--space-1) shrink-0 text-[var(--color-ink-faint)]",
         state === "active" && "animate-spin",
-        state === "failed" && "text-destructive",
-        state === "success" && "text-primary"
+        state === "failed" && "text-[var(--status-danger-ink)]",
+        state === "success" && "text-[var(--status-success-ink)]"
       )}
     />
   );

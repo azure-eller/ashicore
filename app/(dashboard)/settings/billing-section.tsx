@@ -154,7 +154,7 @@ export function BillingSection({
               />
               <div>
                 <div className="font-medium">Payment processing</div>
-                <div className="mt-(--space-1) text-muted-foreground">
+                <div className="mt-(--space-1) text-[var(--color-ink-faint)]">
                   Stripe is confirming the subscription. This page will refresh shortly.
                 </div>
               </div>
@@ -167,12 +167,12 @@ export function BillingSection({
             <div className="flex items-start gap-(--space-4) text-[length:var(--text-sm)]">
               <HugeiconsIcon
                 icon={Alert02Icon}
-                className="mt-(--space-1) size-(--space-7) text-destructive"
+                className="mt-(--space-1) size-(--space-7) text-[var(--status-danger-ink)]"
                 strokeWidth={2}
               />
               <div>
                 <div className="font-medium">Core ends {periodEnd ?? "at period end"}</div>
-                <div className="mt-(--space-1) text-muted-foreground">
+                <div className="mt-(--space-1) text-[var(--color-ink-faint)]">
                   You will keep all current data, but will not be able to add new
                   SKUs beyond the Free limit of {FREE_SKU_LIMIT}. You currently have{" "}
                   {initialData.skuCount}.
@@ -187,12 +187,12 @@ export function BillingSection({
             <div className="flex items-start gap-(--space-4) text-[length:var(--text-sm)]">
               <HugeiconsIcon
                 icon={Alert02Icon}
-                className="mt-(--space-1) size-(--space-7) text-destructive"
+                className="mt-(--space-1) size-(--space-7) text-[var(--status-danger-ink)]"
                 strokeWidth={2}
               />
               <div>
                 <div className="font-medium">Payment needs attention</div>
-                <div className="mt-(--space-1) text-muted-foreground">
+                <div className="mt-(--space-1) text-[var(--color-ink-faint)]">
                   Update the payment method in Stripe to avoid an involuntary downgrade.
                 </div>
               </div>
@@ -202,7 +202,7 @@ export function BillingSection({
 
         {error ? (
           <SettingsPanelSection>
-            <div className="text-[length:var(--text-sm)] text-destructive">{error}</div>
+            <div className="text-[length:var(--text-sm)] text-[var(--status-danger-ink)]">{error}</div>
           </SettingsPanelSection>
         ) : null}
 

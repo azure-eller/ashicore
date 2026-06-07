@@ -253,7 +253,7 @@ function ResourceCell({
   resourcesById: Map<string, ManufacturingResourceOption>;
 }) {
   if (!data?.resourceId) {
-    return <span className="text-muted-foreground">Select</span>;
+    return <span className="text-[var(--color-ink-faint)]">Select</span>;
   }
 
   return (
@@ -277,7 +277,7 @@ function OperationCostCell({
 }) {
   const resource = data?.resourceId ? resourcesById.get(data.resourceId) : null;
   return (
-    <span className="text-muted-foreground">
+    <span className="text-[var(--color-ink-faint)]">
       {formatOperationCost({
         crewSize: data?.crewSize,
         plannedMinutes: data?.plannedMinutes,

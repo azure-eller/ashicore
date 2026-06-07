@@ -568,7 +568,7 @@ function SupplierAddressInput({
         showClear={currentAddressId !== ""}
         className={styles.underlineControl}
       />
-      <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))] bg-popover text-popover-foreground">
+      <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))] bg-[var(--color-surface)] text-[var(--color-ink)]">
         <ComboboxEmpty>No addresses found</ComboboxEmpty>
         <ComboboxList>
           {(itemId: string) => {
@@ -592,7 +592,7 @@ function SupplierAddressInput({
               <ComboboxItem key={itemId} value={itemId}>
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate">{option?.label}</span>
-                  <span className="truncate text-[length:var(--text-xs)] text-muted-foreground">
+                  <span className="truncate text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                     {option ? formatAddressInline(option) : ""}
                   </span>
                 </span>

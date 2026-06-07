@@ -187,11 +187,11 @@ function OccurredFilterHeader({
         </TooltipTrigger>
         <DropdownMenuContent
           align="start"
-          className="w-72 bg-popover text-popover-foreground"
+          className="w-72 bg-[var(--color-surface)] text-[var(--color-ink)]"
         >
           <div className="grid gap-3 p-1">
             <Field className="gap-1.5">
-              <FieldLabel className="text-xs text-muted-foreground">From</FieldLabel>
+              <FieldLabel className="text-xs text-[var(--color-ink-faint)]">From</FieldLabel>
               <DatePicker
                 value={dateFrom ?? ""}
                 onChange={(value) => onDateFromChange(normalizeOptionalValue(value))}
@@ -200,7 +200,7 @@ function OccurredFilterHeader({
               />
             </Field>
             <Field className="gap-1.5">
-              <FieldLabel className="text-xs text-muted-foreground">To</FieldLabel>
+              <FieldLabel className="text-xs text-[var(--color-ink-faint)]">To</FieldLabel>
               <DatePicker
                 value={dateTo ?? ""}
                 onChange={(value) => onDateToChange(normalizeOptionalValue(value))}
@@ -314,7 +314,7 @@ function TextFilterHeader({
         </TooltipTrigger>
         <DropdownMenuContent
           align="start"
-          className="w-72 bg-popover text-popover-foreground"
+          className="w-72 bg-[var(--color-surface)] text-[var(--color-ink)]"
         >
           <div className="p-1">
             <Input
@@ -396,7 +396,7 @@ function SearchableFilterHeader({
         </TooltipTrigger>
         <DropdownMenuContent
           align="start"
-          className="w-80 bg-popover text-popover-foreground"
+          className="w-80 bg-[var(--color-surface)] text-[var(--color-ink)]"
         >
           <div className="p-1">
             <Input
@@ -409,7 +409,7 @@ function SearchableFilterHeader({
           </div>
           <div className="max-h-72 overflow-y-auto p-1">
             {visibleOptions.length === 0 ? (
-              <div className="px-2 py-2 text-sm text-muted-foreground">
+              <div className="px-2 py-2 text-sm text-[var(--color-ink-faint)]">
                 {emptyMessage}
               </div>
             ) : (
@@ -423,7 +423,7 @@ function SearchableFilterHeader({
                   <span className="min-w-0">
                     <span className="block truncate">{option.label}</span>
                     {option.description ? (
-                      <span className="block truncate text-xs text-muted-foreground">
+                      <span className="block truncate text-xs text-[var(--color-ink-faint)]">
                         {option.description}
                       </span>
                     ) : null}
@@ -500,7 +500,7 @@ function MultiSelectFilterHeader({
         </TooltipTrigger>
         <DropdownMenuContent
           align="start"
-          className="w-60 bg-popover text-popover-foreground"
+          className="w-60 bg-[var(--color-surface)] text-[var(--color-ink)]"
         >
           {options.map((option) => (
             <DropdownMenuCheckboxItem
@@ -807,7 +807,7 @@ export function LedgerTable({
       cellRenderer: ({ data }: { data?: InventoryLedgerRow }) => {
         const cause = data?.cause;
         if (!cause) {
-          return <span className="text-muted-foreground">—</span>;
+          return <span className="text-[var(--color-ink-faint)]">—</span>;
         }
 
         const primary = (
@@ -864,7 +864,7 @@ export function LedgerTable({
               data?.lot?.number ?? "",
             cellClass: "font-mono",
             cellRenderer: ({ data }: { data?: InventoryLedgerRow }) =>
-              data?.lot?.number ?? <span className="text-muted-foreground">—</span>,
+              data?.lot?.number ?? <span className="text-[var(--color-ink-faint)]">—</span>,
           } satisfies ColDef<InventoryLedgerRow>,
         ]
       : []),
@@ -878,7 +878,7 @@ export function LedgerTable({
       cellClass: ({ data }) =>
         cn(
           "text-right font-mono",
-          data && parseFloat(data.signedQuantity) < 0 && "text-destructive"
+          data && parseFloat(data.signedQuantity) < 0 && "text-[var(--status-danger-ink)]"
         ),
       valueGetter: ({ data }) => {
         if (!data || data.balanceDimension === "none") {
@@ -906,8 +906,8 @@ export function LedgerTable({
           data?.onHandBefore == null ? null : parseFloat(data.onHandBefore);
         return cn(
           "text-right font-mono",
-          data?.onHandBefore == null && "text-muted-foreground",
-          onHandBefore != null && onHandBefore < 0 && "text-destructive"
+          data?.onHandBefore == null && "text-[var(--color-ink-faint)]",
+          onHandBefore != null && onHandBefore < 0 && "text-[var(--status-danger-ink)]"
         );
       },
       valueGetter: ({ data }) => (data ? formatOnHandBefore(data) : "—"),
@@ -927,8 +927,8 @@ export function LedgerTable({
           data?.onHandAfter == null ? null : parseFloat(data.onHandAfter);
         return cn(
           "text-right font-mono",
-          data?.onHandAfter == null && "text-muted-foreground",
-          onHandAfter != null && onHandAfter < 0 && "text-destructive"
+          data?.onHandAfter == null && "text-[var(--color-ink-faint)]",
+          onHandAfter != null && onHandAfter < 0 && "text-[var(--status-danger-ink)]"
         );
       },
       valueGetter: ({ data }) => (data ? formatOnHandAfter(data) : "—"),
@@ -947,8 +947,8 @@ export function LedgerTable({
         const valueChange = data ? formatValueChange(data) : null;
         return cn(
           "text-right font-mono",
-          valueChange == null && "text-muted-foreground",
-          valueChange?.startsWith("-") && "text-destructive"
+          valueChange == null && "text-[var(--color-ink-faint)]",
+          valueChange?.startsWith("-") && "text-[var(--status-danger-ink)]"
         );
       },
       valueGetter: ({ data }) => (data ? formatValueChange(data) ?? "—" : "—"),
@@ -968,7 +968,7 @@ export function LedgerTable({
       ),
       valueGetter: ({ data }) => data?.actor?.name ?? "",
       cellRenderer: ({ data }: { data?: InventoryLedgerRow }) =>
-        data?.actor?.name ?? <span className="text-muted-foreground">—</span>,
+        data?.actor?.name ?? <span className="text-[var(--color-ink-faint)]">—</span>,
     },
   ];
 
@@ -986,7 +986,7 @@ export function LedgerTable({
         ) : (
           <div />
         )}
-        <div className="text-sm text-muted-foreground">
+        <div className="text-sm text-[var(--color-ink-faint)]">
           {initialData.totalCount === 0
             ? "No matching events"
             : `Showing ${startRow}-${endRow} of ${initialData.totalCount}`}
@@ -996,7 +996,7 @@ export function LedgerTable({
       <div className="flex flex-col gap-3">
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <Field className="max-w-sm gap-1.5">
-            <FieldLabel className="text-xs text-muted-foreground">Search</FieldLabel>
+            <FieldLabel className="text-xs text-[var(--color-ink-faint)]">Search</FieldLabel>
             <Input
               aria-label="Search ledger"
               placeholder="Item, lot, order, actor..."
@@ -1017,13 +1017,13 @@ export function LedgerTable({
           className="space-y-0"
         />
 
-        <div className="flex items-center justify-between py-4">
-          <div className="text-sm text-muted-foreground">
+        <div className="flex min-h-(--height-statusbar) items-center justify-between gap-(--space-6) px-(--space-2) pt-(--space-5) font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)] tabular-nums">
+          <div>
             Page {currentPage} of {totalPages}
           </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Rows</span>
+          <div className="flex items-center gap-(--space-5)">
+            <div className="flex items-center gap-(--space-3)">
+              <span>Rows</span>
               <Select
                 value={String(initialData.pageSize)}
                 onValueChange={(value) => updatePageSize(Number(value))}
@@ -1038,7 +1038,7 @@ export function LedgerTable({
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center gap-(--space-3)">
               <Button
                 type="button"
                 variant="outline"

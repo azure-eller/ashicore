@@ -100,11 +100,11 @@ export function isSalesOrderStatusDisabled(order: SalesOrderStatusFields) {
 
 function NegativeStockNotice({ items }: { items: NegativeStockWarningPayload[] }) {
   return (
-    <NoticePanel className="space-y-2">
-      <p className="text-sm font-medium text-[var(--color-warning)]">
+    <NoticePanel className="space-y-(--space-3)">
+      <p className="text-[length:var(--text-sm)] font-medium text-[var(--status-warning-ink)]">
         {stockWarningTitle(items[0])}
       </p>
-      <ul className="space-y-1 text-xs text-muted-foreground">
+      <ul className="space-y-(--space-1) text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
         {items.map((item) => (
           <li key={item.itemId}>
             {stockWarningDescription(item)}
@@ -286,10 +286,10 @@ function ShipOrderDialog({
                           aria-label={`Select ${row.itemName}`}
                         />
                       </FramedTableCell>
-                      <FramedTableCell className={row.selected ? "" : "text-muted-foreground"}>
+                      <FramedTableCell className={row.selected ? "" : "text-[var(--color-ink-faint)]"}>
                         {row.itemName}
                       </FramedTableCell>
-                      <FramedTableCell className="text-muted-foreground">Default</FramedTableCell>
+                      <FramedTableCell className="text-[var(--color-ink-faint)]">Default</FramedTableCell>
                       <FramedTableCell className="text-right">
                         {row.selected ? (
                           <div className="flex items-center justify-end gap-(--space-2)">
@@ -309,15 +309,15 @@ function ShipOrderDialog({
                                 );
                               }}
                             />
-                            <span className="text-muted-foreground">{row.unitName}</span>
+                            <span className="text-[var(--color-ink-faint)]">{row.unitName}</span>
                           </div>
                         ) : (
-                          <span className="text-muted-foreground">Qty to deliver</span>
+                          <span className="text-[var(--color-ink-faint)]">Qty to deliver</span>
                         )}
                       </FramedTableCell>
                       <FramedTableCell className="text-right font-mono tabular-nums">
                         {formatQuantity(String(left))}{" "}
-                        <span className="font-sans text-muted-foreground">{row.unitName}</span>
+                        <span className="font-[var(--font-body)] text-[var(--color-ink-faint)]">{row.unitName}</span>
                       </FramedTableCell>
                     </FramedTableRow>
                   );
@@ -327,7 +327,7 @@ function ShipOrderDialog({
           </div>
         ) : null}
         {warning ? <NegativeStockNotice items={[warning]} /> : null}
-        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+        {error ? <p className="text-sm text-[var(--status-danger-ink)]">{error}</p> : null}
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>
             Cancel
@@ -383,7 +383,7 @@ function toShippableRow(
     salesOrderLineId,
     itemName:
       line.attrs.length > 0
-        ? `${line.attrs.join(" / ")} ${line.masterName}`
+        ? `${line.masterName} / ${line.attrs.join(" / ")}`
         : line.masterName,
     unitName: line.unitName,
     remainingQuantity:
@@ -571,9 +571,9 @@ function ReceiveConfirmDialog({
           </DialogDescription>
         </DialogHeader>
         {orderQuery.isLoading ? (
-          <p className="text-sm text-muted-foreground">Loading purchase order...</p>
+          <p className="text-sm text-[var(--color-ink-faint)]">Loading purchase order...</p>
         ) : orderQuery.isError ? (
-          <p className="text-sm text-destructive">
+          <p className="text-sm text-[var(--status-danger-ink)]">
             {orderQuery.error instanceof Error
               ? orderQuery.error.message
               : "Failed to load purchase order."}
@@ -635,7 +635,7 @@ function ReceiveForm({
   if (rows.length === 0) {
     return (
       <>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-[var(--color-ink-faint)]">
           There are no remaining quantities to receive.
         </p>
         <DialogFooter>
@@ -672,15 +672,15 @@ function ReceiveForm({
                 <FramedTableCell>{row.itemName}</FramedTableCell>
                 <FramedTableCell className="text-right font-mono tabular-nums">
                   {formatQuantity(row.quantityOrdered)}{" "}
-                  <span className="font-sans text-muted-foreground">{row.unitName}</span>
+                  <span className="font-[var(--font-body)] text-[var(--color-ink-faint)]">{row.unitName}</span>
                 </FramedTableCell>
                 <FramedTableCell className="text-right font-mono tabular-nums">
                   {formatQuantity(row.quantityReceived)}{" "}
-                  <span className="font-sans text-muted-foreground">{row.unitName}</span>
+                  <span className="font-[var(--font-body)] text-[var(--color-ink-faint)]">{row.unitName}</span>
                 </FramedTableCell>
                 <FramedTableCell className="text-right font-mono tabular-nums">
                   {formatQuantity(row.remainingQuantity)}{" "}
-                  <span className="font-sans text-muted-foreground">{row.unitName}</span>
+                  <span className="font-[var(--font-body)] text-[var(--color-ink-faint)]">{row.unitName}</span>
                 </FramedTableCell>
                 <FramedTableCell className="text-right">
                   <div className="flex items-center justify-end gap-(--space-2)">
@@ -701,7 +701,7 @@ function ReceiveForm({
                         );
                       }}
                     />
-                    <span className="text-muted-foreground">{row.unitName}</span>
+                    <span className="text-[var(--color-ink-faint)]">{row.unitName}</span>
                   </div>
                 </FramedTableCell>
               </FramedTableRow>
@@ -710,7 +710,7 @@ function ReceiveForm({
         </FramedTableBody>
       </FramedTable>
         {mutation.isError ? (
-          <p className="text-sm text-destructive">
+          <p className="text-sm text-[var(--status-danger-ink)]">
             {mutation.error instanceof Error ? mutation.error.message : "Failed to receive."}
           </p>
         ) : null}

@@ -39,8 +39,8 @@ Sales v1 does not include:
 
 ## Detail page UI
 
-The order detail page at `/sales/orders/[id]` uses the unified Calm Matrix
-single-page card (`app/(dashboard)/sales/orders/[id]/order-card.tsx`). The
+The order detail page at `/sales/orders/[id]` uses the unified single-page card
+pattern (`app/(dashboard)/sales/orders/[id]/order-card.tsx`). The
 previous 4-tab read-only view + separate `/edit` modal are being retired; the
 new card folds them into one inline-editable surface. The legacy 4-tab view
 remains accessible at `/sales/orders/[id]?view=legacy` until inline-edit and
@@ -63,7 +63,8 @@ The redesign moves a few entry points out of the deprecated tabs:
   `hasManufacturableLines === true`). The MO list panel is dropped from the
   order page; linked MOs are visible from each manufacturable item.
 - **Activity**: dropped from the order page entirely (future: global audit
-  panel; see `docs/design-system/sales-order-detail/README.md` §14).
+  panel; historical design note archived at
+  `docs/design/archive/design-system-v2-handoff/sales-order-detail/README.md` §14).
 - **Accounting / Xero push**: order-level push lives in the header ⋯ menu;
   historical per-shipment push paths are deprecated.
 

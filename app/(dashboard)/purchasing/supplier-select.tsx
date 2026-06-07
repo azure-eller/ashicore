@@ -49,7 +49,7 @@ export function SupplierSelect({
         ]}
         renderSecondary={(supplier) =>
           supplier.code ? (
-            <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+            <span className="ml-auto shrink-0 text-xs text-[var(--color-ink-faint)]">
               {supplier.code}
             </span>
           ) : null

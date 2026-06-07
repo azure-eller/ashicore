@@ -30,9 +30,15 @@ inventory kernel, mobile contract); they override anything below.
 4. **Green.** Implement with `superpowers:test-driven-development`, iterating
    against `pnpm test:scratch` rather than a browser. For independent sub-tasks,
    drive with `superpowers:subagent-driven-development`.
-5. **Distill.** Fold only the essential invariant into the fast/slow lanes per the
+5. **UI screenshot review.** If the diff touches `app/**` or `components/**`,
+   run `pnpm sandbox [path]` in this worktree, write a throwaway
+   `test/e2e/scratch/` spec with `reviewTest`, capture the changed surface with
+   `captureForReview`, inspect the PNGs in `.tmp/ui-shots/`, fix visible issues,
+   rerun the shots, and delete the scratch spec before the PR. Use
+   `docs/ui-review-checklist.md` for the rubric and template.
+6. **Distill.** Fold only the essential invariant into the fast/slow lanes per the
    guardrails in `docs/testing.md`, then delete the scratch suite. The PR must not
    carry disposable specs.
-6. **Land.** Run `pnpm review <path> --slow <domains>` — it validates, seeds the
+7. **Land.** Run `pnpm review <path> --slow <domains>` — it validates, seeds the
    production copy, opens the authenticated review browser, and opens the PR.
    Keep the worktree/DB/dev server until the PR merges.

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { AttachmentListItem } from "@/components/attachment-list";
 import { AddressBookFields } from "@/components/address-book-fields";
 import { EmptyState } from "@/components/empty-state";
+import { FileDropzone } from "@/components/file-dropzone";
 import {
   Combobox,
   ComboboxContent,
@@ -40,8 +41,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { FieldError } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   StatusBadge,
   type StatusBadgeConfig,
@@ -88,10 +96,12 @@ import {
   createAddressEntry,
   createCustomer,
   createCustomerContact,
+  createCustomerProjectNote,
   createCustomerProject,
   deleteCustomer,
   deleteCustomerContact,
   deleteCustomerProjectFile,
+  deleteCustomerProjectNote,
   deleteCustomerProject,
   getCustomerCard,
   patchCustomer,
@@ -512,68 +522,66 @@ export function CustomerCard({
           </CardFormRow>
         </CardSection>
 
-        <div className={styles.sectionRowTwo}>
-          <ContactsSection
-            rows={display.contacts}
-            readOnly={readOnly || isDraft}
-            onSave={(row) => {
-              if (readOnly || isDraft) return;
-              engine.applyLocalOp({ type: "upsertContact", row });
-            }}
-            onDelete={(contactId) => {
-              if (readOnly || isDraft) return;
-              engine.applyLocalOp({ type: "deleteContact", contactId });
-            }}
-          />
-          <ProjectsSection
-            customerId={currentCustomerId}
-            rows={display.projects}
-            readOnly={readOnly || isDraft}
-            error={engine.error}
-            onSave={(row, options) => {
-              if (readOnly || isDraft) return;
-              engine.applyLocalOp(
-                { type: "upsertProject", row },
-                Number.POSITIVE_INFINITY,
-              );
-              void engine
-                .flush()
-                .then(() => options?.onSuccess?.())
-                .catch(reportCustomerSaveError);
-            }}
-            onDelete={(projectId, options) => {
-              if (readOnly || isDraft) return;
-              engine.applyLocalOp(
-                { type: "deleteProject", projectId },
-                Number.POSITIVE_INFINITY,
-              );
-              void engine
-                .flush()
-                .then(() => options?.onSuccess?.())
-                .catch(reportCustomerSaveError);
-            }}
-          />
-        </div>
+        <ContactsSection
+          rows={display.contacts}
+          readOnly={readOnly || isDraft}
+          onSave={(row) => {
+            if (readOnly || isDraft) return;
+            engine.applyLocalOp({ type: "upsertContact", row });
+          }}
+          onDelete={(contactId) => {
+            if (readOnly || isDraft) return;
+            engine.applyLocalOp({ type: "deleteContact", contactId });
+          }}
+        />
 
-        <div className={styles.sectionRowTwo}>
-          <OpenOrdersSection
-            customerId={currentCustomerId}
-            rows={openOrders}
+        <ProjectsSection
+          customerId={currentCustomerId}
+          rows={display.projects}
+          readOnly={readOnly || isDraft}
+          error={engine.error}
+          onSave={(row, options) => {
+            if (readOnly || isDraft) return;
+            engine.applyLocalOp(
+              { type: "upsertProject", row },
+              Number.POSITIVE_INFINITY,
+            );
+            void engine
+              .flush()
+              .then(() => options?.onSuccess?.())
+              .catch(reportCustomerSaveError);
+          }}
+          onDelete={(projectId, options) => {
+            if (readOnly || isDraft) return;
+            engine.applyLocalOp(
+              { type: "deleteProject", projectId },
+              Number.POSITIVE_INFINITY,
+            );
+            void engine
+              .flush()
+              .then(() => options?.onSuccess?.())
+              .catch(reportCustomerSaveError);
+          }}
+        />
+
+        <OpenOrdersSection
+          customerId={currentCustomerId}
+          rows={openOrders}
+        />
+
+        <CardSection title="Notes">
+          <NotesField
+            label="Notes"
+            value={display.notes ?? ""}
+            disabled={readOnly}
+            readOnlyValue={readOnly}
+            commitUnchangedValue={isDraft}
+            onDraftChange={(notes) => {
+              if (isDraft) engine.applyLocalOp({ type: "patch", patch: { notes } }, Number.POSITIVE_INFINITY);
+            }}
+            onCommit={(notes) => commitCustomerPatch({ notes })}
           />
-          <CardSection title="Notes">
-            <NotesField
-              label="Notes"
-              value={display.notes ?? ""}
-              disabled={readOnly}
-              readOnlyValue={readOnly}
-              commitUnchangedValue={isDraft}
-              onDraftChange={(notes) => {
-                if (isDraft) engine.applyLocalOp({ type: "patch", patch: { notes } }, Number.POSITIVE_INFINITY);
-              }}
-              onCommit={(notes) => commitCustomerPatch({ notes })}
-            />
-          </CardSection>
-        </div>
+        </CardSection>
       </CardPageBody>
 
       {deleteConfirm.dialog}
@@ -752,19 +760,6 @@ function ProjectsSection({
     <CardSection
       title="Projects"
       count={`· ${sourceRows.length}`}
-      actions={
-        !readOnly ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setCreatingProject(true)}
-            disabled={!customerId}
-          >
-            + Add project
-          </Button>
-        ) : null
-      }
       aria-label={`Projects ${sourceRows.length}`}
     >
       <div className="grid gap-(--space-4)">
@@ -784,7 +779,7 @@ function ProjectsSection({
                 </span>
                 <StatusBadge status={project.status} config={projectStatusMeta} />
               </span>
-              <span className="mt-(--space-2) text-[length:var(--text-xs)] text-muted-foreground">
+              <span className="mt-(--space-2) text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                 {formatProjectDateRange(project)} · {project.orderCount} order{project.orderCount === 1 ? "" : "s"} · {formatPrice(project.orderValue) ?? "$0.00"} · {project.files.length} attachment{project.files.length === 1 ? "" : "s"}
               </span>
             </SurfacePanel>
@@ -793,6 +788,17 @@ function ProjectsSection({
           <EmptyState>No projects yet.</EmptyState>
         )}
       </div>
+
+      {!readOnly ? (
+        <button
+          type="button"
+          className={styles.addRow}
+          onClick={() => setCreatingProject(true)}
+          disabled={!customerId}
+        >
+          + Add project
+        </button>
+      ) : null}
 
       {activeProject ? (
         <CustomerProjectDialog
@@ -848,6 +854,7 @@ function CustomerProjectDialog({
     project ? { ...project } : newProjectRow()
   );
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [noteDraft, setNoteDraft] = useState("");
 
   const fileUploadMutation = useMutation({
     mutationKey: cardSaveMutationKey("customer", customerId ?? "__draft__", "project-file"),
@@ -874,13 +881,57 @@ function CustomerProjectDialog({
       }
     },
   });
+  const noteCreateMutation = useMutation({
+    mutationKey: cardSaveMutationKey("customer", customerId ?? "__draft__", "project-note-create"),
+    mutationFn: ({ projectId, body }: { projectId: string; body: string }) =>
+      createCustomerProjectNote(customerId as string, projectId, { body }),
+    onSuccess: async (note) => {
+      setDraft((current) => ({
+        ...current,
+        notes: [note, ...(current.notes ?? [])],
+      }));
+      setNoteDraft("");
+      if (customerId) {
+        await queryClient.invalidateQueries({ queryKey: ["customer-card", customerId] });
+      }
+    },
+  });
+  const noteDeleteMutation = useMutation({
+    mutationKey: cardSaveMutationKey("customer", customerId ?? "__draft__", "project-note-delete"),
+    mutationFn: (noteId: string) =>
+      deleteCustomerProjectNote(customerId as string, draft.id, noteId),
+    onSuccess: async (_result, noteId) => {
+      setDraft((current) => ({
+        ...current,
+        notes: (current.notes ?? []).filter((note) => note.id !== noteId),
+      }));
+      if (customerId) {
+        await queryClient.invalidateQueries({ queryKey: ["customer-card", customerId] });
+      }
+    },
+  });
 
   const linkedOrders = draft.salesOrders ?? [];
   const files = draft.files ?? [];
+  const notes = draft.notes ?? [];
   const canUploadFiles = Boolean(customerId && !draft.isNew && !readOnly);
+  const canAddNotes = Boolean(customerId && !draft.isNew && !readOnly);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  function uploadFirstFile(filesToUpload: FileList | null) {
+    const file = filesToUpload?.[0];
+    if (!file || !customerId) return;
+    fileUploadMutation.mutate({ projectId: draft.id, file });
+  }
+
+  function submitNote() {
+    const body = noteDraft.trim();
+    if (!body || !canAddNotes) return;
+    noteCreateMutation.mutate({ projectId: draft.id, body });
+  }
 
   return (
-    <Dialog
+    <Sheet
       open={open}
       onOpenChange={(nextOpen) => {
         if (!nextOpen) {
@@ -889,11 +940,38 @@ function CustomerProjectDialog({
         }
       }}
     >
-      <DialogContent size="3xl" className="max-h-[calc(100vh-2rem)] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{project ? "Project" : "Add project"}</DialogTitle>
-        </DialogHeader>
-        <div className="grid gap-(--space-8)">
+      <SheetContent
+        side="right"
+        className="gap-0 overflow-hidden p-0 data-[side=right]:w-[min(560px,94vw)] data-[side=right]:sm:max-w-[min(560px,94vw)]"
+      >
+        <SheetHeader>
+          <SheetTitle>{project ? "Project" : "Add project"}</SheetTitle>
+        </SheetHeader>
+        <div className="grid min-h-0 flex-1 gap-(--space-8) overflow-y-auto p-(--space-8)">
+          {project ? (
+            <div
+              className={styles.summaryGrid}
+              style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}
+            >
+              <div className={styles.summaryTile}>
+                <p className={styles.eyebrow}>Orders</p>
+                <span className={styles.val}>{project.orderCount}</span>
+              </div>
+              <div className={styles.summaryTile}>
+                <p className={styles.eyebrow}>Open value</p>
+                <span className={styles.val}>
+                  {formatPrice(project.orderValue) ?? "$0.00"}
+                </span>
+              </div>
+              <div className={styles.summaryTile}>
+                <p className={styles.eyebrow}>Created</p>
+                <span className={styles.val}>
+                  {formatDate(toDateOnlyString(project.createdAt))}
+                </span>
+              </div>
+            </div>
+          ) : null}
+
           <CardFormRow columns="three">
             <CardTextField
               label="Project name"
@@ -923,32 +1001,32 @@ function CustomerProjectDialog({
           </CardFormRow>
 
           <CardFormRow columns="three">
-            <CardTextField
-              label="Start date"
-              type="date"
-              value={draft.startDate ?? ""}
-              disabled={readOnly}
-              controlStyle="dialog"
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  startDate: event.target.value || null,
-                }))
-              }
-            />
-            <CardTextField
-              label="Target date"
-              type="date"
-              value={draft.targetEndDate ?? ""}
-              disabled={readOnly}
-              controlStyle="dialog"
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  targetEndDate: event.target.value || null,
-                }))
-              }
-            />
+            <CardField label="Start date" controlStyle="dialog">
+              <DatePicker
+                value={draft.startDate ?? ""}
+                disabled={readOnly}
+                placeholder="Start date"
+                onChange={(value) =>
+                  setDraft((current) => ({
+                    ...current,
+                    startDate: value || null,
+                  }))
+                }
+              />
+            </CardField>
+            <CardField label="Target date" controlStyle="dialog">
+              <DatePicker
+                value={draft.targetEndDate ?? ""}
+                disabled={readOnly}
+                placeholder="Target date"
+                onChange={(value) =>
+                  setDraft((current) => ({
+                    ...current,
+                    targetEndDate: value || null,
+                  }))
+                }
+              />
+            </CardField>
           </CardFormRow>
 
           <CardField
@@ -972,6 +1050,87 @@ function CustomerProjectDialog({
           </CardField>
 
           <div className="grid gap-(--space-4)">
+            <h3 className={styles.sectionHeading}>Notes</h3>
+            <ul className="grid gap-(--space-3)">
+              {notes.length > 0 ? (
+                notes.map((note) => (
+                  <li
+                    key={note.id}
+                    className="rounded-(--radius-md) border border-[var(--color-line)] bg-[var(--color-surface)] p-(--space-5)"
+                  >
+                    <div className="flex items-start justify-between gap-(--space-4)">
+                      <div className="min-w-0">
+                        <p className="text-[length:var(--text-sm)] leading-[var(--leading-md)] text-[var(--color-ink)]">
+                          {note.body}
+                        </p>
+                        <p className="mt-(--space-2) font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                          {note.createdByName || "Team member"} · {formatDate(toDateOnlyString(note.createdAt))}
+                        </p>
+                      </div>
+                      {!readOnly ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => noteDeleteMutation.mutate(note.id)}
+                          disabled={noteDeleteMutation.isPending}
+                        >
+                          Delete
+                        </Button>
+                      ) : null}
+                    </div>
+                  </li>
+                ))
+              ) : (
+                <EmptyState as="li" density="compact">
+                  {draft.isNew
+                    ? "Save the project before adding notes."
+                    : "No notes yet."}
+                </EmptyState>
+              )}
+            </ul>
+            {!readOnly ? (
+              <div className="grid gap-(--space-3)">
+                <Textarea
+                  value={noteDraft}
+                  disabled={!canAddNotes || noteCreateMutation.isPending}
+                  rows={3}
+                  placeholder={
+                    draft.isNew
+                      ? "Save the project before adding notes."
+                      : "Add a project note..."
+                  }
+                  className="text-[length:var(--text-md)] leading-[var(--leading-md)]"
+                  onChange={(event) => setNoteDraft(event.target.value)}
+                />
+                <div className="flex items-center justify-end gap-(--space-4)">
+                  {noteCreateMutation.error ? (
+                    <FieldError>
+                      {(noteCreateMutation.error as Error).message}
+                    </FieldError>
+                  ) : null}
+                  {noteDeleteMutation.error ? (
+                    <FieldError>
+                      {(noteDeleteMutation.error as Error).message}
+                    </FieldError>
+                  ) : null}
+                  <Button
+                    type="button"
+                    disabled={
+                      !canAddNotes ||
+                      !noteDraft.trim() ||
+                      noteCreateMutation.isPending
+                    }
+                    onClick={submitNote}
+                  >
+                    {noteCreateMutation.isPending ? "Adding..." : "Add note"}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="grid gap-(--space-4)">
             <h3 className={styles.sectionHeading}>Linked sales orders</h3>
             <TableFrame>
               <FramedTable>
@@ -980,7 +1139,7 @@ function CustomerProjectDialog({
                     linkedOrders.map((order) => (
                       <FramedTableRow key={order.id}>
                         <FramedTableCell className="p-(--space-4)">
-                          <Link href={`/sales/order/${order.id}`} className="font-mono font-medium text-primary">
+                          <Link href={`/sales/order/${order.id}`} className="font-mono font-medium text-[var(--color-accent-ink)]">
                             {order.orderNumber}
                           </Link>
                         </FramedTableCell>
@@ -1013,18 +1172,23 @@ function CustomerProjectDialog({
           </div>
 
           <div className="grid gap-(--space-4)">
-            <div className="flex items-center justify-between gap-(--space-4)">
+            <div className="grid gap-(--space-4)">
               <h3 className={styles.sectionHeading}>Attachments</h3>
-              <Input
+              <input
+                ref={fileInputRef}
                 type="file"
-                className="max-w-72"
+                className="sr-only"
                 disabled={!canUploadFiles || fileUploadMutation.isPending}
                 onChange={(event) => {
-                  const file = event.target.files?.[0];
+                  uploadFirstFile(event.target.files);
                   event.target.value = "";
-                  if (!file || !customerId) return;
-                  fileUploadMutation.mutate({ projectId: draft.id, file });
                 }}
+              />
+              <FileDropzone
+                label={fileUploadMutation.isPending ? "Uploading..." : "Upload attachment"}
+                disabled={!canUploadFiles || fileUploadMutation.isPending}
+                onBrowse={() => fileInputRef.current?.click()}
+                onFiles={uploadFirstFile}
               />
             </div>
             <ul className="grid gap-(--space-2)">
@@ -1067,11 +1231,12 @@ function CustomerProjectDialog({
           </div>
         </div>
 
-        <DialogFooter>
+        <SheetFooter className="flex-row items-center justify-end gap-(--space-4)">
           {project && !readOnly ? (
             <Button
               type="button"
               variant="destructive"
+              className="mr-auto"
               onClick={() => setConfirmDelete(true)}
             >
               Delete project
@@ -1090,12 +1255,12 @@ function CustomerProjectDialog({
                 });
               }}
             >
-              Save changes
+              {project ? "Save changes" : "Add project"}
             </Button>
           ) : null}
           {saveError ? <FieldError>{saveError}</FieldError> : null}
-        </DialogFooter>
-      </DialogContent>
+        </SheetFooter>
+      </SheetContent>
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent size="sm">
@@ -1104,7 +1269,7 @@ function CustomerProjectDialog({
             <AlertDialogDescription>
               This project will be removed from the customer workspace.
               {saveError ? (
-                <span className="mt-(--space-2) block text-destructive">
+                <span className="mt-(--space-2) block text-[var(--status-danger-ink)]">
                   {saveError}
                 </span>
               ) : null}
@@ -1113,6 +1278,7 @@ function CustomerProjectDialog({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
+              variant="danger"
               onClick={(event) => {
                 event.preventDefault();
                 onDelete(draft.id, {
@@ -1128,7 +1294,7 @@ function CustomerProjectDialog({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </Dialog>
+    </Sheet>
   );
 }
 
@@ -1162,7 +1328,7 @@ function OpenOrdersSection({
                       {order.orderNumber}
                     </span>
                     <SalesOrderStatusBadge status={order.status} />
-                    <span className="font-mono text-[length:var(--text-xs)] text-muted-foreground tabular-nums">
+                    <span className="font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)] tabular-nums">
                       {formatDate(order.shipDate ?? order.orderDate)}
                     </span>
                   </span>
@@ -1180,12 +1346,12 @@ function OpenOrdersSection({
       {customerId ? (
         <Link
           href={`/sales/orders?customerId=${customerId}`}
-          className="mt-(--space-5) inline-flex text-[length:var(--text-sm)] font-medium text-primary"
+          className="mt-(--space-5) inline-flex text-[length:var(--text-sm)] font-medium text-[var(--color-accent-ink)]"
         >
           View all sales orders for this customer →
         </Link>
       ) : (
-        <span className="mt-(--space-5) inline-flex text-[length:var(--text-sm)] font-medium text-muted-foreground">
+        <span className="mt-(--space-5) inline-flex text-[length:var(--text-sm)] font-medium text-[var(--color-ink-faint)]">
           View all sales orders for this customer →
         </span>
       )}
@@ -1271,7 +1437,7 @@ function CustomerAddressInput({
         showClear={currentAddressId !== "" && currentAddressId !== sameAsShippingValue}
         className={styles.underlineControl}
       />
-      <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))] bg-popover text-popover-foreground">
+      <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))] bg-[var(--color-surface)] text-[var(--color-ink)]">
         <ComboboxEmpty>No addresses found</ComboboxEmpty>
         <ComboboxList>
           {(itemId: string) => {
@@ -1283,7 +1449,7 @@ function CustomerAddressInput({
                       {sameAsShippingLabel || "Same as shipping address"}
                     </span>
                     {sameAsShippingLabel ? (
-                      <span className="truncate text-[length:var(--text-xs)] text-muted-foreground">
+                      <span className="truncate text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                         Same as shipping address
                       </span>
                     ) : null}
@@ -1311,7 +1477,7 @@ function CustomerAddressInput({
               <ComboboxItem key={itemId} value={itemId}>
                 <span className="flex min-w-0 flex-col">
                   <span className="truncate">{option?.label}</span>
-                  <span className="truncate text-[length:var(--text-xs)] text-muted-foreground">
+                  <span className="truncate text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                     {option ? formatAddressInline(option) : ""}
                   </span>
                 </span>
@@ -1402,6 +1568,7 @@ function newProjectRow(): ProjectGridRow {
     startDate: null,
     targetEndDate: null,
     summary: null,
+    notes: [],
     files: [],
     salesOrders: [],
     orderCount: 0,

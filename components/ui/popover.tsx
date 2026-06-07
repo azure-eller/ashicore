@@ -30,7 +30,7 @@ function PopoverContent({
         align={align}
         sideOffset={sideOffset}
         className={cn(
-          "z-50 flex w-72 origin-(--radix-popover-content-transform-origin) flex-col gap-(--space-5) rounded-(--radius-none) bg-popover p-(--space-5) text-[length:var(--text-sm)] text-popover-foreground shadow-[var(--shadow-overlay)] outline-hidden duration-(--duration-2) data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "z-50 flex w-72 origin-(--radix-popover-content-transform-origin) flex-col gap-(--space-5) rounded-md border border-[var(--color-line)] bg-[var(--color-surface)] p-(--space-5) text-[length:var(--text-sm)] text-[var(--color-ink)] shadow-[var(--shadow-overlay)] outline-hidden duration-(--duration-2) data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
         {...props}
@@ -59,7 +59,7 @@ function PopoverTitle({ className, ...props }: React.ComponentProps<"h2">) {
   return (
     <div
       data-slot="popover-title"
-      className={cn("font-medium", className)}
+      className={cn("font-display font-semibold", className)}
       {...props}
     />
   )
@@ -72,7 +72,7 @@ function PopoverDescription({
   return (
     <p
       data-slot="popover-description"
-      className={cn("text-muted-foreground", className)}
+      className={cn("text-[var(--color-ink-faint)]", className)}
       {...props}
     />
   )

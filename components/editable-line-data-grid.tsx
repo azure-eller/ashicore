@@ -24,6 +24,7 @@ import {
 import { Delete02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
+import { GridEmptyOverlay } from "@/components/grid-empty-overlay";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
@@ -394,12 +395,16 @@ export function EditableLineDataGrid<TData>({
     [rowHasError]
   );
 
+  const emptyBodyMinHeight = Math.max(rowHeight * 3, 144);
   const gridStyle = useMemo<CSSProperties>(
     () => ({
-      minHeight: minHeight ?? (rows.length === 0 ? headerHeight + rowHeight : undefined),
-      "--editable-grid-body-min-height": displayRows.length === 0 ? `${rowHeight}px` : "0",
+      minHeight:
+        minHeight ??
+        (rows.length === 0 ? headerHeight + emptyBodyMinHeight : undefined),
+      "--editable-grid-body-min-height":
+        displayRows.length === 0 ? `${emptyBodyMinHeight}px` : "0",
     }),
-    [displayRows.length, headerHeight, minHeight, rowHeight, rows.length]
+    [displayRows.length, emptyBodyMinHeight, headerHeight, minHeight, rows.length]
   ) as CSSProperties;
 
   const handleCellValueChanged = useCallback(
@@ -486,7 +491,7 @@ export function EditableLineDataGrid<TData>({
       <div
         data-slot="editable-line-data-grid"
         className={cn(
-          "ashicore-grid min-w-0 overflow-hidden rounded-(--radius-none) border",
+          "ashicore-grid min-w-0 rounded-lg",
           styles.grid,
           styles.editableGrid
         )}
@@ -508,11 +513,7 @@ export function EditableLineDataGrid<TData>({
           suppressMoveWhenRowDragging
           suppressColumnMoveAnimation
           rowClassRules={rowClassRules}
-          noRowsOverlayComponent={() => (
-            <span className="text-[length:var(--text-sm)] text-muted-foreground">
-              {emptyMessage}
-            </span>
-          )}
+          noRowsOverlayComponent={() => <GridEmptyOverlay message={emptyMessage} />}
           onGridReady={(event) => {
             gridApiRef.current = event.api;
             onGridReady?.(event);

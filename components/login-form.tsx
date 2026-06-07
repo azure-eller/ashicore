@@ -64,12 +64,14 @@ export function LoginForm({
   }
 
   return (
-    <div className={cn("mx-auto flex w-full max-w-sm flex-col gap-6", className)} {...props}>
-      <Card>
-        <CardHeader>
-          <CardTitle>Login to your account</CardTitle>
+    <div className={cn("mx-auto flex w-full max-w-[460px] flex-col gap-6", className)} {...props}>
+      <Card className="gap-0 py-0">
+        <CardHeader className="border-b border-[var(--color-line-soft)] bg-[var(--color-surface-sunk)] py-(--space-10)">
+          <CardTitle className="font-display text-[length:var(--text-lg)] leading-[var(--leading-lg)] font-semibold">
+            Login to your account
+          </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-(--space-10)">
           <form onSubmit={handleSubmit}>
             <FieldGroup>
               <Field>
@@ -107,12 +109,12 @@ export function LoginForm({
                   checked={rememberMe}
                   onCheckedChange={(value) => setRememberMe(value === true)}
                 />
-                <FieldLabel htmlFor="remember-me" className="font-normal">
+                <FieldLabel htmlFor="remember-me" className="font-[var(--font-body)] text-[length:var(--text-sm)] font-normal normal-case tracking-normal text-[var(--color-ink)]">
                   Remember me
                 </FieldLabel>
               </Field>
               {successMessage && (
-                <FieldDescription className="text-foreground">
+                <FieldDescription className="text-[var(--color-ink)]">
                   {successMessage}
                 </FieldDescription>
               )}

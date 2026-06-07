@@ -230,10 +230,7 @@ export function ProductOperationsTab({
         </div>
       </div>
 
-      <p
-        className={styles.helper}
-        style={{ marginTop: "var(--space-2)", marginBottom: "var(--space-3)" }}
-      >
+      <p className={`${styles.helper} mt-(--space-2) mb-(--space-3)`}>
         {activeVariant ? (
           <>
             Any changes made here only affect <strong>{activeVariant.displayName}</strong>.
@@ -244,8 +241,8 @@ export function ProductOperationsTab({
       </p>
 
       {tabLoading ? (
-        <div className="flex min-h-[220px] items-center justify-center border border-border bg-muted/20">
-          <Spinner className="size-5 text-muted-foreground" />
+        <div className="flex min-h-[220px] items-center justify-center rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface-alt)]">
+          <Spinner className="size-5" />
         </div>
       ) : (
         <OperationCostEditor

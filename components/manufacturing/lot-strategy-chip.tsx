@@ -21,9 +21,9 @@ const STRATEGY_LABEL: Record<ManufacturingLotStrategy, string> = {
 };
 
 const STRATEGY_TONE: Record<ManufacturingLotStrategy, string> = {
-  fifo: "text-[var(--color-accent)] bg-[var(--color-accent-soft)]",
-  lifo: "text-[var(--color-info)] bg-[var(--color-info-soft)]",
-  custom: "text-[var(--color-warning)] bg-[var(--color-warning-soft)]",
+  fifo: "text-[var(--color-accent-ink)] bg-[var(--color-accent-soft)]",
+  lifo: "text-[color-mix(in_oklch,var(--color-info),var(--color-ink)_38%)] bg-[var(--color-info-soft)]",
+  custom: "text-[var(--status-warning-ink)] bg-[var(--color-warning-soft)]",
 };
 
 const STRATEGIES: ManufacturingLotStrategy[] = ["fifo", "lifo", "custom"];
@@ -90,25 +90,25 @@ export function LotStrategyChip({
         : `${summary.firstLot ?? ""} +${summary.count - 1} more`;
   const canOpenPicker = strategy === "custom";
   const lotClassName = cn(
-    "inline-flex items-center gap-1.5 border-l border-[var(--color-line)] bg-[var(--color-surface)] px-2",
-    "text-[11.5px] text-[var(--color-ink)]",
-    summary.count === 0 && "text-[var(--color-muted)]",
+    "inline-flex items-center gap-(--space-2) border-l border-[var(--color-line)] bg-[var(--color-surface)] px-(--space-3)",
+    "text-[length:var(--text-label)] text-[var(--color-ink)]",
+    summary.count === 0 && "text-[var(--color-ink-faint)]",
     canOpenPicker
       ? "hover:bg-[var(--color-surface-alt)]"
       : summary.firstLotHref
-        ? "hover:text-[var(--color-accent)] hover:underline"
+        ? "hover:text-[var(--color-accent-ink)] hover:underline"
         : "cursor-default",
   );
 
   return (
-    <div className="inline-flex h-6 items-stretch border border-[var(--color-line)]">
+    <div className="inline-flex h-(--space-10) items-stretch overflow-hidden rounded-(--radius-sm) border border-[var(--color-line)]">
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
             aria-label={`Lot strategy ${STRATEGY_LABEL[strategy]}`}
             className={cn(
-              "inline-flex items-center gap-1 px-2 font-mono text-[10px] font-semibold tracking-[0.04em] uppercase",
+              "inline-flex items-center gap-(--space-1) px-(--space-3) font-mono text-[length:var(--text-3xs)] font-semibold tracking-[0.07em] uppercase",
               STRATEGY_TONE[strategy],
             )}
           >
@@ -116,7 +116,7 @@ export function LotStrategyChip({
             <HugeiconsIcon icon={ArrowDown01Icon} size={11} aria-hidden />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-28 p-0">
+          <DropdownMenuContent align="start" className="w-28 p-(--space-1)">
           {STRATEGIES.map((option) => (
             <DropdownMenuItem
               key={option}
@@ -124,7 +124,7 @@ export function LotStrategyChip({
                 event.preventDefault();
                 selectStrategy(option);
               }}
-              className="h-8 rounded-none px-3 font-mono text-[11px]"
+              className="h-(--height-input-sm) rounded-(--radius-sm) px-(--space-3) font-mono text-[length:var(--text-2xs)]"
             >
               {STRATEGY_LABEL[option]}
             </DropdownMenuItem>
@@ -142,7 +142,7 @@ export function LotStrategyChip({
             icon={ArrowUpRight01Icon}
             size={12}
             aria-hidden
-            className="text-[var(--color-accent)]"
+            className="text-[var(--color-accent-ink)]"
           />
         </button>
       ) : summary.firstLotHref ? (
@@ -152,7 +152,7 @@ export function LotStrategyChip({
             icon={ArrowUpRight01Icon}
             size={12}
             aria-hidden
-            className="text-[var(--color-accent)]"
+            className="text-[var(--color-accent-ink)]"
           />
         </Link>
       ) : (

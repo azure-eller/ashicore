@@ -1,6 +1,12 @@
 "use client";
 
-import { Fragment, useEffect, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -9,6 +15,7 @@ import {
   AddCircleIcon,
   CheckmarkCircle02Icon,
   LogoutIcon,
+  MoreHorizontalIcon,
   Search01Icon,
   Settings02Icon,
   Task01Icon,
@@ -31,7 +38,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Separator } from "@/components/ui/separator";
 import {
   NavigationLink,
   useNavigationPending,
@@ -66,6 +72,214 @@ type DashboardTopNavProps = {
 const DOCS_URL =
   process.env.NEXT_PUBLIC_DOCS_URL ??
   (process.env.NODE_ENV === "development" ? "http://localhost:4321/docs" : "/docs");
+
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
+
+type NavModule = ReturnType<typeof getDashboardNavModules>[number];
+
+function ModuleTab({
+  module,
+  active,
+  showingSubNav,
+}: {
+  module: NavModule;
+  active: boolean;
+  showingSubNav: boolean;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="default"
+      className={cn(
+        "relative h-(--height-input-sm) shrink-0 rounded-(--radius-md) px-(--space-6) text-[var(--chrome-fg-soft)] transition-colors duration-100 hover:bg-[var(--chrome-line)] hover:text-[var(--chrome-fg)]",
+        (showingSubNav || active) &&
+          "bg-[var(--color-accent-soft)] font-semibold text-[var(--color-accent-ink)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent-ink)]"
+      )}
+      asChild
+    >
+      <NavigationLink
+        href={module.href}
+        aria-current={active ? "true" : undefined}
+        className="flex items-center justify-center gap-(--space-4) text-[length:var(--text-md)] leading-[var(--leading-sm)] font-medium"
+      >
+        <HugeiconsIcon
+          icon={module.icon}
+          strokeWidth={2}
+          className="size-(--space-9)"
+        />
+        {module.title}
+      </NavigationLink>
+    </Button>
+  );
+}
+
+function ModuleNav({
+  modules,
+  visiblePathname,
+  visibleModule,
+}: {
+  modules: NavModule[];
+  visiblePathname: string;
+  visibleModule: NavModule | null | undefined;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const measureRef = useRef<HTMLDivElement | null>(null);
+  const [visibleCount, setVisibleCount] = useState(modules.length);
+
+  useIsomorphicLayoutEffect(() => {
+    const container = containerRef.current;
+    const measure = measureRef.current;
+    if (!container || !measure) return;
+
+    const recompute = () => {
+      const tabs = Array.from(
+        measure.querySelectorAll<HTMLElement>("[data-module-tab]")
+      );
+      if (tabs.length === 0) return;
+
+      const available = container.clientWidth;
+      const right = (element: HTMLElement) =>
+        element.offsetLeft + element.offsetWidth;
+      const gap =
+        tabs.length > 1 ? Math.max(0, tabs[1].offsetLeft - right(tabs[0])) : 0;
+      const moreTab = measure.querySelector<HTMLElement>("[data-more-tab]");
+      const reservedForMore = moreTab ? moreTab.offsetWidth + gap : 0;
+
+      let count = tabs.length;
+      if (right(tabs[tabs.length - 1]) > available) {
+        count = 0;
+        for (let index = 0; index < tabs.length; index += 1) {
+          if (right(tabs[index]) + reservedForMore <= available) {
+            count = index + 1;
+          } else {
+            break;
+          }
+        }
+      }
+
+      setVisibleCount(count);
+    };
+
+    recompute();
+    const observer = new ResizeObserver(recompute);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [modules]);
+
+  const visibleModules = modules.slice(0, visibleCount);
+  const overflowModules = modules.slice(visibleCount);
+  const overflowActive = overflowModules.some((module) =>
+    isDashboardPathActive(visiblePathname, module.baseHref)
+  );
+
+  return (
+    <nav
+      ref={containerRef}
+      aria-label="Primary"
+      className="relative flex min-w-0 flex-1 items-center gap-(--space-2) overflow-hidden px-0"
+    >
+      {visibleModules.map((module) => (
+        <ModuleTab
+          key={module.href}
+          module={module}
+          active={isDashboardPathActive(visiblePathname, module.baseHref)}
+          showingSubNav={visibleModule?.baseHref === module.baseHref}
+        />
+      ))}
+
+      {overflowModules.length > 0 ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="default"
+              aria-label="More modules"
+              className={cn(
+                "relative h-(--height-input-sm) shrink-0 gap-(--space-4) rounded-(--radius-md) px-(--space-6) text-[length:var(--text-md)] leading-[var(--leading-sm)] font-medium text-[var(--chrome-fg-soft)] transition-colors duration-100 hover:bg-[var(--chrome-line)] hover:text-[var(--chrome-fg)] data-[state=open]:bg-[var(--chrome-line)] data-[state=open]:text-[var(--chrome-fg)]",
+                overflowActive &&
+                  "bg-[var(--color-accent-soft)] font-semibold text-[var(--color-accent-ink)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent-ink)]"
+              )}
+            >
+              <HugeiconsIcon
+                icon={MoreHorizontalIcon}
+                strokeWidth={2}
+                className="size-(--space-9)"
+              />
+              More
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            className="min-w-56 rounded-(--radius-md) bg-[var(--color-surface)] p-(--space-4) text-[var(--color-ink)] shadow-[var(--shadow-overlay)]"
+          >
+            <DropdownMenuGroup>
+              {overflowModules.map((module) => {
+                const active = isDashboardPathActive(
+                  visiblePathname,
+                  module.baseHref
+                );
+
+                return (
+                  <DropdownMenuItem
+                    key={module.href}
+                    asChild
+                    className={cn(
+                      "min-h-(--height-input-sm) gap-(--space-5) px-(--space-5) py-(--space-4) text-[length:var(--text-base)] font-medium",
+                      active &&
+                        "bg-[var(--color-accent-soft)] text-[var(--color-accent-ink)]"
+                    )}
+                  >
+                    <NavigationLink
+                      href={module.href}
+                      aria-current={active ? "true" : undefined}
+                    >
+                      <HugeiconsIcon
+                        icon={module.icon}
+                        strokeWidth={2}
+                        className="size-(--space-8) text-[var(--color-ink-faint)]"
+                      />
+                      {module.title}
+                    </NavigationLink>
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
+
+      <div
+        ref={measureRef}
+        aria-hidden="true"
+        className="pointer-events-none invisible absolute top-0 left-0 flex items-center gap-(--space-2)"
+      >
+        {modules.map((module) => (
+          <div key={module.href} data-module-tab>
+            <ModuleTab module={module} active={false} showingSubNav={false} />
+          </div>
+        ))}
+        <div data-more-tab>
+          <Button
+            type="button"
+            variant="ghost"
+            size="default"
+            className="relative h-(--height-input-sm) shrink-0 gap-(--space-4) rounded-(--radius-md) px-(--space-6) text-[length:var(--text-md)] leading-[var(--leading-sm)] font-medium"
+          >
+            <HugeiconsIcon
+              icon={MoreHorizontalIcon}
+              strokeWidth={2}
+              className="size-(--space-9)"
+            />
+            More
+          </Button>
+        </div>
+      </div>
+    </nav>
+  );
+}
 
 export function DashboardTopNav({
   user,
@@ -103,6 +317,28 @@ export function DashboardTopNav({
     setHydratedPathname(pathname);
   }, [pathname]);
 
+  useEffect(() => {
+    function handlePageSearchShortcut(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        const target = event.target;
+        if (
+          target instanceof HTMLInputElement ||
+          target instanceof HTMLTextAreaElement ||
+          target instanceof HTMLSelectElement ||
+          (target instanceof HTMLElement && target.isContentEditable)
+        ) {
+          return;
+        }
+
+        event.preventDefault();
+        setPageSearchOpen(true);
+      }
+    }
+
+    window.addEventListener("keydown", handlePageSearchShortcut);
+    return () => window.removeEventListener("keydown", handlePageSearchShortcut);
+  }, []);
+
   async function handleLogout() {
     const { error } = await authClient.signOut();
 
@@ -137,107 +373,24 @@ export function DashboardTopNav({
 
   return (
     <>
-      <header className="flex h-(--height-nav) w-full min-w-0 shrink-0 items-center overflow-hidden border-b bg-sidebar text-sidebar-foreground">
+      <header className="flex h-(--height-nav) w-full min-w-0 shrink-0 items-center overflow-hidden border-b border-[var(--chrome-line)] bg-[var(--chrome-bg)] text-[var(--chrome-fg)]">
         <div className="flex min-w-0 flex-1 items-center">
-          <div className="mr-(--space-5) flex h-(--height-nav) min-w-0 shrink-0 items-center gap-(--space-5) border-r border-sidebar-border px-(--space-10) pr-(--space-12) max-sm:px-(--space-6) max-sm:pr-(--space-8)">
+          <div className="mr-(--space-5) flex h-(--height-nav) min-w-0 shrink-0 items-center gap-(--space-5) border-r border-[var(--chrome-line)] px-(--space-10) pr-(--space-12) max-sm:px-(--space-6) max-sm:pr-(--space-8)">
             <NavigationLink
               href="/sales/orders"
-              className="flex items-center gap-(--space-5) text-[length:var(--text-lg)] font-semibold tracking-[0] text-sidebar-foreground"
+              className="flex items-center gap-(--space-5) text-[length:var(--text-lg)] font-semibold tracking-[0] text-[var(--chrome-fg)]"
             >
               <AshicoreLogo showWordmark markClassName="size-(--space-10)" />
             </NavigationLink>
           </div>
 
-          <nav
-            aria-label="Primary"
-            className="flex min-w-0 flex-1 items-center gap-(--space-2) overflow-x-auto px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          >
-            {modules.map((module) => {
-              const active = isDashboardPathActive(
-                visiblePathname,
-                module.baseHref
-              );
-              const showingSubNav = visibleModule?.baseHref === module.baseHref;
+          <ModuleNav
+            modules={modules}
+            visiblePathname={visiblePathname}
+            visibleModule={visibleModule}
+          />
 
-              return (
-                <Button
-                  key={module.href}
-                  type="button"
-                  variant="ghost"
-                  size="default"
-                  className={cn(
-                    "relative h-(--height-input-md) shrink-0 rounded-none px-(--space-7) text-sidebar-foreground/80 transition-colors duration-100 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                    showingSubNav && "bg-sidebar-accent text-sidebar-accent-foreground",
-                    active &&
-                      "font-semibold text-sidebar-accent-foreground shadow-[inset_0_-2px_0_var(--color-accent)]"
-                  )}
-                  asChild
-                >
-                  <NavigationLink
-                    href={module.href}
-                    aria-current={active ? "true" : undefined}
-                    className="flex items-center justify-center gap-(--space-4) text-[length:var(--text-md)] leading-[var(--leading-sm)] font-medium"
-                  >
-                    <HugeiconsIcon
-                      icon={module.icon}
-                      strokeWidth={2}
-                      className="size-(--space-10)"
-                    />
-                    {module.title}
-                  </NavigationLink>
-                </Button>
-              );
-            })}
-          </nav>
-
-          <div className="flex min-w-0 shrink-0 items-center gap-[11px] px-[22px] max-sm:gap-[8px] max-sm:px-[12px]">
-            {createActions.length > 0 ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    id="dashboard-create-menu-trigger"
-                    type="button"
-                    variant="default"
-                    className="h-[41px] gap-[8px] px-[16px] text-[17px] font-medium text-primary-foreground max-sm:px-[11px]"
-                  >
-                    <HugeiconsIcon
-                      icon={AddCircleIcon}
-                      strokeWidth={2}
-                      className="size-[18px]"
-                    />
-                    <span className="max-sm:sr-only">Create</span>
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  id="dashboard-create-menu-content"
-                  align="end"
-                  className="min-w-72 rounded-(--radius-none) bg-popover p-(--space-4) text-popover-foreground shadow-[var(--shadow-overlay)]"
-                >
-                  <DropdownMenuGroup>
-                    {createActions.map((action) => (
-                      <DropdownMenuItem
-                        key={action.href}
-                        asChild
-                        className="min-h-(--height-input-md) gap-(--space-8) px-(--space-6) py-(--space-4) text-[length:var(--text-base)] font-normal"
-                      >
-                        <NavigationLink href={action.href}>
-                          <HugeiconsIcon
-                            icon={Add01Icon}
-                            strokeWidth={2}
-                            className="size-(--space-10) text-muted-foreground"
-                          />
-                          {action.title}
-                        </NavigationLink>
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
-            <Separator
-              orientation="vertical"
-              className="mx-[0] h-[41px] bg-sidebar-border/70 max-sm:hidden"
-            />
+          <div className="flex min-w-0 shrink-0 items-center gap-(--space-5) px-(--space-10) max-sm:gap-(--space-4) max-sm:px-(--space-6)">
             <Popover open={pageSearchOpen} onOpenChange={setPageSearchOpen}>
               <PopoverTrigger asChild>
                 <Button
@@ -245,21 +398,24 @@ export function DashboardTopNav({
                   suppressHydrationWarning
                   type="button"
                   variant="outline"
-                  size="icon"
-                  className="size-[41px] text-muted-foreground hover:bg-muted hover:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground"
+                  className="h-(--height-topnav-control) gap-(--space-4) rounded-(--radius-full) border-[var(--chrome-line)] bg-transparent px-(--space-6) text-[length:var(--text-ui)] font-normal text-[var(--chrome-fg-soft)] hover:bg-[var(--chrome-line)] hover:text-[var(--chrome-fg)] data-[state=open]:bg-[var(--chrome-line)] data-[state=open]:text-[var(--chrome-fg)]"
                   aria-label="Search pages"
                 >
                   <HugeiconsIcon
                     icon={Search01Icon}
                     strokeWidth={2}
-                    className="size-[19px]"
+                    className="size-(--space-9)"
                   />
+                  <span className="max-sm:sr-only">Search</span>
+                  <kbd className="max-sm:hidden rounded-(--radius-sm) border border-[var(--chrome-line)] bg-[var(--chrome-line)] px-(--space-2) py-px font-mono text-[length:var(--text-2xs)] leading-none text-[var(--chrome-fg-soft)]">
+                    ⌘K
+                  </kbd>
                 </Button>
               </PopoverTrigger>
               <PopoverContent
                 id="dashboard-page-search-content"
                 align="end"
-                className="w-96 gap-(--space-4) rounded-(--radius-none) bg-popover p-(--space-4) text-popover-foreground shadow-[var(--shadow-overlay)]"
+                className="w-96 gap-(--space-4) rounded-(--radius-lg) bg-[var(--color-surface)] p-(--space-4) text-[var(--color-ink)] shadow-[var(--shadow-overlay)]"
               >
                 <Input
                   value={pageSearch}
@@ -286,15 +442,15 @@ export function DashboardTopNav({
                       return (
                         <Fragment key={action.href}>
                           {showGroup ? (
-                            <div className="mt-(--space-4) bg-muted px-(--space-5) py-(--space-3) text-[length:var(--text-xs)] font-semibold tracking-[var(--tracking-caps)] text-muted-foreground uppercase first:mt-0">
+                            <div className="mt-(--space-4) bg-[var(--color-surface-alt)] px-(--space-5) py-(--space-3) text-[length:var(--text-xs)] font-semibold tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)] uppercase first:mt-0">
                               {action.group}
                             </div>
                           ) : null}
                           <button
                             type="button"
                             className={cn(
-                              "flex min-h-(--height-input-lg) w-full items-center gap-(--space-6) rounded-none px-(--space-5) py-(--space-4) text-left text-[length:var(--text-base)] outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
-                              active && "bg-accent text-accent-foreground"
+                              "flex min-h-(--height-input-lg) w-full items-center gap-(--space-6) rounded-(--radius-md) px-(--space-5) py-(--space-4) text-left text-[length:var(--text-base)] outline-none hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent-ink)] focus-visible:bg-[var(--color-accent-soft)] focus-visible:text-[var(--color-accent-ink)]",
+                              active && "bg-[var(--color-accent-soft)] text-[var(--color-accent-ink)]"
                             )}
                             onClick={() => {
                               setPageSearchOpen(false);
@@ -305,11 +461,11 @@ export function DashboardTopNav({
                             <HugeiconsIcon
                               icon={action.icon}
                               strokeWidth={2}
-                              className="size-(--space-10) shrink-0 text-muted-foreground"
+                              className="size-(--space-10) shrink-0 text-[var(--color-ink-faint)]"
                             />
                             <span className="min-w-0 flex-1">
                               <span className="block truncate">{action.title}</span>
-                              <span className="block truncate text-[length:var(--text-sm)] text-muted-foreground">
+                              <span className="block truncate text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
                                 {action.description}
                               </span>
                             </span>
@@ -318,13 +474,56 @@ export function DashboardTopNav({
                       );
                     })
                   ) : (
-                    <div className="px-(--space-5) py-(--space-12) text-center text-[length:var(--text-sm)] text-muted-foreground">
+                    <div className="px-(--space-5) py-(--space-12) text-center text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
                       No pages found.
                     </div>
                   )}
                 </div>
               </PopoverContent>
             </Popover>
+            {createActions.length > 0 ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    id="dashboard-create-menu-trigger"
+                    type="button"
+                    variant="default"
+                    className="h-(--height-topnav-control) gap-(--space-4) rounded-(--radius-full) px-(--space-8) text-[length:var(--text-md)] font-semibold text-[var(--color-accent-text)] shadow-none max-sm:px-(--space-5)"
+                  >
+                    <HugeiconsIcon
+                      icon={AddCircleIcon}
+                      strokeWidth={2}
+                      className="size-(--space-9)"
+                    />
+                    <span className="max-sm:sr-only">Create</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  id="dashboard-create-menu-content"
+                  align="end"
+                  className="min-w-72 rounded-(--radius-lg) bg-[var(--color-surface)] p-(--space-4) text-[var(--color-ink)] shadow-[var(--shadow-overlay)]"
+                >
+                  <DropdownMenuGroup>
+                    {createActions.map((action) => (
+                      <DropdownMenuItem
+                        key={action.href}
+                        asChild
+                        className="min-h-(--height-input-md) gap-(--space-8) px-(--space-6) py-(--space-4) text-[length:var(--text-base)] font-normal"
+                      >
+                        <NavigationLink href={action.href}>
+                          <HugeiconsIcon
+                            icon={Add01Icon}
+                            strokeWidth={2}
+                            className="size-(--space-10) text-[var(--color-ink-faint)]"
+                          />
+                          {action.title}
+                        </NavigationLink>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -332,19 +531,21 @@ export function DashboardTopNav({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="size-[41px] rounded-full text-foreground hover:bg-muted hover:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground"
+                  className="size-(--height-topnav-control) rounded-(--radius-full) text-[var(--chrome-fg)] hover:bg-[var(--chrome-line)] hover:text-[var(--chrome-fg)] data-[state=open]:bg-[var(--chrome-line)] data-[state=open]:text-[var(--chrome-fg)]"
                   aria-label="User menu"
                 >
-                  <Avatar className="size-[41px]">
+                  <Avatar className="size-(--height-topnav-control) ring-1 ring-[var(--chrome-line)]">
                     {user.avatar && <AvatarImage src={user.avatar} alt={user.name} />}
-                    <AvatarFallback>{initials}</AvatarFallback>
+                    <AvatarFallback className="bg-[var(--color-accent-soft)] text-[var(--color-accent-ink)]">
+                      {initials}
+                    </AvatarFallback>
                   </Avatar>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent
                 id="dashboard-user-menu-content"
                 align="end"
-                className="min-w-72 bg-popover text-popover-foreground"
+                className="min-w-72 bg-[var(--color-surface)] text-[var(--color-ink)]"
               >
                 <DropdownMenuLabel className="p-0 font-normal">
                   <div className="flex items-center gap-(--space-4) px-(--space-2) py-(--space-3) text-left text-[length:var(--text-sm)]">
@@ -354,10 +555,10 @@ export function DashboardTopNav({
                     </Avatar>
                     <div className="grid flex-1 text-left text-[length:var(--text-sm)] leading-[var(--leading-sm)]">
                       <span className="truncate font-medium">{user.name}</span>
-                      <span className="truncate text-[length:var(--text-xs)] text-muted-foreground">
+                      <span className="truncate text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                         {user.email}
                       </span>
-                      <span className="truncate text-[length:var(--text-xs)] text-muted-foreground">
+                      <span className="truncate text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                         {organizationName}
                       </span>
                     </div>
@@ -382,7 +583,7 @@ export function DashboardTopNav({
                         <div className="grid min-w-0 flex-1">
                           <span className="truncate">{organization.name}</span>
                           {organization.slug ? (
-                            <span className="truncate text-[length:var(--text-xs)] text-muted-foreground">
+                            <span className="truncate text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                               {organization.slug}
                             </span>
                           ) : null}
@@ -401,7 +602,7 @@ export function DashboardTopNav({
                 {switchError ? (
                   <>
                     <DropdownMenuSeparator />
-                    <DropdownMenuLabel className="text-[length:var(--text-xs)] font-normal text-destructive">
+                    <DropdownMenuLabel className="text-[length:var(--text-xs)] font-normal text-[var(--status-danger-ink)]">
                       {switchError}
                     </DropdownMenuLabel>
                   </>
@@ -434,9 +635,9 @@ export function DashboardTopNav({
       {visibleModule ? (
         <nav
           aria-label={`${visibleModule.title} pages`}
-          className="flex h-(--height-subnav) w-full min-w-0 shrink-0 items-stretch overflow-hidden border-b bg-background px-(--space-10) max-sm:px-(--space-6)"
+          className="flex h-(--height-subnav) w-full min-w-0 shrink-0 items-center overflow-hidden border-b border-[var(--chrome-line)] bg-[var(--chrome-bg)] px-(--space-8) max-sm:px-(--space-6)"
         >
-          <div className="flex min-w-0 flex-1 items-center gap-0 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="flex min-w-0 flex-1 items-center gap-(--space-2) overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {visibleModule.items.map((item) => {
               const active = isDashboardPathActive(visiblePathname, item.href);
 
@@ -446,9 +647,9 @@ export function DashboardTopNav({
                   href={item.href}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "flex h-(--height-subnav) shrink-0 items-center px-(--space-5) text-[length:var(--text-base)] leading-[var(--leading-sm)] font-medium text-muted-foreground shadow-[inset_0_-2px_0_transparent] hover:text-foreground",
+                    "flex h-(--height-subnav) shrink-0 items-center px-(--space-5) text-[length:var(--text-md)] leading-[var(--leading-md)] font-medium text-[var(--chrome-fg-soft)] hover:text-[var(--chrome-fg)]",
                     active &&
-                      "font-semibold text-primary shadow-[inset_0_-2px_0_var(--color-accent)]"
+                      "font-semibold text-[var(--chrome-fg)] shadow-[inset_0_-2px_0_var(--color-accent)]"
                   )}
                 >
                   {item.title}

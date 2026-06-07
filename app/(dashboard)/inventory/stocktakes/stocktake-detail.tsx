@@ -607,7 +607,7 @@ export function StocktakeDetail({
         },
         cellRenderer: ({ data }: ICellRendererParams<StocktakeDisplayRow>) => {
           if (!data?.itemId) {
-            return <span className="text-muted-foreground">Select item</span>;
+            return <span className="text-[var(--color-ink-faint)]">Select item</span>;
           }
 
           return (
@@ -617,7 +617,7 @@ export function StocktakeDetail({
             >
               <span className="block truncate">{data.itemName}</span>
               {data.itemSku ? (
-                <span className="block truncate text-xs text-muted-foreground">
+                <span className="block truncate text-xs text-[var(--color-ink-faint)]">
                   {data.itemSku}
                 </span>
               ) : null}
@@ -637,7 +637,7 @@ export function StocktakeDetail({
         headerName: "Lot",
         minWidth: 150,
         flex: 0.55,
-        cellClass: ({ data }) => data && !isLotDisplayRow(data) ? "text-muted-foreground" : "",
+        cellClass: ({ data }) => data && !isLotDisplayRow(data) ? "text-[var(--color-ink-faint)]" : "",
         valueGetter: ({ data }) => data && isLotDisplayRow(data) ? data.lot.lotNumber : "",
         cellRenderer: ({ data }: ICellRendererParams<StocktakeDisplayRow>) => {
           if (!data) return null;
@@ -1032,7 +1032,7 @@ export function StocktakeDetail({
 
           {canEditCounts && liveCountedCount === 0 ? (
             <CardSection aria-label="Stocktake completion guidance">
-              <p className="text-[length:var(--text-sm)] text-muted-foreground">
+              <p className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
                 Enter at least one available count before completing this stocktake.
               </p>
             </CardSection>

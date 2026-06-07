@@ -30,15 +30,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { fulfillmentStatusBlockTone } from "@/components/fulfillment-status-block";
-import { StatusDetailMenuTable } from "@/components/status-detail-menu-table";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { StatusBlock } from "@/components/ui/status-block";
 import {
   Tooltip,
   TooltipContent,
@@ -67,7 +58,11 @@ import {
   getProductionDisplayState,
   type FulfillmentDisplayState,
 } from "@/lib/sales/fulfillment-status";
-import { ProductionActionCell } from "./sales-order-table-action-cells";
+import {
+  ProductionActionCell,
+  StatusDetailCell,
+  ingredientsStatusEmptyMessage,
+} from "./sales-order-table-action-cells";
 import { OrderStatusControl } from "@/components/card-page/order-status-control";
 import {
   isSalesOrderStatusDisabled,
@@ -117,7 +112,7 @@ function NotesCell({ notes }: { notes: string | null }) {
   const trimmedNotes = displaySalesOrderNotes(notes);
 
   if (!trimmedNotes) {
-    return <span className="text-muted-foreground">—</span>;
+    return <span className="text-[var(--color-ink-faint)]">—</span>;
   }
 
   return (
@@ -125,7 +120,7 @@ function NotesCell({ notes }: { notes: string | null }) {
       <TooltipTrigger asChild>
         <button
           type="button"
-          className="block w-full overflow-hidden text-ellipsis text-left text-muted-foreground outline-none hover:text-foreground focus-visible:text-foreground"
+          className="block w-full overflow-hidden text-ellipsis text-left text-[var(--color-ink-faint)] outline-none hover:text-[var(--color-ink)] focus-visible:text-[var(--color-ink)]"
         >
           {trimmedNotes}
         </button>
@@ -155,7 +150,7 @@ function getOrderShipmentSchedule(order: SalesOrderListRow) {
 
 function formatOrderLineItemName(line: SalesOrderListRow["lines"][number]) {
   return line.attrs.length > 0
-    ? `${line.attrs.join(" / ")} ${line.masterName}`
+    ? `${line.masterName} / ${line.attrs.join(" / ")}`
     : line.masterName;
 }
 
@@ -169,7 +164,6 @@ function SalesItemsActionCell({
     !hasLines
       ? ({ label: "Not applicable", tone: "muted" } satisfies FulfillmentDisplayState)
       : getSalesItemsAvailabilityState(order);
-  const tone = fulfillmentStatusBlockTone[state.tone];
   const rows = order.lines.map((line) => ({
     id: line.id ?? line.itemId,
     item: formatOrderLineItemName(line),
@@ -178,32 +172,15 @@ function SalesItemsActionCell({
     expected: formatQuantity(line.demandQueueExpectedQty ?? "0"),
   }));
 
-  if (!hasLines) {
-    return (
-      <StatusBlock tone={tone} aria-label={`Sales items: ${state.label}`}>
-        {state.label}
-      </StatusBlock>
-    );
-  }
-
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <StatusBlock
-          tone={tone}
-          actionable
-          actionVariant="button"
-          onClick={(event) => event.stopPropagation()}
-          aria-label={`Sales items: ${state.label}`}
-        >
-          {state.label}
-        </StatusBlock>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[560px]">
-        <DropdownMenuLabel>Sales items</DropdownMenuLabel>
-        <StatusDetailMenuTable emptyMessage="No sales items." rows={rows} />
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <StatusDetailCell
+      label="Sales items"
+      menuLabel="Sales items"
+      state={state}
+      rows={rows}
+      emptyMessage="No sales items."
+      interactive={hasLines}
+    />
   );
 }
 
@@ -230,32 +207,13 @@ function IngredientsStatusCell({ order }: { order: SalesOrderListRow }) {
   }));
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <StatusBlock
-          tone={fulfillmentStatusBlockTone[state.tone]}
-          actionable
-          actionVariant="button"
-          onClick={(event) => event.stopPropagation()}
-          aria-label={`Ingredients: ${state.label}`}
-        >
-          {state.label}
-        </StatusBlock>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[560px]">
-        <DropdownMenuLabel>Short ingredients</DropdownMenuLabel>
-        <StatusDetailMenuTable
-          emptyMessage={
-            state.label === "Not needed"
-              ? "Finished goods cover this order."
-              : state.label === "Not applicable"
-                ? "No manufacturable items on this order."
-                : "No ingredient shortages."
-          }
-          rows={rows}
-        />
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <StatusDetailCell
+      label="Ingredients"
+      menuLabel="Short ingredients"
+      state={state}
+      emptyMessage={ingredientsStatusEmptyMessage(state, "order")}
+      rows={rows}
+    />
   );
 }
 
@@ -321,24 +279,16 @@ function salesOrderMatchesSearch(
 
 function RankCell({ order }: { order: SalesOrderListRow }) {
   if (!isOpenSalesOrder(order)) {
-    return <span className="text-muted-foreground">-</span>;
+    return <span className="text-[var(--color-ink-faint)]">-</span>;
   }
 
   return (
     <div className="flex h-full min-w-0 items-center">
-      <span className="block w-(--space-16) shrink-0 text-right text-muted-foreground tabular-nums">
+      <span className="w-(--space-16) text-[var(--color-ink-faint)] tabular-nums">
         {order.priorityRank ?? "-"}
       </span>
     </div>
   );
-}
-
-export function OrdersTable({
-  initialData,
-}: {
-  initialData: SalesOrderListRow[];
-}) {
-  return <OrdersTableContent initialData={initialData} />;
 }
 
 function LastSyncStatus({ dataUpdatedAt }: { dataUpdatedAt: number }) {
@@ -352,6 +302,44 @@ function LastSyncStatus({ dataUpdatedAt }: { dataUpdatedAt: number }) {
   const seconds = Math.max(0, Math.floor((now - dataUpdatedAt) / 1000));
 
   return <span>Last sync {seconds < 30 ? "<30" : seconds}s ago</span>;
+}
+
+const SALES_ORDER_SORT_LABELS: Record<string, string> = {
+  orderNumber: "Order",
+  customerName: "Customer",
+  notes: "Notes",
+  totalAmount: "Total",
+  allocation: "Sales items",
+  ingredientsState: "Ingredients",
+  productionState: "Production",
+  deliveryState: "Delivery",
+  shipDate: "Delivery deadline",
+};
+
+function getSalesOrderSortSummary(api: GridApi<SalesOrderListRow>) {
+  const sortedColumns = api
+    .getColumnState()
+    .filter((column) => column.sort)
+    .sort((left, right) => (left.sortIndex ?? 0) - (right.sortIndex ?? 0));
+
+  if (sortedColumns.length === 0) return null;
+
+  const [primary] = sortedColumns;
+  const label = SALES_ORDER_SORT_LABELS[primary.colId] ?? primary.colId;
+  const direction = primary.sort === "desc" ? "↓" : "↑";
+  const extraCount = sortedColumns.length - 1;
+
+  return extraCount > 0
+    ? `${label} ${direction} +${extraCount}`
+    : `${label} ${direction}`;
+}
+
+export function OrdersTable({
+  initialData,
+}: {
+  initialData: SalesOrderListRow[];
+}) {
+  return <OrdersTableContent initialData={initialData} />;
 }
 
 function OrdersTableContent({
@@ -369,6 +357,7 @@ function OrdersTableContent({
   const [selectedOrders, setSelectedOrders] = useState<SalesOrderListRow[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [hasActiveSort, setHasActiveSort] = useState(false);
+  const [sortSummary, setSortSummary] = useState<string | null>(null);
   const { data: orders = initialData, dataUpdatedAt } = useQuery({
     queryKey: ["sales-orders"],
     queryFn: () =>
@@ -455,18 +444,27 @@ function OrdersTableContent({
   const hasSearchFilter = searchValue.trim().length > 0;
   const reorderEnabled =
     statusFilter === "open" && !hasSearchFilter && !hasActiveSort;
-  const filterSummary = statusFilter === "done" ? "Done" : "Open";
+  const hasActiveFilter = statusFilter !== "open" || hasSearchFilter;
+  const filterSummary =
+    statusFilter === "done"
+      ? "Done"
+      : hasSearchFilter
+        ? "Search"
+        : "Open";
+  const defaultSortSummary = statusFilter === "open" ? "Rank" : "None";
+  const displayedSortSummary = hasActiveSort
+    ? sortSummary ?? "Sorted"
+    : defaultSortSummary;
   const gridColumns = useMemo<ColDef<SalesOrderListRow>[]>(
     () => [
       {
         colId: "priorityRank",
         field: "priorityRank",
-        headerName: "#",
+        headerName: "Rank",
         headerTooltip: SALES_ORDER_RANK_TOOLTIP,
-        width: 92,
-        minWidth: 88,
-        maxWidth: 104,
-        cellClass: "num",
+        width: 64,
+        minWidth: 56,
+        maxWidth: 110,
         resizable: false,
         sortable: false,
         rowDrag: reorderEnabled,
@@ -508,6 +506,7 @@ function OrdersTableContent({
         minWidth: 170,
         maxWidth: 320,
         flex: 1,
+        cellClass: "emphasis",
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
           data ? (
             <span className="block truncate">{data.customerName}</span>
@@ -532,7 +531,7 @@ function OrdersTableContent({
         headerTooltip: ORDER_TOTAL_TOOLTIP,
         width: 110,
         minWidth: 110,
-        cellClass: "num regular",
+        cellClass: "num num-end",
         comparator: (left, right) =>
           parseFloat(String(left ?? "0")) - parseFloat(String(right ?? "0")),
         valueFormatter: ({ value }) => formatPrice(String(value ?? "")) ?? "—",
@@ -718,6 +717,12 @@ function OrdersTableContent({
       defaultState: { sort: null },
     });
     setHasActiveSort(false);
+    setSortSummary(null);
+  };
+  const clearFilter = () => {
+    setStatusFilter("open");
+    setSearchValue("");
+    searchInputRef.current?.blur();
   };
 
   return (
@@ -731,11 +736,11 @@ function OrdersTableContent({
         onSearchChange={setSearchValue}
         emptyMessage="No sales orders yet."
         enableRowSelection
+        hideHeaderSelectionCheckbox
         onSelectionChange={setSelectedOrders}
         enableManagedRowDrag={reorderEnabled}
         suppressMoveWhenRowDragging
         relaxResizableMaxWidth
-        toolbarClassName="h-(--height-toolbar) shrink-0 gap-(--space-5) border-b border-border bg-card px-(--space-8)"
         toolbarContent={
           <WorkflowStatusFilter
             value={statusFilter}
@@ -749,7 +754,7 @@ function OrdersTableContent({
           <>
             {hasActiveSort ? (
               <>
-                <div className="h-(--space-10) w-px bg-border" />
+                <div className="h-(--space-10) w-px bg-[var(--color-line-2)]" />
                 <div className="flex items-center gap-(--space-2)">
                   <Button type="button" variant="secondary" size="sm" onClick={clearSort}>
                     <HugeiconsIcon icon={Sorting05Icon} data-icon="inline-start" />
@@ -762,6 +767,7 @@ function OrdersTableContent({
               type="button"
               variant="secondary"
               size="sm"
+              className="h-(--height-grid-action-control) whitespace-nowrap px-(--space-7) text-[length:var(--text-sm)]"
               onClick={() => gridApiRef.current?.exportDataAsCsv()}
             >
               <HugeiconsIcon icon={DatabaseExportIcon} data-icon="inline-start" />
@@ -772,18 +778,25 @@ function OrdersTableContent({
               variant="danger"
               size="icon"
               disabled={selectedCount === 0 || deleteMutation.isPending}
-              className="relative"
+              className="relative size-(--height-grid-action-control) whitespace-nowrap"
               aria-label={
                 selectedCount > 0
                   ? `Delete ${selectedCount} selected`
                   : "Delete selected"
               }
-              onClick={() => setDeleteDialogOpen(true)}
+              onClick={() => {
+                if (selectedCount === 0) return;
+                setDeleteDialogOpen(true);
+              }}
             >
               <HugeiconsIcon icon={Delete02Icon} aria-hidden />
               <SelectionCountBadge count={selectedCount} />
             </Button>
-            <Button asChild aria-label="New Order">
+            <Button
+              asChild
+              aria-label="New Order"
+              className="h-(--height-grid-action-control) whitespace-nowrap px-(--space-8) text-[length:var(--text-sm)]"
+            >
               <Link href="/sales/order">
                 <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
                 New Order
@@ -804,7 +817,13 @@ function OrdersTableContent({
             autoSizeSalesOrderStatusColumns(event.api);
           }
         }}
-        onSortChange={setHasActiveSort}
+        onSortChange={(nextHasActiveSort) => {
+          setHasActiveSort(nextHasActiveSort);
+          const api = gridApiRef.current;
+          setSortSummary(
+            nextHasActiveSort && api ? getSalesOrderSortSummary(api) : null
+          );
+        }}
         onManagedRowDragReorder={(orderedRows) => {
           if (!reorderEnabled || reorderMutation.isPending) {
             return;
@@ -812,9 +831,11 @@ function OrdersTableContent({
 
           reorderMutation.mutate(orderedRows);
         }}
-        className="flex h-[calc(100dvh_-_var(--height-nav)_-_var(--height-subnav))] min-h-0 flex-col space-y-0 bg-background"
+        className="flex h-[calc(100dvh_-_var(--height-nav)_-_var(--height-subnav))] min-h-0 flex-col gap-(--space-7) bg-[var(--color-bg)]"
         gridClassName="min-h-0 flex-1"
         height="100%"
+        headerHeight={48}
+        rowHeight={48}
         statusBarContent={
           <>
             <span>
@@ -822,15 +843,21 @@ function OrdersTableContent({
             </span>
             <LastSyncStatus dataUpdatedAt={dataUpdatedAt} />
             <div className="flex-1" />
-            <button type="button" className="hover:text-foreground" onClick={clearSort}>
-              Sort: {hasActiveSort ? "Custom" : "Delivery deadline ↑"}
+            <button
+              type="button"
+              className="rounded-(--radius-sm) px-(--space-2) py-(--space-1) text-left transition-colors hover:bg-[var(--color-surface-alt)] hover:text-[var(--color-ink)] disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-[var(--color-ink-faint)]"
+              disabled={!hasActiveSort}
+              onClick={clearSort}
+              title={hasActiveSort ? "Clear sort" : `Default sort: ${defaultSortSummary}`}
+            >
+              Sort: {displayedSortSummary}
             </button>
             <button
               type="button"
-              className="hover:text-foreground"
-              onClick={() => {
-                setStatusFilter("open");
-              }}
+              className="rounded-(--radius-sm) px-(--space-2) py-(--space-1) text-left transition-colors hover:bg-[var(--color-surface-alt)] hover:text-[var(--color-ink)] disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-[var(--color-ink-faint)]"
+              disabled={!hasActiveFilter}
+              onClick={clearFilter}
+              title={hasActiveFilter ? "Clear filter" : "Showing open orders"}
             >
               Filter: {filterSummary}
             </button>
@@ -857,6 +884,7 @@ function OrdersTableContent({
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
+              variant="danger"
               disabled={deleteMutation.isPending || selectedCount === 0}
               onClick={(event) => {
                 event.preventDefault();

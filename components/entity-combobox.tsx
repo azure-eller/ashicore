@@ -78,7 +78,7 @@ export function EntityCombobox<TOption extends EntityComboboxOption>({
         placeholder={placeholder}
         disabled={disabled}
       />
-      <ComboboxContent className={cn("bg-popover text-popover-foreground", contentClassName)}>
+      <ComboboxContent className={cn("bg-[var(--color-surface)] text-[var(--color-ink)]", contentClassName)}>
         <ComboboxEmpty>{emptyMessage}</ComboboxEmpty>
         <ComboboxList>
           {(id: string) => {

@@ -11,25 +11,25 @@ read_when:
 
 ## Style System
 
-The design system has **three token layers**. Full spec: `docs/design-system/01_DESIGN_SYSTEM.md`.
+Design intent lives in `docs/design/`. Runtime token values live in `app/globals.css`.
 
-1. **V2 raw tokens** in `app/globals.css` `:root` — source of truth for colors, spacing, sizing, type, motion, shadows, radii. Names follow the design handoff (`--color-*`, `--space-*`, `--height-*`, `--text-*`, `--leading-*`, `--weight-*`, `--radius-*`, `--shadow-*`, `--focus-ring`, `--ease-*`, `--duration-*`).
-2. **Bridge** — shadcn variable names (`--primary`, `--card`, `--muted`, `--border`, `--radius`, etc.) alias the V2 tokens. This keeps shadcn semantic classes working unchanged.
-3. **Component code** — uses the bridge by default; reaches for V2 raw tokens for dimensions and for states shadcn doesn't model (e.g. `accent-hover`, `surface-sunk`).
+1. **App raw tokens** in `app/globals.css` `:root` — source of truth for colors, spacing, sizing, type, motion, shadows, and radii. Names include `--color-*`, `--space-*`, `--height-*`, `--text-*`, `--leading-*`, `--weight-*`, `--radius-*`, `--shadow-*`, `--focus-ring`, `--ease-*`, and `--duration-*`.
+2. **Bridge** — shadcn variable names (`--primary`, `--card`, `--muted`, `--border`, `--radius`, etc.) alias the app tokens. This keeps shadcn semantic classes working unchanged.
+3. **Component code** — uses the bridge by default; reaches for raw app tokens for dimensions and for states shadcn doesn't model (e.g. `accent-hover`, `surface-sunk`).
 
 ### Rules
 
 - **Colors:** use shadcn semantic classes (`bg-primary`, `bg-card`, `bg-muted`, `text-foreground`, `text-muted-foreground`, `border-border`, `bg-destructive`) by default. Reach for `var(--color-*)` only when shadcn has no name for the state (`hover:bg-[var(--color-accent-hover)]`, `bg-[var(--color-surface-sunk)]`). Never hardcode Tailwind colors (`text-red-500`).
-- **Spacing / sizing / type:** always V2 raw tokens via Tailwind arbitrary syntax — `gap-(--space-3)`, `px-(--space-6)`, `h-(--height-input-md)`, `text-[length:var(--text-sm)]`, `leading-[var(--leading-sm)]`. There is no shadcn scale for these.
-- **Radii:** sharp corners everywhere. Don't add `rounded-*` other than `rounded-full` on circular avatars/status dots. All `--radius-*` tokens resolve to `0` via the bridge.
-- **Status:** label + 8×8 colored square indicator (`StatusLabel`, `StatusRibbon`). Never use rounded pills for status.
+- **Spacing / sizing / type:** always raw app tokens via Tailwind arbitrary syntax — `gap-(--space-3)`, `px-(--space-6)`, `h-(--height-input-md)`, `text-[length:var(--text-sm)]`, `leading-[var(--leading-sm)]`. There is no shadcn scale for these.
+- **Radii:** use shared radius tokens. Do not hard-code radii in page code.
+- **Status:** use shared status primitives (`StatusBlock`, `StatusLabel`, `StatusRibbon`) rather than local chips.
 - **Numerics:** order IDs, currency, counts, and dates in tabular context use `font-mono` + `tabular-nums`.
-- **Font:** Geist (sans) and Geist Mono. Configured globally via `--font-sans` / `--font-mono`.
+- **Font:** use the global font variables. See `docs/design/foundations.md` for roles.
 - **shadcn config:** `radix-nova` style with `stone` base color — see `components.json` for component aliases.
 
-### Canonical V2 primitives
+### Canonical primitives
 
-`Button`, `Input`, `InputGroup`, `StatusLabel`, `StatusRibbon`, `Spinner`, `Combobox`, plus the create-page shell components (`CreatePageShell`, `CreatePageHeader`, `CreatePageGrid`, `CreateSection`, `CreateSidebarCard`). All of these consume V2 tokens directly — compose them rather than re-styling at the page level.
+See `docs/design/components.md`. Compose shared primitives rather than re-styling at the page level.
 
 ## Tables
 
@@ -168,22 +168,19 @@ Use the shared create-page components for create/edit routes. Do not wrap the en
 
 ## Loading States
 
-**Page/data loading**: use skeleton components matching the page layout.
-
-```tsx
-// In the page component, while data is loading:
-if (isLoading) return <MaterialFormSkeleton />;
-```
+**Page/data loading**: use a simple spinner or concise loading label. Do not add
+skeleton loaders unless the feature explicitly needs layout preservation during
+loading.
 
 For App Router list pages, keep the route shell synchronous and suspend only the slow data region. Do not make the entire page wait on a top-level `await` before returning JSX, or the previous page will linger during navigation.
 
 ```tsx
 import { Suspense } from "react";
-import OrdersTableSkeleton from "../orders-table-skeleton";
+import DataTableLoading from "@/components/data-table-loading";
 
 export default function OrdersPage() {
   return (
-    <Suspense fallback={<OrdersTableSkeleton />}>
+    <Suspense fallback={<DataTableLoading />}>
       <OrdersData />
     </Suspense>
   );
@@ -199,7 +196,7 @@ Route-level `loading.tsx` only appears after parent layouts start rendering. Kee
 
 For create/edit routes that share the same form, reuse one route-level loading component per item type instead of duplicating a separate loader for `new` and `edit`.
 
-For detail routes, add a local `[id]/loading.tsx` per item type and point it at a shared detail loader. Do not let `/products/[id]` or `/materials/[id]` inherit the parent list/table skeleton from the segment above.
+For detail routes, add a local `[id]/loading.tsx` per item type and point it at a shared spinner/loader. Do not let `/products/[id]` or `/materials/[id]` inherit the parent list/table fallback from the segment above.
 
 ## Card Page Bodies
 
@@ -345,20 +342,12 @@ Variants: `sm | default | md | lg | xl | 2xl | 3xl | content`. `content` sizes t
 <AlertDialogContent className="max-w-5xl">...</AlertDialogContent>
 ```
 
-## Inverted / dark surfaces
+## Inverted Surfaces
 
-To create a dark surface in light mode (or light in dark mode), scope `className="dark"` on the container. This is how shadcn does it on their create page. All children automatically pick up dark mode tokens through the `@custom-variant dark (&:is(.dark *))` rule — no manual CSS variable overrides needed.
-
-```tsx
-// ✓ Correct — dark class scopes all children to dark tokens
-<Sidebar className="dark" />
-<Card className="dark bg-card/90 shadow-xl backdrop-blur-xl" />
-
-// ✗ Wrong — manually overriding CSS variables for each token
-// ✗ Wrong — hardcoding colors like bg-[#303030] text-white
-```
-
-The app sidebar uses this pattern. Never replace it with manual `--sidebar-*` variable swaps or hardcoded colors.
+The authenticated ERP app is a light-mode design system. Do not introduce local
+`.dark` token branches or hardcoded inverted palettes. If a surface needs an
+inverted treatment, add named semantic tokens in `app/globals.css` and compose
+them through the shared component that owns that surface.
 
 ## Tooltips
 

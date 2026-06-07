@@ -36,8 +36,8 @@ export function AutosaveStatus({
   return (
     <div
       className={cn(
-        "inline-flex items-center gap-1.5 text-xs text-muted-foreground",
-        state === "error" && "text-destructive",
+        "inline-flex items-center gap-1.5 text-xs text-[var(--color-ink-faint)]",
+        state === "error" && "text-[var(--status-danger-ink)]",
         className
       )}
       aria-live="polite"

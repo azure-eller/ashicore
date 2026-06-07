@@ -159,7 +159,7 @@ function DialogBody({
       {direction === "to" ? (
         <CardField label="Target variants" controlStyle="dialog">
           {otherVariants.length === 0 ? (
-            <p className="text-[length:var(--text-sm)] text-muted-foreground">
+            <p className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
               No sibling variants available.
             </p>
           ) : (

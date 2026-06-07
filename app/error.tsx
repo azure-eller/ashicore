@@ -36,8 +36,11 @@ export default function AppError({
         className="w-full max-w-md space-y-(--space-8) p-(--space-12) shadow-none"
       >
         <div className="space-y-(--space-4)">
-          <h1 className="text-[length:var(--text-xl)] leading-[var(--leading-xl)] font-semibold tracking-[var(--tracking-tight)]">Something went wrong</h1>
-          <p className="text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-muted-foreground">
+          <p className="font-mono text-[length:var(--text-xs)] font-semibold tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)] uppercase">
+            Error
+          </p>
+          <h1 className="font-display text-[length:var(--text-xl)] leading-[var(--leading-xl)] font-semibold text-[var(--color-ink)]">Something went wrong</h1>
+          <p className="text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-[var(--color-ink-soft)]">
             The error was reported. Try the action again, or reload this section.
           </p>
         </div>

@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { getSalesOrders } from "@/app/(dashboard)/sales/queries";
+import { getItems } from "@/app/(dashboard)/inventory/queries";
 import {
   SalesAllocationTable,
   type ManufacturingAllocationDemandRow,
@@ -24,9 +25,10 @@ export default function SalesAllocationPage() {
 }
 
 async function SalesAllocationData() {
-  const [context, orders] = await Promise.all([
+  const [context, orders, inventory] = await Promise.all([
     getAuthedMemberContext(),
     getSalesOrders(),
+    getItems({ itemType: "product" }),
   ]);
   const salesProductIds = orders
     .filter((order) => order.status === "open")
@@ -56,6 +58,7 @@ async function SalesAllocationData() {
   return (
     <SalesAllocationTable
       initialData={orders}
+      initialInventory={inventory}
       initialProductCoverage={buildProductCoverageFromDemandQueue(coverage)}
       initialManufacturingDemandRows={buildManufacturingRowsFromCoverage(coverage)}
       organizationId={context.orgId}

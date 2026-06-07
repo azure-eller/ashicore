@@ -43,7 +43,7 @@ export function AccountSection({ initialData }: { initialData: AccountPageData }
 
         <SettingsKeyValueRow
           label="Password"
-          value={<span className="text-muted-foreground">••••••••••</span>}
+          value={<span className="text-[var(--color-ink-faint)]">••••••••••</span>}
           action={
             <ChangePasswordDialog>
               <Button variant="ghost" size="sm">

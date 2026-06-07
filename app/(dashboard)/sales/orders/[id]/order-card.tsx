@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -18,7 +17,6 @@ import type {
   SalesOrderTaxRateOption,
 } from "@/app/(dashboard)/sales/types";
 import {
-  formatDate,
   formatPercent,
   formatPrice,
   formatQuantity,
@@ -335,11 +333,9 @@ export function OrderCard({
           />
         )}
 
-        <LinkedManufacturingOrdersSection order={order} />
-
         <ShippingFeeSection
           order={order}
-          editable={isEditable}
+          editable={isEditable && !hasShippedItems}
           controller={controller}
         />
 
@@ -406,13 +402,13 @@ function RemainingItemsSection({ lines }: { lines: SalesOrderDetailLine[] }) {
             <FramedTableRow key={line.id}>
               <FramedTableCell>
                 <div className="font-medium">{line.itemName}</div>
-                <div className="text-[length:var(--text-sm)] text-muted-foreground">
+                <div className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
                   {line.unitName}
                 </div>
               </FramedTableCell>
               <FramedTableCell align="right" numeric>
                 {formatQuantity(line.remainingQuantity)}{" "}
-                <span className="font-sans text-muted-foreground">{line.unitName}</span>
+                <span className="font-[var(--font-body)] text-[var(--color-ink-faint)]">{line.unitName}</span>
               </FramedTableCell>
               <FramedTableCell align="right" numeric>
                 {formatPrice(line.unitPrice) ?? "—"}
@@ -465,13 +461,13 @@ function ShippedItemsSection({
               <FramedTableRow key={line.id}>
                 <FramedTableCell>
                   <div className="font-medium">{line.itemName}</div>
-                  <div className="text-[length:var(--text-sm)] text-muted-foreground">
+                  <div className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
                     {line.unitName}
                   </div>
                 </FramedTableCell>
                 <FramedTableCell align="right" numeric>
                   {formatQuantity(line.shippedQuantity)}{" "}
-                  <span className="font-sans text-muted-foreground">{line.unitName}</span>
+                  <span className="font-[var(--font-body)] text-[var(--color-ink-faint)]">{line.unitName}</span>
                 </FramedTableCell>
                 <FramedTableCell align="right" numeric>
                   {formatPrice(line.unitPrice) ?? "—"}
@@ -502,76 +498,6 @@ function SalesFulfillmentTable({ children }: { children: React.ReactNode }) {
       <FramedTable>{children}</FramedTable>
     </TableFrame>
   );
-}
-
-function LinkedManufacturingOrdersSection({ order }: { order: SalesOrderDetail }) {
-  if (order.linkedManufacturingOrders.length === 0) return null;
-
-  return (
-    <CardSection
-      title="Manufacturing"
-      count={`· ${order.linkedManufacturingOrders.length} order${
-        order.linkedManufacturingOrders.length === 1 ? "" : "s"
-      }`}
-    >
-      <TableFrame>
-        <FramedTable>
-          <FramedTableHead>
-            <tr>
-              <FramedTableHeaderCell>Order</FramedTableHeaderCell>
-              <FramedTableHeaderCell>Product</FramedTableHeaderCell>
-              <FramedTableHeaderCell align="right">Planned</FramedTableHeaderCell>
-              <FramedTableHeaderCell>Status</FramedTableHeaderCell>
-              <FramedTableHeaderCell>Deadline</FramedTableHeaderCell>
-            </tr>
-          </FramedTableHead>
-          <tbody>
-            {order.linkedManufacturingOrders.map((linkedOrder) => (
-              <FramedTableRow key={linkedOrder.id}>
-                <FramedTableCell>
-                  <Link
-                    href={`/manufacturing/order/${linkedOrder.id}`}
-                    className="font-medium text-foreground underline-offset-2 hover:underline"
-                    prefetch={false}
-                  >
-                    {linkedOrder.orderNumber}
-                  </Link>
-                </FramedTableCell>
-                <FramedTableCell muted>
-                  {linkedOrder.productName}
-                </FramedTableCell>
-                <FramedTableCell align="right" numeric>
-                  {formatQuantity(linkedOrder.plannedQuantity)} {linkedOrder.unitName}
-                </FramedTableCell>
-                <FramedTableCell>
-                  {manufacturingProductionStatusLabel(linkedOrder.productionStatus)}
-                </FramedTableCell>
-                <FramedTableCell muted>
-                  {linkedOrder.plannedDate ? formatDate(linkedOrder.plannedDate) : "—"}
-                </FramedTableCell>
-              </FramedTableRow>
-            ))}
-          </tbody>
-        </FramedTable>
-      </TableFrame>
-    </CardSection>
-  );
-}
-
-function manufacturingProductionStatusLabel(
-  status: SalesOrderDetail["linkedManufacturingOrders"][number]["productionStatus"],
-) {
-  switch (status) {
-    case "blocked":
-      return "Blocked";
-    case "in_progress":
-      return "Work in progress";
-    case "done":
-      return "Done";
-    case "not_started":
-    default:
-      return "Not started";
-  }
 }
 
 function makeInitialDraftOrder(

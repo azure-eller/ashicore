@@ -37,8 +37,8 @@ export function CardField({
   const labelClassName =
     controlStyle === "dialog"
       ? cn(
-          "text-[length:var(--text-sm)] leading-[var(--leading-sm)] font-medium text-foreground",
-          invalid && "text-destructive",
+          "text-[length:var(--text-sm)] leading-[var(--leading-sm)] font-medium text-[var(--color-ink)]",
+          invalid && "text-[var(--status-danger-ink)]",
         )
       : cn(styles.formLabel, invalid && styles.formLabelInvalid);
 

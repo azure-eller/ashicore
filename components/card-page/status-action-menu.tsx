@@ -80,14 +80,14 @@ export function StatusActionMenuItem({
   onSelect?: () => void;
 }) {
   const className = cn(
-    "h-8 cursor-pointer gap-2 rounded-none px-3 text-[12.5px]",
-    active && "bg-[var(--color-accent-soft)] text-[var(--color-accent)]",
+    "h-(--height-menu-item) cursor-pointer gap-(--space-2) rounded-(--radius-md) px-(--space-3) text-[length:var(--text-control)]",
+    active && "bg-[var(--color-accent-soft)] text-[var(--color-accent-ink)]",
     disabled && !active && "cursor-not-allowed opacity-50",
   );
   const content = (
     <>
       {swatchClassName ? (
-        <span className={cn("inline-block h-3 w-3", swatchClassName)} />
+        <span className={cn("inline-block size-(--space-6) rounded-(--radius-full)", swatchClassName)} />
       ) : null}
       {icon ? <HugeiconsIcon icon={icon} size={14} aria-hidden /> : null}
       <span className="flex-1">{children}</span>

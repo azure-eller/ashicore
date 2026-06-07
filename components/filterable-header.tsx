@@ -39,13 +39,16 @@ export function FilterHeaderButton({
     <Button
       type="button"
       variant="ghost"
-      className={cn("-ml-3", className)}
+      className={cn(
+        "-ml-(--space-3) h-auto min-h-0 rounded-sm bg-transparent px-(--space-3) py-(--space-1) font-sans text-[length:var(--text-status)] font-bold tracking-[0.04em] text-[var(--color-ink-2)] uppercase shadow-none hover:bg-[var(--color-surface-alt)] hover:text-[var(--color-ink)] focus-visible:shadow-[0_0_0_4px_var(--color-accent-soft)]",
+        className
+      )}
       aria-label={`Filter by ${label}${selectedCount > 0 ? `, ${selectedCount} selected` : ""}`}
       {...props}
     >
       {label}
       {selectedCount > 0 && (
-        <span className="ml-(--space-3) flex h-(--space-8) items-center bg-primary px-(--space-2) font-mono text-[length:var(--text-2xs)] font-medium tabular-nums text-primary-foreground">
+        <span className="ml-(--space-3) flex h-(--space-8) items-center rounded-[var(--radius-pill)] bg-[var(--color-accent-soft)] px-(--space-2) font-mono text-[length:var(--text-2xs)] font-medium tabular-nums text-[var(--color-accent-ink)]">
           {selectedCount}
         </span>
       )}
@@ -108,7 +111,7 @@ export function FilterableHeader<T>({
   );
 
   const content = (
-    <DropdownMenuContent align="start" className="bg-popover text-popover-foreground">
+    <DropdownMenuContent align="start">
       {filterOptions.map((option) => (
         <DropdownMenuCheckboxItem
           key={option.value}
@@ -187,7 +190,7 @@ export function ServerFilterableHeader({
   const button = <FilterHeaderButton label={label} selectedCount={selectedCount} />;
 
   const content = (
-    <DropdownMenuContent align="start" className="bg-popover text-popover-foreground">
+    <DropdownMenuContent align="start">
       {options.map((option) => (
         <DropdownMenuCheckboxItem
           key={option.value}

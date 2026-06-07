@@ -27,7 +27,7 @@ export function AttachmentListItem({
   className,
 }: AttachmentListItemProps) {
   const name = href ? (
-    <a href={href} className="min-w-0 truncate font-medium text-primary">
+    <a href={href} className="min-w-0 truncate font-medium text-[var(--color-accent-ink)]">
       {filename}
     </a>
   ) : (
@@ -45,14 +45,14 @@ export function AttachmentListItem({
           <span className="min-w-0 flex-1 truncate text-[length:var(--text-sm)]">
             {name}
           </span>
-          <span className="shrink-0 text-[length:var(--text-xs)] text-muted-foreground">
+          <span className="shrink-0 text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
             {formatBytes(sizeBytes)}
           </span>
         </>
       ) : (
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[length:var(--text-sm)]">{name}</span>
-          <span className="block text-[length:var(--text-xs)] text-muted-foreground">
+          <span className="block text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
             {formatBytes(sizeBytes)}
           </span>
         </span>

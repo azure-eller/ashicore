@@ -46,11 +46,13 @@ export function ForgotPasswordForm({ redirectTo }: { redirectTo: string }) {
 
   if (submitted) {
     return (
-      <Card className="mx-auto w-full max-w-sm">
-        <CardHeader>
-          <CardTitle>Check your email</CardTitle>
+      <Card className="mx-auto w-full max-w-[460px] gap-0 py-0">
+        <CardHeader className="border-b border-[var(--color-line-soft)] bg-[var(--color-surface-sunk)] py-(--space-10)">
+          <CardTitle className="font-display text-[length:var(--text-lg)] leading-[var(--leading-lg)] font-semibold">
+            Check your email
+          </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-(--space-10)">
           <FieldDescription>
             If an account matches that address, we sent a password reset link.
           </FieldDescription>
@@ -60,14 +62,16 @@ export function ForgotPasswordForm({ redirectTo }: { redirectTo: string }) {
   }
 
   return (
-    <Card className="mx-auto w-full max-w-sm">
-      <CardHeader>
-        <CardTitle>Reset your password</CardTitle>
+    <Card className="mx-auto w-full max-w-[460px] gap-0 py-0">
+      <CardHeader className="border-b border-[var(--color-line-soft)] bg-[var(--color-surface-sunk)] py-(--space-10)">
+        <CardTitle className="font-display text-[length:var(--text-lg)] leading-[var(--leading-lg)] font-semibold">
+          Reset your password
+        </CardTitle>
         <FieldDescription>
           We&apos;ll send a reset link if the account exists.
         </FieldDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-(--space-10)">
         <form onSubmit={handleSubmit}>
           <FieldGroup>
             <Field>

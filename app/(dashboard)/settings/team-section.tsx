@@ -119,7 +119,7 @@ function TeamStatusBadge({ row }: { row: TeamGridRow }) {
     return (
       <div className="flex min-w-0 items-center gap-(--space-3)">
         <ConfiguredBadge value="pending" config={teamStatusBadgeConfig} />
-        <span className="truncate text-[length:var(--text-xs)] text-muted-foreground">
+        <span className="truncate text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
           expires <DateTimeText value={row.invite.expiresAt} />
         </span>
       </div>
@@ -249,10 +249,10 @@ function InviteMemberDialog({
                           key={presetKey}
                           type="button"
                           onClick={() => field.onChange(presetKey)}
-                          className={`border px-(--space-8) py-(--space-8) text-left transition-colors ${
+                          className={`rounded-[var(--radius-md)] border px-(--space-8) py-(--space-8) text-left outline-none transition-colors duration-(--duration-1) ease-(--ease-out) focus-visible:border-[var(--color-accent)] focus-visible:shadow-[0_0_0_4px_var(--color-accent-soft)] ${
                             selected
-                              ? "border-ring bg-accent text-accent-foreground"
-                              : "border-border bg-card text-card-foreground hover:bg-accent/50"
+                              ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)] text-[var(--color-accent-ink)]"
+                              : "border-[var(--color-line)] bg-[var(--color-surface)] text-[var(--color-ink)] hover:bg-[var(--color-surface-alt)]"
                           }`}
                           aria-pressed={selected}
                         >
@@ -345,7 +345,7 @@ function CustomizeAccessDialog({
                 <SelectTrigger className="w-full sm:w-[220px]">
                   <SelectValue placeholder="Select preset" />
                 </SelectTrigger>
-                <SelectContent className="bg-popover text-popover-foreground">
+                <SelectContent className="bg-[var(--color-surface)] text-[var(--color-ink)]">
                   {ACCESS_PRESET_KEYS.filter(
                     (preset) => canGrantTeamManagement || preset !== "admin"
                   ).map((preset) => (
@@ -551,16 +551,16 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
           if (!row) return null;
 
           return row.kind === "member" ? (
-            <span className="min-w-0 truncate font-medium text-foreground">
+            <span className="min-w-0 truncate font-medium text-[var(--color-ink)]">
               {row.name}
               {row.member.isCurrentUser ? (
-                <span className="ml-(--space-2) text-[length:var(--text-xs)] font-normal text-muted-foreground">
+                <span className="ml-(--space-2) text-[length:var(--text-xs)] font-normal text-[var(--color-ink-faint)]">
                   (You)
                 </span>
               ) : null}
             </span>
           ) : (
-            <span className="text-muted-foreground">Pending invite</span>
+            <span className="text-[var(--color-ink-faint)]">Pending invite</span>
           );
         },
       },
@@ -593,7 +593,7 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
           row?.kind === "member" ? (
             <TeamRoleBadge role={row.member.role} />
           ) : (
-            <span className="text-muted-foreground">—</span>
+            <span className="text-[var(--color-ink-faint)]">—</span>
           ),
       },
       {
@@ -651,7 +651,7 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
                 size="icon-sm"
                 disabled={mutationPending}
                 onClick={() => setCustomizingMember(row.member)}
-                className="bg-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                className="bg-transparent text-[var(--color-ink-faint)] transition-colors hover:bg-[var(--color-surface-alt)] hover:text-[var(--color-ink)]"
                 aria-label={`Edit ${row.member.name}`}
               >
                 <HugeiconsIcon icon={PencilEdit02Icon} />

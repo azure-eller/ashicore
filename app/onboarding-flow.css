@@ -394,7 +394,7 @@
   height: 7px;
   border-radius: 50%;
   background: var(--ob-accent);
-  box-shadow: 0 0 0 3px oklch(0.865 0.165 96 / 0.2);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ob-accent), transparent 80%);
   animation: obPulse 1.8s infinite;
 }
 @keyframes obPulse {
@@ -449,11 +449,20 @@
   gap: 18px;
   margin-top: 28px;
 }
+.ob-form-stack--tight {
+  gap: 12px;
+}
 .ob-form-error {
   font-family: var(--font-mono);
   font-size: 12.5px;
   letter-spacing: 0.01em;
   color: var(--ob-red);
+}
+.ob-form-error--center {
+  text-align: center;
+}
+.ob-form-error--spaced {
+  margin-top: 16px;
 }
 
 /* ---- Form controls ---- */
@@ -644,6 +653,10 @@ select.ob-input {
 .ob-form-actions--split {
   justify-content: space-between;
 }
+.ob-form-actions--ruled {
+  border-top: 1px solid var(--ob-line);
+  padding-top: 18px;
+}
 .ob-form-actions--center {
   justify-content: center;
   margin-top: 32px;
@@ -674,12 +687,12 @@ select.ob-input {
 .ob-chip--warn {
   background: var(--ob-amber-bg);
   border-color: transparent;
-  color: oklch(0.5 0.12 70);
+  color: color-mix(in oklch, var(--ob-amber), var(--ob-ink) 42%);
 }
 .ob-chip--good {
   background: var(--ob-green-bg);
   border-color: transparent;
-  color: oklch(0.45 0.12 150);
+  color: color-mix(in oklch, var(--ob-green), var(--ob-ink) 42%);
 }
 .ob-link {
   color: var(--ob-accent-ink);
@@ -724,7 +737,7 @@ select.ob-input {
 .ob-dropzone.is-drag {
   border-color: var(--ob-accent);
   background: var(--ob-accent-soft);
-  box-shadow: 0 0 0 6px oklch(0.865 0.165 96 / 0.12);
+  box-shadow: 0 0 0 6px color-mix(in oklch, var(--ob-accent), transparent 88%);
 }
 .ob-dropzone-glyph {
   width: 54px;
@@ -782,8 +795,8 @@ select.ob-input {
   border-radius: 6px;
   display: grid;
   place-items: center;
-  color: #fff;
-  box-shadow: 0 1px 2px oklch(0.3 0.02 60 / 0.18);
+  color: var(--ob-bg);
+  box-shadow: 0 1px 2px color-mix(in oklch, var(--ob-ink), transparent 82%);
   font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 600;
@@ -950,7 +963,7 @@ select.ob-input {
 .ob-estep--done .ob-estep-dot {
   background: var(--ob-green);
   border-color: var(--ob-green);
-  color: #fff;
+  color: var(--ob-bg);
 }
 .ob-estep--done .ob-estep-label {
   color: var(--ob-ink);
@@ -1079,7 +1092,7 @@ select.ob-input {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--ob-surface);
   box-shadow: var(--ob-shadow-sm);
   transition: transform 0.2s;
 }
@@ -1210,7 +1223,7 @@ select.ob-input {
   background: var(--ob-amber-bg);
 }
 .ob-grid tbody tr.is-low:hover {
-  background: oklch(0.95 0.05 80);
+  background: color-mix(in oklch, var(--ob-amber-bg), var(--ob-amber) 8%);
 }
 .ob-cell.is-missing {
   color: var(--ob-red);
@@ -1275,6 +1288,27 @@ select.ob-input {
 .ob-review-count b {
   color: var(--ob-amber);
   font-weight: 600;
+}
+.ob-review-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+.ob-review-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.ob-review-count--warn {
+  color: var(--ob-amber);
+}
+.ob-review-count--soft {
+  color: var(--ob-ink-soft);
+}
+.ob-review-actions {
+  display: flex;
+  gap: 10px;
 }
 
 /* ============================================================================

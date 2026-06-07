@@ -2,7 +2,6 @@
 
 import { usePathname } from "next/navigation";
 import { NavigationLink } from "@/components/navigation-pending";
-import { SurfacePanel } from "@/components/surface-panel";
 import { cn } from "@/lib/utils";
 import type { SettingsSection } from "./sections";
 
@@ -11,36 +10,30 @@ export function SettingsNav({ sections }: { sections: SettingsSection[] }) {
 
   return (
     <nav
-      className="w-full xl:sticky xl:top-(--space-12) xl:self-start"
+      className="-mx-(--space-8) flex h-(--height-subnav) min-w-0 shrink-0 items-center overflow-hidden border-b border-[var(--color-line)] bg-[var(--color-surface)] px-(--space-8) md:-mx-(--space-12) md:px-(--space-12)"
       aria-label="Settings sections"
     >
-      <SurfacePanel className="p-(--space-4)">
-        <div className="hidden border-b pb-(--space-4) text-[length:var(--text-sm)] font-semibold leading-[var(--leading-sm)] text-foreground xl:block">
-          Settings
-        </div>
-        <div className="flex gap-(--space-2) overflow-x-auto xl:flex-col xl:gap-0 xl:pt-(--space-4)">
-          {sections.map((section) => {
-            const active =
-              pathname === section.href || pathname.startsWith(`${section.href}/`);
+      <div className="flex min-w-0 flex-1 items-center gap-(--space-2) overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {sections.map((section) => {
+          const active =
+            pathname === section.href || pathname.startsWith(`${section.href}/`);
 
-            return (
-              <NavigationLink
-                key={section.id}
-                href={section.href}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "shrink-0 px-(--space-6) py-(--space-3) text-left text-[length:var(--text-sm)] leading-[var(--leading-sm)] transition-colors xl:w-full",
-                  active
-                    ? "bg-muted font-medium text-foreground"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-              >
-                {section.title}
-              </NavigationLink>
-            );
-          })}
-        </div>
-      </SurfacePanel>
+          return (
+            <NavigationLink
+              key={section.id}
+              href={section.href}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "flex h-(--height-subnav) shrink-0 items-center px-(--space-5) text-[length:var(--text-base)] leading-[var(--leading-sm)] font-medium text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]",
+                active &&
+                  "font-semibold text-[var(--color-ink)] shadow-[inset_0_-2px_0_var(--color-accent)]"
+              )}
+            >
+              {section.title}
+            </NavigationLink>
+          );
+        })}
+      </div>
     </nav>
   );
 }

@@ -998,14 +998,14 @@ function IngredientsSection({
                   >
                     <SelectTrigger
                       aria-label={`Choose alternate for ${params.data.itemName}`}
-                      className="!h-(--space-8) !w-(--space-8) !gap-0 !border-0 !bg-transparent !p-0 text-muted-foreground hover:text-foreground"
+                      className="!h-(--space-8) !w-(--space-8) !gap-0 !border-0 !bg-transparent !p-0 text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]"
                     />
                     <SelectContent align="start">
                       {alternateOptions.map((option) => (
                         <SelectItem key={option.itemId} value={option.itemId}>
                           <div className="flex flex-col">
                             <span>{option.itemName}</span>
-                            <span className="text-[length:var(--text-sm)] text-muted-foreground">
+                            <span className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
                               {option.label}
                             </span>
                           </div>
@@ -1018,7 +1018,7 @@ function IngredientsSection({
               <div className="flex min-w-0 flex-col">
                 <Link
                   href={inventoryItemHref(params.data)}
-                  className="truncate text-[length:var(--text-md)] font-medium text-[var(--color-ink)] hover:text-[var(--color-accent)] hover:underline"
+                  className="truncate text-[length:var(--text-md)] font-medium text-[var(--color-ink)] hover:text-[var(--color-accent-ink)] hover:underline"
                 >
                   {params.data.itemName}
                 </Link>
@@ -1141,6 +1141,7 @@ function IngredientsSection({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
+              variant="danger"
               onClick={(event) => {
                 event.preventDefault();
                 if (!confirmDelete) return;

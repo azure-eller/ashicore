@@ -219,7 +219,7 @@ export function AddressesSection({ initialData }: { initialData: AddressBookRow[
         title="Addresses"
         meta="Delivery addresses shared by sales and purchasing."
         action={
-          <span className="text-[length:var(--text-xs)] text-muted-foreground">
+          <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
             {status}
           </span>
         }

@@ -2,12 +2,17 @@ import type {
   CustomerContactRow,
   CustomerDetailData,
   CustomerProjectFileRow,
+  CustomerProjectNoteRow,
   CustomerProjectRow,
 } from "@/app/(dashboard)/sales/types";
 import type { AddressEntry } from "@/lib/dal/addresses";
 import { ApiClientError, createApiJsonRequester } from "@/lib/client/api";
 import type { CreateAddressEntry, UpdateAddressEntry } from "@/lib/schemas/addresses";
-import type { CustomerContactInput, CustomerProjectInput } from "@/lib/schemas/customer-crm";
+import type {
+  CustomerContactInput,
+  CustomerProjectInput,
+  CustomerProjectNoteInput,
+} from "@/lib/schemas/customer-crm";
 import type { InsertCustomer, PatchCustomer } from "@/lib/schemas/customers";
 
 export class CustomerApiError extends ApiClientError {
@@ -141,6 +146,34 @@ export async function deleteCustomerProject(customerId: string, projectId: strin
     `/api/customers/${customerId}/projects/${projectId}`,
     { method: "DELETE" },
     "Failed to delete project."
+  );
+}
+
+export async function createCustomerProjectNote(
+  customerId: string,
+  projectId: string,
+  input: CustomerProjectNoteInput
+) {
+  return json<CustomerProjectNoteRow>(
+    `/api/customers/${customerId}/projects/${projectId}/notes`,
+    {
+      method: "POST",
+      headers: jsonHeaders,
+      body: input,
+    },
+    "Failed to add project note."
+  );
+}
+
+export async function deleteCustomerProjectNote(
+  customerId: string,
+  projectId: string,
+  noteId: string
+) {
+  return json<{ success: boolean }>(
+    `/api/customers/${customerId}/projects/${projectId}/notes/${noteId}`,
+    { method: "DELETE" },
+    "Failed to delete project note."
   );
 }
 

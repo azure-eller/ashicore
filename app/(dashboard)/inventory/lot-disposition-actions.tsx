@@ -139,7 +139,7 @@ export function LotDispositionActions({
             <HugeiconsIcon icon={MoreVerticalIcon} className="h-4 w-4" aria-hidden />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="bg-popover text-popover-foreground">
+        <DropdownMenuContent align="end" className="bg-[var(--color-surface)] text-[var(--color-ink)]">
           {menuActions.map((selection) => (
             <DropdownMenuItem
               key={`${selection.fromDisposition}-${selection.action.action}`}
@@ -148,7 +148,7 @@ export function LotDispositionActions({
             >
               {selection.action.label}
               {balances.length > 1 ? (
-                <span className="ml-auto text-[length:var(--text-xs)] text-muted-foreground">
+                <span className="ml-auto text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                   {formatInventoryDisposition(selection.fromDisposition)}
                 </span>
               ) : null}

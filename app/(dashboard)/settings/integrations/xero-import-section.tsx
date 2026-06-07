@@ -286,7 +286,7 @@ function ImportActionGroup({
 }) {
   return (
     <div className="min-w-0">
-      <h4 className="mb-2 text-sm font-medium text-foreground">{title}</h4>
+      <h4 className="mb-2 text-sm font-medium text-[var(--color-ink)]">{title}</h4>
       <div className="flex flex-wrap gap-2">{children}</div>
     </div>
   );
@@ -311,7 +311,7 @@ function ImportErrorList({ errors }: { errors: string[] }) {
   if (errors.length === 0) return null;
 
   return (
-    <ul className="mt-2 list-disc pl-5 text-xs text-destructive">
+    <ul className="mt-2 list-disc pl-5 text-xs text-[var(--status-danger-ink)]">
       {errors.map((error, index) => (
         <li key={index}>{error}</li>
       ))}
@@ -346,12 +346,12 @@ function PurchaseOrderImportSummary({
         Purchase orders: {summary.created} imported, {summary.updated} updated
       </p>
       {summary.createdSuppliers > 0 || summary.createdItems > 0 ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-[var(--color-ink-faint)]">
           Created {summary.createdSuppliers} suppliers and {summary.createdItems} materials
         </p>
       ) : null}
       {summary.protected > 0 || summary.skipped > 0 ? (
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-[var(--color-ink-faint)]">
           {summary.protected} protected after receiving, {summary.skipped} skipped
         </p>
       ) : null}
@@ -458,12 +458,12 @@ function PurchaseOrderImportDialog({
 
           <InsetPanel className="min-h-0 overflow-hidden rounded-md">
             {previewMutation.isPending ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <div className="flex items-center gap-2 text-sm text-[var(--color-ink-faint)]">
                 <Spinner />
                 Loading preview
               </div>
             ) : previewMutation.error ? (
-              <p className="text-sm text-destructive">
+              <p className="text-sm text-[var(--status-danger-ink)]">
                 {(previewMutation.error as Error).message}
               </p>
             ) : preview ? (
@@ -582,12 +582,12 @@ function PurchaseOrderImportDialog({
                               config={purchaseOrderImportStatusBadgeConfig}
                             />
                             {candidate.exclusionReason ? (
-                              <div className="truncate text-xs text-muted-foreground">
+                              <div className="truncate text-xs text-[var(--color-ink-faint)]">
                                 {candidate.exclusionReason}
                               </div>
                             ) : null}
                             {candidate.reviewReason ? (
-                              <div className="truncate text-xs text-muted-foreground">
+                              <div className="truncate text-xs text-[var(--color-ink-faint)]">
                                 {candidate.reviewReason}
                               </div>
                             ) : null}
@@ -596,7 +596,7 @@ function PurchaseOrderImportDialog({
                             <div className="truncate">
                               {candidate.externalPurchaseOrderNumber}
                             </div>
-                            <div className="truncate text-xs text-muted-foreground">
+                            <div className="truncate text-xs text-[var(--color-ink-faint)]">
                               {candidate.externalStatus}
                             </div>
                           </FramedTableCell>
@@ -604,19 +604,19 @@ function PurchaseOrderImportDialog({
                             <div className="truncate" title={candidate.supplierName}>
                               {candidate.supplierName}
                             </div>
-                            <div className="truncate text-xs text-muted-foreground">
+                            <div className="truncate text-xs text-[var(--color-ink-faint)]">
                               {candidate.createsSupplier ? "Creates supplier" : "Matched"}
                             </div>
                           </FramedTableCell>
                           <FramedTableCell>
                             {candidate.matchedLineCount}/{candidate.lineCount} matched
                             {candidate.createsMaterials > 0 ? (
-                              <div className="truncate text-xs text-muted-foreground">
+                              <div className="truncate text-xs text-[var(--color-ink-faint)]">
                                 Creates {candidate.createsMaterials}
                               </div>
                             ) : null}
                             {candidate.needsPurchaseConversionReview > 0 ? (
-                              <div className="truncate text-xs text-muted-foreground">
+                              <div className="truncate text-xs text-[var(--color-ink-faint)]">
                                 Units {candidate.needsPurchaseConversionReview}
                               </div>
                             ) : null}
@@ -633,7 +633,7 @@ function PurchaseOrderImportDialog({
           </InsetPanel>
 
           {applyMutation.error ? (
-            <p className="text-sm text-destructive">
+            <p className="text-sm text-[var(--status-danger-ink)]">
               {(applyMutation.error as Error).message}
             </p>
           ) : null}
@@ -713,18 +713,18 @@ function ImportActionDialog({
 
         <InsetPanel className="min-h-24 rounded-md">
           {previewLoading ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 text-sm text-[var(--color-ink-faint)]">
               <Spinner />
               Loading preview
             </div>
           ) : previewError ? (
-            <p className="text-sm text-destructive">{previewError}</p>
+            <p className="text-sm text-[var(--status-danger-ink)]">{previewError}</p>
           ) : preview ? (
             <ImportPreviewDetails preview={preview} />
           ) : null}
         </InsetPanel>
 
-        {actionError ? <p className="text-sm text-destructive">{actionError}</p> : null}
+        {actionError ? <p className="text-sm text-[var(--status-danger-ink)]">{actionError}</p> : null}
 
         <AlertDialogFooter>
           <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
@@ -762,13 +762,13 @@ function ImportPreviewDetails({ preview }: { preview: ContactImportPreview }) {
           density="compact"
         />
       </div>
-      <p className="text-muted-foreground">Xero organisation: {preview.tenantName}</p>
-      <p className="text-muted-foreground">
+      <p className="text-[var(--color-ink-faint)]">Xero organisation: {preview.tenantName}</p>
+      <p className="text-[var(--color-ink-faint)]">
         New records are created only from Xero contacts marked as {entityName}.
         Existing ERP records can still update when matched by Xero ID, email, or name.
       </p>
       {preview.isDemoCompany ? (
-        <p className="text-destructive">
+        <p className="text-[var(--status-danger-ink)]">
           This is Xero Demo Company. Only continue for a test import.
         </p>
       ) : null}
@@ -794,8 +794,8 @@ function PreviewSamples({
 
   return (
     <div>
-      <div className="text-xs font-medium text-muted-foreground">{title}</div>
-      <div className={destructive ? "text-destructive" : "text-foreground"}>
+      <div className="text-xs font-medium text-[var(--color-ink-faint)]">{title}</div>
+      <div className={destructive ? "text-[var(--status-danger-ink)]" : "text-[var(--color-ink)]"}>
         {values.join(", ")}
       </div>
     </div>

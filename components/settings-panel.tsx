@@ -34,13 +34,13 @@ export function SettingsPanelHeader({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-(--space-6) border-b bg-muted/20 px-(--space-12) py-(--space-10) sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex min-w-0 flex-col gap-(--space-6) border-b border-[var(--color-line-soft)] bg-[var(--color-surface-sunk)] px-(--space-8) py-(--space-8) sm:flex-row sm:items-center sm:justify-between sm:px-(--space-12) sm:py-(--space-9)">
       <div className="min-w-0">
-        <h2 className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-semibold tracking-[var(--tracking-caps)] text-muted-foreground uppercase">
+        <h2 className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-semibold tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)] uppercase">
           {title}
         </h2>
         {meta ? (
-          <div className="mt-(--space-1) text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-muted-foreground">
+          <div className="mt-(--space-1) min-w-0 break-words text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-[var(--color-ink-faint)]">
             {meta}
           </div>
         ) : null}
@@ -62,7 +62,7 @@ export function SettingsPanelSection({
   return (
     <ListFrameItem
       interactive={interactive}
-      className={cn("px-(--space-12) py-(--space-10)", className)}
+      className={cn("px-(--space-8) py-(--space-8) sm:px-(--space-12) sm:py-(--space-10)", className)}
     >
       {children}
     </ListFrameItem>
@@ -122,7 +122,7 @@ export function SettingsKeyValueRow({
   return (
     <SettingsPanelSection className={cn("py-(--space-5)", className)}>
       <div className="grid max-w-3xl gap-(--space-4) sm:grid-cols-[9rem_minmax(12rem,24rem)_auto] sm:items-center">
-        <span className="text-[length:var(--text-sm)] text-muted-foreground">
+        <span className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
           {label}
         </span>
         <div className="min-w-0">
@@ -135,7 +135,7 @@ export function SettingsKeyValueRow({
             {value}
           </div>
           {supportingText ? (
-            <div className="mt-(--space-1) min-w-0 text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-muted-foreground">
+            <div className="mt-(--space-1) min-w-0 text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-[var(--color-ink-faint)]">
               {supportingText}
             </div>
           ) : null}

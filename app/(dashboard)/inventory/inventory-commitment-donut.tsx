@@ -51,7 +51,7 @@ export function InventoryCommitmentDonut({
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-(--space-4)">
       <div className="relative">
         <ChartContainer
           config={chartConfig}
@@ -68,8 +68,8 @@ export function InventoryCommitmentDonut({
                     const row = payload as { label?: string; quantity?: string };
                     return (
                       <>
-                        <span className="text-muted-foreground">{row.label}</span>
-                        <span className="font-mono font-medium text-foreground tabular-nums">
+                        <span className="text-[var(--color-ink-faint)]">{row.label}</span>
+                        <span className="font-mono font-medium text-[var(--color-ink)] tabular-nums">
                           {formatQuantity(row.quantity)} {unitName}
                         </span>
                       </>
@@ -94,26 +94,26 @@ export function InventoryCommitmentDonut({
           </PieChart>
         </ChartContainer>
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="flex flex-col items-center gap-0.5 text-center">
-            <span className="text-lg font-semibold leading-none">
+          <div className="flex flex-col items-center gap-(--space-1) text-center">
+            <span className="font-mono text-[length:var(--text-lg)] font-semibold leading-none tabular-nums text-[var(--color-ink)]">
               {formatQuantity(onHandQty)}
             </span>
-            <span className="text-xs text-muted-foreground">{unitName ?? "units"}</span>
+            <span className="font-mono text-[length:var(--text-xs)] font-medium tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)] uppercase">{unitName ?? "units"}</span>
           </div>
         </div>
       </div>
-      <div className="grid gap-2">
+      <div className="grid gap-(--space-2)">
         {chartData.map((slice) => (
-          <div key={slice.id} className="flex items-center justify-between gap-3 text-sm">
-            <span className="flex min-w-0 items-center gap-2">
+          <div key={slice.id} className="flex items-center justify-between gap-(--space-4) text-[length:var(--text-sm)]">
+            <span className="flex min-w-0 items-center gap-(--space-2)">
               <span
-                className="size-2.5 shrink-0 rounded-sm"
+                className="size-(--space-3) shrink-0 rounded-[var(--radius-sm)]"
                 style={{ backgroundColor: slice.fill }}
                 aria-hidden
               />
               <span className="truncate">{slice.label}</span>
             </span>
-            <span className="shrink-0 font-mono tabular-nums text-muted-foreground">
+            <span className="shrink-0 font-mono tabular-nums text-[var(--color-ink-faint)]">
               {formatQuantity(slice.quantity)} {unitName}
             </span>
           </div>

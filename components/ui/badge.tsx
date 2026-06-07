@@ -5,24 +5,24 @@ import { Slot } from "radix-ui"
 import { cn } from "@/lib/utils"
 
 const badgeVariants = cva(
-  "group/badge inline-flex h-(--space-10) w-fit shrink-0 items-center justify-center gap-(--space-2) overflow-hidden rounded-(--radius-none) border border-transparent px-(--space-3) text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-semibold tracking-[var(--tracking-caps)] whitespace-nowrap uppercase transition-colors duration-(--duration-1) ease-(--ease-out) focus-visible:border-ring focus-visible:shadow-[var(--focus-ring)] has-data-[icon=inline-end]:pr-(--space-2) has-data-[icon=inline-start]:pl-(--space-2) aria-invalid:border-destructive aria-invalid:shadow-[var(--focus-ring)] [&>svg]:pointer-events-none [&>svg]:size-(--space-6)!",
+  "group/badge inline-flex h-(--space-10) w-fit shrink-0 items-center justify-center gap-(--space-2) overflow-hidden rounded-full border border-transparent px-(--space-3) font-mono text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-semibold tracking-[var(--tracking-caps)] whitespace-nowrap uppercase transition-colors duration-(--duration-1) ease-(--ease-out) focus-visible:border-[var(--color-accent)] focus-visible:shadow-[0_0_0_4px_var(--color-accent-soft)] has-data-[icon=inline-end]:pr-(--space-2) has-data-[icon=inline-start]:pl-(--space-2) aria-invalid:border-[var(--color-danger)] aria-invalid:shadow-[0_0_0_4px_color-mix(in_oklch,var(--color-danger),transparent_88%)] [&>svg]:pointer-events-none [&>svg]:size-(--space-6)!",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground [a]:hover:bg-[var(--color-accent-hover)]",
+        default: "bg-[var(--color-accent-soft)] text-[var(--color-accent-ink)] [a]:hover:bg-[var(--color-accent-soft)]",
         secondary:
-          "bg-[var(--color-surface-sunk)] text-muted-foreground [a]:hover:bg-muted",
+          "bg-[var(--color-surface-sunk)] text-[var(--color-ink-faint)] [a]:hover:bg-[var(--color-surface-alt)]",
         destructive:
-          "bg-[var(--color-danger-soft)] text-destructive [a]:hover:bg-[var(--color-danger-soft)]",
+          "bg-[var(--color-danger-soft)] text-[var(--status-danger-ink)] [a]:hover:bg-[var(--color-danger-soft)]",
         success:
-          "bg-[var(--color-success-soft)] text-success [a]:hover:bg-[var(--color-success-soft)]",
+          "bg-[var(--color-success-soft)] text-[var(--status-success-ink)] [a]:hover:bg-[var(--color-success-soft)]",
         warning:
-          "bg-[var(--color-warning-soft)] text-warning [a]:hover:bg-[var(--color-warning-soft)]",
+          "bg-[var(--color-warning-soft)] text-[var(--status-warning-ink)] [a]:hover:bg-[var(--color-warning-soft)]",
         outline:
-          "border-border bg-[var(--color-surface)] text-muted-foreground [a]:hover:bg-muted",
+          "border-[var(--color-line)] bg-[var(--color-surface)] text-[var(--color-ink-faint)] [a]:hover:bg-[var(--color-surface-alt)]",
         ghost:
-          "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
-        link: "text-primary underline-offset-4 hover:underline",
+          "hover:bg-[var(--color-surface-alt)] hover:text-[var(--color-ink-faint)]",
+        link: "text-[var(--color-accent-ink)] underline-offset-4 hover:underline",
       },
     },
     defaultVariants: {

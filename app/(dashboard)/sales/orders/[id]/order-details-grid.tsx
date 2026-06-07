@@ -131,7 +131,7 @@ export function OrderDetailsGrid({
             editable={editable}
           />
         </CardFormRow>
-        <CardFormRow columns="four">
+        <CardFormRow columns="two">
           <AddressCell
             order={order}
             editable={editable}
@@ -702,7 +702,7 @@ function AddressBookDialog({
 }) {
   return (
     <Dialog open={Boolean(state)} onOpenChange={(open) => (!open ? onClose() : null)}>
-      <DialogContent>
+      <DialogContent size="2xl">
         <DialogHeader>
           <DialogTitle>
             {state?.option ? "Edit selected address" : "Add new address"}
@@ -722,7 +722,7 @@ function AddressBookDialog({
             notesLabel="Delivery instructions"
           />
           {error ? (
-            <p className="text-[length:var(--text-sm)] text-destructive">
+            <p className="text-[length:var(--text-sm)] text-[var(--status-danger-ink)]">
               {error.message}
             </p>
           ) : null}

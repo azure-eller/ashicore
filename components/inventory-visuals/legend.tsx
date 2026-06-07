@@ -57,14 +57,14 @@ const COLOR_LEGEND: Array<{
 
 export function InventoryVisualLegend() {
   return (
-    <section className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(20rem,0.8fr)]">
-      <InventoryVisualPanel className="space-y-3">
-        <h2 className="text-sm font-semibold">Packaging Legend</h2>
-        <div className="grid gap-2 sm:grid-cols-2">
+    <section className="grid gap-(--space-6) lg:grid-cols-[minmax(0,1.2fr)_minmax(20rem,0.8fr)]">
+      <InventoryVisualPanel className="space-y-(--space-5)">
+        <h2 className="font-mono text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-semibold tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)] uppercase">Packaging Legend</h2>
+        <div className="grid gap-(--space-3) sm:grid-cols-2">
           {PACKAGING_LEGEND.map((entry) => (
             <InventoryVisualCell
               key={entry.label}
-              className="grid min-h-24 grid-cols-[4rem_minmax(0,1fr)] items-center gap-3 p-3"
+              className="grid min-h-(--space-24) grid-cols-[4rem_minmax(0,1fr)] items-center gap-(--space-4) rounded-[var(--radius-md)] border border-[var(--color-line-soft)] p-(--space-4)"
             >
               <ItemSprite
                 kind={entry.kind}
@@ -73,21 +73,21 @@ export function InventoryVisualLegend() {
                 title={entry.label}
               />
               <div className="min-w-0">
-                <div className="text-sm font-medium">{entry.label}</div>
-                <div className="text-xs text-muted-foreground">{entry.meaning}</div>
+                <div className="text-[length:var(--text-sm)] font-medium text-[var(--color-ink)]">{entry.label}</div>
+                <div className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">{entry.meaning}</div>
               </div>
             </InventoryVisualCell>
           ))}
         </div>
       </InventoryVisualPanel>
 
-      <InventoryVisualPanel className="space-y-3">
-        <h2 className="text-sm font-semibold">Color Legend</h2>
-        <div className="grid gap-2">
+      <InventoryVisualPanel className="space-y-(--space-5)">
+        <h2 className="font-mono text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-semibold tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)] uppercase">Color Legend</h2>
+        <div className="grid gap-(--space-3)">
           {COLOR_LEGEND.map((entry) => (
             <InventoryVisualCell
               key={entry.color}
-              className="grid grid-cols-[3rem_minmax(0,1fr)] items-center gap-3 p-2"
+              className="grid grid-cols-[3rem_minmax(0,1fr)] items-center gap-(--space-4) rounded-[var(--radius-md)] border border-[var(--color-line-soft)] p-(--space-3)"
             >
               <ItemSprite
                 kind="generic"
@@ -96,8 +96,8 @@ export function InventoryVisualLegend() {
                 title={`${entry.label} example`}
               />
               <div className="min-w-0">
-                <div className="text-sm font-medium">{entry.label}</div>
-                <div className="text-xs text-muted-foreground">{entry.meaning}</div>
+                <div className="text-[length:var(--text-sm)] font-medium text-[var(--color-ink)]">{entry.label}</div>
+                <div className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">{entry.meaning}</div>
               </div>
             </InventoryVisualCell>
           ))}

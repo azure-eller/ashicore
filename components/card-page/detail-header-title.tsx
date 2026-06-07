@@ -14,7 +14,7 @@ export function DetailHeaderTitle({
     <span className={styles.mono}>
       {recordNumber}
       {name ? (
-        <span className="ml-[10px] font-sans text-[14px] font-semibold text-[var(--color-ink)]">
+        <span className="ml-(--space-6) font-[var(--font-body)] text-[length:var(--text-base)] font-medium text-[var(--color-ink-2)]">
           {name}
         </span>
       ) : null}
@@ -22,7 +22,7 @@ export function DetailHeaderTitle({
         <span
           className={cn(
             styles.mono,
-            "ml-2 text-[14px] font-medium text-[var(--color-muted)]",
+            "ml-2 text-[length:var(--text-sm)] font-medium text-[var(--color-muted)]",
           )}
         >
           / {subId}

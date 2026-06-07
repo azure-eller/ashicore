@@ -209,7 +209,7 @@ function DialogBody({
 
   return (
     <>
-      <DialogHeader className="flex flex-row items-center justify-between gap-(--space-4) border-b border-border px-(--space-6) py-(--space-5)">
+      <DialogHeader className="flex flex-row items-center justify-between gap-(--space-4) border-b border-[var(--color-line)] px-(--space-6) py-(--space-5)">
         <DialogTitle>
           {card.family.itemType === "material"
             ? "Material variant configuration"
@@ -260,7 +260,7 @@ function DialogBody({
               </Button>
             </div>
             {copyMutation.error || sourcesQuery.error ? (
-              <p className="text-[length:var(--text-sm)] text-destructive">
+              <p className="text-[length:var(--text-sm)] text-[var(--status-danger-ink)]">
                 {(
                   (copyMutation.error ?? sourcesQuery.error) as Error
                 ).message}
@@ -330,13 +330,13 @@ function DialogBody({
         />
 
         {errorMessage ? (
-          <p className="text-[length:var(--text-sm)] text-destructive">
+          <p className="text-[length:var(--text-sm)] text-[var(--status-danger-ink)]">
             {errorMessage}
           </p>
         ) : null}
       </div>
 
-        <DialogFooter className="border-t border-border px-(--space-6) py-(--space-4)">
+        <DialogFooter className="border-t border-[var(--color-line)] px-(--space-6) py-(--space-4)">
           <Button
             type="button"
             variant="outline"
@@ -482,14 +482,14 @@ function PreviewPanel({
 }: PreviewPanelProps) {
   if (!canPreview) {
     return (
-      <p className="text-[length:var(--text-sm)] text-muted-foreground">
+      <p className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
         Add at least one option with at least one value to enable generation.
       </p>
     );
   }
   if (dirty) {
     return (
-      <p className="text-[length:var(--text-sm)] text-muted-foreground">
+      <p className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
         Generating will create {getLocalCombinationCount(options)} variants — one per
         combination of {formatOptionNames(options)}. Existing variants with matching keys keep
         their data.
@@ -498,22 +498,22 @@ function PreviewPanel({
   }
   if (loading || !preview) {
     return (
-      <p className="text-[length:var(--text-sm)] text-muted-foreground">
+      <p className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
         Computing combinations…
       </p>
     );
   }
   const optionNames = formatOptionNames(options);
   return (
-    <div className="text-[length:var(--text-sm)] text-muted-foreground">
+    <div className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
       Generating will create {preview.potentialCount} variants — one per combination of{" "}
       {optionNames}. Existing variants with matching keys keep their data.
       {preview.blocksGenerateAll ? (
-        <p className="mt-(--space-2)" style={{ color: "var(--color-danger)" }}>
+        <p className="mt-(--space-2) text-[var(--status-danger-ink)]">
           Too many combinations to generate at once (over 250). Reduce option values first.
         </p>
       ) : preview.warnOver100 ? (
-        <p className="mt-(--space-2)" style={{ color: "var(--color-warning)" }}>
+        <p className="mt-(--space-2) text-[var(--status-warning-ink)]">
           Over 100 missing combinations. Consider trimming values before generating.
         </p>
       ) : null}

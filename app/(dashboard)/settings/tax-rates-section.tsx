@@ -119,7 +119,7 @@ export function TaxRatesSection({ initialData }: { initialData: TaxRatesSectionD
         title="Tax rates"
         meta="Applied to sales and purchase order items to calculate tax totals."
         action={
-          <span className="text-[length:var(--text-xs)] text-muted-foreground">
+          <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
             {saveStatus}
           </span>
         }

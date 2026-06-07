@@ -204,8 +204,7 @@ export function OrgSetupForm({
               <button
                 type="button"
                 key={organization.id}
-                className="ob-btn ob-btn--ghost ob-btn--block"
-                style={{ justifyContent: "flex-start" }}
+                className="ob-btn ob-btn--ghost ob-btn--block justify-start"
                 onClick={() => activateOrganization(organization.id)}
                 disabled={loading || activatingOrgId != null}
               >

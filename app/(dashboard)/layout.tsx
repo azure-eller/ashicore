@@ -33,7 +33,7 @@ export default async function DashboardLayout({
 
   return (
     <TimeZoneProvider timeZone={context.organizationTimeZone}>
-      <div className="flex h-dvh w-dvw min-w-0 flex-col overflow-hidden bg-background">
+      <div className="flex h-dvh w-dvw min-w-0 flex-col overflow-hidden bg-[var(--color-bg)]">
         <DashboardTopNav
           user={user}
           assignedRoles={context.assignedRoles}

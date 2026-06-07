@@ -152,7 +152,7 @@ function AllocationsCell({ data }: ICellRendererParams<CardLotRow>) {
             {allocation.label}
           </span>
           {allocation.contextLabel ? (
-            <span className="truncate text-muted-foreground">{allocation.contextLabel}</span>
+            <span className="truncate text-[var(--color-ink-faint)]">{allocation.contextLabel}</span>
           ) : null}
         </Link>
       ))}
@@ -227,7 +227,7 @@ export function LotGridTab({
         editable: (row) => row?.lotNumber !== "UNBATCHED-NEGATIVE-STOCK",
         mono: true,
         cellClass: ({ data }) =>
-          data && parseQuantity(data.quantity) < 0 ? "text-destructive" : null,
+          data && parseQuantity(data.quantity) < 0 ? "text-[var(--status-danger-ink)]" : null,
         valueFormatter: ({ value }) => formatQuantity(String(value ?? "0")),
         valueSetter: (params: ValueSetterParams<CardLotRow>) => {
           const next = normalizeEditedQuantity(params.newValue);
@@ -495,7 +495,7 @@ export function LotGridTab({
               />
             </Field>
           </div>
-          {error ? <p className="text-[length:var(--text-sm)] text-destructive">{error}</p> : null}
+          {error ? <p className="text-[length:var(--text-sm)] text-[var(--status-danger-ink)]">{error}</p> : null}
           <AlertDialogFooter>
             <AlertDialogCancel onClick={resetRows}>Back</AlertDialogCancel>
             <AlertDialogAction

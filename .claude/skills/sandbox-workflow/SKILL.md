@@ -24,9 +24,14 @@ production-copy of the data. Rules live in CLAUDE.md; command detail in
 2. **Fix and watch.** The user points at problems; make the code change. The dev
    server hot-reloads, so each fix shows up live in the open browser. Confirm
    visually with the user before moving on.
-3. **(Optional) lock it in.** If a fix deserves a regression test, write a
+3. **Screenshot review.** If the diff touches `app/**` or `components/**`, write
+   a throwaway `test/e2e/scratch/` spec with `reviewTest`, capture the changed
+   surface with `captureForReview`, inspect the PNGs in `.tmp/ui-shots/`, fix
+   visible issues, rerun the shots, and delete the scratch spec before the PR.
+   Use `docs/ui-review-checklist.md` for the rubric and template.
+4. **(Optional) lock it in.** If a fix deserves a regression test, write a
    throwaway `test/e2e/scratch/` spec and distill the essential invariant per
    `docs/testing.md` — but here the live browser is the primary check.
-4. **Land.** When the fixes are ready, commit and run
+5. **Land.** When the fixes are ready, commit and run
    `pnpm review <path> --slow <domains>` to validate and open the PR — the same
    finish as the feature workflow. Keep the worktree/DB/dev server until it merges.

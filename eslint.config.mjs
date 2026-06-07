@@ -22,6 +22,7 @@ const eslintConfig = defineConfig([
     "apps/**",
     "packages/**",
     "archived/**",
+    "docs/design/archive/**",
     "docs/design-system/reference/**",
     "docs/design-system/sales-order-detail/**",
     "docs/*-redesign/**",

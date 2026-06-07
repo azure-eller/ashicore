@@ -7,8 +7,8 @@ const toneVars: Record<StatusTone, string> = {
   success: "var(--color-success)",
   warning: "var(--color-warning)",
   danger: "var(--color-danger)",
-  info: "var(--color-info)",
-  neutral: "var(--color-muted)",
+  info: "color-mix(in oklch, var(--color-info), var(--color-ink) 38%)",
+  neutral: "var(--color-ink-faint)",
 }
 
 function StatusRibbon({
@@ -19,7 +19,7 @@ function StatusRibbon({
     <div
       data-slot="status-ribbon"
       className={cn(
-        "flex h-(--height-statusbar) items-center gap-(--space-10) border-b border-border bg-muted px-(--space-8) text-[length:var(--text-xs)] leading-[var(--leading-xs)] tabular-nums",
+        "flex h-(--height-statusbar) items-center gap-(--space-10) border-b border-[var(--color-line)] bg-[var(--color-surface-alt)] px-(--space-8) text-[length:var(--text-xs)] leading-[var(--leading-xs)] tabular-nums",
         className
       )}
       {...props}
@@ -75,13 +75,13 @@ function StatusRibbonStat({
         />
       ) : null}
       {statValue != null ? (
-        <span className="font-semibold text-foreground">{statValue}</span>
+        <span className="font-semibold text-[var(--color-ink)]">{statValue}</span>
       ) : null}
-      <span className="text-muted-foreground">{label}</span>
+      <span className="text-[var(--color-ink-faint)]">{label}</span>
     </>
   )
   const statClassName = cn(
-    "flex h-full items-center gap-(--space-3) px-(--space-2) text-left outline-none transition-colors duration-(--duration-1) ease-(--ease-out) data-[clickable=true]:hover:bg-[var(--color-surface-sunk)] data-[active=true]:shadow-[inset_0_-2px_0_var(--status-ribbon-tone)] focus-visible:shadow-[var(--focus-ring)]",
+    "flex h-full items-center gap-(--space-3) px-(--space-2) text-left outline-none transition-colors duration-(--duration-1) ease-(--ease-out) data-[clickable=true]:hover:bg-[var(--color-surface-sunk)] data-[active=true]:shadow-[inset_0_-2px_0_var(--status-ribbon-tone)] focus-visible:shadow-[0_0_0_4px_var(--color-accent-soft)]",
     className
   )
   const statStyle = {

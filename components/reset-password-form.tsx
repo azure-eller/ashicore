@@ -2,6 +2,8 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
+import { Alert02Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -43,14 +45,21 @@ export function ResetPasswordForm({
 
   if (!resetToken || errorCode) {
     return (
-      <Card className="mx-auto w-full max-w-sm">
-        <CardHeader>
-          <CardTitle>Reset link unavailable</CardTitle>
+      <Card className="mx-auto w-full max-w-[460px] gap-0 overflow-hidden py-0">
+        <CardHeader className="items-center border-b border-[var(--color-line-soft)] bg-[var(--color-surface-sunk)] py-(--space-10) text-center">
+          <div className="mb-(--space-5) grid h-(--space-14) w-(--space-14) place-items-center justify-self-center rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-accent-soft)] text-[var(--color-accent-ink)]">
+            <HugeiconsIcon icon={Alert02Icon} size={20} aria-hidden />
+          </div>
+          <CardTitle className="font-display text-[length:var(--text-lg)] leading-[var(--leading-lg)] font-semibold">
+            Reset link unavailable
+          </CardTitle>
         </CardHeader>
-        <CardContent>
-          <FieldDescription>{getResetErrorMessage(errorCode)}</FieldDescription>
-          <FieldDescription>
-            <a href="/forgot-password">Request a new password reset link.</a>
+        <CardContent className="space-y-(--space-3) p-(--space-10) text-center">
+          <FieldDescription className="text-[var(--color-ink-soft)]">{getResetErrorMessage(errorCode)}</FieldDescription>
+          <FieldDescription className="text-[var(--color-ink-soft)]">
+            <a className="font-medium text-[var(--color-accent-ink)] underline-offset-4 hover:underline" href="/forgot-password">
+              Request a new password reset link.
+            </a>
           </FieldDescription>
         </CardContent>
       </Card>
@@ -82,11 +91,13 @@ export function ResetPasswordForm({
   }
 
   return (
-    <Card className="mx-auto w-full max-w-sm">
-      <CardHeader>
-        <CardTitle>Choose a new password</CardTitle>
+    <Card className="mx-auto w-full max-w-[460px] gap-0 py-0">
+      <CardHeader className="border-b border-[var(--color-line-soft)] bg-[var(--color-surface-sunk)] py-(--space-10)">
+        <CardTitle className="font-display text-[length:var(--text-lg)] leading-[var(--leading-lg)] font-semibold">
+          Choose a new password
+        </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-(--space-10)">
         <form onSubmit={handleSubmit}>
           <FieldGroup>
             <Field>

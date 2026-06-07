@@ -266,6 +266,41 @@ export const customerProjects = salesSchema
   )
   .enableRLS();
 
+export const customerProjectNotes = salesSchema
+  .table(
+    "customer_project_notes",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      organizationId: text("organization_id").notNull(),
+      customerId: uuid("customer_id")
+        .notNull()
+        .references(() => customers.id),
+      projectId: uuid("project_id")
+        .notNull()
+        .references(() => customerProjects.id),
+      body: text("body").notNull(),
+      createdByUserId: text("created_by_user_id").notNull(),
+      createdByName: varchar("created_by_name", { length: 255 }),
+      deletedAt: timestamp("deleted_at", { withTimezone: true }),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+      index("sales_customer_project_notes_org_id_idx").on(table.organizationId),
+      index("sales_customer_project_notes_project_id_idx").on(table.projectId),
+      index("sales_customer_project_notes_active_idx")
+        .on(table.organizationId, table.projectId)
+        .where(sql`deleted_at IS NULL`),
+      pgPolicy("sales_customer_project_notes_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`organization_id = current_setting('app.current_org_id', true)`,
+        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
+      }),
+    ]
+  )
+  .enableRLS();
+
 export const customerProjectFiles = salesSchema
   .table(
     "customer_project_files",

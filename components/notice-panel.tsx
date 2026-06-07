@@ -5,8 +5,8 @@ type NoticePanelTone = "warning" | "destructive";
 type NoticePanelPadding = "sm" | "md" | "lg";
 
 const toneClass: Record<NoticePanelTone, string> = {
-  destructive: "border-destructive bg-[var(--color-danger-soft)]",
-  warning: "border-warning bg-[var(--color-warning-soft)]",
+  destructive: "border-[var(--color-danger)] bg-[var(--color-danger-soft)]",
+  warning: "border-[var(--color-warning)] bg-[var(--color-warning-soft)]",
 };
 
 const paddingClass: Record<NoticePanelPadding, string> = {
@@ -35,7 +35,7 @@ export function NoticePanel<TAs extends ElementType = "div">({
 
   return (
     <Component
-      className={cn("border", toneClass[tone], paddingClass[padding], className)}
+      className={cn("rounded-[var(--radius-md)] border", toneClass[tone], paddingClass[padding], className)}
       {...props}
     >
       {children}

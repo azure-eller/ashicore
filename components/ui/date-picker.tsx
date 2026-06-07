@@ -63,7 +63,7 @@ function DatePicker({
           disabled={disabled}
           data-empty={!parsed}
           className={cn(
-            "w-full justify-between text-left font-normal data-[empty=true]:text-muted-foreground",
+            "w-full justify-between text-left font-normal data-[empty=true]:text-[var(--color-ink-faint)]",
             className
           )}
           {...props}

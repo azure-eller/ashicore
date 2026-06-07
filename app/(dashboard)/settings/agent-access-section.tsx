@@ -3,8 +3,11 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { IconSvgElement } from "@hugeicons/react";
 import {
   Add01Icon,
+  AiBrain03Icon,
+  AiChat02Icon,
   Copy01Icon,
   Delete02Icon,
   Key01Icon,
@@ -136,7 +139,7 @@ function AgentTokenDialog({
           ) : null}
 
           {createdToken ? (
-            <InsetPanel tone="subtle" padding="lg" className="bg-muted/20">
+            <InsetPanel tone="subtle" padding="lg">
               <div className="mb-(--space-4) flex items-center justify-between gap-(--space-4)">
                 <div className="text-[length:var(--text-sm)] font-medium">
                   Token
@@ -151,7 +154,7 @@ function AgentTokenDialog({
                 value={createdToken}
                 className="min-h-24 font-mono text-[length:var(--text-xs)]"
               />
-              <p className="mt-(--space-4) text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-muted-foreground">
+              <p className="mt-(--space-4) text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-[var(--color-ink-faint)]">
                 This token is shown once. Store it in ChatGPT, Claude, or your
                 local agent environment before closing this dialog.
               </p>
@@ -178,14 +181,14 @@ function AgentTokenDialog({
   );
 }
 
-function ProviderMark({ label }: { label: string }) {
+function ProviderMark({ icon }: { icon: IconSvgElement }) {
   return (
     <SurfacePanel
       as="span"
       tone="background"
-      className="flex size-(--space-10) shrink-0 items-center justify-center p-0 font-mono text-[length:var(--text-xs)] font-semibold"
+      className="flex size-(--space-10) shrink-0 items-center justify-center p-0 text-[var(--color-ink-soft)]"
     >
-      {label}
+      <HugeiconsIcon icon={icon} size={18} aria-hidden />
     </SurfacePanel>
   );
 }
@@ -200,7 +203,7 @@ function ClaudeConnectDialog({
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button className="w-full">Connect Claude</Button>
+        <Button className="w-full min-w-0 whitespace-normal text-center">Connect Claude</Button>
       </DialogTrigger>
       <DialogContent size="md">
         <DialogHeader>
@@ -211,10 +214,10 @@ function ClaudeConnectDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-(--space-5) text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-foreground">
+        <div className="grid gap-(--space-5) text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-[var(--color-ink)]">
           <div className="grid gap-(--space-3)">
             <div className="font-medium">In Claude</div>
-            <ol className="grid list-decimal gap-(--space-2) pl-(--space-6) text-muted-foreground">
+            <ol className="grid list-decimal gap-(--space-2) pl-(--space-6) text-[var(--color-ink-faint)]">
               <li>Click Add.</li>
               <li>Leave OAuth client ID and client secret blank.</li>
               <li>If Claude says you are not connected, click Connect.</li>
@@ -222,8 +225,8 @@ function ClaudeConnectDialog({
             </ol>
           </div>
 
-          <InsetPanel tone="subtle" padding="md" className="bg-muted/20">
-            <div className="mb-(--space-2) text-[length:var(--text-xs)] font-semibold uppercase tracking-[var(--tracking-caps)] text-muted-foreground">
+          <InsetPanel tone="subtle" padding="md">
+            <div className="mb-(--space-2) text-[length:var(--text-xs)] font-semibold uppercase tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)]">
               Server URL
             </div>
             <code className="break-all font-mono text-[length:var(--text-xs)]">
@@ -257,7 +260,7 @@ function ChatGptConnectDialog({
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button variant="outline" className="w-full">
+        <Button variant="outline" className="w-full min-w-0 whitespace-normal text-center">
           Set up ChatGPT
         </Button>
       </DialogTrigger>
@@ -270,14 +273,14 @@ function ChatGptConnectDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-(--space-5) text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-foreground">
+        <div className="grid gap-(--space-5) text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-[var(--color-ink)]">
           <AgentTokenDialog
             defaultName="ChatGPT production planner"
             triggerLabel="Create ChatGPT token"
             onCreated={onCreated}
           />
 
-          <ol className="grid list-decimal gap-(--space-2) pl-(--space-6) text-muted-foreground">
+          <ol className="grid list-decimal gap-(--space-2) pl-(--space-6) text-[var(--color-ink-faint)]">
             <li>Create a token and copy it.</li>
             <li>Open ChatGPT, create or edit a GPT, then add an Action.</li>
             <li>Import the OpenAPI schema URL below.</li>
@@ -285,8 +288,8 @@ function ChatGptConnectDialog({
             <li>Test the production planning action.</li>
           </ol>
 
-          <InsetPanel tone="subtle" padding="md" className="bg-muted/20">
-            <div className="mb-(--space-2) text-[length:var(--text-xs)] font-semibold uppercase tracking-[var(--tracking-caps)] text-muted-foreground">
+          <InsetPanel tone="subtle" padding="md">
+            <div className="mb-(--space-2) text-[length:var(--text-xs)] font-semibold uppercase tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)]">
               OpenAPI URL
             </div>
             <code className="break-all font-mono text-[length:var(--text-xs)]">
@@ -309,32 +312,32 @@ function ChatGptConnectDialog({
 }
 
 function ConnectCard({
-  mark,
+  icon,
   title,
   subtitle,
   description,
   children,
 }: {
-  mark: string;
+  icon: IconSvgElement;
   title: string;
   subtitle: string;
   description: string;
   children: React.ReactNode;
 }) {
   return (
-    <SurfacePanel className="flex flex-col gap-(--space-6) p-(--space-8)">
+    <SurfacePanel className="flex min-w-0 flex-col gap-(--space-6) p-(--space-8)">
       <div className="flex items-center gap-(--space-4)">
-        <ProviderMark label={mark} />
+        <ProviderMark icon={icon} />
         <div className="min-w-0">
-          <div className="text-[length:var(--text-sm)] font-medium text-foreground">
+          <div className="text-[length:var(--text-sm)] font-medium text-[var(--color-ink)]">
             {title}
           </div>
-          <div className="text-[length:var(--text-xs)] text-muted-foreground">
+          <div className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
             {subtitle}
           </div>
         </div>
       </div>
-      <p className="text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-muted-foreground">
+      <p className="min-w-0 break-words text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-[var(--color-ink-faint)]">
         {description}
       </p>
       <div className="mt-auto">{children}</div>
@@ -344,7 +347,7 @@ function ConnectCard({
 
 function SubHeader({ children }: { children: React.ReactNode }) {
   return (
-    <h3 className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-semibold tracking-[var(--tracking-caps)] text-muted-foreground uppercase">
+    <h3 className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-semibold tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)] uppercase">
       {children}
     </h3>
   );
@@ -413,9 +416,9 @@ export function AgentAccessSection({
 
       <SettingsPanelSection>
         <SubHeader>Connect an assistant</SubHeader>
-        <div className="mt-(--space-6) grid gap-(--space-6) sm:grid-cols-2">
+        <div className="mt-(--space-6) grid min-w-0 gap-(--space-6) sm:grid-cols-[repeat(2,minmax(0,1fr))]">
           <ConnectCard
-            mark="C"
+            icon={AiBrain03Icon}
             title="Claude"
             subtitle="Remote MCP"
             description="Add Ashicore as a custom connector. No token needed — Claude signs in with OAuth."
@@ -426,7 +429,7 @@ export function AgentAccessSection({
             />
           </ConnectCard>
           <ConnectCard
-            mark="GPT"
+            icon={AiChat02Icon}
             title="ChatGPT"
             subtitle="Custom GPT action"
             description="Create an API token, then import the OpenAPI schema as a GPT action."
@@ -444,7 +447,7 @@ export function AgentAccessSection({
         <div className="flex flex-wrap items-center justify-between gap-(--space-6)">
           <div className="min-w-0">
             <SubHeader>API tokens</SubHeader>
-            <p className="mt-(--space-1) text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-muted-foreground">
+            <p className="mt-(--space-1) text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-[var(--color-ink-faint)]">
               {enabledCount} active {enabledCount === 1 ? "token" : "tokens"}
             </p>
           </div>
@@ -453,7 +456,7 @@ export function AgentAccessSection({
 
         <ListFrame className="mt-(--space-6)">
           {data.tokens.length === 0 ? (
-            <EmptyState className="border-0">
+            <EmptyState className="border-0 px-(--space-6)">
               No tokens yet. Create one to connect ChatGPT or another agent.
             </EmptyState>
           ) : (

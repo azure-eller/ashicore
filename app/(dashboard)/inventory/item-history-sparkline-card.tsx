@@ -96,16 +96,16 @@ export function ItemHistorySparklineCard({
 
   return (
     <Card className="gap-0 py-0">
-      <CardHeader className="border-b px-4 py-3">
+      <CardHeader className="border-b border-[var(--color-line)] px-4 py-3">
         <CardTitle className="text-sm font-semibold">{historyTitle(mode)}</CardTitle>
       </CardHeader>
       <CardContent className="p-4">
         {isLoading ? (
           <div className="flex min-h-48 items-center justify-center">
-            <Spinner className="text-foreground" />
+            <Spinner />
           </div>
         ) : isError || !data ? (
-          <div className="flex min-h-48 items-center justify-center text-sm text-muted-foreground">
+          <div className="flex min-h-48 items-center justify-center text-sm text-[var(--color-ink-faint)]">
             History unavailable.
           </div>
         ) : hasHistory ? (
@@ -130,8 +130,8 @@ export function ItemHistorySparklineCard({
                       };
                       return (
                         <>
-                          <span className="text-muted-foreground">{row.label}</span>
-                          <span className="font-mono font-medium text-foreground tabular-nums">
+                          <span className="text-[var(--color-ink-faint)]">{row.label}</span>
+                          <span className="font-mono font-medium text-[var(--color-ink)] tabular-nums">
                             {formatQuantityWithUnitText(row.quantity, data.unitName)}
                           </span>
                         </>
@@ -143,7 +143,7 @@ export function ItemHistorySparklineCard({
               <Line
                 type="monotone"
                 dataKey="value"
-                stroke="var(--color-quantity)"
+                stroke="var(--chart-1)"
                 strokeWidth={2}
                 dot={false}
                 isAnimationActive={false}
@@ -151,7 +151,7 @@ export function ItemHistorySparklineCard({
             </LineChart>
           </ChartContainer>
         ) : (
-          <div className="flex min-h-48 items-center justify-center text-sm text-muted-foreground">
+          <div className="flex min-h-48 items-center justify-center text-sm text-[var(--color-ink-faint)]">
             {emptyHistoryText(mode)}
           </div>
         )}

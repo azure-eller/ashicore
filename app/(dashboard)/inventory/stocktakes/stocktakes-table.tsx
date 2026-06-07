@@ -176,7 +176,7 @@ function StocktakeRowActions({ stocktake }: { stocktake: StocktakeListRow }) {
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
-          className="bg-popover text-popover-foreground"
+          className="bg-[var(--color-surface)] text-[var(--color-ink)]"
         >
           <DropdownMenuItem
             disabled={cloneMutation.isPending}

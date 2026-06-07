@@ -15,7 +15,7 @@ function Checkbox({
     <CheckboxPrimitive.Root
       data-slot="checkbox"
       className={cn(
-        "peer relative flex size-(--space-8) shrink-0 items-center justify-center rounded-(--radius-none) border border-input transition-colors duration-(--duration-1) ease-(--ease-out) outline-none group-has-disabled/field:opacity-50 after:absolute after:-inset-x-(--space-6) after:-inset-y-(--space-4) focus-visible:border-ring focus-visible:shadow-[var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:shadow-[var(--focus-ring)] aria-invalid:aria-checked:border-primary data-checked:border-primary data-checked:bg-primary data-checked:text-primary-foreground",
+        "peer relative flex size-(--space-8) shrink-0 items-center justify-center rounded-sm border-[1.5px] border-[var(--color-line)] bg-[var(--color-surface)] transition-colors duration-(--duration-1) ease-(--ease-out) outline-none group-has-disabled/field:opacity-50 after:absolute after:-inset-x-(--space-6) after:-inset-y-(--space-4) hover:border-[var(--color-ink-soft)] focus-visible:border-[var(--color-accent)] focus-visible:shadow-[0_0_0_4px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-[var(--color-danger)] aria-invalid:shadow-[0_0_0_4px_color-mix(in_oklch,var(--color-danger),transparent_88%)] aria-invalid:aria-checked:border-[var(--color-accent)] data-checked:border-[var(--color-accent)] data-checked:bg-[var(--color-accent)] data-checked:text-[var(--color-accent-text)]",
         className
       )}
       {...props}

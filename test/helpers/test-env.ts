@@ -89,6 +89,16 @@ export function readTestEnv(): TestEnv {
   return JSON.parse(fs.readFileSync(TEST_ENV_PATH, "utf-8")) as TestEnv;
 }
 
+export function readReviewEnv(): TestEnv {
+  if (!fs.existsSync(REVIEW_ENV_PATH)) {
+    throw new Error(
+      "test/.review-env.json not found. Run 'pnpm sandbox' or 'pnpm review' before running Paonia-backed UI review specs."
+    );
+  }
+
+  return JSON.parse(fs.readFileSync(REVIEW_ENV_PATH, "utf-8")) as TestEnv;
+}
+
 export function writeTestEnv(env: TestEnv, envPath: string = TEST_ENV_PATH) {
   fs.writeFileSync(envPath, JSON.stringify(env, null, 2));
 }

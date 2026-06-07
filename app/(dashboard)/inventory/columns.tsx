@@ -67,7 +67,7 @@ function MarginBadge({ row }: { row: ItemRow }) {
           : "secondary";
 
   return (
-    <Badge variant={variant} className="font-mono text-xs">
+    <Badge variant={variant} className="font-mono text-[length:var(--text-xs)]">
       {row.marginPercent}%
     </Badge>
   );
@@ -82,34 +82,34 @@ function ProjectedSafetyCell({ row }: { row: ItemRow }) {
     safety > 0 ? Math.min(100, (projected / safety) * 50) : projected > 0 ? 100 : 0;
   const fillClass =
     status === "order-now"
-      ? "bg-destructive"
+      ? "bg-[var(--status-danger-ink)]"
       : status === "order-soon"
-        ? "bg-replenishment-soon"
-        : "bg-success";
+        ? "bg-[var(--status-warning-ink)]"
+        : "bg-[var(--status-success-ink)]";
 
   return (
-    <div className="flex h-full min-w-0 max-w-full flex-col justify-center gap-2">
-      <div className="relative h-2 rounded-(--radius-none) bg-[var(--color-line-2)]">
+    <div className="flex h-full min-w-0 max-w-full flex-col justify-center gap-(--space-2)">
+      <div className="relative h-2 rounded-full bg-[var(--color-line-soft)]">
         <div
-          className={cn("absolute inset-y-0 left-0 rounded-(--radius-none)", fillClass)}
+          className={cn("absolute inset-y-0 left-0 rounded-full", fillClass)}
           style={{ width: `${projectedPercent}%` }}
         />
         {safety > 0 ? (
           <span
             aria-hidden
-            className="absolute top-1/2 h-4 w-px -translate-y-1/2 bg-foreground"
+            className="absolute top-1/2 h-4 w-px -translate-y-1/2 bg-[var(--color-ink)]"
             style={{ left: "50%" }}
           />
         ) : null}
       </div>
-      <div className="grid min-w-0 grid-cols-1 gap-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="grid min-w-0 grid-cols-1 gap-(--space-1) xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <QuantityWithUnit
           value={projected}
           unitName={row.unit}
           unitSize={row.unitSize}
           unitUom={row.unitUom}
-          className="text-xs"
-          valueClassName="font-medium text-foreground"
+          className="text-[length:var(--text-xs)]"
+          valueClassName="font-medium text-[var(--color-ink)]"
         />
         <QuantityWithUnit
           label="safety"
@@ -117,7 +117,7 @@ function ProjectedSafetyCell({ row }: { row: ItemRow }) {
           unitName={row.unit}
           unitSize={row.unitSize}
           unitUom={row.unitUom}
-          className="text-xs"
+          className="text-[length:var(--text-xs)]"
           muted
         />
       </div>
@@ -140,7 +140,7 @@ function NameCell({
         <Tooltip>
           <TooltipTrigger asChild>
             <span
-              className="size-(--space-4) shrink-0 cursor-default bg-destructive"
+              className="relative size-(--space-5) shrink-0 cursor-default rounded-[var(--radius-full)] bg-[var(--color-danger-soft)] before:absolute before:inset-1/2 before:size-(--space-2) before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-[var(--radius-full)] before:bg-[var(--status-danger-ink)]"
               aria-label={attention.label}
             />
           </TooltipTrigger>
@@ -257,7 +257,7 @@ export function getColumns(itemType: ItemType): ColDef<ItemRow>[] {
               if (val == null) return "—";
               const num = parseFloat(val);
               return (
-                <span className={num <= 0 ? "text-muted-foreground" : undefined}>
+                <span className={num <= 0 ? "text-[var(--color-ink-faint)]" : undefined}>
                   {num}
                 </span>
               );

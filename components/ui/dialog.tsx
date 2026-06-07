@@ -40,7 +40,7 @@ function DialogOverlay({
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        "fixed inset-0 isolate z-50 bg-foreground/10 duration-(--duration-2) supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        "fixed inset-0 isolate z-50 bg-[color-mix(in_oklch,var(--color-ink),transparent_52%)] duration-(--duration-2) supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
         className
       )}
       {...props}
@@ -86,7 +86,7 @@ function DialogContent({
         data-slot="dialog-content"
         data-size={size}
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100dvh-var(--space-16))] w-full max-w-[calc(100%-var(--space-16))] -translate-x-1/2 -translate-y-1/2 gap-(--space-8) overflow-y-auto overscroll-contain rounded-(--radius-none) bg-background p-(--space-8) text-[length:var(--text-sm)] text-foreground shadow-[var(--shadow-modal)] duration-(--duration-3) outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100dvh-var(--space-16))] w-full max-w-[calc(100%-var(--space-16))] -translate-x-1/2 -translate-y-1/2 gap-(--space-8) overflow-y-auto overscroll-contain rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] p-(--space-8) text-[length:var(--text-sm)] text-[var(--color-ink)] shadow-[var(--shadow-modal)] duration-(--duration-3) outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           DIALOG_SIZE_CLASS[size],
           className
         )}
@@ -134,7 +134,7 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        "-mx-(--space-8) -mb-(--space-8) flex flex-col-reverse gap-(--space-4) rounded-b-(--radius-none) border-t bg-muted p-(--space-8) sm:flex-row sm:justify-end",
+        "-mx-(--space-8) -mb-(--space-8) flex flex-col-reverse gap-(--space-4) border-t border-[var(--color-line-soft)] bg-[var(--color-surface-sunk)] p-(--space-8) sm:flex-row sm:justify-end",
         justify === "between" && "items-center sm:justify-between",
         className
       )}
@@ -157,7 +157,7 @@ function DialogTitle({
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn("text-[length:var(--text-base)] leading-[var(--leading-base)] font-medium", className)}
+      className={cn("font-display text-[length:var(--text-lg)] leading-[var(--leading-lg)] font-semibold", className)}
       {...props}
     />
   )
@@ -171,7 +171,7 @@ function DialogDescription({
     <DialogPrimitive.Description
       data-slot="dialog-description"
       className={cn(
-        "text-[length:var(--text-sm)] text-muted-foreground *:[a]:underline *:[a]:underline-offset-(--space-3) *:[a]:hover:text-foreground",
+        "text-[length:var(--text-sm)] text-[var(--color-ink-faint)] *:[a]:underline *:[a]:underline-offset-(--space-3) *:[a]:hover:text-[var(--color-ink)]",
         className
       )}
       {...props}

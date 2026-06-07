@@ -97,7 +97,7 @@ export function MaterialSupplyDetailsTab({
               ]}
               renderSecondary={(supplier) =>
                 supplier.code ? (
-                  <span className="ml-auto shrink-0 text-[length:var(--text-xs)] text-muted-foreground">
+                  <span className="ml-auto shrink-0 text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                     {supplier.code}
                   </span>
                 ) : null
@@ -344,7 +344,7 @@ function ConversionField({
   return (
     <CardField label="Unit conversion rate">
       <div className="flex items-center gap-(--space-2)">
-        <span className="text-[length:var(--text-sm)] text-muted-foreground">
+        <span className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
           1 purchase unit =
         </span>
         <CommitInput
@@ -358,12 +358,12 @@ function ConversionField({
             onFamilyChange({ purchaseToStockFactor: next });
           }}
         />
-        <span className="text-[length:var(--text-sm)] text-muted-foreground">
+        <span className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
           {stockUnitName || "stock units"}
         </span>
       </div>
       {value ? (
-        <p className="mt-(--space-1) text-[length:var(--text-sm)] text-muted-foreground">
+        <p className="mt-(--space-1) text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
           Current: 1 purchase unit = {formatQuantity(value)} {stockUnitName}
         </p>
       ) : null}

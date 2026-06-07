@@ -11,13 +11,14 @@ export function CardFormRow({
   className,
 }: {
   children: ReactNode;
-  columns?: "default" | "three" | "four" | "five" | "purchase-order";
+  columns?: "default" | "two" | "three" | "four" | "five" | "purchase-order";
   className?: string;
 }) {
   return (
     <div
       className={cn(
         cardStyles.formRow,
+        (columns === "default" || columns === "two") && cardStyles.formRowTwo,
         columns === "three" && cardStyles.formRowThree,
         columns === "four" && cardStyles.formRowFour,
         columns === "five" && cardStyles.formRowFive,

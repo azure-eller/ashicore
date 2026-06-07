@@ -56,7 +56,7 @@ export function QuantityWithUnit({
     <span
       className={cn(
         "inline-flex min-w-0 max-w-full flex-wrap items-center gap-1 align-baseline",
-        muted && "text-muted-foreground",
+        muted && "text-[var(--color-ink-faint)]",
         className
       )}
     >
@@ -64,8 +64,8 @@ export function QuantityWithUnit({
       <span
         className={cn(
           "shrink-0 font-mono tabular-nums",
-          muted && "text-muted-foreground",
-          tone === "destructive" && "text-destructive",
+          muted && "text-[var(--color-ink-faint)]",
+          tone === "destructive" && "text-[var(--status-danger-ink)]",
           valueClassName
         )}
       >

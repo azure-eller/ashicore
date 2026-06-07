@@ -126,7 +126,7 @@ export function CreateStocktakeDialog() {
                 <span className="text-[length:var(--text-sm)] font-medium leading-none">
                   {option.title}
                 </span>
-                <span className="text-[length:var(--text-sm)] text-muted-foreground">
+                <span className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
                   {option.description}
                 </span>
               </span>
@@ -136,7 +136,7 @@ export function CreateStocktakeDialog() {
 
         <div className="space-y-2">
           <Label htmlFor="stocktake-create-reason">
-            Reason <span className="text-destructive">*</span>
+            Reason <span className="text-[var(--status-danger-ink)]">*</span>
           </Label>
           <Input
             id="stocktake-create-reason"

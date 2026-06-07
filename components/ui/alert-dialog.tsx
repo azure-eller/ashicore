@@ -36,7 +36,7 @@ function AlertDialogOverlay({
     <AlertDialogPrimitive.Overlay
       data-slot="alert-dialog-overlay"
       className={cn(
-        "fixed inset-0 z-50 bg-foreground/10 duration-(--duration-2) supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
+        "fixed inset-0 z-50 bg-[color-mix(in_oklch,var(--color-ink),transparent_52%)] duration-(--duration-2) supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
         className
       )}
       {...props}
@@ -84,7 +84,7 @@ function AlertDialogContent({
         data-slot="alert-dialog-content"
         data-size={layoutSize}
         className={cn(
-          "group/alert-dialog-content fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100dvh-var(--space-16))] w-full max-w-[calc(100%-var(--space-16))] -translate-x-1/2 -translate-y-1/2 gap-(--space-8) overflow-y-auto overscroll-contain rounded-(--radius-none) bg-background p-(--space-8) text-foreground shadow-[var(--shadow-modal)] duration-(--duration-3) outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "group/alert-dialog-content fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100dvh-var(--space-16))] w-full max-w-[calc(100%-var(--space-16))] -translate-x-1/2 -translate-y-1/2 gap-(--space-8) overflow-y-auto overscroll-contain rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] p-(--space-8) text-[var(--color-ink)] shadow-[var(--shadow-modal)] duration-(--duration-3) outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           ALERT_DIALOG_SIZE_CLASS[size],
           className
         )}
@@ -118,7 +118,7 @@ function AlertDialogFooter({
     <div
       data-slot="alert-dialog-footer"
       className={cn(
-        "-mx-(--space-8) -mb-(--space-8) flex flex-col-reverse gap-(--space-4) rounded-b-(--radius-none) border-t bg-muted p-(--space-8) group-data-[size=sm]/alert-dialog-content:grid group-data-[size=sm]/alert-dialog-content:grid-cols-2 sm:flex-row sm:justify-end",
+        "-mx-(--space-8) -mb-(--space-8) flex flex-col-reverse gap-(--space-4) border-t border-[var(--color-line-soft)] bg-[var(--color-surface-sunk)] p-(--space-8) group-data-[size=sm]/alert-dialog-content:grid group-data-[size=sm]/alert-dialog-content:grid-cols-2 sm:flex-row sm:justify-end",
         className
       )}
       {...props}
@@ -134,7 +134,7 @@ function AlertDialogMedia({
     <div
       data-slot="alert-dialog-media"
       className={cn(
-        "mb-(--space-4) inline-flex size-(--space-20) items-center justify-center rounded-(--radius-none) bg-muted sm:group-data-[size=default]/alert-dialog-content:row-span-2 *:[svg:not([class*='size-'])]:size-(--space-12)",
+        "mb-(--space-4) inline-flex size-(--space-20) items-center justify-center rounded-md bg-[var(--color-accent-soft)] text-[var(--color-accent-ink)] sm:group-data-[size=default]/alert-dialog-content:row-span-2 *:[svg:not([class*='size-'])]:size-(--space-12)",
         className
       )}
       {...props}
@@ -150,7 +150,7 @@ function AlertDialogTitle({
     <AlertDialogPrimitive.Title
       data-slot="alert-dialog-title"
       className={cn(
-        "text-[length:var(--text-base)] leading-[var(--leading-base)] font-medium sm:group-data-[size=default]/alert-dialog-content:group-has-data-[slot=alert-dialog-media]/alert-dialog-content:col-start-2",
+        "font-display text-[length:var(--text-lg)] leading-[var(--leading-lg)] font-semibold sm:group-data-[size=default]/alert-dialog-content:group-has-data-[slot=alert-dialog-media]/alert-dialog-content:col-start-2",
         className
       )}
       {...props}
@@ -166,7 +166,7 @@ function AlertDialogDescription({
     <AlertDialogPrimitive.Description
       data-slot="alert-dialog-description"
       className={cn(
-        "text-[length:var(--text-sm)] text-balance text-muted-foreground md:text-pretty *:[a]:underline *:[a]:underline-offset-(--space-3) *:[a]:hover:text-foreground",
+        "text-[length:var(--text-sm)] text-balance text-[var(--color-ink-faint)] md:text-pretty *:[a]:underline *:[a]:underline-offset-(--space-3) *:[a]:hover:text-[var(--color-ink)]",
         className
       )}
       {...props}

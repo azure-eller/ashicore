@@ -24,7 +24,7 @@ export function InventoryVisualCell({
   className?: string;
 }) {
   return (
-    <div className={cn("bg-background", className)}>
+    <div className={cn("bg-[var(--color-surface)]", className)}>
       {children}
     </div>
   );

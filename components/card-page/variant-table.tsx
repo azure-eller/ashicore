@@ -984,6 +984,7 @@ export function VariantTable({
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
+              variant="danger"
               onClick={(event) => {
                 event.preventDefault();
                 if (!confirmDeleteVariant) return;
