@@ -30,7 +30,7 @@ function FieldLegend({
       data-slot="field-legend"
       data-variant={variant}
       className={cn(
-        "mb-(--space-2) font-mono text-[length:var(--text-xs)] font-semibold tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)] uppercase data-[variant=legend]:text-[length:var(--text-sm)]",
+        "mb-(--space-2) text-[length:var(--text-xs)] font-semibold tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)] uppercase data-[variant=legend]:text-[length:var(--text-sm)]",
         className
       )}
       {...props}
@@ -106,7 +106,7 @@ function FieldLabel({
     <Label
       data-slot="field-label"
       className={cn(
-        "group/field-label peer/field-label flex w-fit gap-(--space-2) font-mono text-[length:var(--text-xs)] font-semibold leading-[var(--leading-xs)] tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)] uppercase group-data-[disabled=true]/field:opacity-50 has-data-checked:border-[var(--color-accent)] has-data-checked:bg-[var(--color-accent-soft)] has-[>[data-slot=field]]:rounded-[var(--radius-md)] has-[>[data-slot=field]]:border *:data-[slot=field]:p-2.5",
+        "group/field-label peer/field-label flex w-fit gap-(--space-2) text-[length:var(--text-xs)] font-semibold leading-[var(--leading-xs)] tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)] uppercase group-data-[disabled=true]/field:opacity-50 has-data-checked:border-[var(--color-accent)] has-data-checked:bg-[var(--color-accent-soft)] has-[>[data-slot=field]]:rounded-[var(--radius-md)] has-[>[data-slot=field]]:border *:data-[slot=field]:p-2.5",
         "has-[>[data-slot=field]]:w-full has-[>[data-slot=field]]:flex-col",
         className
       )}
@@ -120,7 +120,7 @@ function FieldTitle({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="field-label"
       className={cn(
-        "flex w-fit items-center gap-(--space-2) font-mono text-[length:var(--text-xs)] font-semibold leading-[var(--leading-xs)] tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)] uppercase group-data-[disabled=true]/field:opacity-50",
+        "flex w-fit items-center gap-(--space-2) text-[length:var(--text-xs)] font-semibold leading-[var(--leading-xs)] tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)] uppercase group-data-[disabled=true]/field:opacity-50",
         className
       )}
       {...props}

@@ -1,4 +1,4 @@
-/* Sales Order Detail — additive Calm Matrix styles. Tokens come from app/globals.css.
+/* Sales Order Detail — additive Calm Matrix styles. Tokens come from app/styles/theme.css.
    Most chrome (sheet, header, save pill, sections, tables, cell inputs) comes from
    components/card-page/card-page.module.css. This file only adds SO-specific
    fulfillment and totals styling. */

@@ -11,9 +11,9 @@ read_when:
 
 ## Style System
 
-Design intent lives in `docs/design/`. Runtime token values live in `app/globals.css`.
+Design intent lives in `docs/design/`. App-wide runtime token values live in `app/styles/theme.css`.
 
-1. **App raw tokens** in `app/globals.css` `:root` — source of truth for colors, spacing, sizing, type, motion, shadows, and radii. Names include `--color-*`, `--space-*`, `--height-*`, `--text-*`, `--leading-*`, `--weight-*`, `--radius-*`, `--shadow-*`, `--focus-ring`, `--ease-*`, and `--duration-*`.
+1. **App raw tokens** in `app/styles/theme.css` `:root` — source of truth for colors, spacing, sizing, type, motion, shadows, and radii. Names include `--color-*`, `--space-*`, `--height-*`, `--text-*`, `--leading-*`, `--weight-*`, `--radius-*`, `--shadow-*`, `--focus-ring`, `--ease-*`, and `--duration-*`.
 2. **Bridge** — shadcn variable names (`--primary`, `--card`, `--muted`, `--border`, `--radius`, etc.) alias the app tokens. This keeps shadcn semantic classes working unchanged.
 3. **Component code** — uses the bridge by default; reaches for raw app tokens for dimensions and for states shadcn doesn't model (e.g. `accent-hover`, `surface-sunk`).
 
@@ -346,7 +346,7 @@ Variants: `sm | default | md | lg | xl | 2xl | 3xl | content`. `content` sizes t
 
 The authenticated ERP app is a light-mode design system. Do not introduce local
 `.dark` token branches or hardcoded inverted palettes. If a surface needs an
-inverted treatment, add named semantic tokens in `app/globals.css` and compose
+inverted treatment, add named semantic tokens in `app/styles/theme.css` and compose
 them through the shared component that owns that surface.
 
 ## Tooltips

@@ -25,7 +25,6 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { formatBytes } from "@/lib/format";
 import { getAccessPresetKeys, formatAccessPresetLabel, type AccessPresetKey } from "@/lib/authz";
-import { onboardingFontVariables } from "@/lib/onboarding/fonts";
 import { cn } from "@/lib/utils";
 
 type Provenance = {
@@ -997,7 +996,7 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
   };
 
   return (
-    <div className={cn(onboardingFontVariables, "onboarding-flow-screen flex min-h-svh flex-col")}>
+    <div className="onboarding-flow-screen flex min-h-svh flex-col">
       <OnboardingProgress
         activeIndex={onboardingActiveIndex(flowStep)}
         plan={planIntent}
@@ -1469,7 +1468,7 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
           if (!open) setApproveDialog(null);
         }}
       >
-        <DialogContent className={cn(onboardingFontVariables, "onboarding-flow-screen")}>
+        <DialogContent className="onboarding-flow-screen">
           {approveDialog === "pay" ? (
             <>
               <DialogHeader>
