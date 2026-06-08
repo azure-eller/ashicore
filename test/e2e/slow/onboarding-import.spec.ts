@@ -6,7 +6,6 @@ import {
   customers,
   importFiles,
   importCommitRecords,
-  importSessions,
   inventoryEvents,
   items,
   onboardingSessions,
@@ -572,7 +571,7 @@ test.describe("onboarding import operating story", () => {
     expect(skippedCustomers).toHaveLength(0);
   });
 
-  test("stored validated import approves without a manual revalidate", async ({ db }) => {
+  test("worker-completed validated import approves without a manual revalidate", async ({ db }) => {
     const sessionId = await createSession();
     const sku = `WORKER-APPROVE-${ts}`;
     const pkg: ImportPackage = {
@@ -602,16 +601,26 @@ test.describe("onboarding import operating story", () => {
       unresolvedQuestions: [],
     };
 
+    const workerSecret =
+      process.env.ONBOARDING_IMPORT_CRON_SECRET ?? process.env.CRON_SECRET;
+    expect(workerSecret).toBeTruthy();
+
     await db
-      .update(importSessions)
+      .update(importFiles)
       .set({
-        status: "validated",
-        draftPackage: pkg,
-        normalizedPackage: pkg,
-        openingStockAsOf: pkg.openingStockAsOf,
+        extractionStatus: "extracted",
+        extractedPackage: pkg,
+        extractedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(eq(importSessions.id, sessionId));
+      .where(eq(importFiles.sessionId, sessionId));
+
+    const worker = await testFetch("/api/internal/process-imports", {
+      headers: { Authorization: `Bearer ${workerSecret}` },
+    });
+    expectResponse(worker, 200);
+    const workerBody = await worker.json();
+    expect(workerBody.completedSessions).toBe(1);
 
     const review = await testFetch(`/api/onboarding/imports/${sessionId}`);
     expectResponse(review, 200);

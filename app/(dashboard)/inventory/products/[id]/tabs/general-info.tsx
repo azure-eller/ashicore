@@ -172,7 +172,7 @@ export function ProductGeneralInfoTab({
         }
       >
         {variantsActive ? null : (
-          <label className="mb-(--space-2) flex items-center gap-(--space-2) text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
+          <label className="mb-(--space-2) inline-flex items-center gap-(--space-2) text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
             <Checkbox
               checked={false}
               disabled={isDraft}
