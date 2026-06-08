@@ -125,7 +125,7 @@ export function ProductOperationsTab({
           .map((row) => ({
             operationName: row.operationName!.trim(),
             resourceId: row.resourceId!.trim(),
-            costScalingMode: row.costScalingMode ?? "per_output_unit",
+            costScalingMode: "per_output_unit",
             crewSize: row.crewSize!,
             plannedMinutes: row.plannedMinutes!,
             loadedCostPerHour: row.loadedCostPerHour ?? null,
@@ -249,9 +249,6 @@ export function ProductOperationsTab({
           key={`${activeFocusItemId}:${productionData.initialOperationCosts.length}`}
           initialRows={productionData.initialOperationCosts}
           resources={productionData.resources}
-          expectedBatchYield={productionData.expectedBatchYield}
-          typicalBatchSize={productionData.typicalBatchSize}
-          standardCostQuantity={productionData.standardCostQuantity}
           error={saveMutation.error}
           onRowsChange={(nextRows, meta) => {
             if (!activeVariant) return;

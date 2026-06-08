@@ -412,7 +412,7 @@ export type SaveBomRevisionInput = {
   operationCosts?: Array<{
     operationName: string;
     resourceId: string;
-    costScalingMode?: "per_output_unit" | "fixed_per_mo" | null;
+    costScalingMode?: "per_output_unit" | null;
     crewSize: string;
     plannedMinutes: string;
     loadedCostPerHour?: string | null;
@@ -468,7 +468,7 @@ export type ProductProductionTabPayload = {
   initialOperationCosts: Array<{
     operationName: string | null;
     resourceId: string | null;
-    costScalingMode?: "per_output_unit" | "fixed_per_mo" | null;
+    costScalingMode?: "per_output_unit" | null;
     crewSize: string | null;
     plannedMinutes: string | null;
     loadedCostPerHour?: string | null;

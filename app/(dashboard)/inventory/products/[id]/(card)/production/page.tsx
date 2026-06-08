@@ -60,7 +60,7 @@ export default async function ProductProductionPage({
       initialOperationCosts={operationCosts.map((operation) => ({
           operationName: operation.operationName,
           resourceId: operation.resourceId,
-          costScalingMode: operation.costScalingMode,
+          costScalingMode: "per_output_unit",
           crewSize: operation.crewSize,
           plannedMinutes: operation.plannedMinutes,
           loadedCostPerHour: operation.loadedCostPerHour,

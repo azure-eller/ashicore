@@ -3,7 +3,6 @@ import { z } from "zod";
 import { items } from "@/lib/db/schema";
 import { normalizeMinimumLotAgeDays } from "@/lib/bom/constraints";
 import { normalizeNumeric, normalizeNumericScale } from "@/lib/format";
-import { OPERATION_COST_SCALING_MODES } from "@/lib/manufacturing/operation-costs";
 import {
   isNonNegativeNumberString,
   isPositiveNumberString,
@@ -60,7 +59,7 @@ const operationCostRateSchema = nullableStringOptional
 const operationCostRowSchema = z.object({
   operationName: z.string().trim().min(1, "Name is required"),
   resourceId: z.string().min(1, "Resource is required"),
-  costScalingMode: z.enum(OPERATION_COST_SCALING_MODES).default("per_output_unit"),
+  costScalingMode: z.literal("per_output_unit").default("per_output_unit"),
   crewSize: operationCostQuantitySchema,
   plannedMinutes: operationCostQuantitySchema,
   loadedCostPerHour: operationCostRateSchema,
@@ -69,7 +68,7 @@ const operationCostRowSchema = z.object({
 const rawOperationCostRowSchema = z.object({
   operationName: z.string().nullable().optional(),
   resourceId: z.string().nullable().optional(),
-  costScalingMode: z.enum(OPERATION_COST_SCALING_MODES).nullable().optional(),
+  costScalingMode: z.literal("per_output_unit").nullable().optional(),
   crewSize: z.string().nullable().optional(),
   plannedMinutes: z.string().nullable().optional(),
   loadedCostPerHour: z.string().nullable().optional(),
@@ -360,7 +359,6 @@ function operationCostsRefine(
     operationCosts?: Array<{
       operationName: string;
       resourceId: string;
-      costScalingMode: string;
     }>;
   },
   ctx: z.RefinementCtx
@@ -370,7 +368,7 @@ function operationCostsRefine(
   const seen = new Set<string>();
   for (let i = 0; i < data.operationCosts.length; i++) {
     const row = data.operationCosts[i];
-    const key = `${row.operationName.trim().toLowerCase()}:${row.resourceId}:${row.costScalingMode}`;
+    const key = `${row.operationName.trim().toLowerCase()}:${row.resourceId}`;
     if (seen.has(key)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

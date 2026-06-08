@@ -6,10 +6,7 @@ import { items } from "@/lib/db/schema";
 import { withAuthedOrgContext, getAuthedMemberContext } from "@/lib/dal/auth";
 import { isPositiveNumberString } from "@/lib/schemas/shared";
 import { createBomRevisionInTx } from "@/app/(dashboard)/inventory/queries/internal";
-import type {
-  BomInputRow,
-  BomOperationCostInputRow,
-} from "@/app/(dashboard)/inventory/queries/bom-write";
+import type { BomInputRow } from "@/app/(dashboard)/inventory/queries/bom-write";
 import { getCurrentBomOperationCostsInTx } from "@/lib/bom/operation-costs";
 
 const bomRowSchema = z.object({
@@ -36,7 +33,7 @@ const bomRowSchema = z.object({
 const operationCostRowSchema = z.object({
   operationName: z.string().trim().min(1, "Operation name is required"),
   resourceId: z.string().uuid("Resource is required"),
-  costScalingMode: z.enum(["per_output_unit", "fixed_per_mo"]),
+  costScalingMode: z.literal("per_output_unit"),
   crewSize: z.string(),
   plannedMinutes: z.string(),
   loadedCostPerHour: z.string().nullable().optional(),
@@ -108,8 +105,7 @@ export async function createBomRevision(
       (await getCurrentBomOperationCostsInTx(tx, productId)).map((row) => ({
         operationName: row.operationName,
         resourceId: row.resourceId,
-        costScalingMode:
-          row.costScalingMode as BomOperationCostInputRow["costScalingMode"],
+        costScalingMode: "per_output_unit" as const,
         crewSize: row.crewSize,
         plannedMinutes: row.plannedMinutes,
         loadedCostPerHour: row.loadedCostPerHour,

@@ -8,7 +8,7 @@ export type BomInputRow = {
 export type BomOperationCostInputRow = {
   operationName: string;
   resourceId: string;
-  costScalingMode: "per_output_unit" | "fixed_per_mo";
+  costScalingMode: "per_output_unit";
   crewSize: string;
   plannedMinutes: string;
   loadedCostPerHour?: string | null;
@@ -72,7 +72,6 @@ export function hasBomOperationCostsChanged(
     return (
       row.operationName !== nextRow.operationName ||
       row.resourceId !== nextRow.resourceId ||
-      row.costScalingMode !== nextRow.costScalingMode ||
       row.crewSize !== nextRow.crewSize ||
       row.plannedMinutes !== nextRow.plannedMinutes ||
       row.loadedCostPerHour !== nextRow.loadedCostPerHour ||

@@ -1952,7 +1952,7 @@ export async function updateItem(
       const nextOperationCosts = operationCosts ?? currentOperationCosts.map((row) => ({
         operationName: row.operationName,
         resourceId: row.resourceId,
-        costScalingMode: row.costScalingMode as BomOperationCostInputRow["costScalingMode"],
+        costScalingMode: "per_output_unit" as const,
         crewSize: row.crewSize,
         plannedMinutes: row.plannedMinutes,
         loadedCostPerHour: row.loadedCostPerHour,
@@ -1974,8 +1974,7 @@ export async function updateItem(
             currentOperationCosts.map((row) => ({
               operationName: row.operationName,
               resourceId: row.resourceId,
-              costScalingMode:
-                row.costScalingMode as BomOperationCostInputRow["costScalingMode"],
+              costScalingMode: "per_output_unit" as const,
               crewSize: row.crewSize,
               plannedMinutes: row.plannedMinutes,
               loadedCostPerHour: row.loadedCostPerHour,
@@ -2586,7 +2585,7 @@ export async function copyCurrentBomToVariants(
     const operationCosts: BomOperationCostInputRow[] = sourceOperationCosts.map((row) => ({
       operationName: row.operationName,
       resourceId: row.resourceId,
-      costScalingMode: row.costScalingMode as BomOperationCostInputRow["costScalingMode"],
+      costScalingMode: "per_output_unit" as const,
       crewSize: row.crewSize,
       plannedMinutes: row.plannedMinutes,
       loadedCostPerHour: row.loadedCostPerHour,
@@ -2677,7 +2676,7 @@ export async function copyCurrentOperationsToVariants(
     const operationCosts: BomOperationCostInputRow[] = sourceOperationCosts.map((row) => ({
       operationName: row.operationName,
       resourceId: row.resourceId,
-      costScalingMode: row.costScalingMode as BomOperationCostInputRow["costScalingMode"],
+      costScalingMode: "per_output_unit" as const,
       crewSize: row.crewSize,
       plannedMinutes: row.plannedMinutes,
       loadedCostPerHour: row.loadedCostPerHour,

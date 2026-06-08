@@ -1036,7 +1036,7 @@ export async function cloneItemCard(
           (row) => ({
             operationName: row.operationName,
             resourceId: row.resourceId,
-            costScalingMode: row.costScalingMode,
+            costScalingMode: "per_output_unit",
             crewSize: row.crewSize,
             plannedMinutes: row.plannedMinutes,
             loadedCostPerHour: row.loadedCostPerHour,

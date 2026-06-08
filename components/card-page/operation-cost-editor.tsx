@@ -5,7 +5,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type {
   CellClassParams,
   ICellRendererParams,
-  ValueFormatterParams,
   ValueSetterParams,
 } from "ag-grid-community";
 import { apiJson } from "@/lib/client/api";
@@ -49,7 +48,7 @@ type ManufacturingResourceOption = {
 export type OperationCostPayloadRow = {
   operationName: string | null;
   resourceId: string | null;
-  costScalingMode?: "per_output_unit" | "fixed_per_mo" | null;
+  costScalingMode?: "per_output_unit" | null;
   crewSize: string | null;
   plannedMinutes: string | null;
   loadedCostPerHour?: string | null;
@@ -62,7 +61,6 @@ type OperationCostGridRow = OperationCostPayloadRow & {
 type OperationCostColumnKey =
   | "operationName"
   | "resourceId"
-  | "costScalingMode"
   | "crewSize"
   | "plannedMinutes";
 
@@ -85,11 +83,6 @@ type ResourceFormState = {
 
 type ResourceFormErrors = Partial<Record<"name" | "loadedCostPerHour", string>>;
 
-const OPERATION_COST_MODE_LABELS = {
-  per_output_unit: "Per unit",
-  fixed_per_mo: "Per MO",
-} as const;
-
 const blankOperationCostLine = {
   operationName: "",
   resourceId: "",
@@ -110,10 +103,6 @@ function formatOperationCost(params: {
   crewSize: string | null | undefined;
   plannedMinutes: string | null | undefined;
   loadedCostPerHour: string | null | undefined;
-  costScalingMode: string | null | undefined;
-  expectedBatchYield: string | null | undefined;
-  typicalBatchSize: string | null | undefined;
-  standardCostQuantity: string | null | undefined;
 }) {
   const crewSize = Number(params.crewSize);
   const plannedMinutes = Number(params.plannedMinutes);
@@ -129,16 +118,6 @@ function formatOperationCost(params: {
   }
 
   const total = (crewSize * plannedMinutes * loadedCostPerHour) / 60;
-  if (params.costScalingMode === "fixed_per_mo") {
-    const costQuantity =
-      params.expectedBatchYield ?? params.typicalBatchSize ?? params.standardCostQuantity;
-    const quantity = Number(costQuantity);
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      return `${formatPrice(total.toFixed(2)) ?? "$0"} per MO`;
-    }
-    return `${formatPrice((total / quantity).toFixed(2)) ?? "$0"} / unit`;
-  }
-
   return `${formatPrice(total.toFixed(2)) ?? "$0"} / unit`;
 }
 
@@ -164,7 +143,7 @@ function toOperationCostGridRows(
       ...row,
       operationName: row.operationName ?? "",
       resourceId: row.resourceId ?? "",
-      costScalingMode: row.costScalingMode ?? "per_output_unit",
+      costScalingMode: "per_output_unit" as const,
       clientRowId: createOperationCostRowId(),
     })) ?? [];
 
@@ -177,7 +156,7 @@ function toOperationCostPayloadRows(
   return rows.map((row) => ({
     operationName: normalizeTextCell(row.operationName),
     resourceId: normalizeTextCell(row.resourceId),
-    costScalingMode: row.costScalingMode ?? "per_output_unit",
+    costScalingMode: "per_output_unit",
     crewSize: normalizeTextCell(row.crewSize),
     plannedMinutes: normalizeTextCell(row.plannedMinutes),
     loadedCostPerHour: normalizeTextCell(row.loadedCostPerHour),
@@ -200,7 +179,7 @@ function comparableOperationCosts(rows: OperationCostGridRow[]) {
       .map((row) => ({
         operationName: row.operationName ?? "",
         resourceId: row.resourceId ?? "",
-        costScalingMode: row.costScalingMode ?? "per_output_unit",
+        costScalingMode: "per_output_unit",
         crewSize: row.crewSize ?? null,
         plannedMinutes: row.plannedMinutes ?? null,
         loadedCostPerHour: row.loadedCostPerHour ?? null,
@@ -219,7 +198,6 @@ function buildOperationCostErrorState(
     [
       "operationName",
       "resourceId",
-      "costScalingMode",
       "crewSize",
       "plannedMinutes",
     ],
@@ -266,14 +244,8 @@ function ResourceCell({
 function OperationCostCell({
   data,
   resourcesById,
-  expectedBatchYield,
-  typicalBatchSize,
-  standardCostQuantity,
 }: ICellRendererParams<OperationCostGridRow> & {
   resourcesById: Map<string, ManufacturingResourceOption>;
-  expectedBatchYield: string | null | undefined;
-  typicalBatchSize: string | null | undefined;
-  standardCostQuantity: string | null | undefined;
 }) {
   const resource = data?.resourceId ? resourcesById.get(data.resourceId) : null;
   return (
@@ -282,10 +254,6 @@ function OperationCostCell({
         crewSize: data?.crewSize,
         plannedMinutes: data?.plannedMinutes,
         loadedCostPerHour: data?.loadedCostPerHour ?? resource?.loadedCostPerHour,
-        costScalingMode: data?.costScalingMode,
-        expectedBatchYield,
-        typicalBatchSize,
-        standardCostQuantity,
       })}
     </span>
   );
@@ -422,17 +390,11 @@ function CreateResourceDialog({
 export function OperationCostEditor({
   initialRows,
   resources,
-  expectedBatchYield,
-  typicalBatchSize,
-  standardCostQuantity,
   error,
   onRowsChange,
 }: {
   initialRows?: OperationCostPayloadRow[];
   resources: ManufacturingResourceOption[];
-  expectedBatchYield: string | null | undefined;
-  typicalBatchSize: string | null | undefined;
-  standardCostQuantity: string | null | undefined;
   error?: unknown;
   onRowsChange?: (
     rows: OperationCostPayloadRow[],
@@ -603,25 +565,6 @@ export function OperationCostEditor({
         tooltipValueGetter: errorTooltip("resourceId"),
       },
       {
-        field: "costScalingMode",
-        kind: "select",
-        headerName: "Mode",
-        minWidth: 116,
-        flex: 0.7,
-        editable: true,
-        values: ["per_output_unit", "fixed_per_mo"],
-        valueFormatter: ({
-          value,
-        }: ValueFormatterParams<
-          OperationCostGridRow,
-          OperationCostGridRow["costScalingMode"]
-        >) => OPERATION_COST_MODE_LABELS[value ?? "per_output_unit"],
-        cellClassRules: {
-          "erp-editable-grid-cell-error": hasError("costScalingMode"),
-        },
-        tooltipValueGetter: errorTooltip("costScalingMode"),
-      },
-      {
         field: "crewSize",
         kind: "number",
         headerName: "Crew",
@@ -643,9 +586,9 @@ export function OperationCostEditor({
       {
         field: "plannedMinutes",
         kind: "number",
-        headerName: "Minutes",
-        minWidth: 128,
-        flex: 0.7,
+        headerName: "Minutes / unit",
+        minWidth: 148,
+        flex: 0.8,
         editable: true,
         valueSetter: (params: ValueSetterParams<OperationCostGridRow, string | null>) => {
           params.data.plannedMinutes = normalizeTextCell(params.newValue);
@@ -662,28 +605,22 @@ export function OperationCostEditor({
       {
         colId: "cost",
         kind: "display",
-        headerName: "Cost",
-        minWidth: 136,
+        headerName: "Cost / unit",
+        minWidth: 140,
         flex: 0.8,
         cellRenderer: (params: ICellRendererParams<OperationCostGridRow>) => (
           <OperationCostCell
             {...params}
             resourcesById={resourcesById}
-            expectedBatchYield={expectedBatchYield}
-            typicalBatchSize={typicalBatchSize}
-            standardCostQuantity={standardCostQuantity}
           />
         ),
       },
     ],
     [
       errorTooltip,
-      expectedBatchYield,
       hasError,
       localResources,
       resourcesById,
-      standardCostQuantity,
-      typicalBatchSize,
     ],
   );
 
