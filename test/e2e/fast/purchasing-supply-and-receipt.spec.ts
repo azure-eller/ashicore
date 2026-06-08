@@ -1539,6 +1539,8 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       expect.stringMatching(new RegExp(`^"${escapedOrgName}" <[^>]+>$`)),
     );
     expect(carrierEmailEntry.from).toBe(supplierEmailEntry.from);
+    expect(supplierEmailEntry.bcc).toBeUndefined();
+    expect(carrierEmailEntry.bcc).toBeUndefined();
     expect(supplierEmailEntries).toHaveLength(1);
     expect(carrierEmailEntries).toHaveLength(1);
     expect(supplierAttachmentNames).toContain("supplier-note.txt");

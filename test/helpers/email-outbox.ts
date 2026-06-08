@@ -8,6 +8,7 @@ export type EmailOutboxEntry = {
     content: string;
     contentType?: string;
   }>;
+  bcc?: string | string[];
   createdAt: string;
   from?: string;
   html: string;
