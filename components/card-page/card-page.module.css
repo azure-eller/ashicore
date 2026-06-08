@@ -1337,7 +1337,7 @@
   width: 18px;
   height: 18px;
   background: var(--status-success-bg);
-  color: var(--status-success-ink);
+  color: var(--status-success-solid-ink);
   display: grid;
   place-items: center;
   font-size: var(--text-sm);

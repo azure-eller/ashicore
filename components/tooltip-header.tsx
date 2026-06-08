@@ -19,7 +19,7 @@ export function TooltipHeader({
       <TooltipTrigger asChild>
         <span
           className={cn(
-            "inline-flex w-fit cursor-help items-center border-b border-dotted border-[var(--color-line)] [font:inherit] tracking-[inherit] text-inherit uppercase transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-ink)]",
+            "inline-flex w-fit items-center border-b border-dotted border-[var(--color-line)] [font:inherit] tracking-[inherit] text-inherit uppercase transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-ink)]",
             className
           )}
         >

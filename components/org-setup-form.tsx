@@ -10,7 +10,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import { authClient } from "@/lib/auth-client"
 import { type BillingPlanIntent } from "@/lib/billing/plan-intent"
 import { cn } from "@/lib/utils"
@@ -169,6 +168,33 @@ export function OrgSetupForm({
     }
   }
 
+  function renderOrganizationPicker({
+    buttonClassName,
+    errorClassName,
+  }: {
+    buttonClassName: string
+    errorClassName: string
+  }) {
+    return (
+      <div className="grid gap-(--space-4)">
+        {organizations.map((organization) => (
+          <button
+            type="button"
+            key={organization.id}
+            className={buttonClassName}
+            onClick={() => activateOrganization(organization.id)}
+            disabled={loading || activatingOrgId != null}
+          >
+            {activatingOrgId === organization.id
+              ? `Opening ${organization.name}…`
+              : organization.name}
+          </button>
+        ))}
+        {error ? <p className={errorClassName}>{error}</p> : null}
+      </div>
+    )
+  }
+
   if (organizations.length > 1 && !continueToOnboarding) {
     return (
       <div
@@ -188,27 +214,12 @@ export function OrgSetupForm({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-(--space-4)">
-              {organizations.map((organization) => (
-                <Button
-                  type="button"
-                  key={organization.id}
-                  variant="outline"
-                  className="w-full justify-start rounded-[var(--radius-md)]"
-                  onClick={() => activateOrganization(organization.id)}
-                  disabled={loading || activatingOrgId != null}
-                >
-                  {activatingOrgId === organization.id
-                    ? `Opening ${organization.name}…`
-                    : organization.name}
-                </Button>
-              ))}
-              {error ? (
-                <p className="text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-[var(--status-danger-ink)]">
-                  {error}
-                </p>
-              ) : null}
-            </div>
+            {renderOrganizationPicker({
+              buttonClassName:
+                "flex min-h-(--space-12) w-full items-center rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)] px-(--space-4) text-left text-[length:var(--text-sm)] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-surface-alt)] disabled:pointer-events-none disabled:opacity-50",
+              errorClassName:
+                "text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-[var(--status-danger-ink)]",
+            })}
           </CardContent>
         </Card>
       </div>
@@ -254,22 +265,10 @@ export function OrgSetupForm({
           <p className="ob-form-sub ob-stagger">
             We&apos;ll continue onboarding in the workspace you select.
           </p>
-          <div className="ob-form-stack">
-            {organizations.map((organization) => (
-              <button
-                type="button"
-                key={organization.id}
-                className="ob-btn ob-btn--ghost ob-btn--block justify-start"
-                onClick={() => activateOrganization(organization.id)}
-                disabled={loading || activatingOrgId != null}
-              >
-                {activatingOrgId === organization.id
-                  ? `Opening ${organization.name}…`
-                  : organization.name}
-              </button>
-            ))}
-            {error ? <p className="ob-form-error">{error}</p> : null}
-          </div>
+          {renderOrganizationPicker({
+            buttonClassName: "ob-btn ob-btn--ghost ob-btn--block justify-start",
+            errorClassName: "ob-form-error",
+          })}
         </>
       ) : (
         <>

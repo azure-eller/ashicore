@@ -1,6 +1,13 @@
 import { normalizeNumericScale } from "@/lib/format";
 import type { ItemRow } from "../types";
 
+// Margin strength is relative by org; keep the neutral middle band broad so
+// high-margin catalogs do not label ordinary margins as low.
+const LOW_MARGIN_PERCENTILE = 0.2;
+const HIGH_MARGIN_PERCENTILE = 0.6;
+const SMALL_SAMPLE_LOW_MARGIN = 20;
+const SMALL_SAMPLE_HIGH_MARGIN = 40;
+
 export function parseNumeric(value: string | null | undefined): number {
   if (value == null) {
     return 0;
@@ -49,8 +56,13 @@ export function applyMarginTiers(rows: ItemRow[]) {
     .map((value) => Number.parseFloat(value))
     .filter((value) => Number.isFinite(value) && value >= 0)
     .sort((a, b) => a - b);
-  const lowCutoff = percentile(nonNegativeMargins, 0.2);
-  const highCutoff = percentile(nonNegativeMargins, 0.6);
+  const hasRelativeBands = nonNegativeMargins.length >= 3;
+  const lowCutoff = hasRelativeBands
+    ? percentile(nonNegativeMargins, LOW_MARGIN_PERCENTILE)
+    : SMALL_SAMPLE_LOW_MARGIN;
+  const highCutoff = hasRelativeBands
+    ? percentile(nonNegativeMargins, HIGH_MARGIN_PERCENTILE)
+    : SMALL_SAMPLE_HIGH_MARGIN;
 
   return rows.map((row) => applyMarginTier(row, lowCutoff, highCutoff));
 }
