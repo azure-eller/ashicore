@@ -93,7 +93,6 @@ const SALES_ORDER_AUTO_SIZE_COLUMN_IDS = [
   "orderNumber",
   "allocation",
   "ingredientsState",
-  "productionState",
   "deliveryState",
   "shipDate",
 ] as const;
@@ -540,8 +539,8 @@ function OrdersTableContent({
         colId: "allocation",
         headerName: "Sales Items",
         headerTooltip: SALES_ORDER_ITEMS_STATUS_TOOLTIP,
-        width: 160,
-        minWidth: 150,
+        width: 185,
+        minWidth: 180,
         cellClass: "statusBlockCell",
         valueGetter: ({ data }) =>
           data
@@ -561,8 +560,8 @@ function OrdersTableContent({
         colId: "ingredientsState",
         headerName: "Ingredients",
         headerTooltip: SALES_ORDER_INGREDIENTS_STATUS_TOOLTIP,
-        width: 172,
-        minWidth: 160,
+        width: 185,
+        minWidth: 180,
         cellClass: "statusBlockCell",
         valueGetter: ({ data }) => (data ? getIngredientsState(data).label : ""),
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
@@ -572,8 +571,8 @@ function OrdersTableContent({
         colId: "productionState",
         headerName: "Production",
         headerTooltip: SALES_ORDER_PRODUCTION_STATUS_TOOLTIP,
-        width: 140,
-        minWidth: 130,
+        width: 195,
+        minWidth: 190,
         cellClass: "statusBlockCell",
         valueGetter: ({ data }) => (data ? getProductionState(data).label : ""),
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
@@ -835,7 +834,7 @@ function OrdersTableContent({
         gridClassName="min-h-0 flex-1"
         height="100%"
         headerHeight={48}
-        rowHeight={48}
+        rowHeight={55}
         statusBarContent={
           <>
             <span>

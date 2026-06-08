@@ -263,13 +263,13 @@ export function LineItemsTable({
         colId: "salesItemsState",
         kind: "display",
         headerName: "Sales items",
-        width: 140,
+        width: 150,
+        minWidth: 145,
         cellClass: "statusBlockCell",
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderDetailLine>) =>
           data ? (
             <FulfillmentStatusBlock
               state={lineSalesItemsState(data, order.status)}
-              className="w-full justify-center"
             />
           ) : null,
       },
@@ -277,7 +277,8 @@ export function LineItemsTable({
         colId: "ingredientsState",
         kind: "display",
         headerName: "Ingredients",
-        width: 150,
+        width: 155,
+        minWidth: 150,
         cellClass: "statusBlockCell",
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderDetailLine>) =>
           data ? (
@@ -294,7 +295,8 @@ export function LineItemsTable({
         colId: "productionState",
         kind: "display",
         headerName: "Production",
-        width: 140,
+        width: 180,
+        minWidth: 175,
         cellClass: "statusBlockCell",
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderDetailLine>) =>
           data ? (

@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import type { CSSProperties } from "react";
 import { useState } from "react";
 import type { FulfillmentDisplayState } from "@/lib/sales/fulfillment-status";
 import { Add01Icon } from "@hugeicons/core-free-icons";
@@ -138,16 +137,9 @@ export function ProductionStatusCell({
             suppressHydrationWarning
             actionable
             actionVariant="button"
+            showCaret={isMakeAction}
             tone={tone}
             leadingIcon={isMakeAction ? Add01Icon : undefined}
-            style={
-              isMakeAction
-                ? {
-                    "--tone-bg": "var(--color-accent-soft)",
-                    "--status-block-fg": "var(--color-accent-ink)",
-                  } as CSSProperties
-                : undefined
-            }
             onClick={(event) => event.stopPropagation()}
             aria-label={`Production: ${state.label}`}
           >

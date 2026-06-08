@@ -84,11 +84,13 @@ test.describe("sales fulfillment operating story", () => {
     });
     customerId = customer.id;
 
+    const testOrderNumber = `SLOW-SO-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
     orderId = await createConfirmedSalesOrder({
       customerId,
       productId,
       quantity: "6",
       unitPrice: "18.00",
+      orderNumber: testOrderNumber,
     });
     const order = await readSalesOrder(db, orderId);
     orderNumber = order.orderNumber;
@@ -150,8 +152,19 @@ test.describe("sales fulfillment operating story", () => {
     const project = (await projectResponse.json()) as { id: string };
 
     await page.goto(`/sales/customers/${customerId}`);
-    await page.getByRole("button", { name: new RegExp(projectName) }).click();
+    await page.waitForLoadState("networkidle");
+    const projectButton = page.getByRole("button", { name: new RegExp(projectName) });
+    await expect(projectButton).toBeVisible();
     const sheet = page.getByRole("dialog", { name: "Project" });
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await projectButton.click();
+      try {
+        await expect(sheet).toBeVisible({ timeout: 2_000 });
+        break;
+      } catch {
+        if (attempt === 2) throw new Error("Project sheet did not open");
+      }
+    }
     await expect(sheet).toBeVisible();
 
     await sheet.getByPlaceholder("Add a project note...").fill(noteBody);

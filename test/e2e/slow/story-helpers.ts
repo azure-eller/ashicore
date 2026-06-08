@@ -109,8 +109,10 @@ export async function createConfirmedSalesOrder(params: {
   quantity: string;
   unitPrice?: string;
   shipDate?: string;
+  orderNumber?: string;
 }) {
   const response = await createSalesOrder({
+    orderNumber: params.orderNumber,
     customerId: params.customerId,
     status: "open",
     orderDate: "2026-06-01",
@@ -222,5 +224,8 @@ export async function readAvailableLotId(db: TestDb, itemId: string) {
 export async function searchOrderList(page: Parameters<typeof filterList>[0], orderNumber: string) {
   await page.goto("/sales/orders");
   await filterList(page, "Search orders", orderNumber);
-  return page.getByRole("row").filter({ hasText: orderNumber }).first();
+  const orderCell = page.locator('.ag-cell[col-id="orderNumber"]').getByText(orderNumber, {
+    exact: true,
+  });
+  return page.getByRole("row").filter({ has: orderCell }).first();
 }

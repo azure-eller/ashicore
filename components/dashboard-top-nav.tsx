@@ -93,9 +93,9 @@ function ModuleTab({
       variant="ghost"
       size="default"
       className={cn(
-        "relative h-(--height-input-sm) shrink-0 rounded-(--radius-md) px-(--space-6) text-[var(--chrome-fg-soft)] transition-colors duration-100 hover:bg-[var(--chrome-line)] hover:text-[var(--chrome-fg)]",
+        "relative h-(--height-input-sm) shrink-0 rounded-(--radius-md) px-(--space-6) text-[var(--chrome-fg)] transition-colors duration-100 hover:bg-[var(--chrome-line)] hover:text-[var(--chrome-fg)]",
         (showingSubNav || active) &&
-          "bg-[var(--color-accent-soft)] font-semibold text-[var(--color-accent-ink)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent-ink)]"
+          "bg-transparent font-semibold text-[var(--chrome-fg)] shadow-[inset_0_0_0_1.5px_var(--chrome-fg)] hover:bg-transparent hover:text-[var(--chrome-fg)]"
       )}
       asChild
     >
@@ -198,9 +198,9 @@ function ModuleNav({
               size="default"
               aria-label="More modules"
               className={cn(
-                "relative h-(--height-input-sm) shrink-0 gap-(--space-4) rounded-(--radius-md) px-(--space-6) text-[length:var(--text-md)] leading-[var(--leading-sm)] font-medium text-[var(--chrome-fg-soft)] transition-colors duration-100 hover:bg-[var(--chrome-line)] hover:text-[var(--chrome-fg)] data-[state=open]:bg-[var(--chrome-line)] data-[state=open]:text-[var(--chrome-fg)]",
+                "relative h-(--height-input-sm) shrink-0 gap-(--space-4) rounded-(--radius-md) px-(--space-6) text-[length:var(--text-md)] leading-[var(--leading-sm)] font-medium text-[var(--chrome-fg)] transition-colors duration-100 hover:bg-[var(--chrome-line)] hover:text-[var(--chrome-fg)] data-[state=open]:bg-[var(--chrome-line)] data-[state=open]:text-[var(--chrome-fg)]",
                 overflowActive &&
-                  "bg-[var(--color-accent-soft)] font-semibold text-[var(--color-accent-ink)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent-ink)]"
+                  "bg-transparent font-semibold text-[var(--chrome-fg)] shadow-[inset_0_0_0_1.5px_var(--chrome-fg)] hover:bg-transparent hover:text-[var(--chrome-fg)]"
               )}
             >
               <HugeiconsIcon
@@ -635,7 +635,7 @@ export function DashboardTopNav({
       {visibleModule ? (
         <nav
           aria-label={`${visibleModule.title} pages`}
-          className="flex h-(--height-subnav) w-full min-w-0 shrink-0 items-center overflow-hidden border-b border-[var(--chrome-line)] bg-[var(--chrome-bg)] px-(--space-8) max-sm:px-(--space-6)"
+          className="flex h-(--height-subnav) w-full min-w-0 shrink-0 items-center overflow-hidden border-b border-[var(--subnav-line)] bg-[var(--subnav-bg)] px-(--space-8) max-sm:px-(--space-6)"
         >
           <div className="flex min-w-0 flex-1 items-center gap-(--space-2) overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {visibleModule.items.map((item) => {
@@ -647,9 +647,9 @@ export function DashboardTopNav({
                   href={item.href}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "flex h-(--height-subnav) shrink-0 items-center px-(--space-5) text-[length:var(--text-md)] leading-[var(--leading-md)] font-medium text-[var(--chrome-fg-soft)] hover:text-[var(--chrome-fg)]",
+                    "flex h-(--height-subnav) shrink-0 items-center px-(--space-5) text-[length:var(--text-md)] leading-[var(--leading-md)] font-medium text-[var(--subnav-fg)] hover:text-[var(--subnav-fg)]",
                     active &&
-                      "font-semibold text-[var(--chrome-fg)] shadow-[inset_0_-2px_0_var(--color-accent)]"
+                      "font-semibold text-[var(--subnav-fg)] shadow-[inset_0_-2px_0_var(--color-accent)]"
                   )}
                 >
                   {item.title}

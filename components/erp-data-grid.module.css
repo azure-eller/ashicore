@@ -68,9 +68,9 @@
 }
 
 .grid :global(.ag-header-cell-text) {
-  color: var(--color-ink-2);
-  font-family: var(--font-sans);
-  font-size: var(--text-grid-header);
+  color: var(--grid-header-fg);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
   font-weight: var(--weight-bold);
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -94,7 +94,7 @@
 }
 
 .grid :global(.ag-row-hover:not(.ag-row-selected)) {
-  background-color: var(--color-accent-soft);
+  background-color: var(--color-surface-sunk);
 }
 
 .grid :global(.ag-cell.ag-column-hover),
@@ -164,26 +164,25 @@
 }
 
 .grid :global(.ag-cell.statusBlockCell) {
-  align-items: stretch;
+  align-items: center;
   border-right-color: var(--color-line);
-  padding: 0;
-}
-
-.grid :global(.ag-cell.statusBlockCell:has(+ .ag-cell.statusBlockCell)) {
-  border-right-color: transparent;
+  padding-inline: var(--space-5);
 }
 
 .grid :global(.ag-cell.statusBlockCell .ag-cell-value) {
-  align-items: stretch;
+  align-items: center;
   display: flex;
   height: 100%;
   width: 100%;
 }
 
 .grid :global(.ag-cell.statusBlockCell [data-slot="status-block"]) {
+  justify-content: center;
+}
+
+.grid :global(.ag-cell.statusBlockCell [data-slot="status-block"][data-framed="true"]) {
   height: 100%;
   width: 100%;
-  justify-content: center;
 }
 
 .grid :global(.ag-cell.muted) {

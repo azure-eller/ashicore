@@ -46,6 +46,7 @@ type StatusBlockBaseProps = {
 type StatusBlockDerivedProps = StatusBlockBaseProps & {
   actionable?: false;
   actionVariant?: never;
+  showCaret?: never;
 } & Omit<HTMLAttributes<HTMLSpanElement>, "children" | "className" | "onClick" | "style">;
 
 type StatusBlockActionableProps = StatusBlockBaseProps & {
@@ -53,6 +54,7 @@ type StatusBlockActionableProps = StatusBlockBaseProps & {
   actionable: true;
   /** Use "button" for command-style actions that open a menu, such as Make. */
   actionVariant?: "menu" | "button";
+  showCaret?: boolean;
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children" | "className" | "style">;
 
 type StatusBlockProps = StatusBlockDerivedProps | StatusBlockActionableProps;
@@ -71,7 +73,8 @@ const TONE_DIVIDER: Record<StatusBlockTone, string> = {
   muted: "var(--status-muted-divider)",
 };
 
-function statusBlockBg(tone: StatusBlockTone) {
+function statusBlockBg(tone: StatusBlockTone, actionable: boolean) {
+  if (tone === "muted" && actionable) return "var(--status-muted-action-bg)";
   return `var(--status-${tone}-bg)`;
 }
 
@@ -82,7 +85,7 @@ function StatusBlockContent({
   leadingIcon,
   icon,
   actionable,
-  actionVariant,
+  showCaret,
 }: {
   children: ReactNode;
   footer?: ReactNode;
@@ -90,9 +93,9 @@ function StatusBlockContent({
   leadingIcon?: IconSvgElement;
   icon?: IconSvgElement;
   actionable: boolean;
-  actionVariant: "menu" | "button";
+  showCaret: boolean;
 }) {
-  const showActionWell = actionable && actionVariant === "menu";
+  const showInlineCaret = actionable && showCaret;
 
   return (
     <>
@@ -100,8 +103,7 @@ function StatusBlockContent({
         className={cn(
           footer
             ? "relative inline-flex min-w-0 flex-1 items-center px-(--space-5)"
-            : "inline-flex items-center px-(--space-5)",
-          showActionWell && "pr-(--space-3)",
+            : "inline-flex items-center px-(--space-6) py-[8px]",
         )}
       >
         <span className="inline-flex min-w-0 items-center">
@@ -112,9 +114,16 @@ function StatusBlockContent({
               className="mr-(--space-2) opacity-90"
             />
           ) : null}
-          <span className="truncate text-[length:var(--text-status)] font-bold uppercase tracking-[0.03em]">
+          <span className="truncate text-[length:var(--text-xs)] font-bold uppercase tracking-[0.03em]">
             {children}
           </span>
+          {showInlineCaret ? (
+            <HugeiconsIcon
+              icon={icon ?? ArrowDown01Icon}
+              size={10}
+              className="ml-(--space-2) shrink-0 opacity-90"
+            />
+          ) : null}
         </span>
         {footer ? (
           <span className="absolute inset-x-(--space-5) bottom-(--space-1) min-w-0 normal-case tracking-normal">
@@ -125,14 +134,6 @@ function StatusBlockContent({
       {marker ? (
         <span className="ml-auto inline-flex min-w-(--space-10) items-center justify-center border-l border-[var(--status-block-divider)] px-(--space-2) text-[length:var(--text-xs)] font-bold">
           {marker}
-        </span>
-      ) : null}
-      {showActionWell ? (
-        <span
-          aria-hidden
-          className="ml-auto inline-flex w-(--space-12) items-center justify-center border-l border-[var(--status-block-divider)]"
-        >
-          <HugeiconsIcon icon={icon ?? ArrowDown01Icon} size={10} className="opacity-90" />
         </span>
       ) : null}
     </>
@@ -148,13 +149,17 @@ export function StatusBlock({
   icon,
   actionable = false,
   actionVariant = "menu",
+  showCaret = actionVariant === "menu",
   className,
   style,
   ...props
 }: StatusBlockProps) {
+  const framed = Boolean(footer || marker);
   const baseClassName = cn(
-    "inline-flex min-h-(--height-input-sm) h-full w-full shrink-0 items-stretch overflow-hidden rounded-(--radius-none)",
-    "font-sans text-[length:var(--text-status)] leading-none font-bold uppercase tracking-[0.03em]",
+    framed
+      ? "inline-flex min-h-(--height-input-sm) h-full w-full shrink-0 items-stretch overflow-hidden rounded-(--radius-none)"
+      : "inline-flex h-auto w-fit shrink-0 items-center overflow-hidden rounded-(--radius-full)",
+    "font-mono text-[length:var(--text-xs)] leading-none font-bold uppercase tracking-[0.03em]",
     "text-[color:var(--status-block-fg)]",
     "bg-[var(--tone-bg)]",
     actionable &&
@@ -164,7 +169,7 @@ export function StatusBlock({
     className
   );
   const baseStyle = {
-    "--tone-bg": statusBlockBg(tone),
+    "--tone-bg": statusBlockBg(tone, actionable),
     "--status-block-fg": TONE_FG[tone],
     "--status-block-divider": TONE_DIVIDER[tone],
     ...style,
@@ -176,7 +181,7 @@ export function StatusBlock({
       leadingIcon={leadingIcon}
       icon={icon}
       actionable={actionable}
-      actionVariant={actionVariant}
+      showCaret={showCaret}
     >
       {children}
     </StatusBlockContent>
@@ -188,6 +193,7 @@ export function StatusBlock({
         {...props}
         data-slot="status-block"
         data-tone={tone}
+        data-framed={framed ? "true" : undefined}
         className={baseClassName}
         style={baseStyle}
       >
@@ -203,6 +209,7 @@ export function StatusBlock({
       data-tone={tone}
       data-actionable="true"
       data-action-variant={actionVariant}
+      data-framed={framed ? "true" : undefined}
       type="button"
       className={baseClassName}
       style={baseStyle}
