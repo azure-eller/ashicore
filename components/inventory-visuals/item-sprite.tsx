@@ -31,6 +31,8 @@ const SPRITE_SIZE_CLASS: Record<ItemVisualSize, string> = {
   lg: "size-16",
 };
 
+const ITEM_SPRITE_BLUE = "oklch(0.62 0.12 245)";
+
 const PALETTES: Record<ItemColorFamily, Palette> = {
   amber: {
     top: "var(--color-warning)",
@@ -43,21 +45,21 @@ const PALETTES: Record<ItemColorFamily, Palette> = {
   },
   green: {
     top: "var(--color-success)",
-    front: "color-mix(in oklch, var(--color-success), var(--status-success-ink) 20%)",
-    side: "color-mix(in oklch, var(--color-success), var(--status-success-ink) 36%)",
-    dark: "var(--status-success-ink)",
-    line: "color-mix(in oklch, var(--status-success-ink), var(--color-ink) 40%)",
+    front: "color-mix(in oklch, var(--color-success), var(--status-success-solid-ink) 20%)",
+    side: "color-mix(in oklch, var(--color-success), var(--status-success-solid-ink) 36%)",
+    dark: "var(--status-success-solid-ink)",
+    line: "color-mix(in oklch, var(--status-success-solid-ink), var(--color-ink) 40%)",
     light: "color-mix(in oklch, var(--color-success), var(--color-surface) 48%)",
     band: "var(--color-success-soft)",
   },
   blue: {
-    top: "var(--color-info)",
-    front: "color-mix(in oklch, var(--color-info), var(--color-ink) 20%)",
-    side: "color-mix(in oklch, var(--color-info), var(--color-ink) 36%)",
-    dark: "color-mix(in oklch, var(--color-info), var(--color-ink) 46%)",
-    line: "color-mix(in oklch, var(--color-info), var(--color-ink) 62%)",
-    light: "color-mix(in oklch, var(--color-info), var(--color-surface) 50%)",
-    band: "var(--color-info-soft)",
+    top: ITEM_SPRITE_BLUE,
+    front: `color-mix(in oklch, ${ITEM_SPRITE_BLUE}, var(--color-ink) 20%)`,
+    side: `color-mix(in oklch, ${ITEM_SPRITE_BLUE}, var(--color-ink) 36%)`,
+    dark: `color-mix(in oklch, ${ITEM_SPRITE_BLUE}, var(--color-ink) 46%)`,
+    line: `color-mix(in oklch, ${ITEM_SPRITE_BLUE}, var(--color-ink) 62%)`,
+    light: `color-mix(in oklch, ${ITEM_SPRITE_BLUE}, var(--color-surface) 50%)`,
+    band: `color-mix(in oklch, ${ITEM_SPRITE_BLUE}, var(--color-surface) 84%)`,
   },
   slate: {
     top: "var(--color-ink-faint)",
@@ -69,20 +71,20 @@ const PALETTES: Record<ItemColorFamily, Palette> = {
     band: "var(--color-surface-alt)",
   },
   purple: {
-    top: "color-mix(in oklch, var(--color-info), var(--color-accent) 32%)",
-    front: "color-mix(in oklch, var(--color-info), var(--color-ink) 34%)",
-    side: "color-mix(in oklch, var(--color-info), var(--color-ink) 48%)",
-    dark: "color-mix(in oklch, var(--color-info), var(--color-ink) 62%)",
-    line: "color-mix(in oklch, var(--color-info), var(--color-ink) 72%)",
-    light: "color-mix(in oklch, var(--color-info-soft), var(--color-accent-soft) 40%)",
-    band: "color-mix(in oklch, var(--color-info-soft), var(--color-accent-soft) 62%)",
+    top: `color-mix(in oklch, ${ITEM_SPRITE_BLUE}, var(--color-accent) 32%)`,
+    front: `color-mix(in oklch, ${ITEM_SPRITE_BLUE}, var(--color-ink) 34%)`,
+    side: `color-mix(in oklch, ${ITEM_SPRITE_BLUE}, var(--color-ink) 48%)`,
+    dark: `color-mix(in oklch, ${ITEM_SPRITE_BLUE}, var(--color-ink) 62%)`,
+    line: `color-mix(in oklch, ${ITEM_SPRITE_BLUE}, var(--color-ink) 72%)`,
+    light: `color-mix(in oklch, ${ITEM_SPRITE_BLUE}, var(--color-accent-soft) 40%)`,
+    band: `color-mix(in oklch, ${ITEM_SPRITE_BLUE}, var(--color-accent-soft) 62%)`,
   },
   red: {
     top: "var(--color-danger)",
-    front: "color-mix(in oklch, var(--color-danger), var(--status-danger-ink) 20%)",
-    side: "color-mix(in oklch, var(--color-danger), var(--status-danger-ink) 36%)",
-    dark: "var(--status-danger-ink)",
-    line: "color-mix(in oklch, var(--status-danger-ink), var(--color-ink) 42%)",
+    front: "color-mix(in oklch, var(--color-danger), var(--status-danger-solid-ink) 20%)",
+    side: "color-mix(in oklch, var(--color-danger), var(--status-danger-solid-ink) 36%)",
+    dark: "var(--status-danger-solid-ink)",
+    line: "color-mix(in oklch, var(--status-danger-solid-ink), var(--color-ink) 42%)",
     light: "color-mix(in oklch, var(--color-danger), var(--color-surface) 48%)",
     band: "var(--color-danger-soft)",
   },

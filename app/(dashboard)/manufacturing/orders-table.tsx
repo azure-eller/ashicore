@@ -18,10 +18,8 @@ import {
   WorkflowStatusFilter,
   type WorkflowStatusFilterValue,
 } from "@/components/workflow-status-filter";
-import { QuantityWithUnit } from "@/components/quantity-with-unit";
 import { DateTimeText } from "@/components/date-time-text";
 import { fulfillmentStatusBlockTone } from "@/components/fulfillment-status-block";
-import { clampProgressPercent, ProgressMeter } from "@/components/progress-meter";
 import { StatusDetailMenuTable } from "@/components/status-detail-menu-table";
 import { Button } from "@/components/ui/button";
 import {
@@ -57,8 +55,6 @@ import {
   type SalesProductionFulfillmentState,
 } from "@/lib/sales/fulfillment-status";
 import {
-  MANUFACTURING_ACTUAL_QTY_TOOLTIP,
-  MANUFACTURING_PLANNED_QTY_TOOLTIP,
   MANUFACTURING_SALES_ORDER_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import type { ManufacturingOrdersPreference } from "@/lib/view-preferences";
@@ -78,22 +74,35 @@ const DEFAULT_MANUFACTURING_ORDERS_PREFERENCE: ManufacturingOrdersPreference = {
 type ManufacturingWorkflowFilterValue = WorkflowStatusFilterValue;
 const ALL_RESOURCES_FILTER = "__all";
 const NO_RESOURCE_FILTER = "__none";
+const REMOVED_MANUFACTURING_ORDER_COLUMN_IDS = new Set([
+  "plannedQuantity",
+  "actualQuantity",
+]);
 
 function keepManufacturingRankVisible(
   grid: ERPGridPersistentState | undefined
 ): ERPGridPersistentState | undefined {
   if (!grid) return undefined;
 
+  const columnOrder = grid.columnOrder as
+    | { orderedColIds?: string[] }
+    | undefined;
+  const orderedColIds = columnOrder?.orderedColIds;
+  const hasStaleColumnOrder =
+    orderedColIds?.some((colId) =>
+      REMOVED_MANUFACTURING_ORDER_COLUMN_IDS.has(colId)
+    ) || (orderedColIds != null && !orderedColIds.includes("productionProgress"));
   const hiddenColIds = grid.columnVisibility?.hiddenColIds;
-  if (!hiddenColIds?.includes("priorityRank")) {
+  if (!hasStaleColumnOrder && !hiddenColIds?.includes("priorityRank")) {
     return grid;
   }
 
   return {
     ...grid,
+    ...(hasStaleColumnOrder ? { columnOrder: undefined } : {}),
     columnVisibility: {
       ...grid.columnVisibility,
-      hiddenColIds: hiddenColIds.filter((colId) => colId !== "priorityRank"),
+      hiddenColIds: (hiddenColIds ?? []).filter((colId) => colId !== "priorityRank"),
     },
   };
 }
@@ -125,93 +134,6 @@ function getOrderResourceFilterKeys(order: ManufacturingOrderListRow) {
   }
 
   return order.operationResources.map(getResourceFilterKey);
-}
-
-function PlannedQuantityCell({ order }: { order: ManufacturingOrderListRow }) {
-  return (
-    <div className="flex min-w-0 items-center">
-      <QuantityWithUnit value={order.plannedQuantity} unitName={order.unitName} />
-    </div>
-  );
-}
-
-function getOutputProgress(order: ManufacturingOrderListRow) {
-  const planned = Number(order.plannedQuantity);
-  const actual = Number(order.actualQuantity ?? "0");
-  if (!Number.isFinite(planned) || planned <= 0 || !Number.isFinite(actual) || actual <= 0) {
-    return null;
-  }
-
-  return {
-    percent: clampProgressPercent((actual / planned) * 100),
-    label: `${formatQuantity(order.actualQuantity ?? "0")}/${formatQuantity(order.plannedQuantity)} ${order.unitName} produced`,
-  };
-}
-
-function getOrderProgress(order: ManufacturingOrderListRow) {
-  if (order.status === "done") {
-    return { percent: 100, label: "Complete" };
-  }
-
-  const outputProgress = getOutputProgress(order);
-
-  if (order.manufacturingMode === "batch") {
-    const totalBatchCount = order.numberOfBatches ?? 0;
-    const batchPercent =
-      totalBatchCount > 0
-        ? (order.completedBatchCount / totalBatchCount) * 100
-        : order.pickProgressPercent;
-    const outputPercent = outputProgress?.percent ?? 0;
-    const useOutputProgress = outputProgress != null && outputPercent > batchPercent;
-
-    return {
-      percent: clampProgressPercent(useOutputProgress ? outputPercent : batchPercent),
-      label: useOutputProgress
-        ? outputProgress.label
-        : totalBatchCount > 0
-          ? `${order.completedBatchCount}/${totalBatchCount} batches`
-          : "Progress",
-    };
-  }
-
-  if (outputProgress) {
-    return outputProgress;
-  }
-
-  if (order.pickProgressStatus === "picked") {
-    return { percent: 75, label: "Picked" };
-  }
-
-  return {
-    percent: clampProgressPercent(order.pickProgressPercent),
-    label:
-      order.pickProgressPercent > 0
-        ? `${clampProgressPercent(order.pickProgressPercent)}% picked`
-        : "Progress",
-  };
-}
-
-function ProductionProgressBar({ order }: { order: ManufacturingOrderListRow }) {
-  const progress = getOrderProgress(order);
-  const batchCount =
-    order.manufacturingMode === "batch" ? order.numberOfBatches ?? 0 : 0;
-  const actualQuantity = Number(order.actualQuantity ?? "0");
-  const showBatchSegments =
-    batchCount > 1 &&
-    (!Number.isFinite(actualQuantity) ||
-      actualQuantity <= 0 ||
-      progress.percent <= clampProgressPercent(
-        (order.completedBatchCount / batchCount) * 100
-      ));
-
-  return (
-    <ProgressMeter
-      label={progress.label}
-      percent={progress.percent}
-      segmentCount={showBatchSegments ? batchCount : undefined}
-      completedSegmentCount={order.completedBatchCount}
-    />
-  );
 }
 
 function getIngredientState(order: ManufacturingOrderListRow): FulfillmentDisplayState {
@@ -288,13 +210,20 @@ function ProductionActionCell({ order }: { order: ManufacturingOrderListRow }) {
       config={manufacturingOrderStatusConfig}
       ctx={{ order }}
       disabled={isManufacturingStatusDisabled(order)}
-      footer={<ProductionProgressBar order={order} />}
       actionVariant="button"
       onChanged={() => {
         void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
         void queryClient.invalidateQueries({ queryKey: ["items"] });
       }}
     />
+  );
+}
+
+function ProductionProgressCell({ order }: { order: ManufacturingOrderListRow }) {
+  return (
+    <span className="font-mono text-[length:var(--text-sm)] font-semibold tabular-nums text-[var(--color-ink)]">
+      {formatQuantity(order.actualQuantity ?? "0")}/{formatQuantity(order.plannedQuantity)}
+    </span>
   );
 }
 
@@ -532,18 +461,6 @@ export function OrdersTable({
         valueFormatter: ({ value }) => value ?? "—",
       },
       {
-        field: "plannedQuantity",
-        headerName: "Planned",
-        headerTooltip: MANUFACTURING_PLANNED_QTY_TOOLTIP,
-        width: 156,
-        minWidth: 150,
-        cellClass: "num",
-        comparator: (left, right) =>
-          parseFloat(String(left ?? "0")) - parseFloat(String(right ?? "0")),
-        cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
-          data ? <PlannedQuantityCell order={data} /> : null,
-      },
-      {
         field: "ingredientReadiness",
         headerName: "Ingredients",
         width: 170,
@@ -574,26 +491,27 @@ export function OrdersTable({
         },
       },
       {
-        field: "actualQuantity",
-        headerName: "Actual",
-        headerTooltip: MANUFACTURING_ACTUAL_QTY_TOOLTIP,
-        width: 130,
+        colId: "productionProgress",
+        headerName: "Progress",
+        width: 170,
+        minWidth: 150,
         cellClass: "num",
+        valueGetter: ({ data }) =>
+          data ? `${data.actualQuantity ?? "0"} / ${data.plannedQuantity}` : "",
+        comparator: (_left, _right, leftNode, rightNode) => {
+          const leftPlanned = Number(leftNode.data?.plannedQuantity ?? "0");
+          const rightPlanned = Number(rightNode.data?.plannedQuantity ?? "0");
+          const leftActual = Number(leftNode.data?.actualQuantity ?? "0");
+          const rightActual = Number(rightNode.data?.actualQuantity ?? "0");
+          const leftRatio =
+            Number.isFinite(leftPlanned) && leftPlanned > 0 ? leftActual / leftPlanned : 0;
+          const rightRatio =
+            Number.isFinite(rightPlanned) && rightPlanned > 0 ? rightActual / rightPlanned : 0;
+
+          return leftRatio - rightRatio;
+        },
         cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
-          data?.actualQuantity != null ? (
-            <QuantityWithUnit
-              value={data.actualQuantity}
-              unitName={data.unitName}
-            />
-          ) : (
-            "—"
-          ),
-      },
-      {
-        field: "plannedDate",
-        headerName: "Production deadline",
-        width: 150,
-        valueFormatter: ({ value }) => formatDate(value as string | null),
+          data ? <ProductionProgressCell order={data} /> : null,
       },
       {
         field: "completedAt",
@@ -602,6 +520,12 @@ export function OrdersTable({
         hide: statusFilter !== "done",
         cellRenderer: ({ data }: ICellRendererParams<ManufacturingOrderListRow>) =>
           data ? <DateTimeText value={data.completedAt} /> : null,
+      },
+      {
+        field: "plannedDate",
+        headerName: "Production deadline",
+        width: 150,
+        valueFormatter: ({ value }) => formatDate(value as string | null),
       },
     ],
     [reorderAvailable, statusFilter]

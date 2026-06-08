@@ -5,7 +5,6 @@ import {
   onboardingStepIndex,
 } from "@/components/onboarding-stepper";
 import { OnboardingSplit } from "@/components/onboarding-rail";
-import { onboardingFontVariables } from "@/lib/onboarding/fonts";
 import { cn } from "@/lib/utils";
 
 type OnboardingAuthStep = "account" | "workspace" | "invite";
@@ -40,7 +39,6 @@ export function OnboardingAuthShell({
   return (
     <div
       className={cn(
-        onboardingFontVariables,
         "onboarding-flow-screen flex min-h-svh flex-col",
         className,
       )}

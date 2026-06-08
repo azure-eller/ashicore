@@ -60,9 +60,9 @@ type StatusBlockActionableProps = StatusBlockBaseProps & {
 type StatusBlockProps = StatusBlockDerivedProps | StatusBlockActionableProps;
 
 const TONE_FG: Record<StatusBlockTone, string> = {
-  success: "var(--status-success-ink)",
-  warning: "var(--status-warning-ink)",
-  danger: "var(--status-danger-ink)",
+  success: "var(--status-success-solid-ink)",
+  warning: "var(--status-warning-solid-ink)",
+  danger: "var(--status-danger-solid-ink)",
   muted: "var(--status-muted-ink)",
 };
 

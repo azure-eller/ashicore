@@ -1,11 +1,123 @@
 /* ============================================================================
-   Onboarding flow — structural styles, ported from the v2 design handoff
-   (apps/www marketing language: Space Grotesk / Hanken / JetBrains Mono,
-   yellow + cool grey). Every class is `ob-`-prefixed and reads the --ob-*
-   tokens defined on `.onboarding-flow-screen` in globals.css, so nothing here
-   leaks into the rest of the app. Markup mirrors reference/ob-*.jsx; logic and
-   fields are unchanged (visual re-skin only).
+   Onboarding flow — scoped marketing-style design island.
+
+   `.onboarding-flow-screen` is the root class on every onboarding screen across
+   the (auth) sign-up phase and the (onboarding) import phase. Redefining the
+   shadcn semantic tokens here re-skins reused components without touching the
+   authenticated ERP app's sapphire rounded-corner system.
    ============================================================================ */
+
+@keyframes onboarding-flow-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.onboarding-flow-screen {
+  --ob-bg: var(--color-surface);
+  --ob-bg-2: var(--color-surface-alt);
+  --ob-surface: var(--paint-white);
+  --ob-ink: var(--color-ink);
+  --ob-ink-soft: var(--color-ink-soft);
+  --ob-ink-faint: var(--color-ink-faint);
+  --ob-line: var(--color-line);
+  --ob-line-soft: var(--color-line-soft);
+
+  --ob-ground: var(--paint-ink);
+  --ob-ground-2: var(--paint-chrome);
+  --ob-on-ground: var(--paint-white);
+  --ob-on-ground-soft: color-mix(in oklch, var(--paint-white), var(--paint-chrome) 28%);
+  --ob-ground-line: color-mix(in oklch, var(--paint-chrome), var(--paint-white) 12%);
+
+  --ob-accent: var(--paint-yellow);
+  --ob-accent-ink: var(--color-accent-ink);
+  --ob-accent-2: var(--color-accent-hover);
+  --ob-accent-soft: var(--color-accent-soft);
+  --ob-on-accent: var(--color-accent-text);
+
+  --ob-green: var(--paint-green);
+  --ob-green-bg: var(--color-success-soft);
+  --ob-amber: var(--paint-yellow);
+  --ob-amber-bg: var(--color-warning-soft);
+  --ob-red: var(--paint-red);
+  --ob-red-bg: var(--color-danger-soft);
+  --ob-blue: var(--paint-chrome);
+  --ob-violet: var(--color-accent-press);
+
+  --ob-r-sm: 8px;
+  --ob-r-md: 14px;
+  --ob-r-lg: 22px;
+  --ob-r-xl: 32px;
+  --ob-shadow-sm: var(--shadow-sm);
+  --ob-shadow-md: var(--shadow-md);
+  --ob-shadow-lg: var(--shadow-grid-card);
+  --ob-topbar-h: 64px;
+
+  --background: var(--ob-bg);
+  --foreground: var(--ob-ink);
+  --card: var(--ob-surface);
+  --card-foreground: var(--ob-ink);
+  --popover: var(--ob-surface);
+  --popover-foreground: var(--ob-ink);
+  --primary: var(--ob-accent);
+  --primary-foreground: var(--ob-on-accent);
+  --secondary: var(--ob-bg-2);
+  --secondary-foreground: var(--ob-ink);
+  --muted: var(--ob-bg-2);
+  --muted-foreground: var(--ob-ink-soft);
+  --accent: var(--ob-accent-soft);
+  --accent-foreground: var(--ob-accent-ink);
+  --destructive: var(--ob-red);
+  --success: var(--ob-green);
+  --warning: var(--ob-amber);
+  --info: var(--ob-blue);
+  --border: var(--ob-line);
+  --input: var(--ob-line);
+  --ring: var(--ob-accent);
+
+  --radius-none: 12px;
+  --radius: 12px;
+  --radius-full: 9999px;
+
+  background: var(--ob-bg);
+  color: var(--ob-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  opacity: 1;
+  transform: translateY(0);
+  animation: onboarding-flow-enter 500ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.onboarding-guide-line {
+  opacity: 1;
+  transform: translateY(0);
+  animation: onboarding-flow-enter 500ms cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-flow-screen,
+  .onboarding-guide-line {
+    animation: none;
+  }
+}
+
+.onboarding-flow-screen .ob-mono {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ob-ink-faint);
+}
+
+.onboarding-flow-screen .ob-display {
+  font-family: var(--font-display);
+  letter-spacing: -0.03em;
+}
 
 /* ---- Top bar ---- */
 .ob-topbar {

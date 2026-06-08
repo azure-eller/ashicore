@@ -8,7 +8,7 @@ lane and not a CI gate.
 
 Before judging pixels, resolve the current theme from:
 
-- `app/globals.css`
+- `app/styles/theme.css`
 - `docs/design/README.md`
 - `docs/design/foundations.md`
 - `docs/design/tokens.md`
@@ -56,7 +56,7 @@ tokens, tokenized radii, and HugeIcons only.
 - Actions: destructive, disabled, primary, and secondary actions are visually
   distinct without relying on hardcoded colors.
 - Tokens: colors use semantic classes/tokens; spacing, sizing, type, and radii
-  use app tokens from `app/globals.css`.
+  use app tokens from `app/styles/theme.css`.
 - Icons: HugeIcons only.
 - Ignore data-dependent noise such as current dates, relative times, and Paonia
   ordering unless the change directly touched that behavior.

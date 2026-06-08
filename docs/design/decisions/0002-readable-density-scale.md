@@ -10,7 +10,7 @@ date: 2026-06-07
 
 ## Decision
 
-The ERP uses readable dense sizing from `app/globals.css`, not the original compact prototype scale.
+The ERP uses readable dense sizing from `app/styles/theme.css`, not the original compact prototype scale.
 
 ## Context
 

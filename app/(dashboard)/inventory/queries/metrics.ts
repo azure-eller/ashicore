@@ -1,6 +1,13 @@
 import { normalizeNumericScale } from "@/lib/format";
 import type { ItemRow } from "../types";
 
+// Margin strength is relative by org; keep the neutral middle band broad so
+// high-margin catalogs do not label ordinary margins as low.
+const LOW_MARGIN_PERCENTILE = 0.2;
+const HIGH_MARGIN_PERCENTILE = 0.6;
+const SMALL_SAMPLE_LOW_MARGIN = 20;
+const SMALL_SAMPLE_HIGH_MARGIN = 40;
+
 export function parseNumeric(value: string | null | undefined): number {
   if (value == null) {
     return 0;
@@ -43,45 +50,57 @@ export function formatAverageMargin(values: number[]) {
 
 export function applyMarginTiers(rows: ItemRow[]) {
   const allRows = rows.flatMap((row) => [row, ...(row.subRows ?? [])]);
-  const marginValues = allRows
+  const nonNegativeMargins = allRows
     .map((row) => row.marginPercent)
     .filter((value): value is string => value != null)
     .map((value) => Number.parseFloat(value))
-    .filter((value) => Number.isFinite(value));
-  const nonNegativeMargins = marginValues
-    .filter((value) => value >= 0)
+    .filter((value) => Number.isFinite(value) && value >= 0)
     .sort((a, b) => a - b);
   const hasRelativeBands = nonNegativeMargins.length >= 3;
   const lowCutoff = hasRelativeBands
-    ? nonNegativeMargins[Math.floor((nonNegativeMargins.length - 1) / 3)]
-    : 20;
+    ? percentile(nonNegativeMargins, LOW_MARGIN_PERCENTILE)
+    : SMALL_SAMPLE_LOW_MARGIN;
   const highCutoff = hasRelativeBands
-    ? nonNegativeMargins[Math.ceil(((nonNegativeMargins.length - 1) * 2) / 3)]
-    : 40;
+    ? percentile(nonNegativeMargins, HIGH_MARGIN_PERCENTILE)
+    : SMALL_SAMPLE_HIGH_MARGIN;
 
   return rows.map((row) => applyMarginTier(row, lowCutoff, highCutoff));
 }
 
+function percentile(values: number[], percentileValue: number) {
+  if (values.length === 0) {
+    return null;
+  }
+
+  const index = Math.min(
+    values.length - 1,
+    Math.max(0, Math.ceil((values.length - 1) * percentileValue))
+  );
+  return values[index];
+}
+
 function applyMarginTier(
   row: ItemRow,
-  lowCutoff: number,
-  highCutoff: number,
+  lowCutoff: number | null,
+  highCutoff: number | null
 ): ItemRow {
   const margin = row.marginPercent != null ? Number.parseFloat(row.marginPercent) : Number.NaN;
   const marginTier = !Number.isFinite(margin)
     ? null
     : margin < 0
       ? "negative"
-      : margin <= lowCutoff
+      : lowCutoff != null && margin <= lowCutoff
         ? "low"
-        : margin >= highCutoff
+        : highCutoff != null && margin >= highCutoff
           ? "high"
           : "mid";
 
   return {
     ...row,
     marginTier,
-    subRows: row.subRows?.map((subRow) => applyMarginTier(subRow, lowCutoff, highCutoff)),
+    subRows: row.subRows?.map((subRow) =>
+      applyMarginTier(subRow, lowCutoff, highCutoff)
+    ),
   };
 }
 

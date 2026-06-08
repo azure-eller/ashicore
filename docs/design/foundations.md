@@ -15,12 +15,14 @@ The ERP UI should feel operational, dense, calm, and durable. Users scan rows, c
 
 Use readable density by default. The system intentionally favors more rows and less ceremony than marketing UI, but it must remain scannable for real customer, order, inventory, and manufacturing data.
 
-Use shared height and spacing tokens from [app/globals.css](../../app/globals.css). Do not tune row height, toolbar height, or input height per page unless a new shared token or component variant is warranted.
+Use shared height and spacing tokens from [app/styles/theme.css](../../app/styles/theme.css). Do not tune row height, toolbar height, or input height per page unless a new shared token or component variant is warranted.
 
 ## Color Semantics
 
 Use color to encode state and hierarchy, not decoration.
 
+- Raw color values are limited to the primitive paint palette in `app/styles/theme.css`: white, ink, chrome grey, table/header grey, accent yellow, success green, and danger red.
+- Components use semantic aliases (`--color-*`, `--status-*`, `--chrome-*`, shadcn bridge tokens) instead of referencing primitive paints directly.
 - `--color-accent` is the single product accent for primary actions, active navigation, focus, and selected controls.
 - Success means ready, complete, available, shipped, or healthy.
 - Warning means expected, partial, in progress, or needs attention.
@@ -31,13 +33,13 @@ Do not invent local palettes. If a state does not fit the existing semantic set,
 
 ## Typography Roles
 
-Use the shared font variables from [app/globals.css](../../app/globals.css).
+Use the shared font variables from [app/styles/theme.css](../../app/styles/theme.css).
 
 - Display font: brand wordmark only.
 - Body/UI font: prose, nav, controls, labels, customer names, notes, and readable words.
 - Mono font: IDs, totals, dates, counts, quantities, and other tabular data.
 
-If a component needs a new size, add a named token in `app/globals.css` and reference the token. Do not scatter one-off text sizes.
+If a component needs a new size, add a named token in `app/styles/theme.css` and reference the token. Do not scatter one-off text sizes.
 
 ## Corners
 
