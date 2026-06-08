@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 
 export function NotesField({
   label = "Notes",
+  hideLabel,
   value,
   disabled,
   readOnlyValue,
@@ -21,6 +22,7 @@ export function NotesField({
   onCommit,
 }: {
   label?: string;
+  hideLabel?: boolean;
   value: string | null | undefined;
   disabled?: boolean;
   readOnlyValue?: boolean;
@@ -40,10 +42,13 @@ export function NotesField({
     setDraft(normalizedValue);
   }, [normalizedValue]);
 
+  const controlLabel = hideLabel && typeof label === "string" ? label : undefined;
+
   return (
-    <CardField label={label} htmlFor={id}>
+    <CardField label={label} htmlFor={id} hideLabel={hideLabel}>
       {readOnlyValue ? (
         <InsetPanel
+          aria-label={controlLabel}
           className={cn(
             "min-h-36 whitespace-pre-wrap p-(--space-4) text-[length:var(--text-md)] leading-[var(--leading-md)]",
             readOnlyClassName,
@@ -54,6 +59,7 @@ export function NotesField({
       ) : (
         <Textarea
           id={id}
+          aria-label={controlLabel}
           className={cn("min-h-36 text-[length:var(--text-md)] leading-[var(--leading-md)]", className)}
           value={draft}
           disabled={disabled}

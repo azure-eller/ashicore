@@ -182,12 +182,12 @@ export const purchaseOrders = purchasingSchema
         table.organizationId,
         table.id
       ),
-      uniqueIndex("purchase_orders_org_parent_freight_supplier_uidx")
+      uniqueIndex("purchase_orders_org_parent_additional_cost_supplier_uidx")
         .on(table.organizationId, table.parentPurchaseOrderId, table.supplierId)
-        .where(sql`type = 'freight' AND deleted_at IS NULL`),
+        .where(sql`type = 'additional_cost' AND deleted_at IS NULL`),
       check(
         "purchase_orders_type_check",
-        sql`type IN ('standard', 'freight')`
+        sql`type IN ('standard', 'additional_cost')`
       ),
       check(
         "purchase_orders_purchase_bill_manual_status_check",
@@ -195,7 +195,7 @@ export const purchaseOrders = purchasingSchema
       ),
       check(
         "purchase_orders_parent_type_check",
-        sql`(type = 'standard' AND parent_purchase_order_id IS NULL) OR (type = 'freight' AND parent_purchase_order_id IS NOT NULL)`
+        sql`(type = 'standard' AND parent_purchase_order_id IS NULL) OR (type = 'additional_cost' AND parent_purchase_order_id IS NOT NULL)`
       ),
       foreignKey({
         columns: [table.parentPurchaseOrderId],
@@ -323,7 +323,7 @@ export const purchaseOrderAdditionalCosts = purchasingSchema
       purchaseOrderId: uuid("purchase_order_id")
         .notNull()
         .references(() => purchaseOrders.id, { onDelete: "cascade" }),
-      vendorOverrideSupplierId: uuid("vendor_override_supplier_id").references(
+      supplierId: uuid("supplier_id").references(
         () => suppliers.id,
         { onDelete: "set null" }
       ),
@@ -341,8 +341,8 @@ export const purchaseOrderAdditionalCosts = purchasingSchema
     (table) => [
       index("purchase_order_additional_costs_org_id_idx").on(table.organizationId),
       index("purchase_order_additional_costs_order_id_idx").on(table.purchaseOrderId),
-      index("purchase_order_additional_costs_vendor_override_idx").on(
-        table.vendorOverrideSupplierId
+      index("purchase_order_additional_costs_supplier_id_idx").on(
+        table.supplierId
       ),
       check(
         "purchase_order_additional_costs_type_check",
@@ -354,9 +354,9 @@ export const purchaseOrderAdditionalCosts = purchasingSchema
       ),
       check("purchase_order_additional_costs_amount_check", sql`amount >= 0`),
       foreignKey({
-        columns: [table.organizationId, table.vendorOverrideSupplierId],
+        columns: [table.organizationId, table.supplierId],
         foreignColumns: [suppliers.organizationId, suppliers.id],
-        name: "purchase_order_additional_costs_vendor_override_org_fk",
+        name: "purchase_order_additional_costs_supplier_org_fk",
       }),
       pgPolicy("purchase_order_additional_costs_org_isolation", {
         for: "all",

@@ -14,7 +14,6 @@ export const PURCHASE_ORDER_STATUSES = [
   "ordered",
   "partial",
   "received",
-  "cancelled",
 ] as const;
 
 export type PurchaseOrderStatus = (typeof PURCHASE_ORDER_STATUSES)[number];
@@ -56,7 +55,7 @@ const rawLineSchema = z.object({
 const rawAdditionalCostSchema = z.object({
   costType: z.enum(PURCHASE_ORDER_ADDITIONAL_COST_TYPES).default("shipping"),
   reference: nullableString,
-  vendorOverrideSupplierId: nullableString.optional(),
+  supplierId: nullableString.optional(),
   distributionMethod: z
     .enum(PURCHASE_ORDER_ADDITIONAL_COST_DISTRIBUTION_METHODS)
     .default("by_value"),
@@ -157,16 +156,16 @@ const cleanedAdditionalCostsSchema = z
   .superRefine((costs, ctx) => {
     costs.forEach((cost, index) => {
       const amount = cost.amount?.trim() ?? "";
-      const vendorOverrideSupplierId =
-        cost.vendorOverrideSupplierId?.trim() ?? "";
+      const supplierId =
+        cost.supplierId?.trim() ?? "";
       if (
-        vendorOverrideSupplierId &&
-        !z.string().uuid().safeParse(vendorOverrideSupplierId).success
+        supplierId &&
+        !z.string().uuid().safeParse(supplierId).success
       ) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "Invalid vendor",
-          path: [index, "vendorOverrideSupplierId"],
+          message: "Invalid supplier",
+          path: [index, "supplierId"],
         });
       }
 
@@ -232,7 +231,6 @@ const basePurchaseOrderSchema = createInsertSchema(purchaseOrders, {
   totalAmount: true,
   orderedAt: true,
   receivedAt: true,
-  cancelledAt: true,
   deletedAt: true,
   createdAt: true,
   updatedAt: true,

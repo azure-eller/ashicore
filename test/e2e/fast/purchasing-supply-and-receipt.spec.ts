@@ -15,8 +15,11 @@ import {
   purchaseOrderLines,
   purchaseOrders,
 } from "../../../lib/db/schema";
-import { groupPurchaseOrderByResolvedVendor } from "../../../lib/purchasing/resolved-vendor-groups";
-import { waitForOutboxEmail } from "../../helpers/email-outbox";
+import { groupPurchaseOrderByResolvedSupplier } from "../../../lib/purchasing/resolved-supplier-groups";
+import {
+  findOutboxEmails,
+  waitForOutboxEmail,
+} from "../../helpers/email-outbox";
 import { TEST_ACCOUNT_ORG_NAME } from "../../helpers/test-account";
 import {
   createItem,
@@ -545,8 +548,8 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     );
   });
 
-  test("resolved vendor grouping collapses supplier overrides and splits carrier costs", async () => {
-    const groups = groupPurchaseOrderByResolvedVendor({
+  test("resolved supplier grouping collapses supplier overrides and splits supplier costs", async () => {
+    const groups = groupPurchaseOrderByResolvedSupplier({
       purchaseOrderSupplier: {
         id: "supplier-a",
         name: "Supplier A",
@@ -557,9 +560,9 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       ]),
       lines: [{ id: "line-1" }],
       additionalCosts: [
-        { id: "cost-supplier", vendorOverrideSupplierId: "supplier-a" },
-        { id: "cost-carrier-a", vendorOverrideSupplierId: "carrier-a" },
-        { id: "cost-carrier-b", vendorOverrideSupplierId: "carrier-b" },
+        { id: "cost-supplier", supplierId: "supplier-a" },
+        { id: "cost-carrier-a", supplierId: "carrier-a" },
+        { id: "cost-carrier-b", supplierId: "carrier-b" },
       ],
     });
 
@@ -571,13 +574,13 @@ test.describe("purchasing supply and receipt heartbeat", () => {
         additionalCosts: [{ id: "cost-supplier" }],
       },
       {
-        key: "freight:carrier-a",
+        key: "additional-cost:carrier-a",
         isPurchaseOrderSupplier: false,
         lines: [],
         additionalCosts: [{ id: "cost-carrier-a" }],
       },
       {
-        key: "freight:carrier-b",
+        key: "additional-cost:carrier-b",
         isPurchaseOrderSupplier: false,
         lines: [],
         additionalCosts: [{ id: "cost-carrier-b" }],
@@ -585,7 +588,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     ]);
   });
 
-  test("freight purchase orders reconcile to current carrier cost groups", async ({ db }) => {
+  test("additional-cost purchase orders reconcile to current supplier cost groups", async ({ db }) => {
     const material = await createItem({
       itemType: "material",
       name: `Fast PO Freight Material ${ts}`,
@@ -621,7 +624,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
           {
             costType: "shipping",
             reference: "Freight",
-            vendorOverrideSupplierId: carrier.body.id,
+            supplierId: carrier.body.id,
             distributionMethod: "by_value",
             accountingPurchaseAccountCode: null,
             amount: "12.00",
@@ -633,13 +636,13 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     expect(createResponse.status).toBe(201);
 
     const firstFreightResponse = await testFetch(
-      `/api/purchase-orders/${order.id}/freight-pos`,
+      `/api/purchase-orders/${order.id}/additional-cost-pos`,
       { method: "POST" },
     );
     const firstFreightBody = await firstFreightResponse.json();
     expect(firstFreightResponse.status).toBe(200);
-    expect(firstFreightBody.freightPurchaseOrders).toHaveLength(1);
-    const freightOrderId = firstFreightBody.freightPurchaseOrders[0].id;
+    expect(firstFreightBody.additionalCostPurchaseOrders).toHaveLength(1);
+    const freightOrderId = firstFreightBody.additionalCostPurchaseOrders[0].id;
 
     const updateResponse = await testFetch(`/api/purchase-orders/${order.id}`, {
       method: "PUT",
@@ -659,7 +662,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
           {
             costType: "shipping",
             reference: "Freight",
-            vendorOverrideSupplierId: carrier.body.id,
+            supplierId: carrier.body.id,
             distributionMethod: "by_value",
             accountingPurchaseAccountCode: null,
             amount: "18.00",
@@ -670,12 +673,12 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     expect(updateResponse.status, await updateResponse.text()).toBe(200);
 
     const secondFreightResponse = await testFetch(
-      `/api/purchase-orders/${order.id}/freight-pos`,
+      `/api/purchase-orders/${order.id}/additional-cost-pos`,
       { method: "POST" },
     );
     const secondFreightBody = await secondFreightResponse.json();
     expect(secondFreightResponse.status).toBe(200);
-    expect(secondFreightBody.freightPurchaseOrders[0].id).toBe(freightOrderId);
+    expect(secondFreightBody.additionalCostPurchaseOrders[0].id).toBe(freightOrderId);
 
     const [updatedFreight] = await db
       .select({
@@ -708,12 +711,12 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     });
     expect(clearResponse.status, await clearResponse.text()).toBe(200);
     const clearedFreightResponse = await testFetch(
-      `/api/purchase-orders/${order.id}/freight-pos`,
+      `/api/purchase-orders/${order.id}/additional-cost-pos`,
       { method: "POST" },
     );
     const clearedFreightBody = await clearedFreightResponse.json();
     expect(clearedFreightResponse.status).toBe(200);
-    expect(clearedFreightBody.freightPurchaseOrders).toHaveLength(0);
+    expect(clearedFreightBody.additionalCostPurchaseOrders).toHaveLength(0);
 
     const [deletedFreight] = await db
       .select({ deletedAt: purchaseOrders.deletedAt })
@@ -722,7 +725,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     expect(deletedFreight.deletedAt).not.toBeNull();
   });
 
-  test("supplier delete is blocked while used as an active carrier override", async () => {
+  test("supplier delete is blocked while used as an active supplier override", async () => {
     const material = await createItem({
       itemType: "material",
       name: `Fast PO Carrier Delete Material ${ts}`,
@@ -762,7 +765,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
           {
             costType: "shipping",
             reference: "Freight",
-            vendorOverrideSupplierId: carrier.body.id,
+            supplierId: carrier.body.id,
             distributionMethod: "by_value",
             accountingPurchaseAccountCode: null,
             amount: "12.00",
@@ -778,11 +781,11 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     const body = await deleteResponse.json();
     expect(deleteResponse.status).toBe(400);
     expect(body.error).toBe(
-      "Cannot delete supplier used as a carrier on active draft, ordered, or partially received purchase orders.",
+      "Cannot delete supplier used as a supplier on active draft, ordered, or partially received purchase orders.",
     );
   });
 
-  test("freight purchase orders are not created from terminal parent orders", async ({ db }) => {
+  test("additional-cost purchase orders are not created from terminal parent orders", async ({ db }) => {
     const material = await createItem({
       itemType: "material",
       name: `Fast PO Freight Terminal Material ${ts}`,
@@ -819,7 +822,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
             {
               costType: "shipping",
               reference: "Freight",
-              vendorOverrideSupplierId: carrier.body.id,
+              supplierId: carrier.body.id,
               distributionMethod: "by_value",
               accountingPurchaseAccountCode: null,
               amount: "12.00",
@@ -832,17 +835,17 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       return body;
     };
 
-    const cancelledOrder = await createOrderWithFreight();
-    const cancelResponse = await testFetch(
-      `/api/purchase-orders/${cancelledOrder.id}/status`,
-      { method: "PATCH", body: JSON.stringify({ status: "cancelled" }) },
+    const deletedOrder = await createOrderWithFreight();
+    const deleteResponse = await testFetch(
+      `/api/purchase-orders/${deletedOrder.id}`,
+      { method: "DELETE" },
     );
-    expect(cancelResponse.status).toBe(200);
-    const cancelledFreightResponse = await testFetch(
-      `/api/purchase-orders/${cancelledOrder.id}/freight-pos`,
+    expect(deleteResponse.status).toBe(200);
+    const deletedFreightResponse = await testFetch(
+      `/api/purchase-orders/${deletedOrder.id}/additional-cost-pos`,
       { method: "POST" },
     );
-    expect(cancelledFreightResponse.status).toBe(404);
+    expect(deletedFreightResponse.status).toBe(404);
 
     const receivedOrder = await createOrderWithFreight();
     expect((await submitPurchaseOrder(receivedOrder.id)).status).toBe(200);
@@ -855,13 +858,13 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     });
     expect(receipt.status).toBe(200);
     const receivedFreightResponse = await testFetch(
-      `/api/purchase-orders/${receivedOrder.id}/freight-pos`,
+      `/api/purchase-orders/${receivedOrder.id}/additional-cost-pos`,
       { method: "POST" },
     );
     expect(receivedFreightResponse.status).toBe(404);
   });
 
-  test("linked freight purchase orders follow parent cancel and delete", async ({ db }) => {
+  test("linked additional-cost purchase orders follow parent delete", async ({ db }) => {
     const material = await createItem({
       itemType: "material",
       name: `Fast PO Freight Child Material ${ts}`,
@@ -881,7 +884,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     expect(supplier.status).toBe(201);
     expect(carrier.status).toBe(201);
 
-    const createOrderWithFreight = async (suffix: string) => {
+    const createOrderWithFreight = async () => {
       const createResponse = await testFetch("/api/purchase-orders", {
         method: "POST",
         body: JSON.stringify({
@@ -897,8 +900,8 @@ test.describe("purchasing supply and receipt heartbeat", () => {
           additionalCosts: [
             {
               costType: "shipping",
-              reference: `Freight ${suffix}`,
-              vendorOverrideSupplierId: carrier.body.id,
+              reference: "Freight",
+              supplierId: carrier.body.id,
               distributionMethod: "by_value",
               accountingPurchaseAccountCode: null,
               amount: "12.00",
@@ -909,34 +912,29 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       const order = await createResponse.json();
       expect(createResponse.status).toBe(201);
       const freightResponse = await testFetch(
-        `/api/purchase-orders/${order.id}/freight-pos`,
+        `/api/purchase-orders/${order.id}/additional-cost-pos`,
         { method: "POST" },
       );
       const freightBody = await freightResponse.json();
       expect(freightResponse.status).toBe(200);
       return {
         orderId: order.id as string,
-        freightOrderId: freightBody.freightPurchaseOrders[0].id as string,
+        freightOrderId: freightBody.additionalCostPurchaseOrders[0].id as string,
       };
     };
 
-    const cancelled = await createOrderWithFreight("cancel");
-    const cancelResponse = await testFetch(
-      `/api/purchase-orders/${cancelled.orderId}/status`,
-      { method: "PATCH", body: JSON.stringify({ status: "cancelled" }) },
+    const deleted = await createOrderWithFreight();
+    const childDeleteResponse = await testFetch(
+      `/api/purchase-orders/${deleted.freightOrderId}`,
+      { method: "DELETE" },
     );
-    expect(cancelResponse.status).toBe(200);
-    const [cancelledFreight] = await db
-      .select({
-        status: purchaseOrders.status,
-        cancelledAt: purchaseOrders.cancelledAt,
-      })
+    expect(childDeleteResponse.status).toBe(404);
+    const [activeFreight] = await db
+      .select({ deletedAt: purchaseOrders.deletedAt })
       .from(purchaseOrders)
-      .where(eq(purchaseOrders.id, cancelled.freightOrderId));
-    expect(cancelledFreight.status).toBe("cancelled");
-    expect(cancelledFreight.cancelledAt).not.toBeNull();
+      .where(eq(purchaseOrders.id, deleted.freightOrderId));
+    expect(activeFreight.deletedAt).toBeNull();
 
-    const deleted = await createOrderWithFreight("delete");
     const deleteResponse = await testFetch(
       `/api/purchase-orders/${deleted.orderId}`,
       { method: "DELETE" },
@@ -949,7 +947,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     expect(deletedFreight.deletedAt).not.toBeNull();
   });
 
-  test("submitted freight purchase orders keep ordered timestamp when reconciled", async ({ db }) => {
+  test("submitted additional-cost purchase orders keep ordered timestamp when reconciled", async ({ db }) => {
     const material = await createItem({
       itemType: "material",
       name: `Fast PO Freight Ordered Material ${ts}`,
@@ -984,7 +982,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
           {
             costType: "shipping",
             reference: "Freight",
-            vendorOverrideSupplierId: carrier.body.id,
+            supplierId: carrier.body.id,
             distributionMethod: "by_value",
             accountingPurchaseAccountCode: null,
             amount: "12.00",
@@ -996,12 +994,12 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     expect(createResponse.status).toBe(201);
     expect((await submitPurchaseOrder(order.id)).status).toBe(200);
     const firstFreightResponse = await testFetch(
-      `/api/purchase-orders/${order.id}/freight-pos`,
+      `/api/purchase-orders/${order.id}/additional-cost-pos`,
       { method: "POST" },
     );
     const firstFreightBody = await firstFreightResponse.json();
     expect(firstFreightResponse.status).toBe(200);
-    const freightOrderId = firstFreightBody.freightPurchaseOrders[0].id as string;
+    const freightOrderId = firstFreightBody.additionalCostPurchaseOrders[0].id as string;
     const [firstFreight] = await db
       .select({ orderedAt: purchaseOrders.orderedAt })
       .from(purchaseOrders)
@@ -1010,7 +1008,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 20));
     const secondFreightResponse = await testFetch(
-      `/api/purchase-orders/${order.id}/freight-pos`,
+      `/api/purchase-orders/${order.id}/additional-cost-pos`,
       { method: "POST" },
     );
     expect(secondFreightResponse.status).toBe(200);
@@ -1066,7 +1064,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
           {
             costType: "shipping",
             reference: "Freight",
-            vendorOverrideSupplierId: carrier.body.id,
+            supplierId: carrier.body.id,
             distributionMethod: "by_value",
             accountingPurchaseAccountCode: null,
             amount: "12.00",
@@ -1078,7 +1076,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     expect(createResponse.status).toBe(201);
     expect((await submitPurchaseOrder(order.id)).status).toBe(200);
     const supplierGroupKey = `supplier:${supplier.body.id}`;
-    const carrierGroupKey = `freight:${carrier.body.id}`;
+    const carrierGroupKey = `additional-cost:${carrier.body.id}`;
     await db.insert(accountingDocumentSyncs).values({
       organizationId: getOrgId(),
       provider: ACCOUNTING_PROVIDER_XERO,
@@ -1124,7 +1122,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     ]);
   });
 
-  test("purchase order email allows excluded carrier groups without an email", async () => {
+  test("purchase order email allows excluded supplier groups without an email", async () => {
     const material = await createItem({
       itemType: "material",
       name: `Fast PO Email Excluded Material ${ts}`,
@@ -1166,7 +1164,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
           {
             costType: "shipping",
             reference: "Freight",
-            vendorOverrideSupplierId: carrier.body.id,
+            supplierId: carrier.body.id,
             distributionMethod: "by_value",
             accountingPurchaseAccountCode: null,
             amount: "12.00",
@@ -1192,7 +1190,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
             message: "Supplier copy",
           },
           {
-            groupKey: `freight:${carrier.body.id}`,
+            groupKey: `additional-cost:${carrier.body.id}`,
             include: false,
             to: "",
             replyTo: "buyer@example.com",
@@ -1210,12 +1208,12 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     ]);
   });
 
-  test("purchase order email rejects cancelled purchase orders", async () => {
+  test("purchase order email keeps same-supplier additional costs on the supplier copy", async ({ db }) => {
     const material = await createItem({
       itemType: "material",
-      name: `Fast PO Email Cancelled Material ${ts}`,
+      name: `Fast PO Same Supplier Email Material ${ts}`,
       unitDefinitionId: unitId,
-      sku: `FAST-PO-EMAIL-CANCEL-${ts}`,
+      sku: `FAST-PO-SAME-SUPPLIER-EMAIL-${ts}`,
       category: `Fast Purchasing ${ts}`,
       description: null,
       defaultPurchasePrice: "10.00",
@@ -1224,9 +1222,101 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       safetyStock: "0",
       bom: [],
     });
-    const supplierEmail = `cancelled-po-email-${ts}@example.com`;
+    const supplierEmail = `same-supplier-po-${ts}@example.com`;
     const supplier = await createSupplier({
-      name: `Fast PO Email Cancelled Supplier ${ts}`,
+      name: `Fast PO Same Supplier ${ts}`,
+      email: supplierEmail,
+    });
+    expect(material.status).toBe(201);
+    expect(supplier.status).toBe(201);
+
+    const createResponse = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId: supplier.body.id,
+        expectedDate: "2026-05-15",
+        lines: [
+          {
+            itemId: material.body.id,
+            quantityOrdered: "1",
+            unitCost: "10.00",
+          },
+        ],
+        additionalCosts: [
+          {
+            costType: "other",
+            reference: "Handling",
+            supplierId: null,
+            distributionMethod: "not_distributed",
+            accountingPurchaseAccountCode: null,
+            amount: "40.00",
+          },
+        ],
+      }),
+    });
+    const order = await createResponse.json();
+    expect(createResponse.status).toBe(201);
+    expect((await submitPurchaseOrder(order.id)).status).toBe(200);
+
+    const since = Date.now();
+    const response = await testFetch(`/api/purchase-orders/${order.id}/email`, {
+      method: "POST",
+      body: JSON.stringify({
+        groups: [
+          {
+            groupKey: `supplier:${supplier.body.id}`,
+            include: true,
+            to: supplierEmail,
+            replyTo: "buyer@example.com",
+            bcc: null,
+            subject: "Supplier copy",
+            message: "Supplier copy",
+          },
+        ],
+      }),
+    });
+    const body = await response.json();
+    expect(response.status, JSON.stringify(body)).toBe(200);
+    expect(body.sent).toEqual([
+      { groupKey: `supplier:${supplier.body.id}`, recipientEmail: supplierEmail },
+    ]);
+
+    const [savedOrder] = await db
+      .select({ totalAmount: purchaseOrders.totalAmount })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, order.id));
+    expect(savedOrder.totalAmount).toBe("50.0000");
+
+    const emailEntry = await waitForOutboxEmail({
+      since,
+      tag: "purchase-order",
+      to: supplierEmail,
+    });
+    const pdfNames =
+      emailEntry.attachments
+        ?.filter((file) => file.filename.endsWith(".pdf"))
+        .map((file) => file.filename) ?? [];
+    expect(pdfNames).toHaveLength(1);
+    expect(pdfNames.some((name) => name.includes("Supplier"))).toBe(false);
+  });
+
+  test("purchase order email rejects deleted purchase orders", async () => {
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast PO Email Deleted Material ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-PO-EMAIL-DELETE-${ts}`,
+      category: `Fast Purchasing ${ts}`,
+      description: null,
+      defaultPurchasePrice: "10.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    const supplierEmail = `deleted-po-email-${ts}@example.com`;
+    const supplier = await createSupplier({
+      name: `Fast PO Email Deleted Supplier ${ts}`,
       email: supplierEmail,
     });
     expect(material.status).toBe(201);
@@ -1245,11 +1335,10 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     });
     expect(order.status).toBe(201);
 
-    const cancel = await testFetch(`/api/purchase-orders/${order.body.id}/status`, {
-      method: "PATCH",
-      body: JSON.stringify({ status: "cancelled" }),
+    const deleteResponse = await testFetch(`/api/purchase-orders/${order.body.id}`, {
+      method: "DELETE",
     });
-    expect(cancel.status).toBe(200);
+    expect(deleteResponse.status).toBe(200);
 
     const response = await testFetch(`/api/purchase-orders/${order.body.id}/email`, {
       method: "POST",
@@ -1259,18 +1348,18 @@ test.describe("purchasing supply and receipt heartbeat", () => {
             groupKey: `supplier:${supplier.body.id}`,
             include: true,
             to: supplierEmail,
-            subject: "Cancelled PO",
+            subject: "Deleted PO",
             message: "Should not send",
           },
         ],
       }),
     });
     const body = await response.json();
-    expect(response.status).toBe(409);
-    expect(body.error).toBe("Cancelled purchase orders cannot be emailed.");
+    expect(response.status).toBe(404);
+    expect(body.error).toBe("Purchase order not found.");
   });
 
-  test("purchase order email sends selected attachments per vendor group", async ({ db }) => {
+  test("purchase order email sends selected attachments per supplier group", async ({ db }) => {
     const material = await createItem({
       itemType: "material",
       name: `Fast PO Email Attachments Material ${ts}`,
@@ -1314,7 +1403,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
           {
             costType: "shipping",
             reference: "Freight",
-            vendorOverrideSupplierId: carrier.body.id,
+            supplierId: carrier.body.id,
             distributionMethod: "by_value",
             accountingPurchaseAccountCode: null,
             amount: "12.00",
@@ -1381,7 +1470,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
             attachmentFileIds: [supplierAttachment.id],
           },
           {
-            groupKey: `freight:${carrier.body.id}`,
+            groupKey: `additional-cost:${carrier.body.id}`,
             include: true,
             to: carrierEmail,
             replyTo: "buyer@example.com",
@@ -1427,6 +1516,16 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       tag: "purchase-order",
       to: carrierEmail,
     });
+    const supplierEmailEntries = await findOutboxEmails({
+      since,
+      tag: "purchase-order",
+      to: supplierEmail,
+    });
+    const carrierEmailEntries = await findOutboxEmails({
+      since,
+      tag: "purchase-order",
+      to: carrierEmail,
+    });
     const supplierAttachmentNames =
       supplierEmailEntry.attachments?.map((file) => file.filename) ?? [];
     const carrierAttachmentNames =
@@ -1440,15 +1539,19 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       expect.stringMatching(new RegExp(`^"${escapedOrgName}" <[^>]+>$`)),
     );
     expect(carrierEmailEntry.from).toBe(supplierEmailEntry.from);
+    expect(supplierEmailEntries).toHaveLength(1);
+    expect(carrierEmailEntries).toHaveLength(1);
     expect(supplierAttachmentNames).toContain("supplier-note.txt");
     expect(supplierAttachmentNames).not.toContain("carrier-note.txt");
+    expect(supplierAttachmentNames.some((name) => name.includes("Carrier"))).toBe(false);
     expect(carrierAttachmentNames).toContain("carrier-note.txt");
     expect(carrierAttachmentNames).not.toContain("supplier-note.txt");
+    expect(carrierAttachmentNames.some((name) => name.includes("Carrier"))).toBe(true);
     expect(supplierAttachmentNames.filter((name) => name.endsWith(".pdf"))).toHaveLength(1);
     expect(carrierAttachmentNames.filter((name) => name.endsWith(".pdf"))).toHaveLength(1);
   });
 
-  test("freight links and vendor overrides cannot cross organization boundaries", async ({ db }) => {
+  test("additional-cost links and supplier overrides cannot cross organization boundaries", async ({ db }) => {
     const material = await createItem({
       itemType: "material",
       name: `Fast PO Freight RLS Material ${ts}`,
@@ -1513,7 +1616,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
         await db.insert(purchaseOrderAdditionalCosts).values({
           organizationId: getOrgId(),
           purchaseOrderId: order.body.id,
-          vendorOverrideSupplierId: otherSupplierId,
+          supplierId: otherSupplierId,
           costType: "shipping",
           reference: "Cross-org carrier",
           distributionMethod: "by_value",
@@ -1528,7 +1631,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
           organizationId: getOrgId(),
           orderNumber: `BAD-F-${ts}`.slice(0, 32),
           parentPurchaseOrderId: otherParentId,
-          type: "freight",
+          type: "additional_cost",
           supplierId: supplier.body.id,
           supplierName: supplier.body.name,
         });
@@ -1541,7 +1644,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       .where(
         and(
           eq(purchaseOrders.parentPurchaseOrderId, otherParentId),
-          eq(purchaseOrders.type, "freight"),
+          eq(purchaseOrders.type, "additional_cost"),
           isNull(purchaseOrders.deletedAt),
         ),
       );

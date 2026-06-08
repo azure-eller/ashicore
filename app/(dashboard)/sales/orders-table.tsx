@@ -290,49 +290,6 @@ function RankCell({ order }: { order: SalesOrderListRow }) {
   );
 }
 
-function LastSyncStatus({ dataUpdatedAt }: { dataUpdatedAt: number }) {
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const interval = window.setInterval(() => setNow(Date.now()), 30_000);
-    return () => window.clearInterval(interval);
-  }, []);
-
-  const seconds = Math.max(0, Math.floor((now - dataUpdatedAt) / 1000));
-
-  return <span>Last sync {seconds < 30 ? "<30" : seconds}s ago</span>;
-}
-
-const SALES_ORDER_SORT_LABELS: Record<string, string> = {
-  orderNumber: "Order",
-  customerName: "Customer",
-  notes: "Notes",
-  totalAmount: "Total",
-  allocation: "Sales items",
-  ingredientsState: "Ingredients",
-  productionState: "Production",
-  deliveryState: "Delivery",
-  shipDate: "Delivery deadline",
-};
-
-function getSalesOrderSortSummary(api: GridApi<SalesOrderListRow>) {
-  const sortedColumns = api
-    .getColumnState()
-    .filter((column) => column.sort)
-    .sort((left, right) => (left.sortIndex ?? 0) - (right.sortIndex ?? 0));
-
-  if (sortedColumns.length === 0) return null;
-
-  const [primary] = sortedColumns;
-  const label = SALES_ORDER_SORT_LABELS[primary.colId] ?? primary.colId;
-  const direction = primary.sort === "desc" ? "↓" : "↑";
-  const extraCount = sortedColumns.length - 1;
-
-  return extraCount > 0
-    ? `${label} ${direction} +${extraCount}`
-    : `${label} ${direction}`;
-}
-
 export function OrdersTable({
   initialData,
 }: {
@@ -356,8 +313,7 @@ function OrdersTableContent({
   const [selectedOrders, setSelectedOrders] = useState<SalesOrderListRow[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [hasActiveSort, setHasActiveSort] = useState(false);
-  const [sortSummary, setSortSummary] = useState<string | null>(null);
-  const { data: orders = initialData, dataUpdatedAt } = useQuery({
+  const { data: orders = initialData } = useQuery({
     queryKey: ["sales-orders"],
     queryFn: () =>
       apiJson<SalesOrderListRow[]>("/api/sales-orders", {
@@ -443,17 +399,6 @@ function OrdersTableContent({
   const hasSearchFilter = searchValue.trim().length > 0;
   const reorderEnabled =
     statusFilter === "open" && !hasSearchFilter && !hasActiveSort;
-  const hasActiveFilter = statusFilter !== "open" || hasSearchFilter;
-  const filterSummary =
-    statusFilter === "done"
-      ? "Done"
-      : hasSearchFilter
-        ? "Search"
-        : "Open";
-  const defaultSortSummary = statusFilter === "open" ? "Rank" : "None";
-  const displayedSortSummary = hasActiveSort
-    ? sortSummary ?? "Sorted"
-    : defaultSortSummary;
   const gridColumns = useMemo<ColDef<SalesOrderListRow>[]>(
     () => [
       {
@@ -716,12 +661,6 @@ function OrdersTableContent({
       defaultState: { sort: null },
     });
     setHasActiveSort(false);
-    setSortSummary(null);
-  };
-  const clearFilter = () => {
-    setStatusFilter("open");
-    setSearchValue("");
-    searchInputRef.current?.blur();
   };
 
   return (
@@ -818,10 +757,6 @@ function OrdersTableContent({
         }}
         onSortChange={(nextHasActiveSort) => {
           setHasActiveSort(nextHasActiveSort);
-          const api = gridApiRef.current;
-          setSortSummary(
-            nextHasActiveSort && api ? getSalesOrderSortSummary(api) : null
-          );
         }}
         onManagedRowDragReorder={(orderedRows) => {
           if (!reorderEnabled || reorderMutation.isPending) {
@@ -835,34 +770,6 @@ function OrdersTableContent({
         height="100%"
         headerHeight={48}
         rowHeight={55}
-        statusBarContent={
-          <>
-            <span>
-              {displayedOrders.length} of {orders.length} rows
-            </span>
-            <LastSyncStatus dataUpdatedAt={dataUpdatedAt} />
-            <div className="flex-1" />
-            <button
-              type="button"
-              className="rounded-(--radius-sm) px-(--space-2) py-(--space-1) text-left transition-colors hover:bg-[var(--color-surface-alt)] hover:text-[var(--color-ink)] disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-[var(--color-ink-faint)]"
-              disabled={!hasActiveSort}
-              onClick={clearSort}
-              title={hasActiveSort ? "Clear sort" : `Default sort: ${defaultSortSummary}`}
-            >
-              Sort: {displayedSortSummary}
-            </button>
-            <button
-              type="button"
-              className="rounded-(--radius-sm) px-(--space-2) py-(--space-1) text-left transition-colors hover:bg-[var(--color-surface-alt)] hover:text-[var(--color-ink)] disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-[var(--color-ink-faint)]"
-              disabled={!hasActiveFilter}
-              onClick={clearFilter}
-              title={hasActiveFilter ? "Clear filter" : "Showing open orders"}
-            >
-              Filter: {filterSummary}
-            </button>
-            <span>v 4.12.2</span>
-          </>
-        }
       />
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>

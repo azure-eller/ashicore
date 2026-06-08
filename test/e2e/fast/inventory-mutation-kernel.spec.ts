@@ -780,8 +780,7 @@ test.describe("inventory mutation kernel heartbeat", () => {
     expect(item.status).toBe(201);
     const itemId = item.body.id as string;
 
-    await page.goto(`/inventory/materials/${itemId}`);
-    await page.getByRole("button", { name: /Lots/ }).click();
+    await page.goto(`/inventory/materials/${itemId}?tab=lots`);
     await expect(page.getByRole("heading", { name: /Lots · 5 on hand/ })).toBeVisible();
     const quantityCell = page.locator('.ag-cell[col-id="quantity"]').first();
     await expect(quantityCell).toContainText("5");

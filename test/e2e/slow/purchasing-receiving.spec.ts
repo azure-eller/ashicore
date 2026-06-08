@@ -122,6 +122,12 @@ test.describe("purchasing receiving operating story", () => {
     expect(order.status).toBe("partial");
 
     await expect(page.locator("main")).toContainText(materialName);
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "More actions" }).click();
+    await expect(
+      page.getByRole("menuitem", { name: "Delete purchase order" }),
+    ).toHaveCount(0);
+    await page.keyboard.press("Escape");
   });
 
   test("final receipt closes expected supply and leaves lot-backed stock truth", async ({

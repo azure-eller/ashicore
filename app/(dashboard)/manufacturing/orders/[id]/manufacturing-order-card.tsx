@@ -1229,6 +1229,7 @@ function NotesSection({
   return (
     <CardSection title="Notes" hint="internal only">
       <NotesField
+        hideLabel
         value={order.notes ?? ""}
         disabled={!canEdit}
         readOnlyValue={!canEdit}

@@ -501,7 +501,6 @@ function purchaseStatusOptions(status: PurchaseOrderStatus) {
 }
 
 function canPurchaseOrderTransition(from: PurchaseOrderStatus, to: PurchaseOrderStatus) {
-  if (to === "cancelled") return from === "draft" || from === "ordered";
   if (from === "draft") return to === "ordered";
   if (from === "ordered") return to === "partial" || to === "received";
   if (from === "partial") return to === "partial" || to === "received";

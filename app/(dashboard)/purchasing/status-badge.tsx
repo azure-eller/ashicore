@@ -19,7 +19,6 @@ const statusLabels: Record<PurchaseOrderStatus, string> = {
   ordered: "Ordered",
   partial: "Partially Received",
   received: "Received",
-  cancelled: "Cancelled",
 };
 
 const statusOrder: PurchaseOrderStatus[] = [
@@ -27,7 +26,6 @@ const statusOrder: PurchaseOrderStatus[] = [
   "ordered",
   "partial",
   "received",
-  "cancelled",
 ];
 
 const purchaseOrderStatusConfig = {
@@ -51,11 +49,6 @@ const purchaseOrderStatusConfig = {
     tone: "success",
     tooltip: PURCHASE_ORDER_STATUS_TOOLTIP.received,
   },
-  cancelled: {
-    label: statusLabels.cancelled,
-    tone: "danger",
-    tooltip: PURCHASE_ORDER_STATUS_TOOLTIP.cancelled,
-  },
 } satisfies StatusBadgeConfig<PurchaseOrderStatus>;
 
 function canTransitionStatus(
@@ -63,8 +56,8 @@ function canTransitionStatus(
   next: PurchaseOrderStatus,
 ) {
   if (current === next) return true;
-  if (current === "draft") return next === "ordered" || next === "cancelled";
-  if (current === "ordered") return next === "received" || next === "cancelled";
+  if (current === "draft") return next === "ordered";
+  if (current === "ordered") return next === "received";
   if (current === "partial") return next === "received";
   return false;
 }
@@ -74,9 +67,6 @@ function confirmStatusTransition(next: PurchaseOrderStatus) {
     return window.confirm(
       "Mark this PO as Received? Lines will be committed to inventory at the listed receiving locations.",
     );
-  }
-  if (next === "cancelled") {
-    return window.confirm("Cancel this PO? You can't reactivate it.");
   }
   return true;
 }

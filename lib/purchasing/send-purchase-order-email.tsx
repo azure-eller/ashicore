@@ -39,11 +39,11 @@ import {
 import { escapeHtml } from "@/lib/format";
 import type { SendPurchaseOrderEmail } from "@/lib/schemas/purchase-orders";
 import { DomainError } from "@/lib/errors/domain-error";
-import { groupPurchaseOrderByResolvedVendor } from "@/lib/purchasing/resolved-vendor-groups";
+import { groupPurchaseOrderByResolvedSupplier } from "@/lib/purchasing/resolved-supplier-groups";
 
-const additionalCostVendorSuppliers = alias(
+const additionalCostSuppliers = alias(
   suppliers,
-  "email_additional_cost_vendor_suppliers",
+  "email_additional_cost_suppliers",
 );
 
 type PurchaseOrderEmailData = {
@@ -57,17 +57,17 @@ type PurchaseOrderEmailData = {
   lines: (PurchaseOrderPdfLine & { id: string })[];
   additionalCosts: (PurchaseOrderPdfAdditionalCost & {
     id: string;
-    vendorOverrideSupplierId: string | null;
-    vendorOverrideSupplierName: string | null;
-    vendorOverrideSupplierEmail: string | null;
-    vendorOverrideSupplierContactName: string | null;
-    vendorOverrideSupplierPhone: string | null;
-    vendorOverrideSupplierBillingLine1: string | null;
-    vendorOverrideSupplierBillingLine2: string | null;
-    vendorOverrideSupplierBillingCity: string | null;
-    vendorOverrideSupplierBillingRegion: string | null;
-    vendorOverrideSupplierBillingPostcode: string | null;
-    vendorOverrideSupplierBillingCountry: string | null;
+    supplierId: string | null;
+    supplierName: string | null;
+    supplierEmail: string | null;
+    supplierContactName: string | null;
+    supplierPhone: string | null;
+    supplierBillingLine1: string | null;
+    supplierBillingLine2: string | null;
+    supplierBillingCity: string | null;
+    supplierBillingRegion: string | null;
+    supplierBillingPostcode: string | null;
+    supplierBillingCountry: string | null;
   })[];
   attachments: {
     id: string;
@@ -180,31 +180,31 @@ async function loadPurchaseOrderEmailDataInTx(
       costType: purchaseOrderAdditionalCosts.costType,
       reference: purchaseOrderAdditionalCosts.reference,
       amount: purchaseOrderAdditionalCosts.amount,
-      vendorOverrideSupplierId:
-        purchaseOrderAdditionalCosts.vendorOverrideSupplierId,
-      vendorOverrideSupplierName: additionalCostVendorSuppliers.name,
-      vendorOverrideSupplierEmail: additionalCostVendorSuppliers.email,
-      vendorOverrideSupplierContactName: additionalCostVendorSuppliers.contactName,
-      vendorOverrideSupplierPhone: additionalCostVendorSuppliers.phone,
-      vendorOverrideSupplierBillingLine1:
-        additionalCostVendorSuppliers.billingLine1,
-      vendorOverrideSupplierBillingLine2:
-        additionalCostVendorSuppliers.billingLine2,
-      vendorOverrideSupplierBillingCity:
-        additionalCostVendorSuppliers.billingCity,
-      vendorOverrideSupplierBillingRegion:
-        additionalCostVendorSuppliers.billingRegion,
-      vendorOverrideSupplierBillingPostcode:
-        additionalCostVendorSuppliers.billingPostcode,
-      vendorOverrideSupplierBillingCountry:
-        additionalCostVendorSuppliers.billingCountry,
+      supplierId:
+        purchaseOrderAdditionalCosts.supplierId,
+      supplierName: additionalCostSuppliers.name,
+      supplierEmail: additionalCostSuppliers.email,
+      supplierContactName: additionalCostSuppliers.contactName,
+      supplierPhone: additionalCostSuppliers.phone,
+      supplierBillingLine1:
+        additionalCostSuppliers.billingLine1,
+      supplierBillingLine2:
+        additionalCostSuppliers.billingLine2,
+      supplierBillingCity:
+        additionalCostSuppliers.billingCity,
+      supplierBillingRegion:
+        additionalCostSuppliers.billingRegion,
+      supplierBillingPostcode:
+        additionalCostSuppliers.billingPostcode,
+      supplierBillingCountry:
+        additionalCostSuppliers.billingCountry,
     })
     .from(purchaseOrderAdditionalCosts)
     .leftJoin(
-      additionalCostVendorSuppliers,
+      additionalCostSuppliers,
       eq(
-        additionalCostVendorSuppliers.id,
-        purchaseOrderAdditionalCosts.vendorOverrideSupplierId,
+        additionalCostSuppliers.id,
+        purchaseOrderAdditionalCosts.supplierId,
       ),
     )
     .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, orderId))
@@ -255,23 +255,23 @@ async function loadPurchaseOrderEmailDataInTx(
         reference: cost.reference,
         amount: cost.amount,
         id: cost.id,
-        vendorOverrideSupplierId: cost.vendorOverrideSupplierId,
-        vendorOverrideSupplierName: cost.vendorOverrideSupplierName,
-        vendorOverrideSupplierEmail: cost.vendorOverrideSupplierEmail,
-        vendorOverrideSupplierContactName: cost.vendorOverrideSupplierContactName,
-        vendorOverrideSupplierPhone: cost.vendorOverrideSupplierPhone,
-        vendorOverrideSupplierBillingLine1:
-          cost.vendorOverrideSupplierBillingLine1,
-        vendorOverrideSupplierBillingLine2:
-          cost.vendorOverrideSupplierBillingLine2,
-        vendorOverrideSupplierBillingCity:
-          cost.vendorOverrideSupplierBillingCity,
-        vendorOverrideSupplierBillingRegion:
-          cost.vendorOverrideSupplierBillingRegion,
-        vendorOverrideSupplierBillingPostcode:
-          cost.vendorOverrideSupplierBillingPostcode,
-        vendorOverrideSupplierBillingCountry:
-          cost.vendorOverrideSupplierBillingCountry,
+        supplierId: cost.supplierId,
+        supplierName: cost.supplierName,
+        supplierEmail: cost.supplierEmail,
+        supplierContactName: cost.supplierContactName,
+        supplierPhone: cost.supplierPhone,
+        supplierBillingLine1:
+          cost.supplierBillingLine1,
+        supplierBillingLine2:
+          cost.supplierBillingLine2,
+        supplierBillingCity:
+          cost.supplierBillingCity,
+        supplierBillingRegion:
+          cost.supplierBillingRegion,
+        supplierBillingPostcode:
+          cost.supplierBillingPostcode,
+        supplierBillingCountry:
+          cost.supplierBillingCountry,
     })),
     attachments,
     emailStates,
@@ -288,15 +288,15 @@ function moneySum(values: Array<{ amount: string }>) {
 
 function buildEmailGroups(data: PurchaseOrderEmailData) {
   const supplierRows = data.additionalCosts
-    .filter((cost) => cost.vendorOverrideSupplierId)
+    .filter((cost) => cost.supplierId)
     .map((cost) => ({
-      id: cost.vendorOverrideSupplierId as string,
-      name: cost.vendorOverrideSupplierName ?? "Vendor",
-      email: cost.vendorOverrideSupplierEmail,
+      id: cost.supplierId as string,
+      name: cost.supplierName ?? "Supplier",
+      email: cost.supplierEmail,
     }));
   const suppliersById = new Map(supplierRows.map((supplier) => [supplier.id, supplier]));
 
-  return groupPurchaseOrderByResolvedVendor({
+  return groupPurchaseOrderByResolvedSupplier({
     purchaseOrderSupplier: {
       id: data.order.supplierId,
       name: data.order.supplierName,
@@ -307,38 +307,38 @@ function buildEmailGroups(data: PurchaseOrderEmailData) {
     additionalCosts: data.additionalCosts,
   }).map((group) => {
     const firstCost = group.additionalCosts[0];
-    const freightTotal = moneySum(group.additionalCosts);
+    const additionalCostTotal = moneySum(group.additionalCosts);
     const order: PurchaseOrderPdf = group.isPurchaseOrderSupplier
       ? data.order
       : {
           ...data.order,
           supplierName: group.supplier.name,
           supplierContactName:
-            firstCost?.vendorOverrideSupplierContactName ?? null,
+            firstCost?.supplierContactName ?? null,
           supplierEmail: group.supplier.email ?? null,
-          supplierPhone: firstCost?.vendorOverrideSupplierPhone ?? null,
+          supplierPhone: firstCost?.supplierPhone ?? null,
           supplierBillingLine1:
-            firstCost?.vendorOverrideSupplierBillingLine1 ?? null,
+            firstCost?.supplierBillingLine1 ?? null,
           supplierBillingLine2:
-            firstCost?.vendorOverrideSupplierBillingLine2 ?? null,
+            firstCost?.supplierBillingLine2 ?? null,
           supplierBillingCity:
-            firstCost?.vendorOverrideSupplierBillingCity ?? null,
+            firstCost?.supplierBillingCity ?? null,
           supplierBillingRegion:
-            firstCost?.vendorOverrideSupplierBillingRegion ?? null,
+            firstCost?.supplierBillingRegion ?? null,
           supplierBillingPostcode:
-            firstCost?.vendorOverrideSupplierBillingPostcode ?? null,
+            firstCost?.supplierBillingPostcode ?? null,
           supplierBillingCountry:
-            firstCost?.vendorOverrideSupplierBillingCountry ?? null,
-          subtotalAmount: freightTotal,
+            firstCost?.supplierBillingCountry ?? null,
+          subtotalAmount: additionalCostTotal,
           taxAmount: "0",
-          totalAmount: freightTotal,
+          totalAmount: additionalCostTotal,
         };
 
     return {
       key: group.key,
       order,
       supplier: group.supplier,
-      isFreight: !group.isPurchaseOrderSupplier,
+      isAdditionalCost: !group.isPurchaseOrderSupplier,
       lines: group.isPurchaseOrderSupplier ? group.lines : [],
       additionalCosts: group.additionalCosts,
     };
@@ -403,13 +403,13 @@ export async function renderPurchaseOrderPdfBuffer(
       lines={group.lines}
       additionalCosts={group.additionalCosts}
       organizationName={data.organizationName}
-      variant={group.isFreight ? "freight" : "standard"}
+      variant={group.isAdditionalCost ? "costs" : "standard"}
     />,
   );
   const safeOrderNumber =
     sanitizePdfFileSegment(data.order.orderNumber) || "purchase-order";
-  const fileSuffix = group.isFreight
-    ? `-${sanitizePdfFileSegment(group.supplier.name) || "freight"}`
+  const fileSuffix = group.isAdditionalCost
+    ? `-${sanitizePdfFileSegment(group.supplier.name) || "supplier"}`
     : "";
 
   return {
@@ -430,9 +430,6 @@ export async function sendPurchaseOrderEmail(params: {
   );
   if (!data) {
     throw new DomainError("Purchase order not found.", 404);
-  }
-  if (data.order.status === "cancelled") {
-    throw new DomainError("Cancelled purchase orders cannot be emailed.", 409);
   }
   let currentGroupKey: string | null = null;
   let firstSelectedGroupKey: string | null = null;
@@ -489,7 +486,7 @@ export async function sendPurchaseOrderEmail(params: {
       }
       const alreadySent =
         sentGroupKeys.has(group.key) ||
-        (!group.isFreight && sentGroupKeys.has("default"));
+        (!group.isAdditionalCost && sentGroupKeys.has("default"));
       if (alreadySent && input.resend !== true) {
         currentGroupKey = null;
         continue;
@@ -508,13 +505,13 @@ export async function sendPurchaseOrderEmail(params: {
           lines={group.lines}
           additionalCosts={group.additionalCosts}
           organizationName={data.organizationName}
-          variant={group.isFreight ? "freight" : "standard"}
+          variant={group.isAdditionalCost ? "costs" : "standard"}
         />,
       );
       const safeOrderNumber =
         sanitizePdfFileSegment(data.order.orderNumber) || "purchase-order";
-      const fileSuffix = group.isFreight
-        ? `-${sanitizePdfFileSegment(group.supplier.name) || "freight"}`
+      const fileSuffix = group.isAdditionalCost
+        ? `-${sanitizePdfFileSegment(group.supplier.name) || "supplier"}`
         : "";
       const message =
         input.message?.trim() ||

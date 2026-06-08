@@ -44,9 +44,9 @@ import {
   normalizeLandedStockUnitCost,
 } from "@/lib/purchasing/landed-cost";
 import {
-  groupPurchaseOrderByResolvedVendor,
-  resolvedFreightVendorGroupKey,
-} from "@/lib/purchasing/resolved-vendor-groups";
+  groupPurchaseOrderByResolvedSupplier,
+  resolvedAdditionalCostSupplierGroupKey,
+} from "@/lib/purchasing/resolved-supplier-groups";
 import {
   calculateTaxAmount,
   calculateTaxedLineTotal,
@@ -83,9 +83,9 @@ import type {
 import { alias } from "drizzle-orm/pg-core";
 
 const purchaseOrderSyncs = alias(accountingDocumentSyncs, "purchase_order_syncs");
-const additionalCostVendorSuppliers = alias(
+const additionalCostSuppliers = alias(
   suppliers,
-  "additional_cost_vendor_suppliers",
+  "additional_cost_suppliers",
 );
 
 function purchaseBillRollupStatusSql(
@@ -107,17 +107,17 @@ function purchaseBillRollupStatusSql(
             SELECT 1
             FROM purchasing.purchase_order_additional_costs cost
             WHERE cost.purchase_order_id = po.id
-              AND COALESCE(cost.vendor_override_supplier_id, po.supplier_id) = po.supplier_id
+              AND COALESCE(cost.supplier_id, po.supplier_id) = po.supplier_id
           )
         )
       UNION
-      SELECT DISTINCT cost.vendor_override_supplier_id AS supplier_id
+      SELECT DISTINCT cost.supplier_id AS supplier_id
       FROM purchasing.purchase_orders po
       JOIN purchasing.purchase_order_additional_costs cost
         ON cost.purchase_order_id = po.id
       WHERE po.id = ${documentId}
-        AND cost.vendor_override_supplier_id IS NOT NULL
-        AND cost.vendor_override_supplier_id <> po.supplier_id
+        AND cost.supplier_id IS NOT NULL
+        AND cost.supplier_id <> po.supplier_id
     ),
     sync_rollup AS (
       SELECT
@@ -194,7 +194,7 @@ type PreparedPurchaseOrderAdditionalCost = {
   organizationId: string;
   costType: "shipping" | "customs" | "other";
   reference: string | null;
-  vendorOverrideSupplierId: string | null;
+  supplierId: string | null;
   distributionMethod: "by_value" | "not_distributed";
   accountingPurchaseAccountCode: string | null;
   amount: string;
@@ -350,6 +350,7 @@ async function getLockedPurchaseOrderInTx(tx: Tx, id: string) {
       id: purchaseOrders.id,
       orderNumber: purchaseOrders.orderNumber,
       status: purchaseOrders.status,
+      type: purchaseOrders.type,
     })
     .from(purchaseOrders)
     .where(and(eq(purchaseOrders.id, id), isNull(purchaseOrders.deletedAt)))
@@ -730,10 +731,10 @@ async function getPurchaseOrderAdditionalCostsInTx(
       id: purchaseOrderAdditionalCosts.id,
       costType: purchaseOrderAdditionalCosts.costType,
       reference: purchaseOrderAdditionalCosts.reference,
-      vendorOverrideSupplierId:
-        purchaseOrderAdditionalCosts.vendorOverrideSupplierId,
-      vendorOverrideSupplierName: additionalCostVendorSuppliers.name,
-      vendorOverrideSupplierEmail: additionalCostVendorSuppliers.email,
+      supplierId:
+        purchaseOrderAdditionalCosts.supplierId,
+      supplierName: additionalCostSuppliers.name,
+      supplierEmail: additionalCostSuppliers.email,
       distributionMethod: purchaseOrderAdditionalCosts.distributionMethod,
       accountingPurchaseAccountCode:
         purchaseOrderAdditionalCosts.accountingPurchaseAccountCode,
@@ -744,8 +745,8 @@ async function getPurchaseOrderAdditionalCostsInTx(
     })
     .from(purchaseOrderAdditionalCosts)
     .leftJoin(
-      additionalCostVendorSuppliers,
-      eq(additionalCostVendorSuppliers.id, purchaseOrderAdditionalCosts.vendorOverrideSupplierId),
+      additionalCostSuppliers,
+      eq(additionalCostSuppliers.id, purchaseOrderAdditionalCosts.supplierId),
     )
     .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, purchaseOrderId))
     .orderBy(
@@ -823,39 +824,39 @@ async function preparePurchaseOrderPayload(
   );
 
   const additionalCostInputs = normalizeAdditionalCostInputs(payload);
-  const additionalCostVendorIds = [
+  const additionalCostSupplierIds = [
     ...new Set(
       additionalCostInputs
-        .map((cost) => cost.vendorOverrideSupplierId?.trim() ?? "")
+        .map((cost) => cost.supplierId?.trim() ?? "")
         .filter(Boolean),
     ),
   ];
-  if (additionalCostVendorIds.length > 0) {
-    const vendorRows = await tx
+  if (additionalCostSupplierIds.length > 0) {
+    const supplierRows = await tx
       .select({ id: suppliers.id })
       .from(suppliers)
       .where(
         and(
-          inArray(suppliers.id, additionalCostVendorIds),
+          inArray(suppliers.id, additionalCostSupplierIds),
           isNull(suppliers.deletedAt),
         ),
       );
-    const foundVendorIds = new Set(vendorRows.map((vendor) => vendor.id));
-    const missingVendorId = additionalCostVendorIds.find(
-      (id) => !foundVendorIds.has(id),
+    const foundSupplierIds = new Set(supplierRows.map((row) => row.id));
+    const missingSupplierId = additionalCostSupplierIds.find(
+      (id) => !foundSupplierIds.has(id),
     );
-    if (missingVendorId) {
-      throw new PurchasingError("Additional cost vendor not found.", 404);
+    if (missingSupplierId) {
+      throw new PurchasingError("Additional cost supplier not found.", 404);
     }
   }
   const preparedAdditionalCosts = additionalCostInputs.map((cost, index) => ({
     organizationId: orgId,
     costType: cost.costType,
     reference: cost.reference?.trim() || null,
-    vendorOverrideSupplierId:
-      cost.vendorOverrideSupplierId === supplier.id
+    supplierId:
+      cost.supplierId === supplier.id
         ? null
-        : cost.vendorOverrideSupplierId?.trim() || null,
+        : cost.supplierId?.trim() || null,
     distributionMethod: cost.distributionMethod,
     accountingPurchaseAccountCode:
       cost.accountingPurchaseAccountCode?.trim() || null,
@@ -1038,7 +1039,7 @@ async function ensureSuppliersDeletableInTx(tx: Tx, supplierIds: string[]) {
     .where(
       and(
         inArray(
-          purchaseOrderAdditionalCosts.vendorOverrideSupplierId,
+          purchaseOrderAdditionalCosts.supplierId,
           uniqueSupplierIds,
         ),
         isNull(purchaseOrders.deletedAt),
@@ -1049,7 +1050,7 @@ async function ensureSuppliersDeletableInTx(tx: Tx, supplierIds: string[]) {
 
   if (blockingCost) {
     throw new PurchasingError(
-      "Cannot delete supplier used as a carrier on active draft, ordered, or partially received purchase orders.",
+      "Cannot delete supplier used as a supplier on active draft, ordered, or partially received purchase orders.",
       400,
     );
   }
@@ -1438,7 +1439,6 @@ export async function getPurchaseOrder(
         totalAmount: trimScale(purchaseOrders.totalAmount).as("totalAmount"),
         orderedAt: purchaseOrders.orderedAt,
         receivedAt: purchaseOrders.receivedAt,
-        cancelledAt: purchaseOrders.cancelledAt,
         xeroPurchaseOrderId: purchaseOrderSyncs.externalDocumentId,
         xeroPurchaseOrderNumber: purchaseOrderSyncs.externalDocumentNumber,
         xeroPushStatus: purchaseOrderSyncs.pushStatus,
@@ -1636,7 +1636,6 @@ export async function getEditablePurchaseOrder(
             "ordered",
             "partial",
             "received",
-            "cancelled",
           ]),
         ),
       );
@@ -1693,9 +1692,9 @@ export async function getEditablePurchaseOrder(
         costType:
           cost.costType as PurchaseOrderEditData["additionalCosts"][number]["costType"],
         reference: cost.reference,
-        vendorOverrideSupplierId: cost.vendorOverrideSupplierId,
-        vendorOverrideSupplierName: cost.vendorOverrideSupplierName,
-        vendorOverrideSupplierEmail: cost.vendorOverrideSupplierEmail,
+        supplierId: cost.supplierId,
+        supplierName: cost.supplierName,
+        supplierEmail: cost.supplierEmail,
         distributionMethod:
           cost.distributionMethod as PurchaseOrderEditData["additionalCosts"][number]["distributionMethod"],
         accountingPurchaseAccountCode: cost.accountingPurchaseAccountCode,
@@ -1888,18 +1887,18 @@ export async function createPurchaseOrderInTx(
   return order;
 }
 
-function freightOrderNumberCandidate(parentOrderNumber: string, index: number) {
-  const suffix = index === 1 ? "-F" : `-F${index}`;
+function additionalCostOrderNumberCandidate(parentOrderNumber: string, index: number) {
+  const suffix = index === 1 ? "-AC" : `-AC${index}`;
   return `${parentOrderNumber.slice(0, 32 - suffix.length)}${suffix}`;
 }
 
-async function resolveFreightOrderNumberInTx(
+async function resolveAdditionalCostOrderNumberInTx(
   tx: Tx,
   orgId: string,
   parentOrderNumber: string,
 ) {
   for (let index = 1; index < 100; index += 1) {
-    const candidate = freightOrderNumberCandidate(parentOrderNumber, index);
+    const candidate = additionalCostOrderNumberCandidate(parentOrderNumber, index);
     const [existing] = await tx
       .select({ id: purchaseOrders.id })
       .from(purchaseOrders)
@@ -1915,10 +1914,10 @@ async function resolveFreightOrderNumberInTx(
     if (!existing) return candidate;
   }
 
-  throw new PurchasingError("Unable to assign a freight PO number.", 409);
+  throw new PurchasingError("Unable to assign an additional-cost PO number.", 409);
 }
 
-export async function createLinkedFreightPurchaseOrders(parentOrderId: string) {
+export async function createLinkedAdditionalCostPurchaseOrders(parentOrderId: string) {
   return withAuthedOrgContext(async (tx, orgId) => {
     const [order] = await tx
       .select({
@@ -1958,8 +1957,8 @@ export async function createLinkedFreightPurchaseOrders(parentOrderId: string) {
         .select({
           id: purchaseOrderAdditionalCosts.id,
           amount: trimScale(purchaseOrderAdditionalCosts.amount).as("amount"),
-          vendorOverrideSupplierId:
-            purchaseOrderAdditionalCosts.vendorOverrideSupplierId,
+          supplierId:
+            purchaseOrderAdditionalCosts.supplierId,
         })
         .from(purchaseOrderAdditionalCosts)
         .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, parentOrderId)),
@@ -1967,7 +1966,7 @@ export async function createLinkedFreightPurchaseOrders(parentOrderId: string) {
     const overrideSupplierIds = [
       ...new Set(
         costRows
-          .map((cost) => cost.vendorOverrideSupplierId)
+          .map((cost) => cost.supplierId)
           .filter((id): id is string => Boolean(id)),
       ),
     ];
@@ -1990,7 +1989,7 @@ export async function createLinkedFreightPurchaseOrders(parentOrderId: string) {
     const suppliersById = new Map(
       supplierRows.map((supplier) => [supplier.id, supplier]),
     );
-    const groups = groupPurchaseOrderByResolvedVendor({
+    const groups = groupPurchaseOrderByResolvedSupplier({
       purchaseOrderSupplier: {
         id: order.supplierId,
         name: order.supplierName,
@@ -2000,7 +1999,7 @@ export async function createLinkedFreightPurchaseOrders(parentOrderId: string) {
       additionalCosts: costRows,
     }).filter((group) => !group.isPurchaseOrderSupplier);
     const materialized = [];
-    const activeFreightOrders = await tx
+    const activeAdditionalCostOrders = await tx
       .select({
         id: purchaseOrders.id,
         orderNumber: purchaseOrders.orderNumber,
@@ -2012,14 +2011,14 @@ export async function createLinkedFreightPurchaseOrders(parentOrderId: string) {
       .where(
         and(
           eq(purchaseOrders.parentPurchaseOrderId, parentOrderId),
-          eq(purchaseOrders.type, "freight"),
+          eq(purchaseOrders.type, "additional_cost"),
           isNull(purchaseOrders.deletedAt),
         ),
       );
-    const freightOrderBySupplierId = new Map(
-      activeFreightOrders.map((freightOrder) => [
-        freightOrder.supplierId,
-        freightOrder,
+    const additionalCostOrderBySupplierId = new Map(
+      activeAdditionalCostOrders.map((additionalCostOrder) => [
+        additionalCostOrder.supplierId,
+        additionalCostOrder,
       ]),
     );
     const activeGroupSupplierIds = new Set(
@@ -2030,7 +2029,7 @@ export async function createLinkedFreightPurchaseOrders(parentOrderId: string) {
       const amount = normalizeLandedMoney(
         group.additionalCosts.reduce((sum, cost) => sum + Number(cost.amount), 0),
       );
-      const existing = freightOrderBySupplierId.get(group.supplier.id);
+      const existing = additionalCostOrderBySupplierId.get(group.supplier.id);
 
       if (existing) {
         await tx
@@ -2059,13 +2058,13 @@ export async function createLinkedFreightPurchaseOrders(parentOrderId: string) {
         materialized.push({
           ...existing,
           supplierName: group.supplier.name,
-          groupKey: resolvedFreightVendorGroupKey(group.supplier.id),
+          groupKey: resolvedAdditionalCostSupplierGroupKey(group.supplier.id),
           created: false,
         });
         continue;
       }
 
-      const orderNumber = await resolveFreightOrderNumberInTx(
+      const orderNumber = await resolveAdditionalCostOrderNumberInTx(
         tx,
         orgId,
         order.orderNumber,
@@ -2075,13 +2074,13 @@ export async function createLinkedFreightPurchaseOrders(parentOrderId: string) {
         .values({
           organizationId: orgId,
           parentPurchaseOrderId: parentOrderId,
-          type: "freight",
+          type: "additional_cost",
           orderNumber,
           supplierId: group.supplier.id,
           supplierName: group.supplier.name,
           status: order.status,
           expectedDate: order.expectedDate,
-          notes: `Freight for ${order.orderNumber}`,
+          notes: `Additional cost for ${order.orderNumber}`,
           accountingPurchaseAccountCode: order.accountingPurchaseAccountCode,
           shipLine1: order.shipLine1,
           shipLine2: order.shipLine2,
@@ -2106,29 +2105,29 @@ export async function createLinkedFreightPurchaseOrders(parentOrderId: string) {
 
       materialized.push({
         ...created,
-        groupKey: resolvedFreightVendorGroupKey(group.supplier.id),
+        groupKey: resolvedAdditionalCostSupplierGroupKey(group.supplier.id),
         created: true,
       });
     }
 
-    const staleFreightOrderIds = activeFreightOrders
-      .filter((freightOrder) => !activeGroupSupplierIds.has(freightOrder.supplierId))
-      .map((freightOrder) => freightOrder.id);
-    if (staleFreightOrderIds.length > 0) {
+    const staleAdditionalCostOrderIds = activeAdditionalCostOrders
+      .filter((additionalCostOrder) => !activeGroupSupplierIds.has(additionalCostOrder.supplierId))
+      .map((additionalCostOrder) => additionalCostOrder.id);
+    if (staleAdditionalCostOrderIds.length > 0) {
       await tx
         .update(purchaseOrders)
         .set({
           deletedAt: new Date(),
           updatedAt: new Date(),
         })
-        .where(inArray(purchaseOrders.id, staleFreightOrderIds));
+        .where(inArray(purchaseOrders.id, staleAdditionalCostOrderIds));
     }
 
     return materialized;
   });
 }
 
-async function softDeleteLinkedFreightPurchaseOrdersInTx(
+async function softDeleteLinkedAdditionalCostPurchaseOrdersInTx(
   tx: Tx,
   orgId: string,
   parentOrderIds: string[],
@@ -2143,31 +2142,8 @@ async function softDeleteLinkedFreightPurchaseOrdersInTx(
     .where(
       and(
         eq(purchaseOrders.organizationId, orgId),
-        eq(purchaseOrders.type, "freight"),
+        eq(purchaseOrders.type, "additional_cost"),
         inArray(purchaseOrders.parentPurchaseOrderId, uniqueParentIds),
-        isNull(purchaseOrders.deletedAt),
-      ),
-    );
-}
-
-async function cancelLinkedFreightPurchaseOrdersInTx(
-  tx: Tx,
-  orgId: string,
-  parentOrderId: string,
-  cancelledAt = new Date(),
-) {
-  await tx
-    .update(purchaseOrders)
-    .set({
-      status: "cancelled",
-      cancelledAt,
-      updatedAt: cancelledAt,
-    })
-    .where(
-      and(
-        eq(purchaseOrders.organizationId, orgId),
-        eq(purchaseOrders.type, "freight"),
-        eq(purchaseOrders.parentPurchaseOrderId, parentOrderId),
         isNull(purchaseOrders.deletedAt),
       ),
     );
@@ -2435,7 +2411,7 @@ export async function duplicatePurchaseOrder(id: string) {
     additionalCosts: order.additionalCosts.map((cost) => ({
       costType: cost.costType,
       reference: cost.reference,
-      vendorOverrideSupplierId: cost.vendorOverrideSupplierId,
+      supplierId: cost.supplierId,
       distributionMethod: cost.distributionMethod,
       accountingPurchaseAccountCode: cost.accountingPurchaseAccountCode,
       amount: cost.amount,
@@ -3090,8 +3066,8 @@ export async function receivePurchaseOrder(
         400,
       );
     }
-    if (order.type === "freight") {
-      throw new PurchasingError("Freight purchase orders cannot be received.", 409);
+    if (order.type === "additional_cost") {
+      throw new PurchasingError("Additional-cost purchase orders cannot be received.", 409);
     }
 
     const [existingLines, additionalCosts] = await Promise.all([
@@ -3408,6 +3384,10 @@ export async function deletePurchaseOrder(
       return { deleted: false };
     }
 
+    if (order.type !== "standard") {
+      return { deleted: false };
+    }
+
     if (["partial", "received"].includes(order.status)) {
       return {
         deleted: false,
@@ -3428,7 +3408,7 @@ export async function deletePurchaseOrder(
 
     const deletedAt = new Date();
 
-    await softDeleteLinkedFreightPurchaseOrdersInTx(tx, orgId, [id], deletedAt);
+    await softDeleteLinkedAdditionalCostPurchaseOrdersInTx(tx, orgId, [id], deletedAt);
 
     await tx
       .update(purchaseOrders)
@@ -3439,76 +3419,6 @@ export async function deletePurchaseOrder(
       .where(eq(purchaseOrders.id, id));
 
     return { deleted: true };
-  });
-}
-
-export async function cancelPurchaseOrder(
-  id: string,
-  options?: { idempotencyKey?: string },
-): Promise<{ id: string } | null> {
-  return withAuthedOrgContext(async (tx, orgId, userId) => {
-    const replay = await beginInventoryOperationInTx<{ id: string } | null>(
-      tx,
-      {
-        organizationId: orgId,
-        operationName: "cancelPurchaseOrder",
-        idempotencyKey: options?.idempotencyKey ?? null,
-        payload: { id },
-      },
-    );
-
-    if (replay.replayed) return replay.result;
-
-    const order = await getLockedPurchaseOrderInTx(tx, id);
-
-    if (!order) {
-      await finishInventoryOperationInTx(tx, {
-        organizationId: orgId,
-        idempotencyKey: options?.idempotencyKey ?? null,
-        result: null,
-      });
-      return null;
-    }
-
-    if (["partial", "received"].includes(order.status)) {
-      throw new PurchasingError(
-        "Cannot cancel this purchase order because inventory has already been received.",
-        400,
-      );
-    }
-
-    if (order.status === "ordered") {
-      await releaseExpectedFromPurchaseInTx(tx, {
-        organizationId: orgId,
-        purchaseOrderId: id,
-        actorUserId: userId,
-        idempotencyKey: deriveInventoryIdempotencyKey(
-          options?.idempotencyKey,
-          "cancel-order",
-        ),
-        reason: "cancelled",
-      });
-    }
-
-    const cancelledAt = new Date();
-    await cancelLinkedFreightPurchaseOrdersInTx(tx, orgId, id, cancelledAt);
-
-    await tx
-      .update(purchaseOrders)
-      .set({
-        status: "cancelled",
-        cancelledAt,
-        updatedAt: cancelledAt,
-      })
-      .where(eq(purchaseOrders.id, id));
-
-    const result = { id };
-    await finishInventoryOperationInTx(tx, {
-      organizationId: orgId,
-      idempotencyKey: options?.idempotencyKey ?? null,
-      result,
-    });
-    return result;
   });
 }
 
@@ -3525,6 +3435,7 @@ export async function deletePurchaseOrders(
       .where(
         and(
           inArray(purchaseOrders.id, uniqueIds),
+          eq(purchaseOrders.type, "standard"),
           isNull(purchaseOrders.deletedAt),
         ),
       )
@@ -3559,7 +3470,7 @@ export async function deletePurchaseOrders(
       });
     }
 
-    await softDeleteLinkedFreightPurchaseOrdersInTx(tx, orgId, orderIds, deletedAt);
+    await softDeleteLinkedAdditionalCostPurchaseOrdersInTx(tx, orgId, orderIds, deletedAt);
 
     const deleted = await tx
       .update(purchaseOrders)

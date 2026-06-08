@@ -518,7 +518,7 @@ test.describe("Xero purchase bill gates", () => {
             {
               costType: "shipping",
               reference: "Freight",
-              vendorOverrideSupplierId: carrier.body.id,
+              supplierId: carrier.body.id,
               distributionMethod: "not_distributed",
               accountingPurchaseAccountCode: "500",
               amount: "12.00",
@@ -544,7 +544,7 @@ test.describe("Xero purchase bill gates", () => {
                 accountingPurchaseAccountCode: "500",
               },
               {
-                groupKey: `freight:${carrier.body.id}`,
+                groupKey: `additional-cost:${carrier.body.id}`,
                 include: false,
                 invoiceNumber: "",
                 accountingPurchaseAccountCode: "",
@@ -578,7 +578,7 @@ test.describe("Xero purchase bill gates", () => {
             {
               costType: "shipping",
               reference: "Freight",
-              vendorOverrideSupplierId: carrier.body.id,
+              supplierId: carrier.body.id,
               distributionMethod: "not_distributed",
               accountingPurchaseAccountCode: "500",
               amount: "12.00",
@@ -604,7 +604,7 @@ test.describe("Xero purchase bill gates", () => {
                 accountingPurchaseAccountCode: "500",
               },
               {
-                groupKey: `freight:${carrier.body.id}`,
+                groupKey: `additional-cost:${carrier.body.id}`,
                 include: true,
                 invoiceNumber: `BILL-DUP-${ts}`,
                 accountingPurchaseAccountCode: "500",
@@ -622,7 +622,7 @@ test.describe("Xero purchase bill gates", () => {
     });
   });
 
-  test("QuickBooks rejects grouped bill payloads instead of merging vendors", async ({
+  test("QuickBooks rejects grouped bill payloads instead of merging suppliers", async ({
     db,
   }) => {
     await withOnlyQuickBooksConnection(db, async () => {
@@ -643,7 +643,7 @@ test.describe("Xero purchase bill gates", () => {
             {
               costType: "shipping",
               reference: "Freight",
-              vendorOverrideSupplierId: carrier.body.id,
+              supplierId: carrier.body.id,
               distributionMethod: "not_distributed",
               accountingPurchaseAccountCode: "500",
               amount: "12.00",
@@ -669,7 +669,7 @@ test.describe("Xero purchase bill gates", () => {
                 accountingPurchaseAccountCode: "500",
               },
               {
-                groupKey: `freight:${carrier.body.id}`,
+                groupKey: `additional-cost:${carrier.body.id}`,
                 include: true,
                 invoiceNumber: `QB-CAR-${ts}`,
                 accountingPurchaseAccountCode: "500",
@@ -684,34 +684,6 @@ test.describe("Xero purchase bill gates", () => {
       expect(body.error).toBe(
         "Grouped supplier bills are only supported for Xero right now.",
       );
-    });
-  });
-
-  test("blocks bill creation for cancelled purchase orders", async ({ db }) => {
-    await withOnlyXeroConnection(db, async () => {
-      const ts = Date.now();
-      const { materialId, supplierId } = await createMaterialAndSupplier(ts);
-      const order = await createPurchaseOrder({
-        supplierId,
-        expectedDate: "2026-05-27",
-        lines: [{ itemId: materialId, quantityOrdered: "5", unitCost: "4.00" }],
-      });
-      expect(order.status).toBe(201);
-
-      const cancelResponse = await testFetch(
-        `/api/purchase-orders/${order.body.id}/status`,
-        { method: "PATCH", body: JSON.stringify({ status: "cancelled" }) },
-      );
-      expect(cancelResponse.status).toBe(200);
-
-      const response = await testFetch(
-        `/api/purchase-orders/${order.body.id}/accounting-bill`,
-        { method: "POST", body: JSON.stringify(billPayload()) },
-      );
-      const body = await response.json();
-
-      expect(response.status).toBe(409);
-      expect(body.error).toBe("Cancelled purchase orders cannot be billed.");
     });
   });
 

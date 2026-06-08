@@ -184,7 +184,7 @@ export function PurchaseOrderDocument({
   lines: PurchaseOrderPdfLine[];
   additionalCosts?: PurchaseOrderPdfAdditionalCost[];
   organizationName: string;
-  variant?: "standard" | "freight";
+  variant?: "standard" | "costs";
 }) {
   const supplierLines = [
     order.supplierName,
@@ -211,16 +211,13 @@ export function PurchaseOrderDocument({
     ? order.orderedAt.toLocaleDateString("en-US")
     : "\u2014";
   const printedDisplay = new Date().toISOString().slice(0, 10);
-  const title =
-    variant === "freight"
-      ? `Freight purchase order: ${order.orderNumber}`
-      : `Purchase order: ${order.orderNumber}`;
+  const title = `Purchase order: ${order.orderNumber}`;
 
   return (
     <Document
-      title={`${variant === "freight" ? "Freight Purchase Order" : "Purchase Order"} ${order.orderNumber}`}
+      title={`Purchase Order ${order.orderNumber}`}
       author={organizationName}
-      subject={`${variant === "freight" ? "Freight purchase order" : "Purchase order"} ${order.orderNumber}`}
+      subject={`Purchase order ${order.orderNumber}`}
     >
       <Page size="LETTER" style={styles.page}>
         <View style={styles.header}>
@@ -313,7 +310,9 @@ export function PurchaseOrderDocument({
 
         {additionalCosts.length > 0 ? (
           <View style={styles.section}>
-            <Text style={styles.colLabel}>Additional costs</Text>
+            <Text style={styles.colLabel}>
+              {variant === "standard" ? "Other items" : "Items"}
+            </Text>
             {additionalCosts.map((cost, index) => (
               <View key={index} style={styles.tableRow}>
                 <Text style={styles.colItem}>

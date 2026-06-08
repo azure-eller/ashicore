@@ -180,11 +180,10 @@ export const PURCHASE_ORDER_STATUS_TOOLTIP = {
   ordered: "Submitted to supplier; awaiting delivery.",
   partial: "Some items received; more still due.",
   received: "All items received.",
-  cancelled: "Cancelled; no deliveries expected.",
 } as const;
 
 export const PURCHASE_ORDER_STATUS_COLUMN_TOOLTIP =
-  "Status values: draft, ordered, partial, received, cancelled.";
+  "Status values: draft, ordered, partial, received.";
 
 export const EXPECTED_DELIVERY_DATE_TOOLTIP =
   "Supplier delivery date used for inbound supply planning.";
@@ -217,7 +216,7 @@ export const PURCHASE_ACCOUNT_TOOLTIP =
   "Expense account used when syncing the purchase.";
 
 export const PURCHASE_ADDITIONAL_COST_TYPE_TOOLTIP =
-  "Freight, customs, or other cost on this order.";
+  "Shipping, customs, or other cost on this order.";
 
 export const PURCHASE_COST_REFERENCE_TOOLTIP =
   "Supplier invoice, tracking, or internal reference.";

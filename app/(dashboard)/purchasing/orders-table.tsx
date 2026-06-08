@@ -20,7 +20,7 @@ import {
   type PurchaseBillDialogValues,
   type XeroAccountOption,
 } from "./purchase-order-workflow-dialogs";
-import { groupPurchaseOrderByResolvedVendor } from "@/lib/purchasing/resolved-vendor-groups";
+import { groupPurchaseOrderByResolvedSupplier } from "@/lib/purchasing/resolved-supplier-groups";
 import type { PurchaseOrderDetail, PurchaseOrderListRow } from "./types";
 
 const ACCOUNTING_NOT_CONNECTED_MESSAGE =
@@ -53,7 +53,7 @@ function makePurchaseBillDialogValues(
 ): PurchaseBillDialogValues {
   const today = todayIsoDate();
   const groups = detail
-    ? groupPurchaseOrderByResolvedVendor({
+    ? groupPurchaseOrderByResolvedSupplier({
         purchaseOrderSupplier: {
           id: detail.supplierId,
           name: detail.supplierName,
@@ -61,13 +61,13 @@ function makePurchaseBillDialogValues(
         },
         suppliersById: new Map(
           detail.additionalCosts
-            .filter((cost) => cost.vendorOverrideSupplierId)
+            .filter((cost) => cost.supplierId)
             .map((cost) => [
-              cost.vendorOverrideSupplierId as string,
+              cost.supplierId as string,
               {
-                id: cost.vendorOverrideSupplierId as string,
-                name: cost.vendorOverrideSupplierName ?? "Vendor",
-                email: cost.vendorOverrideSupplierEmail,
+                id: cost.supplierId as string,
+                name: cost.supplierName ?? "Supplier",
+                email: cost.supplierEmail,
               },
             ]),
         ),
@@ -123,10 +123,6 @@ function makePurchaseBillDialogValues(
 
 function PurchaseBillCell({ order }: { order: PurchaseOrderListRow }) {
   const queryClient = useQueryClient();
-  const disabledReason =
-    order.status === "cancelled"
-      ? "Cancelled purchase orders cannot be billed."
-      : null;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [status, setStatus] = useState(order.purchaseBillStatus);
   const [manualStatus, setManualStatus] = useState(order.purchaseBillManualStatus);
@@ -239,8 +235,8 @@ function PurchaseBillCell({ order }: { order: PurchaseOrderListRow }) {
         busy={mutation.isPending}
         externalId={externalId}
         externalNumber={externalNumber}
-        disabled={Boolean(disabledReason)}
-        disabledReason={disabledReason}
+        disabled={false}
+        disabledReason={null}
         onSetManualStatus={(nextStatus) =>
           manualStatusMutation.mutate(nextStatus)
         }

@@ -72,8 +72,6 @@ type ERPDataGridListProps<TData extends { id: string }> = {
   height?: string | number;
   gridClassName?: string;
   className?: string;
-  statusBarContent?: ReactNode;
-  statusBarClassName?: string;
   fillViewport?: boolean;
 };
 
@@ -101,8 +99,6 @@ function ERPDataGridListInner<TData extends { id: string }>({
   height,
   gridClassName,
   className,
-  statusBarContent,
-  statusBarClassName,
   fillViewport = true,
 }: ERPDataGridListProps<TData>) {
   const queryClient = useQueryClient();
@@ -298,10 +294,6 @@ function ERPDataGridListInner<TData extends { id: string }>({
           className,
         )}
         gridClassName={cn(fillViewport && "min-h-0 flex-1", gridClassName)}
-        statusBarContent={
-          statusBarContent ?? (fillViewport ? <span>{data.length} rows</span> : null)
-        }
-        statusBarClassName={statusBarClassName}
       />
       {deleteAction ? (
         <AlertDialog
