@@ -8,7 +8,8 @@ The authenticated ERP app remains the existing Next.js app at the repository roo
 
 - Astro static output only.
 - No CMS in v1; content is version-controlled Markdown/Astro files.
-- No auth, database, migrations, cron jobs, TanStack Query, dashboard providers, analytics, chat widgets, third-party tracking, or external embeds.
+- No auth, database, migrations, cron jobs, TanStack Query, dashboard providers, chat widgets, third-party tracking, or external embeds.
+- Vercel Web Analytics is enabled through the `@vercel/analytics` Astro component.
 - No catch-all rewrite from `/*` to ERP.
 - No `/_next/*` rewrite. The ERP app must use `assetPrefix` through `NEXT_PUBLIC_ERP_ASSET_ORIGIN`, `ERP_ASSET_ORIGIN`, or `VERCEL_PROJECT_PRODUCTION_URL`.
 

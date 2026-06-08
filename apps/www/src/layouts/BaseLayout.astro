@@ -1,4 +1,5 @@
 ---
+import Analytics from "@vercel/analytics/astro";
 import logo from "../assets/logo.svg";
 import "../styles/global.css";
 import {
@@ -48,6 +49,7 @@ const isHome = path === "/";
     <meta name="twitter:card" content="summary_large_image" />
   </head>
   <body>
+    <Analytics />
     <div class="site-shell">
       <header class="nav" id="nav">
         <div class="wrap nav-inner">
