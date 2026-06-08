@@ -147,14 +147,14 @@ function AttachmentChip({
   disabled?: boolean;
 }) {
   return (
-    <span className="inline-flex max-w-full items-center gap-1.5 border bg-muted/40 px-2 py-1 text-[length:var(--text-xs)]">
+    <span className="inline-flex h-(--height-input-sm) max-w-full items-center gap-(--space-2) rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface-alt)] px-(--space-3) font-mono text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-[var(--color-ink)]">
       <HugeiconsIcon
         icon={Attachment01Icon}
         size={12}
         className="shrink-0 text-muted-foreground"
       />
       <a
-        className="min-w-0 truncate hover:text-[var(--color-accent)]"
+        className="min-w-0 truncate hover:text-[var(--color-accent-ink)]"
         href={href}
         target="_blank"
         rel="noreferrer"
@@ -163,7 +163,7 @@ function AttachmentChip({
       </a>
       <button
         type="button"
-        className="shrink-0 text-muted-foreground hover:text-foreground disabled:opacity-50"
+        className="shrink-0 text-[var(--color-ink-faint)] hover:text-[var(--color-ink)] disabled:opacity-50"
         aria-label={`Remove ${filename}`}
         onClick={onRemove}
         disabled={disabled}
@@ -262,21 +262,29 @@ export function PurchaseOrderEmailDialog({
     }
   };
   const selectedCount = groups.filter((group) => group.include).length;
+  const selectedGroupsMissingDocuments = groups.some(
+    (group) =>
+      group.include &&
+      group.includePdf === false &&
+      (group.attachmentFileIds?.length ?? 0) === 0,
+  );
 
   return (
     <Sheet open={open} onOpenChange={pending ? undefined : handleOpenChange}>
       <SheetContent
         side="right"
-        className="gap-0 p-0 data-[side=right]:w-[min(100vw,520px)] data-[side=right]:sm:max-w-[520px]"
+        className="gap-0 overflow-hidden bg-[var(--color-surface)] p-0 data-[side=right]:w-[min(100vw,560px)] data-[side=right]:sm:max-w-[560px]"
       >
-        <SheetHeader className="px-6 pb-4 pt-6">
-          <SheetTitle>Send documents for {orderNumber ?? "purchase order"}</SheetTitle>
+        <SheetHeader className="gap-(--space-2) border-b border-[var(--color-line)] bg-[var(--color-surface)] px-(--space-8) pb-(--space-6) pt-(--space-8)">
+          <SheetTitle className="text-[length:var(--text-xl)] leading-[var(--leading-lg)]">
+            Send documents for {orderNumber ?? "purchase order"}
+          </SheetTitle>
           <SheetDescription>
             Emails each supplier their copy of the order.
           </SheetDescription>
         </SheetHeader>
         {orderId ? (
-          <div className="grid flex-1 content-start gap-3 overflow-y-auto px-6 pb-6">
+          <div className="grid flex-1 content-start gap-(--space-4) overflow-y-auto bg-[var(--color-surface)] px-(--space-8) py-(--space-6)">
             {groups.map((group, index) => {
               const expanded = expandedGroupKeys.has(group.groupKey);
               const pdfFileName = group.isFreight
@@ -299,9 +307,12 @@ export function PurchaseOrderEmailDialog({
               return (
                 <div
                   key={group.groupKey}
-                  className={cn("border", group.include ? null : "opacity-50")}
+                  className={cn(
+                    "overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)] shadow-[var(--shadow-sm)]",
+                    group.include ? null : "opacity-55",
+                  )}
                 >
-                  <div className="flex items-center gap-3 p-4">
+                  <div className="flex items-center gap-(--space-4) p-(--space-5)">
                     <Checkbox
                       aria-label={`Include ${group.label}`}
                       checked={group.include}
@@ -313,35 +324,35 @@ export function PurchaseOrderEmailDialog({
                       type="button"
                       aria-expanded={expanded}
                       onClick={() => toggleExpanded(group.groupKey)}
-                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                      className="flex min-w-0 flex-1 items-center gap-(--space-4) text-left outline-none focus-visible:shadow-[0_0_0_4px_var(--color-accent-soft)]"
                     >
                       {expanded ? (
-                        <div className="flex min-w-0 flex-1 items-center gap-2 text-[length:var(--text-sm)] font-medium">
+                        <div className="flex min-w-0 flex-1 items-center gap-(--space-3) text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
                           <span className="truncate">{group.label}</span>
                           {group.isFreight ? (
                             <Badge variant="secondary">Freight</Badge>
                           ) : null}
                         </div>
                       ) : (
-                        <div className="flex min-w-0 flex-1 items-center gap-2 text-[length:var(--text-sm)]">
+                        <div className="flex min-w-0 flex-1 items-center gap-(--space-3) text-[length:var(--text-sm)]">
                           <span
                             className={cn(
-                              "shrink-0 font-medium",
-                              group.to.trim() ? null : "text-destructive",
+                              "shrink-0 font-semibold text-[var(--color-ink)]",
+                              group.to.trim() ? null : "text-[var(--status-danger-ink)]",
                             )}
                           >
                             {recipientLabel}
                           </span>
-                          <span className="text-muted-foreground">·</span>
-                          <span className="truncate text-muted-foreground">
+                          <span className="size-(--space-2) shrink-0 rounded-full bg-[var(--color-line)]" />
+                          <span className="truncate text-[var(--color-ink-faint)]">
                             {subjectLabel}
                           </span>
                         </div>
                       )}
                       <span
                         className={cn(
-                          "shrink-0 text-[length:var(--text-xs)] text-muted-foreground",
-                          documentCount === 0 ? "text-destructive" : null,
+                          "shrink-0 font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]",
+                          documentCount === 0 ? "text-[var(--status-danger-ink)]" : null,
                         )}
                       >
                         {documentCount} doc{documentCount === 1 ? "" : "s"}
@@ -367,10 +378,10 @@ export function PurchaseOrderEmailDialog({
 
                   {expanded ? (
                     <div className="grid gap-2 px-4 pb-4">
-                      <p className="text-[length:var(--text-xs)] font-semibold uppercase tracking-[var(--tracking-caps)] text-muted-foreground">
+                      <p className="font-mono text-[length:var(--text-xs)] font-semibold uppercase tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)]">
                         Attachments
                       </p>
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-(--space-3)">
                         {includePdf ? (
                           <AttachmentChip
                             href={`/api/purchase-orders/${orderId}/pdf?groupKey=${encodeURIComponent(group.groupKey)}`}
@@ -398,6 +409,7 @@ export function PurchaseOrderEmailDialog({
                               type="button"
                               variant="outline"
                               size="icon-xs"
+                              className="rounded-[var(--radius-md)]"
                               aria-label={`Add documents to ${group.label}`}
                               disabled={uploadPending || pending}
                             >
@@ -453,7 +465,7 @@ export function PurchaseOrderEmailDialog({
                   ) : null}
 
                   {expanded ? (
-                    <div className="grid gap-4 border-t p-4">
+                    <div className="grid gap-(--space-5) border-t border-[var(--color-line-soft)] bg-[var(--color-surface)] p-(--space-5)">
                       <Field>
                         <div className="flex items-center justify-between gap-3">
                           <FieldLabel htmlFor={`po-email-to-${group.groupKey}`}>
@@ -478,6 +490,7 @@ export function PurchaseOrderEmailDialog({
                         </div>
                         <Input
                           id={`po-email-to-${group.groupKey}`}
+                          className="rounded-[var(--radius-md)]"
                           value={group.to}
                           onChange={(event) =>
                             updateGroup(index, { to: event.target.value })
@@ -491,6 +504,7 @@ export function PurchaseOrderEmailDialog({
                           </FieldLabel>
                           <Input
                             id={`po-email-bcc-${group.groupKey}`}
+                            className="rounded-[var(--radius-md)]"
                             value={group.bcc}
                             onChange={(event) =>
                               updateGroup(index, { bcc: event.target.value })
@@ -505,6 +519,7 @@ export function PurchaseOrderEmailDialog({
                           </FieldLabel>
                           <Input
                             id={`po-email-reply-to-${group.groupKey}`}
+                            className="rounded-[var(--radius-md)]"
                             value={group.replyTo}
                             onChange={(event) =>
                               updateGroup(index, { replyTo: event.target.value })
@@ -518,6 +533,7 @@ export function PurchaseOrderEmailDialog({
                         </FieldLabel>
                         <Input
                           id={`po-email-subject-${group.groupKey}`}
+                          className="rounded-[var(--radius-md)]"
                           value={group.subject}
                           onChange={(event) =>
                             updateGroup(index, { subject: event.target.value })
@@ -531,7 +547,7 @@ export function PurchaseOrderEmailDialog({
                         <Textarea
                           id={`po-email-message-${group.groupKey}`}
                           rows={8}
-                          className="min-h-32 resize-none"
+                          className="min-h-32 resize-none rounded-[var(--radius-md)]"
                           value={group.message}
                           onChange={(event) =>
                             updateGroup(index, { message: event.target.value })
@@ -547,11 +563,11 @@ export function PurchaseOrderEmailDialog({
             {error ? <FieldError>{error}</FieldError> : null}
           </div>
         ) : null}
-        <SheetFooter className="mt-auto flex-row items-center justify-between border-t px-6 py-4">
-          <span className="text-[length:var(--text-sm)] text-muted-foreground">
+        <SheetFooter className="mt-auto flex-row items-center justify-between border-t border-[var(--color-line)] bg-[var(--color-surface)] px-(--space-8) py-(--space-5)">
+          <span className="font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
             {selectedCount} of {groups.length} selected
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-(--space-3)">
             <Button
               type="button"
               variant="ghost"
@@ -566,6 +582,7 @@ export function PurchaseOrderEmailDialog({
               disabled={
                 pending ||
                 selectedCount === 0 ||
+                selectedGroupsMissingDocuments ||
                 groups.some(
                   (group) =>
                     group.include &&
@@ -676,20 +693,23 @@ export function PurchaseBillDialog({
     <Sheet open={open} onOpenChange={pending ? undefined : handleOpenChange}>
       <SheetContent
         side="right"
-        className="gap-0 p-0 data-[side=right]:w-[min(100vw,520px)] data-[side=right]:sm:max-w-[520px]"
+        className="gap-0 overflow-hidden bg-[var(--color-surface)] p-0 data-[side=right]:w-[min(100vw,560px)] data-[side=right]:sm:max-w-[560px]"
       >
-        <SheetHeader className="px-6 pb-4 pt-6">
-          <SheetTitle>Create {providerLabel} bills</SheetTitle>
+        <SheetHeader className="gap-(--space-2) border-b border-[var(--color-line)] bg-[var(--color-surface)] px-(--space-8) pb-(--space-6) pt-(--space-8)">
+          <SheetTitle className="text-[length:var(--text-xl)] leading-[var(--leading-lg)]">
+            Create {providerLabel} bills
+          </SheetTitle>
           <SheetDescription>
             Pushes selected supplier bills to {providerLabel}.
           </SheetDescription>
         </SheetHeader>
-        <div className="grid flex-1 content-start gap-4 overflow-y-auto px-6 pb-6">
-          <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid flex-1 content-start gap-(--space-5) overflow-y-auto bg-[var(--color-surface)] px-(--space-8) py-(--space-6)">
+          <div className="grid gap-(--space-4) sm:grid-cols-2">
             <Field>
               <FieldLabel htmlFor="purchase-bill-date">Bill date</FieldLabel>
               <DatePicker
                 id="purchase-bill-date"
+                className="rounded-[var(--radius-md)]"
                 value={values.billDate}
                 onChange={(value) =>
                   onValuesChange({ ...values, billDate: value || values.billDate })
@@ -700,6 +720,7 @@ export function PurchaseBillDialog({
               <FieldLabel htmlFor="purchase-bill-due-date">Due date</FieldLabel>
               <DatePicker
                 id="purchase-bill-due-date"
+                className="rounded-[var(--radius-md)]"
                 value={values.dueDate}
                 onChange={(value) =>
                   onValuesChange({ ...values, dueDate: value || values.dueDate })
@@ -714,7 +735,7 @@ export function PurchaseBillDialog({
               </option>
             ))}
           </datalist>
-          <div className="grid gap-3">
+          <div className="grid gap-(--space-4)">
             {groups.map((group, index) => {
               const expanded = expandedGroupKeys.has(group.groupKey);
               const account = xeroAccounts.find(
@@ -729,9 +750,12 @@ export function PurchaseBillDialog({
               return (
                 <div
                   key={group.groupKey}
-                  className={cn("border", group.include ? null : "opacity-50")}
+                  className={cn(
+                    "overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)] shadow-[var(--shadow-sm)]",
+                    group.include ? null : "opacity-55",
+                  )}
                 >
-                  <div className="flex items-center gap-3 p-4">
+                  <div className="flex items-center gap-(--space-4) p-(--space-5)">
                     <Checkbox
                       aria-label={`Include ${group.label}`}
                       checked={group.include}
@@ -743,13 +767,13 @@ export function PurchaseBillDialog({
                       type="button"
                       aria-expanded={expanded}
                       onClick={() => toggleExpanded(group.groupKey)}
-                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                      className="flex min-w-0 flex-1 items-center gap-(--space-4) text-left outline-none focus-visible:shadow-[0_0_0_4px_var(--color-accent-soft)]"
                     >
-                      <div className="grid min-w-0 flex-1 gap-0.5">
-                        <span className="truncate text-[length:var(--text-sm)] font-medium">
+                      <div className="grid min-w-0 flex-1 gap-(--space-1)">
+                        <span className="truncate text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
                           {group.label}
                         </span>
-                        <span className="truncate text-[length:var(--text-xs)] text-muted-foreground">
+                        <span className="truncate font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                           {accountSummary}
                           {invoice ? ` · Inv ${invoice}` : ""}
                           {pushed && group.externalNumber
@@ -757,7 +781,7 @@ export function PurchaseBillDialog({
                             : ""}
                         </span>
                       </div>
-                      <span className="shrink-0 text-[length:var(--text-sm)] font-medium tabular-nums">
+                      <span className="shrink-0 font-mono text-[length:var(--text-sm)] font-semibold tabular-nums text-[var(--color-ink)]">
                         {formatPrice(group.amount) ?? "$0.00"}
                       </span>
                       <HugeiconsIcon
@@ -772,7 +796,7 @@ export function PurchaseBillDialog({
                   </div>
 
                   {expanded ? (
-                    <div className="grid gap-4 border-t p-4">
+                    <div className="grid gap-(--space-5) border-t border-[var(--color-line-soft)] bg-[var(--color-surface)] p-(--space-5)">
                       <Field>
                         <FieldLabel
                           htmlFor={`purchase-bill-invoice-${group.groupKey}`}
@@ -782,6 +806,7 @@ export function PurchaseBillDialog({
                         <Input
                           id={`purchase-bill-invoice-${group.groupKey}`}
                           placeholder="e.g. INV-2043"
+                          className="rounded-[var(--radius-md)]"
                           value={group.invoiceNumber}
                           onChange={(event) =>
                             updateGroup(index, {
@@ -800,6 +825,7 @@ export function PurchaseBillDialog({
                           id={`purchase-bill-account-${group.groupKey}`}
                           list="purchase-bill-xero-accounts"
                           placeholder="e.g. 310 — Cost of goods"
+                          className="rounded-[var(--radius-md)]"
                           value={group.accountingPurchaseAccountCode}
                           onChange={(event) =>
                             updateGroup(index, {
@@ -821,13 +847,13 @@ export function PurchaseBillDialog({
           ) : null}
           {error ? <FieldError>{error}</FieldError> : null}
         </div>
-        <SheetFooter className="mt-auto flex-row items-center justify-between border-t px-6 py-4">
-          <span className="text-[length:var(--text-sm)] text-muted-foreground">
+        <SheetFooter className="mt-auto flex-row items-center justify-between border-t border-[var(--color-line)] bg-[var(--color-surface)] px-(--space-8) py-(--space-5)">
+          <span className="font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
             {incompleteCount > 0
               ? `${incompleteCount} bill${incompleteCount === 1 ? "" : "s"} need an invoice & account`
               : `${selectedCount} of ${groups.length} selected`}
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-(--space-3)">
             <Button
               type="button"
               variant="ghost"

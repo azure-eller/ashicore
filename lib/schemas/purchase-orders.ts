@@ -420,12 +420,33 @@ const purchaseOrderEmailGroupSchema =
         path: ["subject"],
       });
     }
+    if (
+      group.includePdf === false &&
+      (group.attachmentFileIds?.length ?? 0) === 0
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Select at least one document to send",
+        path: ["attachmentFileIds"],
+      });
+    }
   });
 
 const purchaseOrderEmailComposerSchema =
   purchaseOrderEmailBaseComposerSchema.extend({
     to: z.email("Supplier email must be a valid email address"),
     subject: z.string().trim().min(1, "Subject is required").max(200),
+  }).superRefine((input, ctx) => {
+    if (
+      input.includePdf === false &&
+      (input.attachmentFileIds?.length ?? 0) === 0
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Select at least one document to send",
+        path: ["attachmentFileIds"],
+      });
+    }
   });
 
 export const sendPurchaseOrderEmailSchema = z
