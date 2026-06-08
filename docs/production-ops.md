@@ -36,6 +36,7 @@ Production requires real email delivery for:
 - team invitations
 - password reset
 - email change verification
+- founder alerts for acquisition and billing events
 
 Required env vars:
 
@@ -50,6 +51,46 @@ Set `EMAIL_FROM` only when overriding that sender.
 In local and CI environments without Resend configured, the app writes transactional emails to `.tmp/email-outbox/` instead of sending them.
 
 Playwright also forces outbox mode with `.tmp/email-outbox-only` during `test/global-setup.ts`. This avoids linked-worktree cases where the dev server inherited repo-root Resend vars before the test process started.
+
+Founder alerts are optional but required before actively marketing paid signup:
+
+- set `ASHICORE_ALERT_EMAILS` in the ERP Vercel production environment
+- use a comma-separated list when multiple recipients should be notified
+- alert delivery failures are logged and must not block signup, checkout, or Stripe webhooks
+
+## Billing And Paid Signup
+
+Production paid checkout requires Stripe live-mode configuration on the ERP Vercel project:
+
+- `STRIPE_SECRET_KEY`
+- `STRIPE_CORE_PRICE_ID`
+- `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_LIVE_MODE=1`
+
+Stripe setup checklist:
+
+1. Create or verify the live monthly Core price for `$199 / month`.
+2. Set `STRIPE_CORE_PRICE_ID` to that live price ID.
+3. Create a live webhook endpoint for `https://ashicore.app/api/stripe/webhook`.
+4. Subscribe the webhook to:
+   - `checkout.session.completed`
+   - `customer.subscription.created`
+   - `customer.subscription.updated`
+   - `customer.subscription.deleted`
+   - `customer.deleted`
+5. Set `STRIPE_WEBHOOK_SECRET` from the live endpoint signing secret.
+6. Set `STRIPE_SECRET_KEY` to the live restricted or secret key used by the ERP app.
+7. Set `STRIPE_LIVE_MODE=1`.
+8. Redeploy the ERP project after env changes.
+
+Verification before marketing paid signup:
+
+- Vercel production env lists all four Stripe vars above.
+- `/settings/billing` enables the `Upgrade to Core` action for a free organization.
+- A live-mode test checkout reaches Stripe Checkout from the deployed ERP app.
+- Returning from checkout leaves the org on Core after the webhook is processed.
+- Vercel Runtime Logs show no `Stripe billing is not configured.` errors.
+- Founder alert email arrives for checkout start and subscription activation when `ASHICORE_ALERT_EMAILS` is set.
 
 ## Xero Token Key Rotation
 
