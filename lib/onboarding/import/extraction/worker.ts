@@ -8,7 +8,7 @@ import { getPrivateBlobForDownload } from "@/lib/blob-storage";
 import { readLocalAttachment } from "@/lib/attachments/local-file-storage";
 import { extractImportPackage } from "./extractor";
 import { importPackageSchema, type ImportPackage, type PartialImportPackage } from "../types";
-import { normalizeImportPackageInTx } from "../sessions";
+import { normalizeImportPackageInTx, validateImportPackageInTx } from "../sessions";
 
 const DEFAULT_FILES_PER_TICK = 3;
 const LEASE_MS = 4 * 60 * 1000;
@@ -364,10 +364,11 @@ async function finishSessionIfReady(orgId: string, sessionId: string) {
     const merged = applyInitialReviewDefaults(
       await normalizeImportPackageInTx(tx, mergePartials(partials)),
     );
+    const preview = await validateImportPackageInTx(tx, orgId, merged);
     await tx
       .update(importSessions)
       .set({
-        status: "needs_review",
+        status: preview.status,
         draftPackage: merged,
         normalizedPackage: merged,
         openingStockAsOf: merged.openingStockAsOf,

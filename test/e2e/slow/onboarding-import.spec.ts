@@ -6,6 +6,7 @@ import {
   customers,
   importFiles,
   importCommitRecords,
+  importSessions,
   inventoryEvents,
   items,
   onboardingSessions,
@@ -569,6 +570,71 @@ test.describe("onboarding import operating story", () => {
       .from(customers)
       .where(eq(customers.name, skippedCustomerName));
     expect(skippedCustomers).toHaveLength(0);
+  });
+
+  test("stored validated import approves without a manual revalidate", async ({ db }) => {
+    const sessionId = await createSession();
+    const sku = `WORKER-APPROVE-${ts}`;
+    const pkg: ImportPackage = {
+      version: "1",
+      openingStockAsOf: "2026-06-01",
+      units: [{ tempId: "unit-each", name: "Each", size: "1", uom: "ea" }],
+      suppliers: [],
+      customers: [],
+      items: [
+        {
+          tempId: "worker-item",
+          itemType: "product",
+          name: uniqueName("Worker Approved Product"),
+          sku,
+          unitRef: "unit-each",
+          sellable: true,
+          defaultSellingPrice: "12.00",
+          lotTrackingMode: "tracked",
+          match: { suggestion: "create" },
+          provenance: [{ fileId: "worker", location: "row 1" }],
+          confidence: 1,
+          review: { selected: true },
+        },
+      ],
+      openingStock: [],
+      boms: [],
+      unresolvedQuestions: [],
+    };
+
+    await db
+      .update(importSessions)
+      .set({
+        status: "validated",
+        draftPackage: pkg,
+        normalizedPackage: pkg,
+        openingStockAsOf: pkg.openingStockAsOf,
+        updatedAt: new Date(),
+      })
+      .where(eq(importSessions.id, sessionId));
+
+    const review = await testFetch(`/api/onboarding/imports/${sessionId}`);
+    expectResponse(review, 200);
+    const reviewBody = await review.json();
+    expect(reviewBody.preview).toMatchObject({
+      status: "validated",
+      blockingIssueCount: 0,
+    });
+
+    const approve = await testFetch(`/api/onboarding/imports/${sessionId}/approve`, {
+      method: "POST",
+      body: JSON.stringify({ previewHash: reviewBody.preview.hash }),
+    });
+    expectResponse(approve, 200);
+    const approveBody = await approve.json();
+    expect(approveBody.committed).toBe(true);
+    expect(approveBody.commitSummary.items).toBe(1);
+
+    const [created] = await db
+      .select({ id: items.id })
+      .from(items)
+      .where(eq(items.sku, sku));
+    expect(created?.id).toBeTruthy();
   });
 
   test("paid intent holds commit until payment; free intent enforces the SKU cap", async ({
