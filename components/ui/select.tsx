@@ -44,6 +44,7 @@ function SelectTrigger({
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
       data-size={size}
+      suppressHydrationWarning
       className={cn(
         "flex w-fit items-center justify-between gap-(--space-3) rounded-md border-[1.5px] border-[var(--color-line)] bg-[var(--color-surface)] py-(--space-2) pr-(--space-4) pl-(--space-5) text-[length:var(--text-sm)] text-[var(--color-ink)] whitespace-nowrap transition-colors duration-(--duration-1) ease-(--ease-out) outline-none select-none hover:border-[var(--color-ink-soft)] focus-visible:border-[var(--color-accent)] focus-visible:shadow-[0_0_0_4px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:border-transparent disabled:bg-[var(--color-surface-sunk)] disabled:text-[var(--color-ink-soft)] disabled:opacity-100 aria-invalid:border-[var(--color-danger)] aria-invalid:shadow-[0_0_0_4px_color-mix(in_oklch,var(--color-danger),transparent_88%)] data-placeholder:text-[var(--color-ink-faint)] data-[size=default]:h-(--height-input-md) data-[size=sm]:h-(--height-input-sm) *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-(--space-3) [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-(--space-7)",
         className

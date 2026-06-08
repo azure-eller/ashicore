@@ -17,6 +17,7 @@ import {
   themeQuartz,
   type ColDef,
   type ColGroupDef,
+  type CellClickedEvent,
   type CellValueChangedEvent,
   type GridApi,
   type FirstDataRenderedEvent,
@@ -123,6 +124,7 @@ export type ERPDataGridProps<TData extends { id: string }> = {
   hideHeaderSelectionCheckbox?: boolean;
   isRowSelectable?: (row: TData) => boolean;
   onSelectionChange?: (rows: TData[]) => void;
+  onCellClicked?: (event: CellClickedEvent<TData>) => void;
   onCellValueChanged?: (event: CellValueChangedEvent<TData>) => void;
   enableManagedRowDrag?: boolean;
   suppressMoveWhenRowDragging?: boolean;
@@ -284,6 +286,7 @@ export function ERPDataGrid<TData extends { id: string }>({
   hideHeaderSelectionCheckbox = false,
   isRowSelectable,
   onSelectionChange,
+  onCellClicked,
   onCellValueChanged,
   enableManagedRowDrag = false,
   suppressMoveWhenRowDragging = false,
@@ -581,6 +584,7 @@ export function ERPDataGrid<TData extends { id: string }>({
           columnHoverHighlight={columnHoverHighlight}
           suppressColumnVirtualisation={suppressColumnVirtualisation}
           quickFilterText={enableQuickFilter ? searchValue : undefined}
+          cacheQuickFilter={enableQuickFilter}
           rowClassRules={rowClassRules}
           isFullWidthRow={
             isFullWidthRow
@@ -630,6 +634,7 @@ export function ERPDataGrid<TData extends { id: string }>({
           onSelectionChanged={(event: SelectionChangedEvent<TData>) => {
             onSelectionChange?.(event.api.getSelectedRows());
           }}
+          onCellClicked={onCellClicked}
           onCellValueChanged={onCellValueChanged}
           onGridReady={(event: GridReadyEvent<TData>) => {
             gridApiRef.current = event.api;

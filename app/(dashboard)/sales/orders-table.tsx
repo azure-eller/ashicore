@@ -1,13 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import type { GridApi, ICellRendererParams } from "ag-grid-community";
+import type {
+  CellClickedEvent,
+  GridApi,
+  ICellRendererParams,
+} from "ag-grid-community";
 import { apiJson } from "@/lib/client/api";
 import { ERPDataGrid, type ColDef } from "@/components/erp-data-grid";
 import { SelectionCountBadge } from "@/components/selection-count-badge";
@@ -30,11 +34,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { StatusDetailMenuTable } from "@/components/status-detail-menu-table";
+import { FulfillmentStatusBlock } from "@/components/fulfillment-status-block";
 import {
   ORDER_TOTAL_TOOLTIP,
   SALES_ORDER_CUSTOMER_TOOLTIP,
@@ -59,8 +60,7 @@ import {
   type FulfillmentDisplayState,
 } from "@/lib/sales/fulfillment-status";
 import {
-  ProductionActionCell,
-  StatusDetailCell,
+  ProductionStatusCell,
   ingredientsStatusEmptyMessage,
 } from "./sales-order-table-action-cells";
 import { OrderStatusControl } from "@/components/card-page/order-status-control";
@@ -89,6 +89,29 @@ const OPEN_SALES_STATUSES = ["open"] as const;
 const DONE_SALES_STATUSES = ["done"] as const;
 type SalesWorkflowFilterValue = "open" | "done";
 
+type SalesOrderGridRow = SalesOrderListRow & {
+  __grid: {
+    notesLabel: string;
+    salesItemsState: FulfillmentDisplayState;
+    salesItemsLabel: string;
+    salesItemsActionable: boolean;
+    salesItemsCellClass: string[];
+    ingredientsState: FulfillmentDisplayState;
+    ingredientsLabel: string;
+    ingredientsCellClass: string[];
+    productionState: FulfillmentDisplayState;
+    productionLabel: string;
+    productionActionable: boolean;
+    productionCellClass: string[];
+    deliveryState: FulfillmentDisplayState;
+    deliveryLabel: string;
+    deliveryActionable: boolean;
+    deliveryCellClass: string[];
+    shipDate: string | null;
+    shipDateLabel: string;
+  };
+};
+
 const SALES_ORDER_AUTO_SIZE_COLUMN_IDS = [
   "orderNumber",
   "allocation",
@@ -97,7 +120,7 @@ const SALES_ORDER_AUTO_SIZE_COLUMN_IDS = [
   "shipDate",
 ] as const;
 
-function autoSizeSalesOrderStatusColumns(api: GridApi<SalesOrderListRow>) {
+function autoSizeSalesOrderStatusColumns(api: GridApi<SalesOrderGridRow>) {
   window.requestAnimationFrame(() => {
     api.autoSizeColumns([...SALES_ORDER_AUTO_SIZE_COLUMN_IDS], true);
   });
@@ -105,30 +128,6 @@ function autoSizeSalesOrderStatusColumns(api: GridApi<SalesOrderListRow>) {
 
 function isOpenSalesOrder(order: SalesOrderListRow) {
   return (OPEN_SALES_STATUSES as readonly string[]).includes(order.status);
-}
-
-function NotesCell({ notes }: { notes: string | null }) {
-  const trimmedNotes = displaySalesOrderNotes(notes);
-
-  if (!trimmedNotes) {
-    return <span className="text-[var(--color-ink-faint)]">—</span>;
-  }
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          className="block w-full overflow-hidden text-ellipsis text-left text-[var(--color-ink-faint)] outline-none hover:text-[var(--color-ink)] focus-visible:text-[var(--color-ink)]"
-        >
-          {trimmedNotes}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="top" className="max-w-80 whitespace-pre-wrap">
-        {trimmedNotes}
-      </TooltipContent>
-    </Tooltip>
-  );
 }
 
 function shippedSalesQuantity(order: SalesOrderListRow) {
@@ -153,34 +152,20 @@ function formatOrderLineItemName(line: SalesOrderListRow["lines"][number]) {
     : line.masterName;
 }
 
-function SalesItemsActionCell({
-  order,
-}: {
-  order: SalesOrderListRow;
-}) {
-  const hasLines = order.lines.length > 0;
-  const state =
-    !hasLines
-      ? ({ label: "Not applicable", tone: "muted" } satisfies FulfillmentDisplayState)
-      : getSalesItemsAvailabilityState(order);
-  const rows = order.lines.map((line) => ({
+function getSalesItemsStateForOrder(order: SalesOrderListRow) {
+  return order.lines.length === 0
+    ? ({ label: "Not applicable", tone: "muted" } satisfies FulfillmentDisplayState)
+    : getSalesItemsAvailabilityState(order);
+}
+
+function buildSalesItemsRows(order: SalesOrderListRow) {
+  return order.lines.map((line) => ({
     id: line.id ?? line.itemId,
     item: formatOrderLineItemName(line),
     needed: formatQuantity(line.remainingQty ?? line.quantity),
     available: formatQuantity(line.demandQueueInStockQty ?? "0"),
     expected: formatQuantity(line.demandQueueExpectedQty ?? "0"),
   }));
-
-  return (
-    <StatusDetailCell
-      label="Sales items"
-      menuLabel="Sales items"
-      state={state}
-      rows={rows}
-      emptyMessage="No sales items."
-      interactive={hasLines}
-    />
-  );
 }
 
 function getProductionState(order: SalesOrderListRow): FulfillmentDisplayState {
@@ -194,9 +179,8 @@ function getIngredientsState(order: SalesOrderListRow): FulfillmentDisplayState 
   );
 }
 
-function IngredientsStatusCell({ order }: { order: SalesOrderListRow }) {
-  const state = getIngredientsState(order);
-  const rows = order.fulfillmentSummary.ingredientShortages.map((shortage) => ({
+function buildIngredientRows(order: SalesOrderListRow) {
+  return order.fulfillmentSummary.ingredientShortages.map((shortage) => ({
     id: shortage.itemId,
     item: shortage.itemName,
     needed: formatQuantity(shortage.requiredQty),
@@ -204,16 +188,6 @@ function IngredientsStatusCell({ order }: { order: SalesOrderListRow }) {
     expected: formatQuantity(shortage.expectedQty),
     short: shortage.availabilityStatus === "missing",
   }));
-
-  return (
-    <StatusDetailCell
-      label="Ingredients"
-      menuLabel="Short ingredients"
-      state={state}
-      emptyMessage={ingredientsStatusEmptyMessage(state, "order")}
-      rows={rows}
-    />
-  );
 }
 
 function getDeliveryState(order: SalesOrderListRow): FulfillmentDisplayState {
@@ -226,6 +200,145 @@ function getDeliveryState(order: SalesOrderListRow): FulfillmentDisplayState {
   }
 
   return { label: "Not shipped", tone: "muted" };
+}
+
+const STATUS_CELL_COLUMN_IDS = new Set([
+  "allocation",
+  "ingredientsState",
+  "productionState",
+  "deliveryState",
+]);
+const STATUS_PANEL_OVERLAY_SELECTOR = [
+  "[data-sales-order-status-panel]",
+  "[data-slot='dropdown-menu-content']",
+  "[role='menu']",
+  "[data-radix-popper-content-wrapper]",
+].join(",");
+const OPEN_STATUS_PANEL_MENU_SELECTOR =
+  "[data-slot='dropdown-menu-content'][data-state='open'], [role='menu'][data-state='open']";
+const STATUS_PANEL_WIDTH = 560;
+const STATUS_PANEL_MARGIN = 12;
+
+type SalesOrderPanelKind =
+  | "allocation"
+  | "ingredientsState"
+  | "productionState"
+  | "deliveryState";
+
+type SalesOrderPanelState = {
+  kind: SalesOrderPanelKind;
+  orderId: string;
+  x: number;
+  y: number;
+};
+
+function isStatusPanelActionable(
+  order: SalesOrderGridRow,
+  kind: SalesOrderPanelKind
+) {
+  if (kind === "allocation") return order.__grid.salesItemsActionable;
+  if (kind === "productionState") return order.__grid.productionActionable;
+  if (kind === "deliveryState") return order.__grid.deliveryActionable;
+  return true;
+}
+
+function statusCellClass(options?: { actionable?: boolean }) {
+  return [
+    "statusBlockCell",
+    options?.actionable !== false ? "statusInteractiveCell" : "",
+  ].filter(Boolean);
+}
+
+function isProductionStatusActionable(
+  order: SalesOrderListRow,
+  state: FulfillmentDisplayState
+) {
+  return (
+    order.openManufacturingOrders.length > 0 ||
+    (order.status === "open" && state.label === "Make")
+  );
+}
+
+function isStatusPanelOverlayTarget(target: EventTarget | null) {
+  return (
+    target instanceof Element &&
+    target.closest(STATUS_PANEL_OVERLAY_SELECTOR) !== null
+  );
+}
+
+function hasOpenStatusPanelOverlay() {
+  return document.querySelector(OPEN_STATUS_PANEL_MENU_SELECTOR);
+}
+
+function isOpenStatusPanelOverlayTarget(target: EventTarget | null) {
+  return (
+    target instanceof Element &&
+    target.closest(OPEN_STATUS_PANEL_MENU_SELECTOR) !== null
+  );
+}
+
+function panelPosition(event: MouseEvent | undefined) {
+  const x = event?.clientX ?? 240;
+  const y = event?.clientY ?? 160;
+
+  if (typeof window === "undefined") {
+    return { x, y };
+  }
+
+  const panelWidth = Math.min(STATUS_PANEL_WIDTH, window.innerWidth - STATUS_PANEL_MARGIN * 2);
+
+  return {
+    x: Math.max(
+      STATUS_PANEL_MARGIN,
+      Math.min(x, window.innerWidth - panelWidth - STATUS_PANEL_MARGIN)
+    ),
+    y: Math.max(STATUS_PANEL_MARGIN, Math.min(y + 10, window.innerHeight - 420)),
+  };
+}
+
+function buildSalesOrderGridRow(order: SalesOrderListRow): SalesOrderGridRow {
+  const salesItemsState = getSalesItemsStateForOrder(order);
+  const ingredientsState = getIngredientsState(order);
+  const productionState = getProductionState(order);
+  const deliveryState = getDeliveryState(order);
+  const shipmentSchedule = getOrderShipmentSchedule(order);
+  const salesItemsActionable = order.lines.length > 0;
+  const productionActionable = isProductionStatusActionable(order, productionState);
+  const deliveryActionable = !isSalesOrderStatusDisabled(order);
+
+  return {
+    ...order,
+    __grid: {
+      notesLabel: displaySalesOrderNotes(order.notes) ?? "—",
+      salesItemsState,
+      salesItemsLabel: salesItemsState.label,
+      salesItemsActionable,
+      salesItemsCellClass: statusCellClass({
+        actionable: salesItemsActionable,
+      }),
+      ingredientsState,
+      ingredientsLabel: ingredientsState.label,
+      ingredientsCellClass: statusCellClass(),
+      productionState,
+      productionLabel: productionState.label,
+      productionActionable,
+      productionCellClass: statusCellClass({
+        actionable: productionActionable,
+      }),
+      deliveryState,
+      deliveryLabel: deliveryState.label,
+      deliveryActionable,
+      deliveryCellClass: statusCellClass({
+        actionable: deliveryActionable,
+      }),
+      shipDate: shipmentSchedule.date,
+      shipDateLabel: shipmentSchedule.label,
+    },
+  };
+}
+
+function StatusCell({ state }: { state: FulfillmentDisplayState }) {
+  return <FulfillmentStatusBlock state={state} />;
 }
 
 function doneSalesOrderRank(order: SalesOrderListRow) {
@@ -290,6 +403,111 @@ function RankCell({ order }: { order: SalesOrderListRow }) {
   );
 }
 
+function SalesOrderStatusPanel({
+  panel,
+  order,
+  onClose,
+}: {
+  panel: SalesOrderPanelState | null;
+  order: SalesOrderListRow | null;
+  onClose: () => void;
+}) {
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!panel) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (isStatusPanelOverlayTarget(event.target)) return;
+
+      onClose();
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => window.removeEventListener("pointerdown", handlePointerDown);
+  }, [onClose, panel]);
+
+  useEffect(() => {
+    if (!panel) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (
+        isOpenStatusPanelOverlayTarget(event.target) ||
+        hasOpenStatusPanelOverlay()
+      ) {
+        return;
+      }
+
+      onClose();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose, panel]);
+
+  if (!panel || !order) return null;
+
+  const titleByKind: Record<SalesOrderPanelKind, string> = {
+    allocation: "Sales items",
+    ingredientsState: "Ingredients",
+    productionState: "Production",
+    deliveryState: "Delivery",
+  };
+  const title = titleByKind[panel.kind];
+
+  return (
+    <div
+      ref={panelRef}
+      data-sales-order-status-panel
+      className="fixed z-50 w-[min(560px,calc(100vw_-_24px))] border border-[var(--color-line)] bg-[var(--color-surface)] shadow-[var(--shadow-grid-card)]"
+      style={{ left: panel.x, top: panel.y }}
+    >
+      <div className="flex items-center justify-between border-b border-[var(--color-line)] bg-[var(--color-surface-alt)] px-(--space-5) py-(--space-4)">
+        <div className="min-w-0">
+          <div className="font-mono text-[length:var(--text-xs)] font-bold uppercase tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)]">
+            {title}
+          </div>
+          <div className="truncate text-[length:var(--text-sm)] font-semibold">
+            {order.orderNumber} · {order.customerName}
+          </div>
+        </div>
+        <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+          Close
+        </Button>
+      </div>
+      <div className="max-h-[360px] overflow-y-auto p-(--space-5)">
+        {panel.kind === "allocation" ? (
+          <StatusDetailMenuTable
+            emptyMessage="No sales items."
+            rows={buildSalesItemsRows(order)}
+          />
+        ) : null}
+        {panel.kind === "ingredientsState" ? (
+          <StatusDetailMenuTable
+            emptyMessage={ingredientsStatusEmptyMessage(
+              getIngredientsState(order),
+              "order"
+            )}
+            rows={buildIngredientRows(order)}
+          />
+        ) : null}
+        {panel.kind === "productionState" ? (
+          <ProductionStatusCell
+            state={getProductionState(order)}
+            salesOrderId={order.id}
+            salesOrderStatus={order.status}
+            salesOrderLabel={`${order.orderNumber} - ${order.customerName}`}
+            shipDate={order.shipDate}
+            openManufacturingOrders={order.openManufacturingOrders}
+          />
+        ) : null}
+        {panel.kind === "deliveryState" ? <SalesDeliveryCell order={order} /> : null}
+      </div>
+    </div>
+  );
+}
+
 export function OrdersTable({
   initialData,
 }: {
@@ -304,7 +522,7 @@ function OrdersTableContent({
   initialData: SalesOrderListRow[];
 }) {
   const queryClient = useQueryClient();
-  const gridApiRef = useRef<GridApi<SalesOrderListRow> | null>(null);
+  const gridApiRef = useRef<GridApi<SalesOrderGridRow> | null>(null);
   const hasAutoSizedColumnsRef = useRef(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [statusFilter, setStatusFilter] =
@@ -313,6 +531,9 @@ function OrdersTableContent({
   const [selectedOrders, setSelectedOrders] = useState<SalesOrderListRow[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [hasActiveSort, setHasActiveSort] = useState(false);
+  const [activePanel, setActivePanel] = useState<SalesOrderPanelState | null>(
+    null
+  );
   const { data: orders = initialData } = useQuery({
     queryKey: ["sales-orders"],
     queryFn: () =>
@@ -386,6 +607,10 @@ function OrdersTableContent({
 
     return [...filteredOrders].sort(compareSalesOrderRank);
   }, [orders, searchValue, statusFilter]);
+  const gridRows = useMemo(
+    () => displayedOrders.map(buildSalesOrderGridRow),
+    [displayedOrders]
+  );
   useEffect(() => {
     if (
       !hasAutoSizedColumnsRef.current &&
@@ -399,7 +624,46 @@ function OrdersTableContent({
   const hasSearchFilter = searchValue.trim().length > 0;
   const reorderEnabled =
     statusFilter === "open" && !hasSearchFilter && !hasActiveSort;
-  const gridColumns = useMemo<ColDef<SalesOrderListRow>[]>(
+  const activePanelOrder = useMemo(
+    () =>
+      activePanel
+        ? displayedOrders.find((order) => order.id === activePanel.orderId) ?? null
+        : null,
+    [activePanel, displayedOrders]
+  );
+  const visibleActivePanel = activePanelOrder ? activePanel : null;
+  const closeStatusPanel = useCallback(() => setActivePanel(null), []);
+  const handleSearchChange = useCallback((value: string) => {
+    setActivePanel(null);
+    setSearchValue(value);
+  }, []);
+  const handleStatusFilterChange = useCallback((value: SalesWorkflowFilterValue) => {
+    setActivePanel(null);
+    setStatusFilter(value);
+  }, []);
+  const handleCellClicked = useCallback(
+    (event: CellClickedEvent<SalesOrderGridRow>) => {
+      const colId = event.column.getColId();
+      if (!event.data || !STATUS_CELL_COLUMN_IDS.has(colId)) {
+        return;
+      }
+      const kind = colId as SalesOrderPanelKind;
+      if (!isStatusPanelActionable(event.data, kind)) {
+        return;
+      }
+
+      const position = panelPosition(
+        event.event instanceof MouseEvent ? event.event : undefined
+      );
+      setActivePanel({
+        kind,
+        orderId: event.data.id,
+        ...position,
+      });
+    },
+    []
+  );
+  const gridColumns = useMemo<ColDef<SalesOrderGridRow>[]>(
     () => [
       {
         colId: "priorityRank",
@@ -414,7 +678,7 @@ function OrdersTableContent({
         rowDrag: reorderEnabled,
         rowDragText: ({ defaultTextValue }) => `Move ${defaultTextValue}`,
         hide: statusFilter !== "open",
-        cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
+        cellRenderer: ({ data }: ICellRendererParams<SalesOrderGridRow>) =>
           data ? (
             <RankCell order={data} />
           ) : null,
@@ -428,7 +692,7 @@ function OrdersTableContent({
         minWidth: 140,
         maxWidth: 190,
         cellClass: "mono",
-        cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
+        cellRenderer: ({ data }: ICellRendererParams<SalesOrderGridRow>) =>
           data ? (
             <Link
               href={`/sales/order/${data.id}`}
@@ -451,10 +715,6 @@ function OrdersTableContent({
         maxWidth: 320,
         flex: 1,
         cellClass: "emphasis",
-        cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
-          data ? (
-            <span className="block truncate">{data.customerName}</span>
-          ) : null,
       },
       {
         field: "notes",
@@ -465,9 +725,9 @@ function OrdersTableContent({
         maxWidth: 300,
         flex: 1,
         cellClass: "muted",
-        cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
-          data ? <NotesCell notes={data.notes} /> : null,
-        getQuickFilterText: ({ data }) => displaySalesOrderNotes(data?.notes) ?? "",
+        valueGetter: ({ data }) => data?.__grid.notesLabel ?? "",
+        tooltipValueGetter: ({ data }) =>
+          data?.__grid.notesLabel === "—" ? "" : data?.__grid.notesLabel,
       },
       {
         field: "totalAmount",
@@ -486,17 +746,11 @@ function OrdersTableContent({
         headerTooltip: SALES_ORDER_ITEMS_STATUS_TOOLTIP,
         width: 185,
         minWidth: 180,
-        cellClass: "statusBlockCell",
-        valueGetter: ({ data }) =>
-          data
-            ? data.lines.length === 0
-              ? "Not applicable"
-              : getSalesItemsAvailabilityState(data).label
-            : "",
-        cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
-          data ? (
-            <SalesItemsActionCell order={data} />
-          ) : null,
+        cellClass: ({ data }) => data?.__grid.salesItemsCellClass ?? ["statusBlockCell"],
+        valueGetter: ({ data }) => data?.__grid.salesItemsLabel ?? "",
+        valueFormatter: ({ value }) => String(value ?? ""),
+        cellRenderer: ({ data }: ICellRendererParams<SalesOrderGridRow>) =>
+          data ? <StatusCell state={data.__grid.salesItemsState} /> : null,
         comparator: (_left, _right, leftNode, rightNode) =>
           parseQuantity(leftNode.data?.fulfillmentSummary.shortQty) -
           parseQuantity(rightNode.data?.fulfillmentSummary.shortQty),
@@ -507,10 +761,10 @@ function OrdersTableContent({
         headerTooltip: SALES_ORDER_INGREDIENTS_STATUS_TOOLTIP,
         width: 185,
         minWidth: 180,
-        cellClass: "statusBlockCell",
-        valueGetter: ({ data }) => (data ? getIngredientsState(data).label : ""),
-        cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
-          data ? <IngredientsStatusCell order={data} /> : null,
+        cellClass: ({ data }) => data?.__grid.ingredientsCellClass ?? ["statusBlockCell"],
+        valueGetter: ({ data }) => data?.__grid.ingredientsLabel ?? "",
+        cellRenderer: ({ data }: ICellRendererParams<SalesOrderGridRow>) =>
+          data ? <StatusCell state={data.__grid.ingredientsState} /> : null,
       },
       {
         colId: "productionState",
@@ -518,15 +772,10 @@ function OrdersTableContent({
         headerTooltip: SALES_ORDER_PRODUCTION_STATUS_TOOLTIP,
         width: 195,
         minWidth: 190,
-        cellClass: "statusBlockCell",
-        valueGetter: ({ data }) => (data ? getProductionState(data).label : ""),
-        cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
-          data ? (
-            <ProductionActionCell
-              order={data}
-              state={getProductionState(data)}
-            />
-          ) : null,
+        cellClass: ({ data }) => data?.__grid.productionCellClass ?? ["statusBlockCell"],
+        valueGetter: ({ data }) => data?.__grid.productionLabel ?? "",
+        cellRenderer: ({ data }: ICellRendererParams<SalesOrderGridRow>) =>
+          data ? <StatusCell state={data.__grid.productionState} /> : null,
         comparator: (_left, _right, leftNode, rightNode) =>
           (leftNode.data?.openManufacturingOrderCount ?? 0) -
           (rightNode.data?.openManufacturingOrderCount ?? 0),
@@ -537,10 +786,10 @@ function OrdersTableContent({
         headerTooltip: SALES_ORDER_DELIVERY_STATUS_TOOLTIP,
         width: 140,
         minWidth: 130,
-        cellClass: "statusBlockCell",
-        valueGetter: ({ data }) => (data ? getDeliveryState(data).label : ""),
-        cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
-          data ? <SalesDeliveryCell order={data} /> : null,
+        cellClass: ({ data }) => data?.__grid.deliveryCellClass ?? ["statusBlockCell"],
+        valueGetter: ({ data }) => data?.__grid.deliveryLabel ?? "",
+        cellRenderer: ({ data }: ICellRendererParams<SalesOrderGridRow>) =>
+          data ? <StatusCell state={data.__grid.deliveryState} /> : null,
         comparator: (_left, _right, leftNode, rightNode) => {
           const leftOrder = leftNode.data;
           const rightOrder = rightNode.data;
@@ -563,9 +812,8 @@ function OrdersTableContent({
         width: 116,
         minWidth: 110,
         cellClass: "mono",
-        valueGetter: ({ data }) => (data ? getOrderShipmentSchedule(data).date : null),
-        cellRenderer: ({ data }: ICellRendererParams<SalesOrderListRow>) =>
-          data ? getOrderShipmentSchedule(data).label : "—",
+        valueGetter: ({ data }) => data?.__grid.shipDate ?? null,
+        valueFormatter: ({ data }) => data?.__grid.shipDateLabel ?? "—",
         comparator: (_left, _right, leftNode, rightNode) => {
           const dateCompare = String(
             leftNode.data ? getOrderShipmentSchedule(leftNode.data).date : ""
@@ -666,16 +914,18 @@ function OrdersTableContent({
   return (
     <>
       <ERPDataGrid
-        rows={displayedOrders}
+        rows={gridRows}
         columns={gridColumns}
         searchInputRef={searchInputRef}
         searchAriaLabel="Search orders, customers, PO"
         searchValue={searchValue}
-        onSearchChange={setSearchValue}
+        onSearchChange={handleSearchChange}
+        enableQuickFilter={false}
         emptyMessage="No sales orders yet."
         enableRowSelection
         hideHeaderSelectionCheckbox
         onSelectionChange={setSelectedOrders}
+        onCellClicked={handleCellClicked}
         enableManagedRowDrag={reorderEnabled}
         suppressMoveWhenRowDragging
         relaxResizableMaxWidth
@@ -685,7 +935,7 @@ function OrdersTableContent({
             openCount={openCount}
             doneCount={doneCount}
             ariaLabel="Filter sales orders by workflow"
-            onValueChange={setStatusFilter}
+            onValueChange={handleStatusFilterChange}
           />
         }
         actions={
@@ -770,6 +1020,11 @@ function OrdersTableContent({
         height="100%"
         headerHeight={48}
         rowHeight={55}
+      />
+      <SalesOrderStatusPanel
+        panel={visibleActivePanel}
+        order={activePanelOrder}
+        onClose={closeStatusPanel}
       />
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>

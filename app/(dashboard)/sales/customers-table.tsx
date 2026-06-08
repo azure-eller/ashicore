@@ -46,12 +46,8 @@ const columns: ColDef<CustomerRow>[] = [
     field: "xeroContactId",
     headerName: "Reference ID",
     width: 190,
-    cellRenderer: ({ data }: ICellRendererParams<CustomerRow>) =>
-      data?.xeroContactId ? (
-        <span title={data.xeroContactId}>{data.xeroContactId}</span>
-      ) : (
-        "—"
-      ),
+    valueFormatter: ({ value }) => value ?? "—",
+    tooltipValueGetter: ({ data }) => data?.xeroContactId ?? "",
   },
   {
     field: "notes",
@@ -59,8 +55,8 @@ const columns: ColDef<CustomerRow>[] = [
     width: 280,
     minWidth: 180,
     flex: 1,
-    cellRenderer: ({ data }: ICellRendererParams<CustomerRow>) =>
-      data?.notes ? <span title={data.notes}>{data.notes}</span> : "—",
+    valueFormatter: ({ value }) => value ?? "—",
+    tooltipValueGetter: ({ data }) => data?.notes ?? "",
   },
 ];
 
