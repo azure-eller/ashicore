@@ -1,5 +1,44 @@
 /* ashicore — scroll reveals, nav, topo texture */
 (function () {
+  // ---- acquisition analytics ----
+  function trackEvent(name, data) {
+    if (!name || typeof window.va !== 'function') return;
+    window.va('event', { name, data });
+  }
+
+  document.addEventListener('click', event => {
+    const link = event.target && event.target.closest
+      ? event.target.closest('a[href]')
+      : null;
+    if (!link) return;
+
+    const eventName = link.dataset.analyticsEvent;
+    if (eventName) {
+      const data = {};
+      if (link.dataset.analyticsPlacement) {
+        data.placement = link.dataset.analyticsPlacement;
+      }
+      if (link.dataset.analyticsPlan) {
+        data.plan = link.dataset.analyticsPlan;
+      } else if (link.dataset.analyticsTarget) {
+        data.target = link.dataset.analyticsTarget;
+      }
+      trackEvent(eventName, data);
+    }
+
+    const href = link.getAttribute('href') || '';
+    if (href.startsWith('/docs')) {
+      trackEvent('docs_link_clicked', { path: href });
+    }
+    if (href.startsWith('/sign-up')) {
+      const url = new URL(href, window.location.origin);
+      trackEvent('signup_started', {
+        plan: url.searchParams.get('plan') === 'paid' ? 'paid' : 'free',
+        source: link.dataset.analyticsPlacement || 'public-site',
+      });
+    }
+  }, { capture: true });
+
   // ---- scroll reveal ----
   const reveals = [...document.querySelectorAll('.reveal')];
   const show = el => el.classList.add('in');

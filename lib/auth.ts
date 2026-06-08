@@ -222,6 +222,37 @@ const organizationTaxDefaultsPlugin = (): BetterAuthPlugin => ({
           await withOrgContext(createdOrganization.id, (tx) =>
             initializeDefaultTaxSettingsInTx(tx, createdOrganization.id),
           );
+
+          const session = await getSessionFromCtx(ctx).catch(() => null);
+          const [org] = await db
+            .select({
+              id: schema.organization.id,
+              name: schema.organization.name,
+              slug: schema.organization.slug,
+              plan: schema.organization.plan,
+              status: schema.organization.status,
+            })
+            .from(schema.organization)
+            .where(eq(schema.organization.id, createdOrganization.id))
+            .limit(1);
+
+          if (org) {
+            const { sendFounderAlert } = await import("@/lib/internal-alerts");
+            await sendFounderAlert({
+              kind: "free_signup",
+              subject: `New Ashicore free signup: ${org.name}`,
+              idempotencyKey: `founder-alert-free-signup-${org.id}`,
+              fields: [
+                { label: "Organization", value: org.name },
+                { label: "Slug", value: org.slug },
+                { label: "Plan", value: org.plan },
+                { label: "Status", value: org.status },
+                { label: "User email", value: session?.user.email },
+                { label: "User ID", value: session?.user.id },
+                { label: "Organization ID", value: org.id },
+              ],
+            });
+          }
         }),
       },
     ],
