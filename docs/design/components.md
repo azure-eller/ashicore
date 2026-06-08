@@ -27,6 +27,6 @@ Prefer existing primitives. Props and implementation details live in the linked 
 ## Component Rules
 
 - Do not re-document props here. TypeScript owns props.
-- Do not copy styles from archived prototypes.
+- Do not copy styles from old prototypes or screenshots.
 - If two pages need the same local pattern, promote it to a shared component before adding a second copy.
 - If a component requires page-specific data, keep business logic in domain/query code and pass display-ready props into the component.

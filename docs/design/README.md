@@ -12,7 +12,7 @@ The design docs exist to explain intent. Code owns values.
 ## Rules
 
 1. **Code owns values; docs own intent.** Token values live in [app/globals.css](../../app/globals.css). Docs may name tokens and explain when to use them, but must not restate their raw values.
-2. **Separate by time-scale.** Living reference stays here. Decisions are append-only ADRs. Completed handoffs and prototypes live in [archive](./archive/).
+2. **Separate by time-scale.** Living reference stays here. Decisions are append-only ADRs. Completed handoffs and prototypes are deleted once the implementation docs replace them.
 3. **Name by stable concern.** Living files use topic names, not numeric prefixes. ADRs are numbered because they are immutable records.
 
 ## Living Docs
@@ -27,7 +27,3 @@ The design docs exist to explain intent. Code owns values.
 ## Decision Log
 
 Design decisions that explain why the system changed live in [decisions](./decisions/). Do not rewrite an ADR after the fact; add a new one.
-
-## Archive
-
-Historical handoffs and prototypes live in [archive](./archive/). They are useful context, not current implementation guidance.

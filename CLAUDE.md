@@ -87,7 +87,6 @@ This file is a constitution + map. Deep reference lives in `docs/` — read the 
 | Sales orders, customers, shipping | `docs/sales.md` |
 | Purchasing, suppliers, receiving | `docs/purchasing.md` |
 | Stocktakes, reconciliation | `docs/stocktakes.md` |
-| Test scenario generation | `docs/testing-scenario-generation.md` |
 | Xero integration, OAuth, push retry | `docs/xero.md` |
 
 ## PR is done when

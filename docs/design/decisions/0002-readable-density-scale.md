@@ -19,5 +19,5 @@ The original redesign prototypes optimized aggressively for row count. Real orde
 ## Consequences
 
 - New pages should use the current height and type tokens.
-- Archived prototypes are not valid sources for exact density.
+- Old prototypes are not valid sources for exact density.
 - If a workflow needs a denser or roomier mode, add a shared token or variant rather than local page overrides.

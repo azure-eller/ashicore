@@ -62,9 +62,8 @@ The redesign moves a few entry points out of the deprecated tabs:
 - **Manufacturing**: Create MOs lives in the header ⋯ menu (only enabled when
   `hasManufacturableLines === true`). The MO list panel is dropped from the
   order page; linked MOs are visible from each manufacturable item.
-- **Activity**: dropped from the order page entirely (future: global audit
-  panel; historical design note archived at
-  `docs/design/archive/design-system-v2-handoff/sales-order-detail/README.md` §14).
+- **Activity**: dropped from the order page entirely. Future audit history
+  should live in a global audit panel, not in sales-order tabs.
 - **Accounting / Xero push**: order-level push lives in the header ⋯ menu;
   historical per-shipment push paths are deprecated.
 

@@ -1,46 +1,44 @@
 ---
 read_when:
-  - Re-enabling the ERP agent
-  - Working on agent code
+  - Working on agent routes, settings, MCP, or external planning access
+  - Re-enabling the in-app ERP agent panel
   - Changing Drizzle schema exports
   - Investigating dashboard cold starts or agent overhead
 ---
 
 # ERP Agent
 
-The ERP agent is intentionally disabled and archived for now. Database schema
-and migration history are kept so the feature can be restored later, but normal
-dashboard routes must not load agent UI, agent services, Anthropic code, or
-agent Drizzle tables.
+The external planning agent surface is active. The in-app dashboard chat panel is
+still disabled.
 
-## Current Parked State
+## Current State
 
-- `lib/feature-flags.ts` exports `ERP_AGENT_ENABLED = false`.
-- Parked implementation code lives under `archived/erp-agent/`, which is
-  excluded from TypeScript and ESLint.
-- `components/app-sidebar.tsx` does not import or render the agent panel.
-- `app/api/agent/**` is a JSON `404` catch-all and imports no archived code.
-- `@anthropic-ai/sdk` is not installed while the feature is archived.
-- `lib/db/schema/index.ts` is the runtime schema barrel and must not export
-  `./agent` while the feature is parked.
-- `lib/db/schema/migrations.ts` is the Drizzle migration schema barrel and does
-  export `./agent`, so existing tables stay represented in migrations.
+- `app/api/agent/mcp/**` exposes the OAuth-backed remote MCP surface.
+- `app/api/agent/api-tokens/**` manages bearer tokens for external planning access.
+- `app/api/agent/production-planning/context` serves read-only production context.
+- `lib/agent/**` owns external access, MCP OAuth, production planning context, and
+  replenishment context.
+- `app/(dashboard)/settings/agent-access*` owns the settings UI for MCP URLs and
+  token management.
+- `integrations/claude/ashicore-plugin/` owns the Claude plugin package.
+- `lib/feature-flags.ts` keeps `ERP_AGENT_ENABLED = false`; do not render the old
+  in-app agent panel while that flag is false.
 
-## Reactivation Checklist
+## Schema Guardrail
 
-1. Move needed code from `archived/erp-agent/` back into active app paths.
-2. Reinstall the provider dependency: `pnpm add @anthropic-ai/sdk`.
-3. Restore a dynamically imported `AgentChatPanel` in `components/app-sidebar.tsx`.
-4. Restore agent API routes and keep them gated by `ERP_AGENT_ENABLED`.
-5. Flip `ERP_AGENT_ENABLED` to `true` in `lib/feature-flags.ts`.
-6. Confirm `drizzle.config.ts` still points at `lib/db/schema/migrations.ts`.
-7. Keep agent service code importing agent tables from `@/lib/db/schema/agent`.
-8. Restore agent Playwright specs/scripts as needed.
-9. Run `pnpm build`, `pnpm lint`, and `pnpm test`.
+`lib/db/schema/index.ts` is the runtime schema barrel and must not export agent
+tables unless the in-app agent is active. Runtime dashboard and auth paths import
+that barrel, so exporting dormant agent tables there increases ordinary cold-start
+work.
 
-## Cold-Start Guardrails
+`lib/db/schema/migrations.ts` is the Drizzle migration schema barrel and may export
+agent tables so existing migrations remain represented.
 
-Do not add `export * from "./agent"` back to `lib/db/schema/index.ts` unless the
-agent is fully active again. That barrel is imported by the runtime DB and auth
-paths, so exporting agent tables there makes ordinary dashboard and API cold
-starts evaluate the agent schema.
+## Reactivating The In-App Panel
+
+1. Confirm the external MCP/token surfaces still work.
+2. Restore the panel behind `ERP_AGENT_ENABLED`.
+3. Keep provider-heavy code out of ordinary dashboard imports.
+4. Flip `ERP_AGENT_ENABLED` only after the route, UI, and schema import paths are
+   verified.
+5. Run `pnpm build`, `pnpm lint`, and relevant Playwright coverage.
