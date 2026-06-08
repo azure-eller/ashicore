@@ -28,9 +28,9 @@ import {
 } from "@/lib/accounting/audit-events";
 import { normalizeNumeric } from "@/lib/format";
 import {
-  groupPurchaseOrderByResolvedVendor,
-  resolvedPurchaseOrderVendorGroupKey,
-} from "@/lib/purchasing/resolved-vendor-groups";
+  groupPurchaseOrderByResolvedSupplier,
+  resolvedPurchaseOrderSupplierGroupKey,
+} from "@/lib/purchasing/resolved-supplier-groups";
 import type { CreatePurchaseBill } from "@/lib/schemas/purchase-orders";
 import { upsertXeroContact, type XeroContactInput } from "./contacts";
 import { getAuthedXeroClient } from "./client";
@@ -46,9 +46,9 @@ import { hashXeroPayload } from "./payload-hash";
 const PROVIDER_DOCUMENT_TYPE = "xero_accpay_invoice";
 const TAX_MODE = LineAmountTypes.Exclusive;
 const STALE_PENDING_MS = 10 * 60 * 1000;
-const additionalCostVendorSuppliers = alias(
+const additionalCostSuppliers = alias(
   suppliers,
-  "additional_cost_vendor_suppliers",
+  "additional_cost_suppliers",
 );
 
 type OrderForBill = {
@@ -101,17 +101,17 @@ type AdditionalCostForBill = {
   costType: string;
   reference: string | null;
   accountingPurchaseAccountCode: string | null;
-  vendorOverrideSupplierId: string | null;
-  vendorOverrideSupplierName: string | null;
-  vendorOverrideSupplierEmail: string | null;
-  vendorOverrideSupplierPhone: string | null;
-  vendorOverrideSupplierXeroContactId: string | null;
-  vendorOverrideSupplierBillingLine1: string | null;
-  vendorOverrideSupplierBillingLine2: string | null;
-  vendorOverrideSupplierBillingCity: string | null;
-  vendorOverrideSupplierBillingRegion: string | null;
-  vendorOverrideSupplierBillingPostcode: string | null;
-  vendorOverrideSupplierBillingCountry: string | null;
+  supplierId: string | null;
+  supplierName: string | null;
+  supplierEmail: string | null;
+  supplierPhone: string | null;
+  supplierXeroContactId: string | null;
+  supplierBillingLine1: string | null;
+  supplierBillingLine2: string | null;
+  supplierBillingCity: string | null;
+  supplierBillingRegion: string | null;
+  supplierBillingPostcode: string | null;
+  supplierBillingCountry: string | null;
   amount: string;
 };
 
@@ -263,35 +263,35 @@ async function loadPurchaseOrderForBillInTx(
       reference: purchaseOrderAdditionalCosts.reference,
       accountingPurchaseAccountCode:
         purchaseOrderAdditionalCosts.accountingPurchaseAccountCode,
-      vendorOverrideSupplierId:
-        purchaseOrderAdditionalCosts.vendorOverrideSupplierId,
-      vendorOverrideSupplierName: additionalCostVendorSuppliers.name,
-      vendorOverrideSupplierEmail: additionalCostVendorSuppliers.email,
-      vendorOverrideSupplierPhone: additionalCostVendorSuppliers.phone,
-      vendorOverrideSupplierXeroContactId: sql<string | null>`(
+      supplierId:
+        purchaseOrderAdditionalCosts.supplierId,
+      supplierName: additionalCostSuppliers.name,
+      supplierEmail: additionalCostSuppliers.email,
+      supplierPhone: additionalCostSuppliers.phone,
+      supplierXeroContactId: sql<string | null>`(
         SELECT ${integrationExternalRecords.externalId}
         FROM ${integrationExternalRecords}
         WHERE ${integrationExternalRecords.provider} = ${ACCOUNTING_PROVIDER_XERO}
           AND ${integrationExternalRecords.entityType} = 'supplier'
-          AND ${integrationExternalRecords.localRecordId} = ${purchaseOrderAdditionalCosts.vendorOverrideSupplierId}
+          AND ${integrationExternalRecords.localRecordId} = ${purchaseOrderAdditionalCosts.supplierId}
         LIMIT 1
       )`,
-      vendorOverrideSupplierBillingLine1: additionalCostVendorSuppliers.billingLine1,
-      vendorOverrideSupplierBillingLine2: additionalCostVendorSuppliers.billingLine2,
-      vendorOverrideSupplierBillingCity: additionalCostVendorSuppliers.billingCity,
-      vendorOverrideSupplierBillingRegion: additionalCostVendorSuppliers.billingRegion,
-      vendorOverrideSupplierBillingPostcode:
-        additionalCostVendorSuppliers.billingPostcode,
-      vendorOverrideSupplierBillingCountry:
-        additionalCostVendorSuppliers.billingCountry,
+      supplierBillingLine1: additionalCostSuppliers.billingLine1,
+      supplierBillingLine2: additionalCostSuppliers.billingLine2,
+      supplierBillingCity: additionalCostSuppliers.billingCity,
+      supplierBillingRegion: additionalCostSuppliers.billingRegion,
+      supplierBillingPostcode:
+        additionalCostSuppliers.billingPostcode,
+      supplierBillingCountry:
+        additionalCostSuppliers.billingCountry,
       amount: purchaseOrderAdditionalCosts.amount,
     })
     .from(purchaseOrderAdditionalCosts)
     .leftJoin(
-      additionalCostVendorSuppliers,
+      additionalCostSuppliers,
       eq(
-        additionalCostVendorSuppliers.id,
-        purchaseOrderAdditionalCosts.vendorOverrideSupplierId,
+        additionalCostSuppliers.id,
+        purchaseOrderAdditionalCosts.supplierId,
       ),
     )
     .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, orderId));
@@ -331,9 +331,6 @@ function assertBillablePurchaseOrder(data: {
   order: OrderForBill;
   lines: LineForBill[];
 }) {
-  if (data.order.status === "cancelled") {
-    throw new XeroError("Cancelled purchase orders cannot be billed.", 409);
-  }
   if (data.lines.length === 0) {
     throw new XeroError("Add at least one line before creating a Xero bill.", 409);
   }
@@ -368,17 +365,17 @@ function supplierFromAdditionalCost(
   fallback: { id: string; name: string },
 ): SupplierForBill {
   return {
-    id: cost.vendorOverrideSupplierId ?? fallback.id,
-    name: cost.vendorOverrideSupplierName ?? fallback.name,
-    email: cost.vendorOverrideSupplierEmail,
-    phone: cost.vendorOverrideSupplierPhone,
-    xeroContactId: cost.vendorOverrideSupplierXeroContactId,
-    billingLine1: cost.vendorOverrideSupplierBillingLine1,
-    billingLine2: cost.vendorOverrideSupplierBillingLine2,
-    billingCity: cost.vendorOverrideSupplierBillingCity,
-    billingRegion: cost.vendorOverrideSupplierBillingRegion,
-    billingPostcode: cost.vendorOverrideSupplierBillingPostcode,
-    billingCountry: cost.vendorOverrideSupplierBillingCountry,
+    id: cost.supplierId ?? fallback.id,
+    name: cost.supplierName ?? fallback.name,
+    email: cost.supplierEmail,
+    phone: cost.supplierPhone,
+    xeroContactId: cost.supplierXeroContactId,
+    billingLine1: cost.supplierBillingLine1,
+    billingLine2: cost.supplierBillingLine2,
+    billingCity: cost.supplierBillingCity,
+    billingRegion: cost.supplierBillingRegion,
+    billingPostcode: cost.supplierBillingPostcode,
+    billingCountry: cost.supplierBillingCountry,
   };
 }
 
@@ -391,7 +388,7 @@ function buildPurchaseBillGroups(params: {
       .filter(isSelectedPurchaseBillGroupInput)
       .map((group) => [group.groupKey, group]),
   );
-  const defaultGroupKey = resolvedPurchaseOrderVendorGroupKey(
+  const defaultGroupKey = resolvedPurchaseOrderSupplierGroupKey(
     params.data.supplier.id,
   );
   if (selectedInputs.has("default") && !selectedInputs.has(defaultGroupKey)) {
@@ -400,18 +397,18 @@ function buildPurchaseBillGroups(params: {
 
   const suppliersById = new Map(
     params.data.additionalCosts
-      .filter((cost) => cost.vendorOverrideSupplierId)
+      .filter((cost) => cost.supplierId)
       .map((cost) => [
-        cost.vendorOverrideSupplierId as string,
+        cost.supplierId as string,
         {
-          id: cost.vendorOverrideSupplierId as string,
-          name: cost.vendorOverrideSupplierName ?? "Vendor",
-          email: cost.vendorOverrideSupplierEmail,
+          id: cost.supplierId as string,
+          name: cost.supplierName ?? "Supplier",
+          email: cost.supplierEmail,
         },
       ]),
   );
 
-  return groupPurchaseOrderByResolvedVendor({
+  return groupPurchaseOrderByResolvedSupplier({
     purchaseOrderSupplier: params.data.supplier,
     suppliersById,
     lines: params.data.lines,
@@ -738,7 +735,7 @@ export async function createPurchaseBillAccountingSync(
     const alreadyPushed = [];
     for (const group of groups) {
       const sync = syncByGroup.get(group.key) ?? (
-        group.key === resolvedPurchaseOrderVendorGroupKey(loaded.supplier.id)
+        group.key === resolvedPurchaseOrderSupplierGroupKey(loaded.supplier.id)
           ? syncByGroup.get("default")
           : undefined
       );

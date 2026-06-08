@@ -435,7 +435,7 @@ export function SupplierCard({
 
         <CardSection title="Notes">
           <NotesField
-            label="Notes"
+            hideLabel
             value={display.notes ?? ""}
             disabled={readOnly}
             readOnlyValue={readOnly}

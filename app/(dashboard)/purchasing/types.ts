@@ -130,9 +130,9 @@ export type PurchaseOrderAdditionalCost = {
   id: string;
   costType: PurchaseOrderAdditionalCostType;
   reference: string | null;
-  vendorOverrideSupplierId: string | null;
-  vendorOverrideSupplierName: string | null;
-  vendorOverrideSupplierEmail: string | null;
+  supplierId: string | null;
+  supplierName: string | null;
+  supplierEmail: string | null;
   distributionMethod: PurchaseOrderAdditionalCostDistributionMethod;
   accountingPurchaseAccountCode: string | null;
   amount: string;
@@ -175,7 +175,6 @@ export type PurchaseOrderDetail = {
   totalAmount: string;
   orderedAt: Date | null;
   receivedAt: Date | null;
-  cancelledAt: Date | null;
   xeroPurchaseOrderId: string | null;
   xeroPurchaseOrderNumber: string | null;
   xeroPushStatus: "pending" | "pushed" | "failed" | null;
@@ -262,9 +261,9 @@ export type PurchaseOrderEditData = {
     id: string;
     costType: PurchaseOrderAdditionalCostType;
     reference: string | null;
-    vendorOverrideSupplierId: string | null;
-    vendorOverrideSupplierName: string | null;
-    vendorOverrideSupplierEmail: string | null;
+    supplierId: string | null;
+    supplierName: string | null;
+    supplierEmail: string | null;
     distributionMethod: PurchaseOrderAdditionalCostDistributionMethod;
     accountingPurchaseAccountCode: string | null;
     amount: string;

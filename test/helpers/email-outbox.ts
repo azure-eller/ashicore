@@ -55,6 +55,23 @@ export async function waitForOutboxEmail({
   );
 }
 
+export async function findOutboxEmails({
+  since,
+  tag,
+  to,
+}: {
+  since: number;
+  tag: EmailOutboxEntry["tag"];
+  to: string;
+}) {
+  const normalizedTo = to.toLowerCase();
+  const entries = await readOutboxEmails();
+  return entries
+    .filter((entry) => entry.tag === tag)
+    .filter((entry) => entry.to.toLowerCase() === normalizedTo)
+    .filter((entry) => Date.parse(entry.createdAt) >= since);
+}
+
 export function extractFirstUrl(value: string) {
   const match = value.match(/https?:\/\/\S+/);
 

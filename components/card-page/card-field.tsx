@@ -22,6 +22,7 @@ export function CardField({
   invalid,
   error,
   controlStyle = "card",
+  hideLabel,
   children,
   className,
 }: {
@@ -31,6 +32,7 @@ export function CardField({
   invalid?: boolean;
   error?: ReactNode;
   controlStyle?: "card" | "dialog";
+  hideLabel?: boolean;
   children: ReactNode;
   className?: string;
 }) {
@@ -44,10 +46,12 @@ export function CardField({
 
   return (
     <Field data-invalid={invalid || undefined} className={cn(styles.formField, className)}>
-      <FieldLabel htmlFor={htmlFor} className={labelClassName}>
-        {label}
-        {required ? <span className={styles.requiredMark}> *</span> : null}
-      </FieldLabel>
+      {hideLabel ? null : (
+        <FieldLabel htmlFor={htmlFor} className={labelClassName}>
+          {label}
+          {required ? <span className={styles.requiredMark}> *</span> : null}
+        </FieldLabel>
+      )}
       {children}
       {error ? <FieldError>{error}</FieldError> : null}
     </Field>

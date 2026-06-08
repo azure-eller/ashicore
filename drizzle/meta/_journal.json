@@ -1058,6 +1058,13 @@
       "when": 1780869384060,
       "tag": "0150_customer_project_notes_app_user_grant",
       "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "7",
+      "when": 1780935428972,
+      "tag": "0151_wise_frank_castle",
+      "breakpoints": true
     }
   ]
 }

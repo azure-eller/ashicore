@@ -9,7 +9,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DatePicker } from "@/components/ui/date-picker";
@@ -56,7 +55,7 @@ export type PurchaseOrderEmailDialogGroupValues = {
   supplierId: string;
   label: string;
   include: boolean;
-  isFreight: boolean;
+  isAdditionalCost: boolean;
   to: string;
   replyTo: string;
   bcc: string;
@@ -197,7 +196,7 @@ export function PurchaseOrderEmailDialog({
       supplierId: "",
       label: "Purchase order",
       include: true,
-      isFreight: false,
+      isAdditionalCost: false,
       to: values.to,
       replyTo: values.replyTo,
       bcc: values.bcc,
@@ -287,7 +286,7 @@ export function PurchaseOrderEmailDialog({
           <div className="grid flex-1 content-start gap-(--space-4) overflow-y-auto bg-[var(--color-surface)] px-(--space-8) py-(--space-6)">
             {groups.map((group, index) => {
               const expanded = expandedGroupKeys.has(group.groupKey);
-              const pdfFileName = group.isFreight
+              const pdfFileName = group.isAdditionalCost
                 ? `${orderNumber ?? "Purchase order"}-${group.label}.pdf`
                 : `${orderNumber ?? "Purchase order"}.pdf`;
               const selectedAttachments = (group.attachmentFileIds ?? [])
@@ -329,9 +328,6 @@ export function PurchaseOrderEmailDialog({
                       {expanded ? (
                         <div className="flex min-w-0 flex-1 items-center gap-(--space-3) text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
                           <span className="truncate">{group.label}</span>
-                          {group.isFreight ? (
-                            <Badge variant="secondary">Freight</Badge>
-                          ) : null}
                         </div>
                       ) : (
                         <div className="flex min-w-0 flex-1 items-center gap-(--space-3) text-[length:var(--text-sm)]">

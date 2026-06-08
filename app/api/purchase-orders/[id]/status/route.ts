@@ -4,7 +4,6 @@ import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/
 import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import {
-  cancelPurchaseOrder,
   getPurchaseOrder,
   PurchasingError,
   receivePurchaseOrder,
@@ -68,19 +67,6 @@ export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
         { lines: receivableLines, confirmOverReceipt: false },
         { idempotencyKey: `${idempotencyKey}:receive` },
       );
-      if (!result) {
-        return NextResponse.json(
-          { error: "Purchase order not found" },
-          { status: 404 },
-        );
-      }
-      return NextResponse.json(result);
-    }
-
-    if (status === "cancelled") {
-      const result = await cancelPurchaseOrder(id, {
-        idempotencyKey: `${idempotencyKey}:cancel`,
-      });
       if (!result) {
         return NextResponse.json(
           { error: "Purchase order not found" },

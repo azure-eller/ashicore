@@ -35,7 +35,7 @@ import {
   normalizeLandedStockUnitCost,
   type LandedCostLineResult,
 } from "@/lib/purchasing/landed-cost";
-import { groupPurchaseOrderByResolvedVendor } from "@/lib/purchasing/resolved-vendor-groups";
+import { groupPurchaseOrderByResolvedSupplier } from "@/lib/purchasing/resolved-supplier-groups";
 import { Button } from "@/components/ui/button";
 import {
   Field,
@@ -75,6 +75,8 @@ import { DetailHeaderTitle } from "@/components/card-page/detail-header-title";
 import { NotesField } from "@/components/card-page/notes-field";
 import { TotalsSummary } from "@/components/card-page/totals-summary";
 import { type CardSaveState } from "@/components/card-page/card-save-status";
+import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
+import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
 import {
   ReadOnlyFieldValue,
   underlineControlClass,
@@ -169,7 +171,9 @@ const EMPTY_DELIVERY_ADDRESS = {
   shipCountry: null,
   shipDeliveryInstructions: null,
 };
-const LAST_CARRIER_BY_MATERIAL_STORAGE_KEY =
+const LAST_SUPPLIER_BY_MATERIAL_STORAGE_KEY =
+  "purchasing.purchaseOrder.lastSupplierByMaterial";
+const LEGACY_LAST_SUPPLIER_BY_MATERIAL_STORAGE_KEY =
   "purchasing.purchaseOrder.lastCarrierByMaterial";
 
 const ADDITIONAL_COST_TYPE_LABELS: Record<
@@ -201,7 +205,7 @@ const blankPurchaseOrderLine = {
 const blankPurchaseOrderAdditionalCost = {
   costType: "shipping" as const,
   reference: null,
-  vendorOverrideSupplierId: null,
+  supplierId: null,
   distributionMethod: "by_value" as const,
   accountingPurchaseAccountCode: null,
   amount: null,
@@ -275,9 +279,9 @@ function createPurchaseOrderAdditionalCostRow(
         : null,
     costType: values?.costType ?? blankPurchaseOrderAdditionalCost.costType,
     reference: values?.reference ?? blankPurchaseOrderAdditionalCost.reference,
-    vendorOverrideSupplierId:
-      values?.vendorOverrideSupplierId ??
-      blankPurchaseOrderAdditionalCost.vendorOverrideSupplierId,
+    supplierId:
+      values?.supplierId ??
+      blankPurchaseOrderAdditionalCost.supplierId,
     distributionMethod:
       values?.distributionMethod ??
       blankPurchaseOrderAdditionalCost.distributionMethod,
@@ -420,7 +424,7 @@ type AddressDialogValues = {
   notes: string | null;
 };
 
-type CarrierDialogValues = {
+type AdditionalCostSupplierDialogValues = {
   name: string;
   contactName: string | null;
   email: string | null;
@@ -449,7 +453,7 @@ const EMPTY_ADDRESS_DIALOG_VALUES: AddressDialogValues = {
   notes: null,
 };
 
-const EMPTY_CARRIER_DIALOG_VALUES: CarrierDialogValues = {
+const EMPTY_ADDITIONAL_COST_SUPPLIER_DIALOG_VALUES: AdditionalCostSupplierDialogValues = {
   name: "",
   contactName: null,
   email: null,
@@ -866,8 +870,9 @@ export function PurchaseOrderCard({
       ),
     [initialData?.lines],
   );
-  const readOnly =
-    !canWrite || displayStatus === "received" || displayStatus === "cancelled";
+  const readOnly = !canWrite || displayStatus === "received";
+  const canDeletePurchaseOrder =
+    canWrite && (displayStatus === "draft" || displayStatus === "ordered");
   const billAffectingReadOnly = readOnly || purchaseBillStatus === "pushed";
   const [purchaseOrderSupplierOptions, setPurchaseOrderSupplierOptions] =
     useState<SupplierOption[]>(suppliers);
@@ -980,13 +985,13 @@ export function PurchaseOrderCard({
   const addressForm = useForm<AddressDialogValues>({
     defaultValues: EMPTY_ADDRESS_DIALOG_VALUES,
   });
-  const carrierForm = useForm<CarrierDialogValues>({
-    defaultValues: EMPTY_CARRIER_DIALOG_VALUES,
+  const additionalCostSupplierForm = useForm<AdditionalCostSupplierDialogValues>({
+    defaultValues: EMPTY_ADDITIONAL_COST_SUPPLIER_DIALOG_VALUES,
   });
-  const carrierDialogResolverRef = useRef<
+  const additionalCostSupplierDialogResolverRef = useRef<
     ((result: { value: string } | null) => void) | null
   >(null);
-  const [carrierDialogOpen, setCarrierDialogOpen] = useState(false);
+  const [additionalCostSupplierDialogOpen, setAdditionalCostSupplierDialogOpen] = useState(false);
   const [deliveryAddressOptions, setDeliveryAddressOptions] = useState<
     DeliveryAddressOption[]
   >(() => {
@@ -1004,7 +1009,7 @@ export function PurchaseOrderCard({
   } | null>(null);
   const lineGridRows = draftValues.lines;
   const additionalCostGridRows = draftValues.additionalCosts;
-  const lastCarrierByMaterialRef = useRef<Map<string, string>>(new Map());
+  const lastSupplierByMaterialRef = useRef<Map<string, string>>(new Map());
   const [additionalCostsExpanded, setAdditionalCostsExpanded] = useState(
     () =>
       initialDraft.additionalCosts.some(
@@ -1019,17 +1024,22 @@ export function PurchaseOrderCard({
   }, [additionalCostGridRows.length, additionalCostsExpanded]);
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(LAST_CARRIER_BY_MATERIAL_STORAGE_KEY);
+      const raw =
+        window.localStorage.getItem(LAST_SUPPLIER_BY_MATERIAL_STORAGE_KEY) ??
+        window.localStorage.getItem(LEGACY_LAST_SUPPLIER_BY_MATERIAL_STORAGE_KEY);
       const parsed = raw ? JSON.parse(raw) : null;
       if (!parsed || typeof parsed !== "object") return;
-      lastCarrierByMaterialRef.current = new Map(
+      lastSupplierByMaterialRef.current = new Map(
         Object.entries(parsed).filter(
           (entry): entry is [string, string] =>
             typeof entry[0] === "string" && typeof entry[1] === "string",
         ),
       );
+      if (raw && !window.localStorage.getItem(LAST_SUPPLIER_BY_MATERIAL_STORAGE_KEY)) {
+        window.localStorage.setItem(LAST_SUPPLIER_BY_MATERIAL_STORAGE_KEY, raw);
+      }
     } catch {
-      lastCarrierByMaterialRef.current = new Map();
+      lastSupplierByMaterialRef.current = new Map();
     }
   }, []);
 
@@ -1089,7 +1099,7 @@ export function PurchaseOrderCard({
     (cost) => !isBlankPurchaseOrderAdditionalCost(cost),
   ).length;
   const canAutosaveDraft = Boolean(watchedSupplierId?.trim());
-  const rememberCarrierForCurrentMaterials = useCallback(
+  const rememberSupplierForCurrentMaterials = useCallback(
     (supplierId: string | null) => {
       if (!supplierId) return;
       const materialIds = lineGridRows
@@ -1097,13 +1107,13 @@ export function PurchaseOrderCard({
         .filter(Boolean);
       if (materialIds.length === 0) return;
       for (const materialId of materialIds) {
-        lastCarrierByMaterialRef.current.set(materialId, supplierId);
+        lastSupplierByMaterialRef.current.set(materialId, supplierId);
       }
       try {
-        window.localStorage.setItem(
-          LAST_CARRIER_BY_MATERIAL_STORAGE_KEY,
+          window.localStorage.setItem(
+          LAST_SUPPLIER_BY_MATERIAL_STORAGE_KEY,
           JSON.stringify(
-            Object.fromEntries(lastCarrierByMaterialRef.current.entries()),
+            Object.fromEntries(lastSupplierByMaterialRef.current.entries()),
           ),
         );
       } catch {
@@ -1112,22 +1122,22 @@ export function PurchaseOrderCard({
     },
     [lineGridRows],
   );
-  const lastCarrierForCurrentMaterials = useCallback(() => {
+  const lastSupplierForCurrentMaterials = useCallback(() => {
     for (const line of lineGridRows) {
       const materialId = line.itemId?.trim();
       if (!materialId) continue;
-      const supplierId = lastCarrierByMaterialRef.current.get(materialId);
+      const supplierId = lastSupplierByMaterialRef.current.get(materialId);
       if (supplierId) return supplierId;
     }
     return null;
   }, [lineGridRows]);
-  const createCarrierSupplier = useCallback(async () => {
+  const createAdditionalCostSupplier = useCallback(async () => {
     return new Promise<{ value: string } | null>((resolve) => {
-      carrierDialogResolverRef.current = resolve;
-      carrierForm.reset(EMPTY_CARRIER_DIALOG_VALUES);
-      setCarrierDialogOpen(true);
+      additionalCostSupplierDialogResolverRef.current = resolve;
+      additionalCostSupplierForm.reset(EMPTY_ADDITIONAL_COST_SUPPLIER_DIALOG_VALUES);
+      setAdditionalCostSupplierDialogOpen(true);
     });
-  }, [carrierForm]);
+  }, [additionalCostSupplierForm]);
   const lineColumns = useMemo<LineField<PurchaseOrderLineGridRow>[]>(() => {
     const nonBlankRows = lineGridRows.filter(
       (row) => !isBlankPurchaseOrderLine(row),
@@ -1476,22 +1486,22 @@ export function PurchaseOrderCard({
         valueFormatter: ({ value }) => value ?? "",
       },
       {
-        field: "vendorOverrideSupplierId",
+        field: "supplierId",
         kind: "select",
-        headerName: "Vendor",
+        headerName: "Supplier",
         minWidth: 180,
         flex: 1,
         editable: !billAffectingReadOnly,
         values: ["", ...supplierOptionsSorted.map((supplier) => supplier.id)],
         createSelectOption: {
-          label: "Create carrier...",
-          onCreate: createCarrierSupplier,
+          label: "Create supplier...",
+          onCreate: createAdditionalCostSupplier,
         },
         valueFormatter: ({ value }) => {
           if (!value) return "(PO supplier)";
           return (
             supplierOptionsSorted.find((supplier) => supplier.id === value)?.name ??
-            "Vendor"
+            "Supplier"
           );
         },
         valueSetter: (
@@ -1500,10 +1510,10 @@ export function PurchaseOrderCard({
             string | null
           >,
         ) => {
-          params.data.vendorOverrideSupplierId = params.newValue
+          params.data.supplierId = params.newValue
             ? String(params.newValue)
             : null;
-          rememberCarrierForCurrentMaterials(params.data.vendorOverrideSupplierId);
+          rememberSupplierForCurrentMaterials(params.data.supplierId);
           return true;
         },
       },
@@ -1577,8 +1587,8 @@ export function PurchaseOrderCard({
     additionalCostGridRows,
     fieldErrors.additionalCosts,
     billAffectingReadOnly,
-    createCarrierSupplier,
-    rememberCarrierForCurrentMaterials,
+    createAdditionalCostSupplier,
+    rememberSupplierForCurrentMaterials,
     supplierOptionsSorted,
   ]);
   const handleAdditionalCostRowsChange = useCallback(
@@ -1599,9 +1609,9 @@ export function PurchaseOrderCard({
   const createAdditionalCostRow = useCallback(
     () =>
       createPurchaseOrderAdditionalCostRow({
-        vendorOverrideSupplierId: lastCarrierForCurrentMaterials(),
+        supplierId: lastSupplierForCurrentMaterials(),
       }),
-    [lastCarrierForCurrentMaterials],
+    [lastSupplierForCurrentMaterials],
   );
   const getAdditionalCostRowId = useCallback(
     (row: PurchaseOrderAdditionalCostGridRow) => row.clientRowId,
@@ -1656,6 +1666,38 @@ export function PurchaseOrderCard({
       router.push(`/purchasing/order/${order.id}`);
     },
     onError: (error: Error) => setFormError(error.message),
+  });
+  const deleteMutation = useDeleteEntity({
+    mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "delete"],
+    mutationFn: async () => {
+      await purchaseOrderController.flush();
+      const orderId = savedOrderIdRef.current;
+      if (!orderId) throw new Error("Save the purchase order first.");
+      const response = await fetch(`/api/purchase-orders/${orderId}`, {
+        method: "DELETE",
+      });
+      const body = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(body?.error ?? "Failed to delete purchase order.");
+      }
+    },
+    onMutate: () => setFormError(null),
+    invalidateQueryKeys: [["purchase-orders"]],
+    onDeleted: () => router.push("/purchasing/orders"),
+    onError: (error) => setFormError(error.message),
+  });
+  const deleteConfirm = useConfirmMutation<void>({
+    title: "Delete purchase order?",
+    description: (
+      <>
+        Purchase order {savedOrderNumber ?? "this order"} will be removed. This
+        cannot be undone.
+      </>
+    ),
+    confirmLabel: "Delete",
+    pendingLabel: "Deleting...",
+    mutation: deleteMutation,
   });
   const statusMutation = useMutation({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "status"],
@@ -1990,16 +2032,16 @@ export function PurchaseOrderCard({
     },
   });
 
-  const closeCarrierDialog = useCallback((result: { value: string } | null) => {
-    carrierDialogResolverRef.current?.(result);
-    carrierDialogResolverRef.current = null;
-    setCarrierDialogOpen(false);
-    carrierForm.reset(EMPTY_CARRIER_DIALOG_VALUES);
-  }, [carrierForm]);
+  const closeAdditionalCostSupplierDialog = useCallback((result: { value: string } | null) => {
+    additionalCostSupplierDialogResolverRef.current?.(result);
+    additionalCostSupplierDialogResolverRef.current = null;
+    setAdditionalCostSupplierDialogOpen(false);
+    additionalCostSupplierForm.reset(EMPTY_ADDITIONAL_COST_SUPPLIER_DIALOG_VALUES);
+  }, [additionalCostSupplierForm]);
 
-  const carrierMutation = useMutation({
-    mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "carrier"],
-    mutationFn: async (values: CarrierDialogValues) => {
+  const additionalCostSupplierMutation = useMutation({
+    mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "supplier"],
+    mutationFn: async (values: AdditionalCostSupplierDialogValues) => {
       const response = await fetch("/api/suppliers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2012,7 +2054,7 @@ export function PurchaseOrderCard({
       const body = await response.json().catch(() => null);
       if (!response.ok) {
         throw {
-          error: body?.error ?? "Failed to create carrier.",
+          error: body?.error ?? "Failed to create supplier.",
           errors: body?.errors,
         } satisfies ApiError;
       }
@@ -2029,26 +2071,26 @@ export function PurchaseOrderCard({
         byId.set(created.id, created);
         return [...byId.values()];
       });
-      rememberCarrierForCurrentMaterials(created.id);
-      closeCarrierDialog({ value: created.id });
+      rememberSupplierForCurrentMaterials(created.id);
+      closeAdditionalCostSupplierDialog({ value: created.id });
     },
     onError: (error: ApiError) => {
       if (error.errors) {
         Object.entries(error.errors).forEach(([field, messages]) => {
-          carrierForm.setError(field as keyof CarrierDialogValues, {
+          additionalCostSupplierForm.setError(field as keyof AdditionalCostSupplierDialogValues, {
             type: "server",
             message: messages[0],
           });
         });
       }
-      setFormError(error.error ?? "Failed to create carrier.");
+      setFormError(error.error ?? "Failed to create supplier.");
     },
   });
 
-  const handleCarrierDialogSubmit = (values: CarrierDialogValues) => {
+  const handleAdditionalCostSupplierDialogSubmit = (values: AdditionalCostSupplierDialogValues) => {
     const name = values.name.trim();
     if (!name) {
-      carrierForm.setError("name", {
+      additionalCostSupplierForm.setError("name", {
         type: "required",
         message: "Name is required",
       });
@@ -2056,13 +2098,13 @@ export function PurchaseOrderCard({
     }
     const email = values.email?.trim() ?? "";
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      carrierForm.setError("email", {
+      additionalCostSupplierForm.setError("email", {
         type: "validate",
         message: "Email must be a valid email address",
       });
       return;
     }
-    carrierMutation.mutate({
+    additionalCostSupplierMutation.mutate({
       name,
       contactName: values.contactName?.trim() || null,
       email: email || null,
@@ -2161,7 +2203,7 @@ export function PurchaseOrderCard({
     const rows = initialData?.accountingGroupStates ?? [];
     return new Map(rows.map((state) => [state.groupKey, state]));
   }, [initialData?.accountingGroupStates]);
-  const resolvedVendorGroups = useMemo(() => {
+  const resolvedSupplierGroups = useMemo(() => {
     if (!watchedSupplierId) return [];
     const supplier = selectedSupplier ?? {
       id: watchedSupplierId,
@@ -2174,7 +2216,7 @@ export function PurchaseOrderCard({
         { id: row.id, name: row.name, email: row.email ?? null },
       ]),
     );
-    return groupPurchaseOrderByResolvedVendor({
+    return groupPurchaseOrderByResolvedSupplier({
       purchaseOrderSupplier: {
         id: supplier.id,
         name: supplier.name,
@@ -2201,15 +2243,16 @@ export function PurchaseOrderCard({
     watchedSupplierId,
   ]);
   const emailDialogGroups = useCallback((): PurchaseOrderEmailDialogGroupValues[] => {
-    return resolvedVendorGroups.map((group) => {
+    return resolvedSupplierGroups.map((group) => {
       const state =
         accountingGroupStateByKey.get(group.key) ??
         (group.isPurchaseOrderSupplier
           ? accountingGroupStateByKey.get("default")
           : undefined);
-      const subjectPrefix = group.isPurchaseOrderSupplier
-        ? savedOrderNumber ?? "Purchase order"
-        : `${savedOrderNumber ?? "Purchase order"} freight`;
+      const subjectPrefix = savedOrderNumber ?? "Purchase order";
+      const subject = group.isPurchaseOrderSupplier
+        ? `${subjectPrefix} from ${organizationName}`
+        : `${subjectPrefix} - ${group.supplier.name} from ${organizationName}`;
       return {
         groupKey: group.key,
         supplierId: group.supplier.id,
@@ -2217,11 +2260,11 @@ export function PurchaseOrderCard({
           ? selectedSupplier?.name ?? "PO supplier"
           : group.supplier.name,
         include: state?.emailStatus !== "sent",
-        isFreight: !group.isPurchaseOrderSupplier,
+        isAdditionalCost: !group.isPurchaseOrderSupplier,
         to: group.supplier.email ?? "",
         replyTo: userEmail,
         bcc: userEmail,
-        subject: `${subjectPrefix} from ${organizationName}`,
+        subject,
         message: `Hi,\n\nYou should find the necessary documents for ${savedOrderNumber ?? "this order"} attached to this email.\nPlease let me know if anything is missing.\n\nBest regards,\n${userName || userEmail}\n${organizationName}`,
         includePdf: true,
         attachmentFileIds: [],
@@ -2232,14 +2275,14 @@ export function PurchaseOrderCard({
   }, [
     accountingGroupStateByKey,
     organizationName,
-    resolvedVendorGroups,
+    resolvedSupplierGroups,
     savedOrderNumber,
     selectedSupplier?.name,
     userEmail,
     userName,
   ]);
   const billDialogGroups = useCallback((): PurchaseBillDialogGroupValues[] => {
-    return resolvedVendorGroups.map((group) => {
+    return resolvedSupplierGroups.map((group) => {
       const state =
         accountingGroupStateByKey.get(group.key) ??
         (group.isPurchaseOrderSupplier
@@ -2282,7 +2325,7 @@ export function PurchaseOrderCard({
   }, [
     accountingGroupStateByKey,
     initialData?.accountingPurchaseAccountCode,
-    resolvedVendorGroups,
+    resolvedSupplierGroups,
     selectedSupplier?.name,
     xeroPurchaseBillDefaultAccountCode,
   ]);
@@ -2336,8 +2379,6 @@ export function PurchaseOrderCard({
     cardSaveState === "not_saved" ||
     cardSaveState === "failed"
       ? "Save changes before creating a supplier bill."
-      : displayStatus === "cancelled"
-        ? "Cancelled purchase orders cannot be billed."
       : purchaseBillStatus === "pending"
         ? "Bill sync is already running."
         : null;
@@ -2417,7 +2458,7 @@ export function PurchaseOrderCard({
               <PurchaseBillActionControl
                 status={purchaseBillStatus}
                 manualStatus={purchaseBillManualStatus}
-                groupStates={resolvedVendorGroups.map((group) => {
+                groupStates={resolvedSupplierGroups.map((group) => {
                   const state =
                     accountingGroupStateByKey.get(group.key) ??
                     (group.isPurchaseOrderSupplier
@@ -2425,7 +2466,7 @@ export function PurchaseOrderCard({
                       : undefined);
                   return { pushStatus: state?.pushStatus ?? null };
                 })}
-                billableGroupCount={Math.max(resolvedVendorGroups.length, 1)}
+                billableGroupCount={Math.max(resolvedSupplierGroups.length, 1)}
                 busy={purchaseBillMutation.isPending}
                 externalId={purchaseBillExternalId}
                 externalNumber={purchaseBillExternalNumber}
@@ -2464,7 +2505,7 @@ export function PurchaseOrderCard({
                     disabled:
                       !canWrite ||
                       purchaseOrderEmailMutation.isPending ||
-                      resolvedVendorGroups.length === 0,
+                      resolvedSupplierGroups.length === 0,
                     tooltip: poEmailError ?? "",
                   },
                 ]
@@ -2500,19 +2541,13 @@ export function PurchaseOrderCard({
                   },
                 ]
               : []),
-            ...(savedOrderId &&
-            canWrite &&
-            (displayStatus === "draft" || displayStatus === "ordered")
+            ...(savedOrderId && canDeletePurchaseOrder
               ? [
                   {
-                    label: "Cancel purchase order",
+                    label: "Delete purchase order",
                     destructive: true,
-                    onClick: () => {
-                      if (window.confirm("Cancel this PO? You can't reactivate it.")) {
-                        statusMutation.mutate("cancelled");
-                      }
-                    },
-                    disabled: statusMutation.isPending,
+                    onClick: () => deleteConfirm.trigger(undefined),
+                    disabled: deleteMutation.isPending,
                   },
                 ]
               : []),
@@ -2782,6 +2817,7 @@ export function PurchaseOrderCard({
         }
         onSend={() => purchaseOrderEmailMutation.mutate()}
       />
+      {deleteConfirm.dialog}
       <PurchaseBillDialog
         open={purchaseBillDialogOpen}
         values={purchaseBillDialogValues}
@@ -2800,37 +2836,37 @@ export function PurchaseOrderCard({
         onCreate={() => purchaseBillMutation.mutate(purchaseBillDialogValues)}
       />
       <Dialog
-        open={carrierDialogOpen}
+        open={additionalCostSupplierDialogOpen}
         onOpenChange={(open) => {
-          if (!open && !carrierMutation.isPending) closeCarrierDialog(null);
+          if (!open && !additionalCostSupplierMutation.isPending) closeAdditionalCostSupplierDialog(null);
         }}
       >
         <DialogContent size="md">
           <DialogHeader>
-            <DialogTitle>Add Carrier</DialogTitle>
+            <DialogTitle>Add Supplier</DialogTitle>
           </DialogHeader>
           <form
-            id="add-carrier-form"
-            onSubmit={carrierForm.handleSubmit(handleCarrierDialogSubmit)}
+            id="add-supplier-form"
+            onSubmit={additionalCostSupplierForm.handleSubmit(handleAdditionalCostSupplierDialogSubmit)}
           >
-            {carrierMutation.error ? (
+            {additionalCostSupplierMutation.error ? (
               <FieldError>
-                {(carrierMutation.error as ApiError).error ??
-                  "Failed to create carrier."}
+                {(additionalCostSupplierMutation.error as ApiError).error ??
+                  "Failed to create supplier."}
               </FieldError>
             ) : null}
             <FieldGroup className="gap-4">
               <Controller
-                control={carrierForm.control}
+                control={additionalCostSupplierForm.control}
                 name="name"
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="carrier-name">
+                    <FieldLabel htmlFor="supplier-name">
                       Name<span className={styles.requiredMark}> *</span>
                     </FieldLabel>
                     <Input
                       {...field}
-                      id="carrier-name"
+                      id="supplier-name"
                       value={field.value ?? ""}
                       onChange={(event) => field.onChange(event.target.value)}
                       aria-invalid={fieldState.invalid}
@@ -2843,16 +2879,16 @@ export function PurchaseOrderCard({
                 )}
               />
               <Controller
-                control={carrierForm.control}
+                control={additionalCostSupplierForm.control}
                 name="contactName"
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="carrier-contact-name">
+                    <FieldLabel htmlFor="supplier-contact-name">
                       Contact Name
                     </FieldLabel>
                     <Input
                       {...field}
-                      id="carrier-contact-name"
+                      id="supplier-contact-name"
                       value={field.value ?? ""}
                       onChange={(event) =>
                         field.onChange(event.target.value || null)
@@ -2867,14 +2903,14 @@ export function PurchaseOrderCard({
                 )}
               />
               <Controller
-                control={carrierForm.control}
+                control={additionalCostSupplierForm.control}
                 name="email"
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="carrier-email">Email</FieldLabel>
+                    <FieldLabel htmlFor="supplier-email">Email</FieldLabel>
                     <Input
                       {...field}
-                      id="carrier-email"
+                      id="supplier-email"
                       type="email"
                       value={field.value ?? ""}
                       onChange={(event) =>
@@ -2895,17 +2931,17 @@ export function PurchaseOrderCard({
             <Button
               type="button"
               variant="outline"
-              disabled={carrierMutation.isPending}
-              onClick={() => closeCarrierDialog(null)}
+              disabled={additionalCostSupplierMutation.isPending}
+              onClick={() => closeAdditionalCostSupplierDialog(null)}
             >
               Cancel
             </Button>
             <Button
               type="submit"
-              form="add-carrier-form"
-              disabled={carrierMutation.isPending}
+              form="add-supplier-form"
+              disabled={additionalCostSupplierMutation.isPending}
             >
-              {carrierMutation.isPending ? "Saving..." : "Add Carrier"}
+              {additionalCostSupplierMutation.isPending ? "Saving..." : "Add Supplier"}
             </Button>
           </DialogFooter>
         </DialogContent>

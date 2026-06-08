@@ -117,8 +117,6 @@ export type ERPDataGridProps<TData extends { id: string }> = {
   toolbarContent?: ReactNode;
   toolbarClassName?: string;
   actions?: ReactNode;
-  statusBarContent?: ReactNode;
-  statusBarClassName?: string;
   gridClassName?: string;
   className?: string;
   enableRowSelection?: boolean;
@@ -280,8 +278,6 @@ export function ERPDataGrid<TData extends { id: string }>({
   toolbarContent,
   toolbarClassName,
   actions,
-  statusBarContent,
-  statusBarClassName,
   gridClassName,
   className,
   enableRowSelection = false,
@@ -651,16 +647,6 @@ export function ERPDataGrid<TData extends { id: string }>({
           }}
         />
       </div>
-      {statusBarContent ? (
-        <div
-          className={cn(
-            "flex h-(--space-12) shrink-0 items-center gap-(--space-6) bg-transparent px-(--space-2) font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)] tabular-nums",
-            statusBarClassName
-          )}
-        >
-          {statusBarContent}
-        </div>
-      ) : null}
     </section>
   );
 }
