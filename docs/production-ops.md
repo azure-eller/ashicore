@@ -92,6 +92,17 @@ Verification before marketing paid signup:
 - Vercel Runtime Logs show no `Stripe billing is not configured.` errors.
 - Founder alert email arrives for checkout start and subscription activation when `ASHICORE_ALERT_EMAILS` is set.
 
+Use the launch checker to verify required production env names and public-site
+analytics markup:
+
+```bash
+pnpm launch:check -- \
+  --vercel-project-id prj_M6zvmzh8NgNQPvKbM4zQWTmTFgfy \
+  --vercel-team-id team_2KdVcduwgDF7TpfBP5bKnhZo \
+  --vercel-project-name erp \
+  --marketing-url https://ashicore.app
+```
+
 ## Xero Token Key Rotation
 
 Use `pnpm rotate:xero-token-key -- --environment production --apply` for
