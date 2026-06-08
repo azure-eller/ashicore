@@ -19,13 +19,13 @@ SET "type" = 'additional_cost',
         THEN 'Additional cost for ' || substring("notes" from 13)
       ELSE "notes"
     END
-WHERE "type" = 'freight';--> statement-breakpoint ALTER TABLE "purchasing"."purchase_order_additional_costs" DROP CONSTRAINT IF EXISTS "purchase_order_additional_costs_supplier_id_suppliers_id_fk";--> statement-breakpoint
+WHERE "type" = 'freight';--> statement-breakpoint
 UPDATE "accounting"."document_syncs"
 SET "group_key" = 'additional-cost:' || substring("group_key" from 9),
     "updated_at" = now()
-WHERE "group_key" LIKE 'freight:%';--> statement-breakpoint
-ALTER TABLE "purchasing"."purchase_order_additional_costs" ADD CONSTRAINT "purchase_order_additional_costs_supplier_id_suppliers_id_fk" FOREIGN KEY ("supplier_id") REFERENCES "purchasing"."suppliers"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint ALTER TABLE "purchasing"."purchase_order_additional_costs" DROP CONSTRAINT IF EXISTS "purchase_order_additional_costs_supplier_org_fk";--> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "purchasing_suppliers_org_id_uidx" ON "purchasing"."suppliers" USING btree ("organization_id","id");--> statement-breakpoint
+WHERE "group_key" LIKE 'freight:%';--> statement-breakpoint ALTER TABLE "purchasing"."purchase_order_additional_costs" DROP CONSTRAINT IF EXISTS "purchase_order_additional_costs_supplier_id_suppliers_id_fk";--> statement-breakpoint
+ALTER TABLE "purchasing"."purchase_order_additional_costs" ADD CONSTRAINT "purchase_order_additional_costs_supplier_id_suppliers_id_fk" FOREIGN KEY ("supplier_id") REFERENCES "purchasing"."suppliers"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "purchasing_suppliers_org_id_uidx" ON "purchasing"."suppliers" USING btree ("organization_id","id");--> statement-breakpoint ALTER TABLE "purchasing"."purchase_order_additional_costs" DROP CONSTRAINT IF EXISTS "purchase_order_additional_costs_supplier_org_fk";--> statement-breakpoint
 ALTER TABLE "purchasing"."purchase_order_additional_costs" ADD CONSTRAINT "purchase_order_additional_costs_supplier_org_fk" FOREIGN KEY ("organization_id","supplier_id") REFERENCES "purchasing"."suppliers"("organization_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "purchase_order_additional_costs_supplier_id_idx" ON "purchasing"."purchase_order_additional_costs" USING btree ("supplier_id");--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "purchase_orders_org_parent_additional_cost_supplier_uidx" ON "purchasing"."purchase_orders" USING btree ("organization_id","parent_purchase_order_id","supplier_id") WHERE type = 'additional_cost' AND deleted_at IS NULL;--> statement-breakpoint ALTER TABLE "purchasing"."purchase_orders" DROP CONSTRAINT IF EXISTS "purchase_orders_type_check";--> statement-breakpoint

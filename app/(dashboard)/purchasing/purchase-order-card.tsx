@@ -2263,7 +2263,7 @@ export function PurchaseOrderCard({
         isAdditionalCost: !group.isPurchaseOrderSupplier,
         to: group.supplier.email ?? "",
         replyTo: userEmail,
-        bcc: userEmail,
+        bcc: "",
         subject,
         message: `Hi,\n\nYou should find the necessary documents for ${savedOrderNumber ?? "this order"} attached to this email.\nPlease let me know if anything is missing.\n\nBest regards,\n${userName || userEmail}\n${organizationName}`,
         includePdf: true,
