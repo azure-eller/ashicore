@@ -218,15 +218,16 @@ export function CardCheckboxField({
   className?: string;
 }) {
   return (
-    <label
-      className={cn(
-        styles.cardCheckboxField,
-        controlStyle === "dialog" && styles.cardCheckboxFieldDialog,
-        className,
-      )}
-    >
-      <Checkbox checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} />
-      <span>{label}</span>
-    </label>
+    <div className={className}>
+      <label
+        className={cn(
+          styles.cardCheckboxField,
+          controlStyle === "dialog" && styles.cardCheckboxFieldDialog,
+        )}
+      >
+        <Checkbox checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} />
+        <span>{label}</span>
+      </label>
+    </div>
   );
 }

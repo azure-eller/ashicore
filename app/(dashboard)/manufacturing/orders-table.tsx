@@ -741,6 +741,15 @@ export function OrdersTable({
         className="flex h-[calc(100dvh_-_var(--height-nav)_-_var(--height-subnav))] min-h-0 flex-col gap-(--space-7) bg-[var(--color-bg)]"
         gridClassName="min-h-0 flex-1"
         height="100%"
+        statusBarContent={
+          <>
+            <span>
+              {displayedOrders.length} of {orders.length} rows
+            </span>
+            <div className="flex-1" />
+            <span>Filter: {statusFilter}</span>
+          </>
+        }
       />
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>

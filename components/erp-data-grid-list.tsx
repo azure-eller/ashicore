@@ -13,6 +13,7 @@ import { apiJson } from "@/lib/client/api";
 import { ERPDataGrid, type ColDef } from "@/components/erp-data-grid";
 import { NoticePanel } from "@/components/notice-panel";
 import { SelectionCountBadge } from "@/components/selection-count-badge";
+import { cn } from "@/lib/utils";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -69,7 +70,11 @@ type ERPDataGridListProps<TData extends { id: string }> = {
   deleteAction?: DeleteAction<TData>;
   selectedActions?: SelectedAction<TData>[];
   height?: string | number;
+  gridClassName?: string;
   className?: string;
+  statusBarContent?: ReactNode;
+  statusBarClassName?: string;
+  fillViewport?: boolean;
 };
 
 export function ERPDataGridList<TData extends { id: string }>({
@@ -94,7 +99,11 @@ function ERPDataGridListInner<TData extends { id: string }>({
   deleteAction,
   selectedActions,
   height,
+  gridClassName,
   className,
+  statusBarContent,
+  statusBarClassName,
+  fillViewport = true,
 }: ERPDataGridListProps<TData>) {
   const queryClient = useQueryClient();
   const [searchValue, setSearchValue] = useState("");
@@ -282,8 +291,17 @@ function ERPDataGridListInner<TData extends { id: string }>({
         enableRowSelection={Boolean(deleteAction) || selectionActions.length > 0}
         isRowSelectable={deleteAction?.isRowSelectable}
         onSelectionChange={setSelectedRows}
-        height={height}
-        className={className}
+        height={height ?? (fillViewport ? "100%" : undefined)}
+        className={cn(
+          fillViewport &&
+            "flex h-[calc(100dvh_-_var(--height-nav)_-_var(--height-subnav))] min-h-0 flex-col gap-(--space-7) bg-[var(--color-bg)]",
+          className,
+        )}
+        gridClassName={cn(fillViewport && "min-h-0 flex-1", gridClassName)}
+        statusBarContent={
+          statusBarContent ?? (fillViewport ? <span>{data.length} rows</span> : null)
+        }
+        statusBarClassName={statusBarClassName}
       />
       {deleteAction ? (
         <AlertDialog

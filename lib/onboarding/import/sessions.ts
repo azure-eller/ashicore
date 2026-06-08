@@ -269,7 +269,7 @@ export async function normalizeImportPackageInTx(
   });
 }
 
-async function validateImportPackageInTx(
+export async function validateImportPackageInTx(
   tx: Tx,
   orgId: string,
   pkg: ImportPackage,
