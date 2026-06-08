@@ -31,6 +31,13 @@ type InventoryAttention = {
   tooltip: string;
 };
 
+const marginTierClass: Record<NonNullable<ItemRow["marginTier"]>, string> = {
+  negative: "bg-[var(--status-danger-bg)] text-[var(--status-danger-solid-ink)]",
+  low: "bg-[var(--status-muted-bg)] text-[var(--color-ink)]",
+  mid: "bg-[var(--status-warning-bg)] text-[var(--status-warning-solid-ink)]",
+  high: "bg-[var(--status-success-bg)] text-[var(--status-success-solid-ink)]",
+};
+
 function getInventoryAttention(row: ItemRow): InventoryAttention | null {
   const shortage = parseFloat(row.shortageQty);
   const calculatedStock = calcStock(row);
@@ -57,19 +64,15 @@ function MarginBadge({ row }: { row: ItemRow }) {
     return "—";
   }
 
-  const variant =
-    row.marginTier === "negative"
-      ? "destructive"
-      : row.marginTier === "low"
-        ? "warning"
-        : row.marginTier === "high"
-          ? "success"
-          : "secondary";
-
   return (
-    <Badge variant={variant} className="font-mono text-[length:var(--text-xs)]">
+    <span
+      className={cn(
+        "inline-flex h-(--space-10) w-fit items-center rounded-[var(--radius-pill)] px-(--space-3) font-mono text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-bold tabular-nums",
+        marginTierClass[row.marginTier]
+      )}
+    >
       {row.marginPercent}%
-    </Badge>
+    </span>
   );
 }
 

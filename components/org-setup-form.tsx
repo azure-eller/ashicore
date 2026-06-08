@@ -3,8 +3,17 @@
 import { useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { OnboardingAuthShell } from "@/components/onboarding-auth-shell"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { authClient } from "@/lib/auth-client"
 import { type BillingPlanIntent } from "@/lib/billing/plan-intent"
+import { cn } from "@/lib/utils"
 
 const DEFAULT_APP_ENTRY_PATH = "/sales/orders"
 const NEW_ORG_ENTRY_PATH = "/onboarding"
@@ -158,6 +167,52 @@ export function OrgSetupForm({
       )
       setLoading(false)
     }
+  }
+
+  if (organizations.length > 1 && !continueToOnboarding) {
+    return (
+      <div
+        className={cn(
+          "flex min-h-svh items-center justify-center bg-[var(--color-bg)] px-(--space-8) py-(--space-20) text-[var(--color-ink)]",
+          className
+        )}
+        {...props}
+      >
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle className="text-[length:var(--text-lg)] leading-[var(--leading-lg)]">
+              Choose your organization
+            </CardTitle>
+            <CardDescription>
+              Select the workspace you want to open.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-(--space-4)">
+              {organizations.map((organization) => (
+                <Button
+                  type="button"
+                  key={organization.id}
+                  variant="outline"
+                  className="w-full justify-start rounded-[var(--radius-md)]"
+                  onClick={() => activateOrganization(organization.id)}
+                  disabled={loading || activatingOrgId != null}
+                >
+                  {activatingOrgId === organization.id
+                    ? `Opening ${organization.name}…`
+                    : organization.name}
+                </Button>
+              ))}
+              {error ? (
+                <p className="text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-[var(--status-danger-ink)]">
+                  {error}
+                </p>
+              ) : null}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (
