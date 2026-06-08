@@ -2,8 +2,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { apiHandler } from "@/lib/api/handler";
 import { AuthorizationError } from "@/lib/authz";
-import { getAuthedApiMemberContext } from "@/lib/dal/auth";
-import { createMcpOAuthAuthorizationCode } from "@/lib/agent/mcp-oauth/service";
+import { assertPlanningReadAccess } from "@/lib/planning/auth";
+import {
+  assertAllowedMcpOAuthRedirectUri,
+  createMcpOAuthAuthorizationCode,
+} from "@/lib/agent/mcp-oauth/service";
 import {
   requestSearchParamRecord,
   requestUrl,
@@ -33,10 +36,11 @@ function redirectWithOAuthError(redirectUri: string, error: string, state?: stri
 export const GET = apiHandler(async (request) => {
   const url = requestUrl(request);
   const query = authorizeQuerySchema.parse(requestSearchParamRecord(request));
+  const redirectUri = assertAllowedMcpOAuthRedirectUri(query.redirect_uri);
 
-  let context: Awaited<ReturnType<typeof getAuthedApiMemberContext>>;
+  let context: Awaited<ReturnType<typeof assertPlanningReadAccess>>;
   try {
-    context = await getAuthedApiMemberContext(request.headers);
+    context = await assertPlanningReadAccess(request.headers);
   } catch (error) {
     if (error instanceof AuthorizationError && error.status === 401) {
       const signInUrl = new URL("/sign-in", request.url);
@@ -46,6 +50,9 @@ export const GET = apiHandler(async (request) => {
       );
       return NextResponse.redirect(signInUrl);
     }
+    if (error instanceof AuthorizationError && error.status === 403) {
+      return redirectWithOAuthError(redirectUri, "access_denied", query.state);
+    }
     throw error;
   }
 
@@ -53,13 +60,13 @@ export const GET = apiHandler(async (request) => {
     orgId: context.orgId,
     userId: context.userId,
     clientId: query.client_id,
-    redirectUri: query.redirect_uri,
+    redirectUri,
     codeChallenge: query.code_challenge,
     codeChallengeMethod: query.code_challenge_method,
     scope: query.scope,
   }).catch((error) => {
     if (error instanceof AuthorizationError) {
-      return redirectWithOAuthError(query.redirect_uri, "invalid_request", query.state);
+      return redirectWithOAuthError(redirectUri, "invalid_request", query.state);
     }
     throw error;
   });
@@ -68,7 +75,7 @@ export const GET = apiHandler(async (request) => {
     return code;
   }
 
-  const redirectUrl = new URL(query.redirect_uri);
+  const redirectUrl = new URL(redirectUri);
   redirectUrl.searchParams.set("code", code);
   if (query.state) {
     redirectUrl.searchParams.set("state", query.state);

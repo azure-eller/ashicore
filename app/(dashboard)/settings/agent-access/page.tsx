@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { canManageTeam } from "@/lib/authz";
 import { listAgentApiTokens } from "@/lib/agent/external-access/tokens";
+import { listMcpOAuthTokenGrants } from "@/lib/agent/mcp-oauth/service";
 import { AGENT_MCP_PATH } from "@/lib/agent/mcp-oauth/metadata";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
 import { AgentAccessSection } from "../agent-access-section";
@@ -25,12 +26,16 @@ export default async function SettingsAgentAccessPage() {
   claudeInstallUrl.searchParams.set("modal", "add-custom-connector");
   claudeInstallUrl.searchParams.set("connectorName", "Ashicore");
   claudeInstallUrl.searchParams.set("connectorUrl", agentMcpServerUrl);
-  const tokens = await listAgentApiTokens();
+  const [tokens, mcpOAuthGrants] = await Promise.all([
+    listAgentApiTokens(),
+    listMcpOAuthTokenGrants(),
+  ]);
 
   return (
     <AgentAccessSection
       initialData={{
         tokens,
+        mcpOAuthGrants,
         openApiUrl: agentOpenApiUrl,
         mcpServerUrl: agentMcpServerUrl,
         claudeInstallUrl: claudeInstallUrl.toString(),

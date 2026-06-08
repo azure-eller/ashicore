@@ -33,7 +33,11 @@ import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { apiJson, requireApiProperty } from "@/lib/client/api";
-import type { AgentAccessPageData, AgentApiTokenRow } from "./types";
+import type {
+  AgentAccessPageData,
+  AgentApiTokenRow,
+  AgentMcpOAuthGrantRow,
+} from "./types";
 import {
   SettingsPanel,
   SettingsPanelHeader,
@@ -51,9 +55,22 @@ function activeTokens(tokens: AgentApiTokenRow[]) {
   return tokens.filter((token) => !token.revokedAt);
 }
 
+function activeMcpOAuthGrants(grants: AgentMcpOAuthGrantRow[]) {
+  return grants.filter(
+    (grant) =>
+      !grant.revokedAt && new Date(grant.refreshTokenExpiresAt) > new Date()
+  );
+}
+
 function tokenStatus(token: AgentApiTokenRow) {
   if (token.revokedAt) return "Revoked";
   if (token.expiresAt && new Date(token.expiresAt) <= new Date()) return "Expired";
+  return "Active";
+}
+
+function mcpOAuthGrantStatus(grant: AgentMcpOAuthGrantRow) {
+  if (grant.revokedAt) return "Revoked";
+  if (new Date(grant.refreshTokenExpiresAt) <= new Date()) return "Expired";
   return "Active";
 }
 
@@ -362,22 +379,33 @@ export function AgentAccessSection({
   const [actionError, setActionError] = useState<string | null>(null);
 
   const { data = initialData } = useQuery<AgentAccessPageData>({
-    queryKey: ["agent-api-tokens"],
+    queryKey: ["agent-access"],
     queryFn: async () => {
-      const body = await apiJson<{ tokens?: AgentApiTokenRow[] }>(
-        "/api/agent/api-tokens",
-        { fallbackError: "Failed to load agent tokens." }
-      );
+      const [tokensBody, grantsBody] = await Promise.all([
+        apiJson<{ tokens?: AgentApiTokenRow[] }>("/api/agent/api-tokens", {
+          fallbackError: "Failed to load agent tokens.",
+        }),
+        apiJson<{ grants?: AgentMcpOAuthGrantRow[] }>(
+          "/api/agent/mcp/oauth/tokens",
+          { fallbackError: "Failed to load Claude OAuth grants." }
+        ),
+      ]);
 
       const tokens = requireApiProperty(
-        body,
+        tokensBody,
         "tokens",
         "Failed to load agent tokens."
+      );
+      const mcpOAuthGrants = requireApiProperty(
+        grantsBody,
+        "grants",
+        "Failed to load Claude OAuth grants."
       );
 
       return {
         ...initialData,
         tokens,
+        mcpOAuthGrants,
       };
     },
     initialData,
@@ -386,7 +414,7 @@ export function AgentAccessSection({
 
   const refreshData = async () => {
     setActionError(null);
-    await queryClient.invalidateQueries({ queryKey: ["agent-api-tokens"] });
+    await queryClient.invalidateQueries({ queryKey: ["agent-access"] });
   };
 
   const revokeMutation = useMutation({
@@ -398,8 +426,18 @@ export function AgentAccessSection({
     onSuccess: refreshData,
     onError: (error) => setActionError(error.message),
   });
+  const revokeMcpOAuthGrantMutation = useMutation({
+    mutationFn: (grantId: string) =>
+      apiJson<void>(`/api/agent/mcp/oauth/tokens/${grantId}`, {
+        method: "DELETE",
+        fallbackError: "Failed to revoke Claude OAuth grant.",
+      }),
+    onSuccess: refreshData,
+    onError: (error) => setActionError(error.message),
+  });
 
   const enabledCount = activeTokens(data.tokens).length;
+  const activeClaudeGrantCount = activeMcpOAuthGrants(data.mcpOAuthGrants).length;
 
   return (
     <SettingsPanel id="agent-access">
@@ -441,6 +479,83 @@ export function AgentAccessSection({
             />
           </ConnectCard>
         </div>
+      </SettingsPanelSection>
+
+      <SettingsPanelSection>
+        <div className="flex flex-wrap items-center justify-between gap-(--space-6)">
+          <div className="min-w-0">
+            <SubHeader>Claude OAuth grants</SubHeader>
+            <p className="mt-(--space-1) text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-[var(--color-ink-faint)]">
+              {activeClaudeGrantCount} active{" "}
+              {activeClaudeGrantCount === 1 ? "grant" : "grants"}
+            </p>
+          </div>
+        </div>
+
+        <ListFrame className="mt-(--space-6)">
+          {data.mcpOAuthGrants.length === 0 ? (
+            <EmptyState className="border-0 px-(--space-6)">
+              No Claude OAuth grants yet.
+            </EmptyState>
+          ) : (
+            <SettingsRows>
+              {data.mcpOAuthGrants.map((grant) => {
+                const status = mcpOAuthGrantStatus(grant);
+                const active = status === "Active";
+
+                return (
+                  <SettingsKeyValueRow
+                    key={grant.id}
+                    label="Grant"
+                    value={
+                      <span className="flex min-w-0 items-center gap-(--space-3) font-medium">
+                        <HugeiconsIcon
+                          icon={AiBrain03Icon}
+                          className="size-(--space-7)"
+                        />
+                        <span className="truncate">
+                          {grant.userName || grant.userEmail || grant.clientId}
+                        </span>
+                        <Badge variant={active ? "default" : "outline"}>
+                          {status}
+                        </Badge>
+                      </span>
+                    }
+                    supportingText={
+                      <span className="flex flex-wrap gap-x-(--space-6) gap-y-(--space-2)">
+                        {grant.userEmail ? <span>{grant.userEmail}</span> : null}
+                        <span>
+                          created <DateTimeText value={grant.createdAt} />
+                        </span>
+                        {grant.lastUsedAt ? (
+                          <span>
+                            last used <DateTimeText value={grant.lastUsedAt} />
+                          </span>
+                        ) : (
+                          <span>never used</span>
+                        )}
+                      </span>
+                    }
+                    action={
+                      active ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={revokeMcpOAuthGrantMutation.isPending}
+                          onClick={() => revokeMcpOAuthGrantMutation.mutate(grant.id)}
+                        >
+                          <HugeiconsIcon icon={Delete02Icon} data-icon="inline-start" />
+                          Revoke
+                        </Button>
+                      ) : null
+                    }
+                  />
+                );
+              })}
+            </SettingsRows>
+          )}
+        </ListFrame>
       </SettingsPanelSection>
 
       <SettingsPanelSection>

@@ -327,14 +327,10 @@ export async function getPendingInvitationForEmail(email: string) {
 export async function getAuthedApiMemberContext(
   requestHeaders: HeadersInit
 ): Promise<MemberContext> {
-  const context = await resolveMemberContext(requestHeaders);
-
-  if (context) {
-    return context;
-  }
-
+  const normalizedHeaders =
+    requestHeaders instanceof Headers ? requestHeaders : new Headers(requestHeaders);
   const session = await auth.api.getSession({
-    headers: requestHeaders instanceof Headers ? requestHeaders : new Headers(requestHeaders),
+    headers: normalizedHeaders,
   });
 
   if (!session) {
@@ -343,6 +339,12 @@ export async function getAuthedApiMemberContext(
 
   if (await isMfaRequiredForSession(session)) {
     throw new AuthorizationError("Multi-factor authentication setup required.", 403);
+  }
+
+  const context = await resolveMemberContext(normalizedHeaders, session);
+
+  if (context) {
+    return context;
   }
 
   throw new AuthorizationError("Active organization required.", 403);

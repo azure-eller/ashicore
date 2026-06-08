@@ -11,7 +11,8 @@ import {
   getSalesOrders,
 } from "@/app/(dashboard)/sales/queries";
 import { apiHandler } from "@/lib/api/handler";
-import { getAuthedApiMemberContext } from "@/lib/dal/auth";
+import { assertModuleReadAccess } from "@/lib/dal/auth";
+import type { ModuleKey } from "@/lib/authz";
 import { inventoryLedgerFiltersSchema } from "@/lib/schemas/inventory-ledger";
 import { collectObservedOperations } from "@/lib/observability/request-log";
 import { requestSearchParams } from "@/lib/routing/search-params";
@@ -30,6 +31,19 @@ const targetSchema = z.enum([
   "purchasing-suppliers",
   "manufacturing-orders",
 ]);
+
+const targetModules: Record<z.infer<typeof targetSchema>, ModuleKey> = {
+  "inventory-products": "inventory",
+  "inventory-materials": "inventory",
+  "inventory-ledger": "inventory",
+  "inventory-stocktakes": "inventory",
+  "sales-orders": "sales",
+  "sales-customers": "sales",
+  "sales-pricing": "sales",
+  "purchasing-orders": "purchasing",
+  "purchasing-suppliers": "purchasing",
+  "manufacturing-orders": "manufacturing",
+};
 
 function summarizeResult(result: unknown) {
   if (Array.isArray(result)) {
@@ -76,10 +90,9 @@ async function runTarget(target: z.infer<typeof targetSchema>) {
 }
 
 export const GET = apiHandler(async (request) => {
-  await getAuthedApiMemberContext(request.headers);
-
   const searchParams = requestSearchParams(request);
   const target = targetSchema.parse(searchParams.get("target") ?? "inventory-products");
+  await assertModuleReadAccess(targetModules[target], request.headers);
 
   const report = await collectObservedOperations(async () => {
     return runTarget(target);

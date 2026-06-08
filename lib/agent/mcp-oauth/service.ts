@@ -1,14 +1,17 @@
 import "server-only";
 
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { and, eq, isNull } from "drizzle-orm";
-import { AuthorizationError } from "@/lib/authz";
+import { and, desc, eq, isNull } from "drizzle-orm";
+import { AuthorizationError, canReadPlanning } from "@/lib/authz";
 import {
   agentMcpOAuthCodes,
   agentMcpOAuthTokens,
+  member,
+  user,
   type AgentMcpOAuthScope,
 } from "@/lib/db/schema";
 import { type Tx, withOrgContext } from "@/lib/db/with-org-context";
+import { withAuthedOrgContext } from "@/lib/dal/auth";
 
 const CODE_PREFIX = "ash_mcp_code";
 const ACCESS_TOKEN_PREFIX = "ash_mcp_access";
@@ -32,6 +35,36 @@ export type McpOAuthTokenAuth = {
   scopes: AgentMcpOAuthScope[];
   expiresAt: Date;
 };
+
+function toMcpOAuthGrantSummary(row: {
+  id: string;
+  userId: string;
+  userName: string | null;
+  userEmail: string | null;
+  clientId: string;
+  scopes: AgentMcpOAuthScope[];
+  lastUsedAt: Date | null;
+  accessTokenExpiresAt: Date;
+  refreshTokenExpiresAt: Date;
+  revokedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
+  return {
+    id: row.id,
+    userId: row.userId,
+    userName: row.userName ?? "",
+    userEmail: row.userEmail ?? "",
+    clientId: row.clientId,
+    scopes: row.scopes,
+    lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
+    accessTokenExpiresAt: row.accessTokenExpiresAt.toISOString(),
+    refreshTokenExpiresAt: row.refreshTokenExpiresAt.toISOString(),
+    revokedAt: row.revokedAt?.toISOString() ?? null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
 
 function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
@@ -122,6 +155,52 @@ export function verifyPkceChallenge(args: {
   }
 }
 
+async function mcpOAuthGrantStillAuthorizedInTx(
+  tx: Tx,
+  row: {
+    organizationId: string;
+    userId: string;
+    scopes: AgentMcpOAuthScope[];
+  }
+) {
+  const [grantor] = await tx
+    .select({ role: member.role })
+    .from(member)
+    .where(
+      and(
+        eq(member.organizationId, row.organizationId),
+        eq(member.userId, row.userId)
+      )
+    )
+    .limit(1);
+
+  if (!grantor) {
+    return false;
+  }
+
+  if (
+    row.scopes.includes(PRODUCTION_PLANNING_SCOPE) &&
+    !canReadPlanning(grantor.role)
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+async function assertMcpOAuthGrantStillAuthorizedInTx(
+  tx: Tx,
+  row: {
+    organizationId: string;
+    userId: string;
+    scopes: AgentMcpOAuthScope[];
+  }
+) {
+  if (!(await mcpOAuthGrantStillAuthorizedInTx(tx, row))) {
+    throw new AuthorizationError("OAuth grant is no longer authorized.", 401);
+  }
+}
+
 export async function createMcpOAuthAuthorizationCode(input: {
   orgId: string;
   userId: string;
@@ -162,6 +241,76 @@ export async function createMcpOAuthAuthorizationCode(input: {
   });
 
   return code.token;
+}
+
+export async function listMcpOAuthTokenGrants() {
+  return withAuthedOrgContext(async (tx) => {
+    const rows = await tx
+      .select({
+        id: agentMcpOAuthTokens.id,
+        userId: agentMcpOAuthTokens.userId,
+        userName: user.name,
+        userEmail: user.email,
+        clientId: agentMcpOAuthTokens.clientId,
+        scopes: agentMcpOAuthTokens.scopes,
+        lastUsedAt: agentMcpOAuthTokens.lastUsedAt,
+        accessTokenExpiresAt: agentMcpOAuthTokens.accessTokenExpiresAt,
+        refreshTokenExpiresAt: agentMcpOAuthTokens.refreshTokenExpiresAt,
+        revokedAt: agentMcpOAuthTokens.revokedAt,
+        createdAt: agentMcpOAuthTokens.createdAt,
+        updatedAt: agentMcpOAuthTokens.updatedAt,
+      })
+      .from(agentMcpOAuthTokens)
+      .leftJoin(user, eq(user.id, agentMcpOAuthTokens.userId))
+      .orderBy(desc(agentMcpOAuthTokens.createdAt), desc(agentMcpOAuthTokens.id));
+
+    return rows.map(toMcpOAuthGrantSummary);
+  });
+}
+
+export async function revokeMcpOAuthTokenGrant(tokenId: string) {
+  return withAuthedOrgContext(async (tx) => {
+    const [row] = await tx
+      .update(agentMcpOAuthTokens)
+      .set({ revokedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(agentMcpOAuthTokens.id, tokenId),
+          isNull(agentMcpOAuthTokens.revokedAt)
+        )
+      )
+      .returning({ id: agentMcpOAuthTokens.id });
+
+    if (!row) {
+      throw new AuthorizationError("MCP OAuth grant not found.", 404);
+    }
+
+    const [grant] = await tx
+      .select({
+        id: agentMcpOAuthTokens.id,
+        userId: agentMcpOAuthTokens.userId,
+        userName: user.name,
+        userEmail: user.email,
+        clientId: agentMcpOAuthTokens.clientId,
+        scopes: agentMcpOAuthTokens.scopes,
+        lastUsedAt: agentMcpOAuthTokens.lastUsedAt,
+        accessTokenExpiresAt: agentMcpOAuthTokens.accessTokenExpiresAt,
+        refreshTokenExpiresAt: agentMcpOAuthTokens.refreshTokenExpiresAt,
+        revokedAt: agentMcpOAuthTokens.revokedAt,
+        createdAt: agentMcpOAuthTokens.createdAt,
+        updatedAt: agentMcpOAuthTokens.updatedAt,
+      })
+      .from(agentMcpOAuthTokens)
+      .leftJoin(user, eq(user.id, agentMcpOAuthTokens.userId))
+      .where(eq(agentMcpOAuthTokens.id, row.id))
+      .limit(1);
+
+    if (!grant) {
+      throw new AuthorizationError("MCP OAuth grant not found.", 404);
+    }
+
+    return toMcpOAuthGrantSummary(grant);
+  });
 }
 
 async function exchangeAuthorizationCodeInTx(
@@ -294,6 +443,7 @@ export async function refreshMcpOAuthAccessToken(input: {
     if (row.refreshTokenExpiresAt <= new Date()) {
       throw new AuthorizationError("OAuth refresh token has expired.", 401);
     }
+    await assertMcpOAuthGrantStillAuthorizedInTx(tx, row);
 
     const access = newOpaqueToken(ACCESS_TOKEN_PREFIX, parsedRefreshToken.orgId, row.id);
     const refresh = newOpaqueToken(REFRESH_TOKEN_PREFIX, parsedRefreshToken.orgId, row.id);
@@ -344,6 +494,9 @@ export async function authenticateMcpOAuthAccessToken(
       return null;
     }
     if (row.accessTokenExpiresAt <= new Date()) {
+      return null;
+    }
+    if (!(await mcpOAuthGrantStillAuthorizedInTx(tx, row))) {
       return null;
     }
 

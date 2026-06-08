@@ -1,3 +1,4 @@
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import dotenv from "dotenv";
 import { and, eq } from "drizzle-orm";
 import { test, expect } from "./fixtures";
@@ -6,12 +7,13 @@ import {
   createItem,
   getBaseUrl,
   getOrgId,
+  getSessionCookie,
   getUnitId,
   testFetch,
 } from "../helpers/api";
 import { extractFirstUrl, waitForOutboxEmail } from "../helpers/email-outbox";
 import { TEST_ACCOUNT_EMAIL } from "../helpers/test-account";
-import { member, salesOrders, user } from "../../lib/db/schema";
+import { invitation, member, salesOrders, user } from "../../lib/db/schema";
 
 dotenv.config({ path: ".env.local" });
 
@@ -38,6 +40,12 @@ function createAuthDb() {
 const authDb = createAuthDb();
 
 const TEST_USER_EMAIL = TEST_ACCOUNT_EMAIL;
+const SETTINGS_ADMIN_ROLE =
+  "access:matrix,member,settings:admin,sales:read";
+const SALES_ONLY_ROLE = "access:matrix,member,sales:read";
+const MANUFACTURING_ONLY_ROLE = "access:matrix,member,manufacturing:read";
+const FULL_ADMIN_ROLE =
+  "access:matrix,member,settings:admin,inventory:admin,sales:admin,manufacturing:admin,purchasing:admin";
 
 async function createConfirmedSalesOrder(payload: {
   customerId: string;
@@ -85,6 +93,96 @@ async function publicAuthFetch(path: string, body: Record<string, unknown>) {
       Origin: getBaseUrl(),
     },
     body: JSON.stringify(body),
+    redirect: "manual",
+  });
+}
+
+async function getTestMembership() {
+  const [testUser] = await authDb
+    .select({ id: user.id })
+    .from(user)
+    .where(eq(user.email, TEST_USER_EMAIL))
+    .limit(1);
+  expect(testUser).toBeTruthy();
+
+  const [membership] = await authDb
+    .select({ id: member.id, role: member.role })
+    .from(member)
+    .where(
+      and(eq(member.userId, testUser.id), eq(member.organizationId, getOrgId()))
+    )
+    .limit(1);
+  expect(membership).toBeTruthy();
+
+  return membership;
+}
+
+async function createAuthMember(role: string) {
+  const userId = randomUUID();
+  const memberId = randomUUID();
+  await authDb.insert(user).values({
+    id: userId,
+    name: "Auth Guard Target",
+    email: `auth-guard-target-${memberId}@example.com`,
+    emailVerified: true,
+    twoFactorEnabled: true,
+  });
+  await authDb.insert(member).values({
+    id: memberId,
+    organizationId: getOrgId(),
+    userId,
+    role,
+    createdAt: new Date(),
+  });
+  return memberId;
+}
+
+function createPkcePair() {
+  const verifier = randomBytes(32).toString("base64url");
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  return { verifier, challenge };
+}
+
+async function exchangeMcpCode(args: {
+  code: string;
+  verifier: string;
+  redirectUri: string;
+}) {
+  const form = new URLSearchParams({
+    grant_type: "authorization_code",
+    code: args.code,
+    client_id: "auth-security-test",
+    redirect_uri: args.redirectUri,
+    code_verifier: args.verifier,
+  });
+
+  return fetch(`${getBaseUrl()}/api/agent/mcp/oauth/token`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Origin: getBaseUrl(),
+      Cookie: getSessionCookie(),
+    },
+    body: form,
+    redirect: "manual",
+  });
+}
+
+async function refreshMcpToken(refreshToken: string) {
+  const form = new URLSearchParams({
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+    client_id: "auth-security-test",
+  });
+
+  return fetch(`${getBaseUrl()}/api/agent/mcp/oauth/token`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Origin: getBaseUrl(),
+      Cookie: getSessionCookie(),
+    },
+    body: form,
     redirect: "manual",
   });
 }
@@ -193,6 +291,145 @@ test.describe("Auth and security regressions", () => {
         .update(member)
         .set({ role: originalRole })
         .where(eq(member.id, membership.id));
+    }
+  });
+
+  test("native Better Auth organization endpoints enforce app team ceilings", async () => {
+    const actor = await getTestMembership();
+    const targetMemberId = await createAuthMember(SALES_ONLY_ROLE);
+    const inviteEmail = `native-ceiling-${run}@example.com`;
+
+    try {
+      await authDb
+        .update(member)
+        .set({ role: SETTINGS_ADMIN_ROLE })
+        .where(eq(member.id, actor.id));
+
+      const updateResponse = await testFetch("/api/auth/organization/update-member-role", {
+        method: "POST",
+        body: JSON.stringify({
+          memberId: targetMemberId,
+          role: FULL_ADMIN_ROLE,
+        }),
+      });
+      expect(updateResponse.status).toBe(403);
+
+      const inviteResponse = await testFetch("/api/auth/organization/invite-member", {
+        method: "POST",
+        body: JSON.stringify({
+          email: inviteEmail,
+          role: FULL_ADMIN_ROLE,
+        }),
+      });
+      expect(inviteResponse.status).toBe(403);
+
+      const [target] = await authDb
+        .select({ role: member.role })
+        .from(member)
+        .where(eq(member.id, targetMemberId))
+        .limit(1);
+      expect(target.role).toBe(SALES_ONLY_ROLE);
+
+      const inviteRows = await authDb
+        .select({ id: invitation.id })
+        .from(invitation)
+        .where(
+          and(
+            eq(invitation.organizationId, getOrgId()),
+            eq(invitation.email, inviteEmail)
+          )
+        );
+      expect(inviteRows).toHaveLength(0);
+    } finally {
+      await authDb
+        .update(member)
+        .set({ role: actor.role })
+        .where(eq(member.id, actor.id));
+    }
+  });
+
+  test("MCP OAuth planning grants are checked at grant and refresh time", async () => {
+    const actor = await getTestMembership();
+    const redirectUri = "http://localhost/callback";
+    const { verifier, challenge } = createPkcePair();
+
+    try {
+      const allowParams = new URLSearchParams({
+        response_type: "code",
+        client_id: "auth-security-test",
+        redirect_uri: redirectUri,
+        code_challenge: challenge,
+        code_challenge_method: "S256",
+        state: "allowed",
+      });
+      const allowResponse = await testFetch(
+        `/api/agent/mcp/oauth/authorize?${allowParams}`
+      );
+      expect(allowResponse.status).toBe(307);
+      const code = new URL(allowResponse.headers.get("location") ?? "").searchParams.get(
+        "code"
+      );
+      expect(code).toBeTruthy();
+
+      const tokenResponse = await exchangeMcpCode({
+        code: code!,
+        verifier,
+        redirectUri,
+      });
+      expect(tokenResponse.status).toBe(200);
+      const tokenBody = await tokenResponse.json();
+      expect(tokenBody.refresh_token).toBeTruthy();
+
+      await authDb
+        .update(member)
+        .set({ role: SALES_ONLY_ROLE })
+        .where(eq(member.id, actor.id));
+
+      const denyParams = new URLSearchParams({
+        response_type: "code",
+        client_id: "auth-security-test",
+        redirect_uri: redirectUri,
+        code_challenge: challenge,
+        code_challenge_method: "S256",
+        state: "denied",
+      });
+      const denyResponse = await testFetch(
+        `/api/agent/mcp/oauth/authorize?${denyParams}`
+      );
+      const denyLocation = denyResponse.headers.get("location") ?? "";
+      expect(denyResponse.status).toBe(307);
+      expect(denyLocation).toContain("error=access_denied");
+      expect(denyLocation).not.toContain("code=");
+
+      const refreshResponse = await refreshMcpToken(tokenBody.refresh_token);
+      expect(refreshResponse.status).toBe(401);
+    } finally {
+      await authDb
+        .update(member)
+        .set({ role: actor.role })
+        .where(eq(member.id, actor.id));
+    }
+  });
+
+  test("observability performance targets enforce module read access", async () => {
+    const actor = await getTestMembership();
+
+    try {
+      await authDb
+        .update(member)
+        .set({ role: MANUFACTURING_ONLY_ROLE })
+        .where(eq(member.id, actor.id));
+
+      const response = await testFetch(
+        "/api/observability/performance?target=sales-customers"
+      );
+
+      expect(response.status).toBe(403);
+    } finally {
+      await authDb
+        .update(member)
+        .set({ role: actor.role })
+        .where(eq(member.id, actor.id));
     }
   });
 

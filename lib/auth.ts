@@ -3,11 +3,14 @@ import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/a
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAccessControl, organization, twoFactor } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { APP_DOMAIN, APP_URL } from "@/lib/app-brand";
 import { getCanonicalAppUrl } from "@/lib/app-url";
 import {
   buildMatrixRole,
+  canAssignModuleAccess,
+  canManageTargetRole,
+  getModuleAccessMap,
   getModulePermissionActions,
   MATRIX_SENTINEL_ROLE,
   MODULE_KEYS,
@@ -265,6 +268,107 @@ const organizationBillingSafetyPlugin = (): BetterAuthPlugin => ({
   },
 });
 
+const organizationTeamCeilingPlugin = (): BetterAuthPlugin => ({
+  id: "ashicore-organization-team-ceiling",
+  hooks: {
+    before: [
+      {
+        matcher(ctx) {
+          return (
+            ctx.path === "/organization/update-member-role" ||
+            ctx.path === "/organization/invite-member"
+          );
+        },
+        handler: createAuthMiddleware(async (ctx) => {
+          const session = await getSessionFromCtx(ctx).catch(() => null);
+          if (!session) {
+            throw new APIError("UNAUTHORIZED", {
+              message: "Authentication required.",
+            });
+          }
+
+          const body = ctx.body as {
+            organizationId?: unknown;
+            memberId?: unknown;
+            role?: unknown;
+          } | undefined;
+          const organizationId =
+            typeof body?.organizationId === "string"
+              ? body.organizationId
+              : session.session.activeOrganizationId;
+          const requestedRole = normalizeRequestedRole(body?.role);
+
+          if (!organizationId) {
+            throw new APIError("BAD_REQUEST", {
+              message: "Active organization required.",
+            });
+          }
+
+          if (!requestedRole.length) {
+            throw new APIError("BAD_REQUEST", {
+              message: "Role is required.",
+            });
+          }
+
+          const [actor] = await db
+            .select({ role: schema.member.role })
+            .from(schema.member)
+            .where(
+              and(
+                eq(schema.member.organizationId, organizationId),
+                eq(schema.member.userId, session.user.id)
+              )
+            )
+            .limit(1);
+
+          if (!actor) {
+            throw new APIError("FORBIDDEN", {
+              message: "You do not have access to this organization.",
+            });
+          }
+
+          if (!canAssignModuleAccess(actor.role, getModuleAccessMap(requestedRole))) {
+            throw new APIError("FORBIDDEN", {
+              message: "Only owners can grant team management access.",
+            });
+          }
+
+          if (ctx.path !== "/organization/update-member-role") {
+            return;
+          }
+
+          if (typeof body?.memberId !== "string") {
+            throw new APIError("BAD_REQUEST", {
+              message: "memberId is required.",
+            });
+          }
+
+          const [target] = await db
+            .select({
+              role: schema.member.role,
+              organizationId: schema.member.organizationId,
+            })
+            .from(schema.member)
+            .where(eq(schema.member.id, body.memberId))
+            .limit(1);
+
+          if (!target || target.organizationId !== organizationId) {
+            throw new APIError("FORBIDDEN", {
+              message: "You do not have permission to update that member.",
+            });
+          }
+
+          if (!canManageTargetRole(actor.role, target.role)) {
+            throw new APIError("FORBIDDEN", {
+              message: "You do not have permission to manage that member.",
+            });
+          }
+        }),
+      },
+    ],
+  },
+});
+
 const mfaGraceSignInPlugin = (): BetterAuthPlugin => ({
   id: "ashicore-mfa-grace-sign-in",
   hooks: {
@@ -355,6 +459,21 @@ function parseAuthUserId(value: unknown) {
   return id;
 }
 
+function normalizeRequestedRole(role: unknown) {
+  if (Array.isArray(role)) {
+    return role
+      .flatMap((value) => (typeof value === "string" ? value.split(",") : []))
+      .map((value) => value.trim())
+      .filter(Boolean);
+  }
+
+  if (typeof role === "string") {
+    return role.split(",").map((value) => value.trim()).filter(Boolean);
+  }
+
+  return [];
+}
+
 type AuthMiddlewareContext = Parameters<Parameters<typeof createAuthMiddleware>[0]>[0];
 
 async function getTwoFactorCookieKey(ctx: AuthMiddlewareContext) {
@@ -408,6 +527,7 @@ export const auth = betterAuth({
   plugins: [
     organizationBillingSafetyPlugin(),
     organizationTaxDefaultsPlugin(),
+    organizationTeamCeilingPlugin(),
     mfaGraceSignInPlugin(),
     twoFactorOtpCleanupPlugin(),
     twoFactor({

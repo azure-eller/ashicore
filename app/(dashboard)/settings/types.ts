@@ -48,8 +48,24 @@ export type AgentApiTokenRow = {
   updatedAt: string;
 };
 
+export type AgentMcpOAuthGrantRow = {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  clientId: string;
+  scopes: string[];
+  lastUsedAt: string | null;
+  accessTokenExpiresAt: string;
+  refreshTokenExpiresAt: string;
+  revokedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type AgentAccessPageData = {
   tokens: AgentApiTokenRow[];
+  mcpOAuthGrants: AgentMcpOAuthGrantRow[];
   openApiUrl: string;
   mcpServerUrl: string;
   claudeInstallUrl: string;
