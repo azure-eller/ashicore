@@ -8,19 +8,16 @@ export const ON_HAND_STOCK_TOOLTIP =
   "Physical stock currently on hand.";
 
 export const AVAILABLE_QTY_TOOLTIP =
-  "Stock not currently reserved by other orders.";
-
-export const RESERVED_QTY_TOOLTIP =
-  "Stock already reserved for demand.";
+  "Physical stock available on hand.";
 
 export const SALES_LINE_ALLOCATED_QTY_TOOLTIP =
-  "Stock reserved by this sales order line.";
+  "Stock covered for this sales order line.";
 
 export const DEMAND_QTY_TOOLTIP =
   "Demand from open sales and active manufacturing orders.";
 
 export const BACKORDER_QTY_TOOLTIP =
-  "Accepted demand not covered by reservations.";
+  "Accepted demand not covered by current queue priority.";
 
 export const EXPECTED_QTY_TOOLTIP =
   "Inbound supply from open manufacturing and purchase orders.";
@@ -94,12 +91,6 @@ export const LOT_UNIT_COST_TOOLTIP =
   "Inventory value assigned to one stocking unit.";
 
 export const NOT_SELLABLE_TOOLTIP = "Hidden from sales order pickers.";
-
-export const RESERVATION_STATUS_TOOLTIP = {
-  fully: "All demand is reserved.",
-  partial: "Some demand is reserved; the rest is backordered.",
-  backordered: "No demand is reserved.",
-} as const;
 
 export const LOT_DISPOSITION_TOOLTIP =
   "Lot status: available, blocked, rejected, or scrap.";
@@ -358,7 +349,7 @@ export const ALLOCATION_EXPECTED_TOOLTIP =
   "Open production quantity before other assignments.";
 
 export const ALLOCATION_AVAILABLE_TOOLTIP =
-  "Uncommitted quantity available from this source.";
+  "Queue-available quantity from this source.";
 
 export const ALLOCATION_CURRENT_TOOLTIP =
   "Quantity already assigned from this source to this line.";

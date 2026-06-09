@@ -32,7 +32,6 @@ export type PlanningReasonCode =
   | "open_purchase_supply"
   | "open_manufacturing_supply"
   | "inventory_available"
-  | "reserved_stock"
   | "projected_shortage"
   | "no_shortage"
   | "buy_item"
@@ -171,7 +170,6 @@ export type SupplyFact = {
 export type InventoryFact = {
   itemId: string;
   onHandQuantity: string;
-  reservedQuantity: string;
   availableQuantity: string;
   expectedQuantity: string;
   sourceRefs: PlanningSourceRef[];
@@ -248,7 +246,6 @@ export type PlanningItemRow = {
   planningType: PlanningType;
   demandQuantity: string;
   availableStock: string;
-  reservedQuantity: string;
   incomingPurchaseOrderQuantity: string;
   incomingManufacturingOrderQuantity: string;
   projectedQuantity: string;

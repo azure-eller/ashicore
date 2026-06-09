@@ -180,7 +180,7 @@ export function ManufacturingOrderCard({
     description: (
       <>
         Open orders are removed from normal views and reversible picked or
-        reserved inventory is released. For batch orders with completed
+        open-demand inventory is released. For batch orders with completed
         batches, completed output and consumed ingredients are kept as
         production history while remaining work is cancelled. This action
         cannot be undone.

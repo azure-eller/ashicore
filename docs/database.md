@@ -162,7 +162,7 @@ Sales order lines follow the same replace-in-transaction pattern as BOM rows:
 
 - editing a draft order deletes all existing lines, then inserts the fresh set
 - deleting an order soft-deletes only the order row; the saved lines remain attached to that order for history
-- committed quantity calculations ignore soft-deleted orders
+- demand coverage ignores soft-deleted orders
 
 ### Manufacturing Orders
 
@@ -270,7 +270,7 @@ await tx
 For any change that touches:
 
 - stock mutations
-- reservations / committed supply
+- business demand and live planning coverage
 - expected supply
 - inventory ledger / projections
 - inventory-affecting API routes or DAL functions
@@ -371,10 +371,11 @@ Inventory truth now lives in:
   transitions without changing event quantities, costs, or occurrence times
 - `inventory.inventory_lot_balances` — hot-path lot projection
 - `inventory.inventory_item_balances` — hot-path item projection
-- `inventory.inventory_reservations_summary` — open reservation rows
+- `inventory.inventory_demands_summary` — open demand rows, used as a
+  projection/cache of business demand rather than allocation truth
 - `inventory.inventory_expected_summary` — open expected-supply rows
 
-The kernel is the only write path for stock, reservations, expected supply, and cost-bearing inventory events.
+The kernel is the only write path for stock, demand, expected supply, and cost-bearing inventory events. There is no persisted soft reservation model; planning coverage is computed from open demand, current stock, expected supply, and priority order.
 
 Active code must not:
 

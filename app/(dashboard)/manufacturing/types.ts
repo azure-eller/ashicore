@@ -107,7 +107,7 @@ export type ManufacturingReleaseWarningIngredient = {
   needed: number;
   available: number;
   shortage: number;
-  warningType?: "stock_shortage" | "requirement_violation";
+  warningType?: "stock_shortage" | "queue_conflict" | "requirement_violation";
   requirement?: string | null;
   requirementViolations?: RequirementViolationPayload[];
   nextEligibleDate?: string | null;

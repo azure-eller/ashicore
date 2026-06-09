@@ -17,7 +17,7 @@ Draft or open orders can be edited while they have no shipped fulfillment histor
 
 ## Confirm demand
 
-Confirmed or partially shipped sales order lines contribute committed demand. Draft, shipped, cancelled, and deleted orders should not create open allocation demand.
+Confirmed or partially shipped sales order lines contribute open demand. Draft, shipped, cancelled, and deleted orders should not create open demand.
 
 Ashicore allows overselling at order-entry time. The stock-consuming step is shipping, not order creation. This keeps sales entry fast while preserving inventory truth.
 

@@ -6,7 +6,6 @@ import {
   inventoryItemBalances,
   inventoryLotBalances,
   inventoryDemandSummary,
-  inventoryReservationsSummary,
 } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
 
@@ -15,7 +14,6 @@ export type ItemBalanceDelta = {
   locationId: string;
   itemId: string;
   onHandDelta?: number;
-  committedDelta?: number;
   demandDelta?: number;
   expectedDelta?: number;
   lastVerifiedAt?: Date | null;
@@ -44,7 +42,6 @@ type SummaryDelta = {
 
 type AggregatedItemBalanceDelta = ItemBalanceDelta & {
   onHandDelta: number;
-  committedDelta: number;
   demandDelta: number;
   expectedDelta: number;
 };
@@ -95,7 +92,6 @@ function aggregateItemBalanceDeltas(deltas: ItemBalanceDelta[]) {
       locationId: delta.locationId,
       itemId: delta.itemId,
       onHandDelta: 0,
-      committedDelta: 0,
       demandDelta: 0,
       expectedDelta: 0,
       lastVerifiedAt: undefined,
@@ -103,9 +99,6 @@ function aggregateItemBalanceDeltas(deltas: ItemBalanceDelta[]) {
 
     current.onHandDelta = roundQuantity(
       current.onHandDelta + (delta.onHandDelta ?? 0)
-    );
-    current.committedDelta = roundQuantity(
-      current.committedDelta + (delta.committedDelta ?? 0)
     );
     current.demandDelta = roundQuantity(
       current.demandDelta + (delta.demandDelta ?? 0)
@@ -171,13 +164,6 @@ function aggregateSummaryDeltas(deltas: SummaryDelta[]) {
   return [...aggregated.values()].filter((delta) => delta.quantity !== 0);
 }
 
-function computeShortageQty(params: {
-  demandQty: number;
-  committedQty: number;
-}) {
-  return Math.max(0, roundQuantity(params.demandQty - params.committedQty));
-}
-
 function uniqueItemBalanceKeys(keys: ItemBalanceKey[]) {
   const unique = new Map<string, ItemBalanceKey>();
 
@@ -241,15 +227,8 @@ export async function applyItemBalanceDeltasInTx(
 
   for (const delta of aggregated) {
     const onHandDelta = normalizeNumeric(delta.onHandDelta);
-    const committedDelta = normalizeNumeric(delta.committedDelta);
     const demandDelta = normalizeNumeric(delta.demandDelta);
     const expectedDelta = normalizeNumeric(delta.expectedDelta);
-    const shortageQty = normalizeNumeric(
-      computeShortageQty({
-        demandQty: delta.demandDelta,
-        committedQty: delta.committedDelta,
-      })
-    );
 
     await tx
       .insert(inventoryItemBalances)
@@ -258,9 +237,7 @@ export async function applyItemBalanceDeltasInTx(
         locationId: delta.locationId,
         itemId: delta.itemId,
         onHandQty: onHandDelta,
-        committedQty: committedDelta,
         demandQty: demandDelta,
-        shortageQty,
         expectedQty: expectedDelta,
         availableToPromise: "0",
         lastVerifiedAt: delta.lastVerifiedAt ?? null,
@@ -274,13 +251,7 @@ export async function applyItemBalanceDeltasInTx(
         ],
         set: {
           onHandQty: sql`${inventoryItemBalances.onHandQty} + ${onHandDelta}`,
-          committedQty: sql`${inventoryItemBalances.committedQty} + ${committedDelta}`,
           demandQty: sql`${inventoryItemBalances.demandQty} + ${demandDelta}`,
-          shortageQty: sql`GREATEST(
-            0,
-            (${inventoryItemBalances.demandQty} + ${demandDelta})
-            - (${inventoryItemBalances.committedQty} + ${committedDelta})
-          )`,
           expectedQty: sql`${inventoryItemBalances.expectedQty} + ${expectedDelta}`,
           lastVerifiedAt:
             delta.lastVerifiedAt === undefined
@@ -348,75 +319,6 @@ export async function applyLotBalanceDeltasInTx(tx: Tx, deltas: LotBalanceDelta[
   }
 
   await recomputeAvailableToPromiseForItemsInTx(tx, aggregated);
-}
-
-export async function applyReservationSummaryDeltasInTx(
-  tx: Tx,
-  deltas: SummaryDelta[]
-) {
-  for (const delta of aggregateSummaryDeltas(deltas)) {
-    const quantity = normalizeNumeric(delta.quantity);
-
-    if (delta.quantity > 0) {
-      await tx
-        .insert(inventoryReservationsSummary)
-        .values({
-          organizationId: delta.organizationId,
-          locationId: delta.locationId,
-          itemId: delta.itemId,
-          referenceType: delta.referenceType,
-          referenceId: delta.referenceId,
-          quantity,
-        })
-        .onConflictDoUpdate({
-          target: [
-            inventoryReservationsSummary.organizationId,
-            inventoryReservationsSummary.locationId,
-            inventoryReservationsSummary.itemId,
-            inventoryReservationsSummary.referenceType,
-            inventoryReservationsSummary.referenceId,
-          ],
-          set: {
-            quantity: sql`${inventoryReservationsSummary.quantity} + ${quantity}`,
-            updatedAt: new Date(),
-          },
-        });
-      continue;
-    }
-
-    const [updated] = await tx
-      .update(inventoryReservationsSummary)
-      .set({
-        quantity: sql`${inventoryReservationsSummary.quantity} + ${quantity}`,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(inventoryReservationsSummary.organizationId, delta.organizationId),
-          eq(inventoryReservationsSummary.locationId, delta.locationId),
-          eq(inventoryReservationsSummary.itemId, delta.itemId),
-          eq(inventoryReservationsSummary.referenceType, delta.referenceType),
-          eq(inventoryReservationsSummary.referenceId, delta.referenceId)
-        )
-      )
-      .returning({ quantity: inventoryReservationsSummary.quantity });
-
-    if (!updated || parseFloat(updated.quantity) > 0) {
-      continue;
-    }
-
-    await tx
-      .delete(inventoryReservationsSummary)
-      .where(
-        and(
-          eq(inventoryReservationsSummary.organizationId, delta.organizationId),
-          eq(inventoryReservationsSummary.locationId, delta.locationId),
-          eq(inventoryReservationsSummary.itemId, delta.itemId),
-          eq(inventoryReservationsSummary.referenceType, delta.referenceType),
-          eq(inventoryReservationsSummary.referenceId, delta.referenceId)
-        )
-      );
-  }
 }
 
 export async function applyExpectedSummaryDeltasInTx(

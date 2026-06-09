@@ -19,7 +19,7 @@ Pages, components, and API routes should not import the database directly. Mutat
 
 ## Inventory boundary
 
-Stock, lots, costs, commitments, expected supply, dispositions, and allocations must use canonical inventory paths. Direct quantity mutation is not an acceptable shortcut.
+Stock, lots, costs, demand, expected supply, dispositions, and physical execution must use canonical inventory paths. Direct quantity mutation is not an acceptable shortcut.
 
 ## Related docs
 

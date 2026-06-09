@@ -105,14 +105,12 @@ test.describe("planning demand queue operating story", () => {
       .select({
         onHandQty: inventoryItemBalances.onHandQty,
         demandQty: inventoryItemBalances.demandQty,
-        shortageQty: inventoryItemBalances.shortageQty,
       })
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, finishedId));
     expect(balance).toMatchObject({
       onHandQty: "10.0000",
       demandQty: "16.0000",
-      shortageQty: "6.0000",
     });
 
     const [highOrder] = await db

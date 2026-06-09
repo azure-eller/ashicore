@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { test, expect } from "../fixtures";
 import {
   customerProjectNotes,
@@ -335,7 +335,7 @@ test.describe("sales fulfillment operating story", () => {
     expect(lines[0].cancelledQuantity).toBe("0.0000");
   });
 
-  test("deleting a confirmed order releases committed stock", async ({ db }) => {
+  test("deleting a confirmed order releases open demand", async ({ db }) => {
     const deleteOrderId = await createConfirmedSalesOrder({
       customerId,
       productId,
@@ -344,10 +344,10 @@ test.describe("sales fulfillment operating story", () => {
     });
 
     const [productBefore] = await db
-      .select({ committedQty: inventoryItemBalances.committedQty })
-      .from(inventoryItemBalances)
-      .where(eq(inventoryItemBalances.itemId, productId));
-    expect(Number(productBefore.committedQty)).toBeGreaterThan(0);
+      .select({ quantity: inventoryDemandSummary.quantity })
+      .from(inventoryDemandSummary)
+      .where(eq(inventoryDemandSummary.itemId, productId));
+    expect(Number(productBefore.quantity)).toBeGreaterThan(0);
 
     const deleteResponse = await testFetch(`/api/sales-orders/${deleteOrderId}`, {
       method: "DELETE",
@@ -361,15 +361,15 @@ test.describe("sales fulfillment operating story", () => {
     expect(deletedOrder.deletedAt).toBeTruthy();
 
     const [productAfter] = await db
-      .select({ committedQty: inventoryItemBalances.committedQty })
-      .from(inventoryItemBalances)
-      .where(eq(inventoryItemBalances.itemId, productId));
+      .select({ total: sql<string>`COALESCE(SUM(${inventoryDemandSummary.quantity}), 0)` })
+      .from(inventoryDemandSummary)
+      .where(eq(inventoryDemandSummary.itemId, productId));
     const [componentAfter] = await db
-      .select({ committedQty: inventoryItemBalances.committedQty })
-      .from(inventoryItemBalances)
-      .where(eq(inventoryItemBalances.itemId, componentId));
-    expect(productAfter.committedQty).toBe("0.0000");
-    expect(componentAfter.committedQty).toBe("0.0000");
+      .select({ total: sql<string>`COALESCE(SUM(${inventoryDemandSummary.quantity}), 0)` })
+      .from(inventoryDemandSummary)
+      .where(eq(inventoryDemandSummary.itemId, componentId));
+    expect(Number(productAfter.total)).toBe(0);
+    expect(Number(componentAfter.total)).toBe(0);
   });
 
   test("resolves sales pricing schedules by best price and quantity break", async ({ db }) => {

@@ -1216,8 +1216,8 @@ function OrdersTableContent({
             </AlertDialogTitle>
             <AlertDialogDescription>
               Open manufacturing orders created for the selected order
-              {selectedCount !== 1 ? "s" : ""} and reservations will also be
-              deleted or released. Shipped,
+              {selectedCount !== 1 ? "s" : ""} and demand coverage will also be
+              updated. Shipped,
               inventory-consumed, or accounting-pushed orders cannot be deleted.
               This action cannot be undone.
             </AlertDialogDescription>

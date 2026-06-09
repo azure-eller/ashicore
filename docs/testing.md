@@ -33,7 +33,7 @@ The `db` fixture uses the app role with RLS — same security path as the real a
 | Shared / cross-domain change | `pnpm build`, `pnpm lint`, `pnpm test:fast` |
 | Deep change in one domain | Add `pnpm test:slow:<domain>` |
 | Auth, invites, team access | `pnpm test:slow:auth` (covers `auth-security.spec.ts` + `team-access.spec.ts`) |
-| Stock mutations, reservations, expected supply, inventory projections, inventory-affecting API routes | Affected slow spec(s), then `pnpm verify:inventory` |
+| Stock mutations, demand, expected supply, inventory projections, inventory-affecting API routes | Affected slow spec(s), then `pnpm verify:inventory` |
 
 Slow lanes are one canonical story file per operating workflow. There is no generic inventory slow lane; route inventory-affecting PRs by workflow:
 

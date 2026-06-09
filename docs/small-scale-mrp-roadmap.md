@@ -29,7 +29,7 @@ The goal is not to build a full ERP. The goal is to make day-to-day execution re
 
 The transactional core already exists:
 
-- inventory items with `stock`, `committedQty`, `expectedQty`, and `safetyStock`
+- inventory items with `stock`, `demandQty`, `expectedQty`, and `safetyStock`
 - lot-backed stock and FIFO consumption
 - purchase orders with receiving
 - manufacturing orders with release and completion
@@ -91,7 +91,7 @@ From the dashboard, allow users to start the next action immediately:
 Keep this manual and draft-first:
 
 - no auto-generated orders
-- no reservations
+- no persisted soft planning claims
 - no background planning engine
 
 ### 5. Turn list pages into work queues
@@ -147,7 +147,7 @@ For any item, users should be able to answer why it is short.
 Show:
 
 - current stock
-- committed quantity
+- queue-covered quantity
 - expected quantity
 - safety stock
 - open sales demand

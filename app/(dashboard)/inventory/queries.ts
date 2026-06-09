@@ -2,7 +2,7 @@ import "server-only";
 
 export { InventoryError } from "./queries/internal";
 export { getItems } from "./queries/items-list";
-export { getItem, getItemCommitmentSummary } from "./queries/item-detail";
+export { getItem } from "./queries/item-detail";
 export {
   getLots,
   applyLotDispositionAction,

@@ -256,9 +256,7 @@ export type SalesOrderItemOption = {
   defaultSellingPrice: string | null;
   estimatedUnitCost: string | null;
   stock: string;
-  committedQty: string;
   demandQty: string;
-  shortageQty: string;
   availableQty: string;
   expectedQty: string;
   safetyStock: string;
@@ -491,7 +489,6 @@ export type SalesOrderDetailLine = {
   onHandQty: string | null;
   availableQty: string | null;
   allocatedQty: string;
-  reservedQty: string;
   potential: string | null;
   shortQty: string;
   sourceSummary: string;
@@ -649,9 +646,9 @@ export type NegativeStockWarningPayload = {
   available: number;
   requested: number;
   shortage: number;
-  reason?: "negative_stock" | "commitment_conflict" | "commitment_and_negative_stock";
-  committedToOthers?: number;
-  commitments?: Array<{
+  reason?: "negative_stock" | "queue_conflict" | "queue_conflict_and_negative_stock";
+  claimedByHigherPriority?: number;
+  conflicts?: Array<{
     referenceType: "sales_order" | "manufacturing_order";
     referenceId: string;
     label: string;

@@ -9,9 +9,9 @@ These are the rules that keep Ashicore from drifting into spreadsheet behavior.
 
 ## Inventory
 
-Inventory is ledger-driven. On-hand, available, committed, expected, and lot balances are projections of controlled events.
+Inventory is ledger-driven. On-hand, available, demand, expected, and lot balances are projections of controlled events.
 
-Never directly update quantity to make a page look right. Stock, lots, costs, commitments, expected supply, dispositions, and allocations must go through the inventory/domain paths.
+Never directly update quantity to make a page look right. Stock, lots, costs, demand, expected supply, dispositions, and physical execution must go through the inventory/domain paths.
 
 Positive stock writes must have a cost basis. Negative stock writes must preserve consumption history.
 

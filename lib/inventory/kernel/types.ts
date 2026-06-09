@@ -7,13 +7,13 @@ export const INVENTORY_OPERATION_NAMES = [
   "releaseExpectedFromPurchase",
   "receivePurchaseStock",
   "revaluePurchaseLandedCost",
-  "reserveForSales",
-  "releaseReservationForSalesLine",
+  "recordSalesDemand",
+  "releaseSalesDemand",
   "consumeForShipment",
   "addExpectedFromManufacturing",
   "editExpectedFromManufacturing",
   "reserveIngredientsForManufacturing",
-  "releaseIngredientReservationForManufacturing",
+  "releaseIngredientDemandForManufacturing",
   "pickManufacturingIngredient",
   "unpickManufacturingIngredient",
   "produceManufacturedStock",
@@ -50,14 +50,4 @@ export type InventoryEventInput = {
   actorUserId?: string | null;
   occurredAt?: Date;
   metadata?: Record<string, unknown> | null;
-};
-
-export type InventoryOperationResult = {
-  eventIds: string[];
-  projectionDeltas: {
-    itemIds: string[];
-    lotIds: string[];
-    reservationRefs: string[];
-    expectedRefs: string[];
-  };
 };

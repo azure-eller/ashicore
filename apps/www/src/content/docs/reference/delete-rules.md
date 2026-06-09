@@ -31,8 +31,8 @@ Deleting an eligible sales order should:
 
 - soft-delete the order
 - remove planned shipments
-- release active allocations and reservations
-- release committed demand
+- release active demand coverage
+- release open demand
 - remove linked open manufacturing orders created specifically for that sales order when safe
 
 Deletion should be blocked by shipped fulfillment, finalized invoices, accounting push history, completed manufacturing output, or finalized inventory consumption.
@@ -44,8 +44,8 @@ Open manufacturing orders can be deleted only while inventory effects can be cle
 Deleting an eligible manufacturing order should:
 
 - release expected finished-good supply
-- release ingredient demand and reservations
-- clear active allocations
+- release ingredient demand
+- clear active coverage
 - reverse picked ingredient state back to the original lots when applicable
 
 Completed output blocks deletion. Produced lots are inventory history.

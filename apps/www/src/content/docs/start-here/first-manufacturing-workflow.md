@@ -35,7 +35,7 @@ Create a manufacturing order from the product recipe. Review the ingredient snap
 
 Release the order when the work is real enough to affect planning. Release creates expected finished-good supply and ingredient demand. It does not consume material.
 
-Draft orders remain planning work. Released orders become operational commitments.
+Draft orders remain planning work. Released orders become operational demand and expected supply.
 
 ## Pick ingredients
 

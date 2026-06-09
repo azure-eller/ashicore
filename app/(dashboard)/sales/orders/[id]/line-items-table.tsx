@@ -369,7 +369,7 @@ export function LineItemsTable({
 
   const requestDelete = (line: SalesOrderDetailLine) => {
     if (deleteLineLockedReason(line)) return;
-    if (Number(line.reservedQty) > 0 || Number(line.shippedQuantity) > 0) {
+    if (Number(line.shippedQuantity) > 0) {
       setConfirmDelete(line);
       return;
     }
@@ -426,7 +426,7 @@ export function LineItemsTable({
             <AlertDialogTitle>Delete line?</AlertDialogTitle>
             <AlertDialogDescription>
               {confirmDelete
-                ? `${confirmDelete.itemName} has covered or shipped quantity. Removing it will update coverage and reservations. This cannot be undone.`
+                ? `${confirmDelete.itemName} has covered or shipped quantity. Removing it will update demand coverage. This cannot be undone.`
                 : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>

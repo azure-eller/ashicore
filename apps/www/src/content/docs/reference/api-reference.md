@@ -33,6 +33,6 @@ Important entities: manufacturing orders, recipe snapshots, material lines, outp
 
 ## Inventory
 
-Inventory resources expose item cards, lots, ledger entries, balances, stocktakes, commitments, and expected supply.
+Inventory resources expose item cards, lots, ledger entries, balances, stocktakes, demand coverage, and expected supply.
 
 Any future public API must preserve inventory invariants rather than exposing direct quantity mutation.

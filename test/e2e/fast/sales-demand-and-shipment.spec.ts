@@ -9,7 +9,6 @@ import {
   inventoryDemandSummary,
   inventoryEvents,
   inventoryItemBalances,
-  inventoryReservationsSummary,
   accountingDocumentSyncs,
   salesOrderLines,
   salesOrders,
@@ -507,11 +506,11 @@ test.describe("sales demand and shipping heartbeat", () => {
       .select({ id: salesOrderLines.id })
       .from(salesOrderLines)
       .where(eq(salesOrderLines.salesOrderId, reservedOrder.body.id));
-    const [reserved] = await db
-      .select({ quantity: inventoryReservationsSummary.quantity })
-      .from(inventoryReservationsSummary)
-      .where(eq(inventoryReservationsSummary.referenceId, reservedLine.id));
-    expect(reserved.quantity).toBe("50.0000");
+    const [demand] = await db
+      .select({ quantity: inventoryDemandSummary.quantity })
+      .from(inventoryDemandSummary)
+      .where(eq(inventoryDemandSummary.referenceId, reservedLine.id));
+    expect(demand.quantity).toBe("50.0000");
 
     const salesOrdersResponse = await testFetch("/api/sales-orders");
     expect(salesOrdersResponse.status).toBe(200);
@@ -532,10 +531,10 @@ test.describe("sales demand and shipping heartbeat", () => {
     expect(shippingShip.status).toBe(409);
     expect(shippingShip.body.negativeStock).toMatchObject({
       itemId: productId,
-      reason: "commitment_conflict",
-      committedToOthers: 50,
+      reason: "queue_conflict",
+      claimedByHigherPriority: 50,
     });
-    expect(shippingShip.body.negativeStock.commitments[0]).toMatchObject({
+    expect(shippingShip.body.negativeStock.conflicts[0]).toMatchObject({
       referenceType: "sales_order",
       referenceId: reservedOrder.body.id,
       quantity: 50,
@@ -657,10 +656,10 @@ test.describe("sales demand and shipping heartbeat", () => {
     expect(ship.status).toBe(409);
     expect(ship.body.negativeStock).toMatchObject({
       itemId: productId,
-      reason: "commitment_conflict",
-      committedToOthers: 50,
+      reason: "queue_conflict",
+      claimedByHigherPriority: 50,
     });
-    expect(ship.body.negativeStock.commitments[0]).toMatchObject({
+    expect(ship.body.negativeStock.conflicts[0]).toMatchObject({
       referenceType: "sales_order",
       referenceId: higherPriorityOrder.body.id,
       quantity: 50,
@@ -746,10 +745,10 @@ test.describe("sales demand and shipping heartbeat", () => {
     expect(ship.status).toBe(409);
     expect(ship.body.negativeStock).toMatchObject({
       itemId: agedComponent.body.id,
-      reason: "commitment_conflict",
-      committedToOthers: 10,
+      reason: "queue_conflict",
+      claimedByHigherPriority: 10,
     });
-    expect(ship.body.negativeStock.commitments[0]).toMatchObject({
+    expect(ship.body.negativeStock.conflicts[0]).toMatchObject({
       referenceType: "manufacturing_order",
       referenceId: manufacturingOrder.body.id,
       quantity: 10,

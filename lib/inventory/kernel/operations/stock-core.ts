@@ -257,49 +257,7 @@ export async function getCurrentAvailableOnHandQtyInTx(tx: Tx, itemId: string) {
   );
 }
 
-export async function getCurrentAvailableQtyInTx(tx: Tx, itemId: string) {
-  const [positive] = await tx
-    .select({
-      quantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
-    })
-    .from(inventoryLotBalances)
-	    .where(
-	      and(
-	        eq(inventoryLotBalances.itemId, itemId),
-	        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
-	        sql`${inventoryLotBalances.quantity} > 0`
-	      )
-	    );
-  const [debt] = await tx
-    .select({
-      quantity: sql<string>`COALESCE(ABS(SUM(${inventoryLotBalances.quantity})), 0)`,
-    })
-    .from(inventoryLotBalances)
-    .where(
-      and(
-        eq(inventoryLotBalances.itemId, itemId),
-        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
-        sql`${inventoryLotBalances.quantity} < 0`
-      )
-    );
-  const [reserved] = await tx
-    .select({
-      quantity: sql<string>`COALESCE(SUM(${inventoryItemBalances.committedQty}), 0)`,
-    })
-    .from(inventoryItemBalances)
-    .where(eq(inventoryItemBalances.itemId, itemId));
-
-  return Math.max(
-    0,
-    roundQuantity(
-      parseFloat(positive?.quantity ?? "0") -
-        parseFloat(debt?.quantity ?? "0") -
-        parseFloat(reserved?.quantity ?? "0")
-    )
-  );
-}
-
-export async function getCurrentAvailableQtyAtLocationInTx(
+export async function getPhysicalAvailableOnHandQtyAtLocationInTx(
   tx: Tx,
   params: {
     organizationId: string;
@@ -335,25 +293,10 @@ export async function getCurrentAvailableQtyAtLocationInTx(
         sql`${inventoryLotBalances.quantity} < 0`
       )
     );
-  const [reserved] = await tx
-    .select({
-      quantity: sql<string>`COALESCE(SUM(${inventoryItemBalances.committedQty}), 0)`,
-    })
-    .from(inventoryItemBalances)
-    .where(
-      and(
-        eq(inventoryItemBalances.organizationId, params.organizationId),
-        eq(inventoryItemBalances.locationId, params.locationId),
-        eq(inventoryItemBalances.itemId, params.itemId)
-      )
-    );
-
   return Math.max(
     0,
     roundQuantity(
-      parseFloat(positive?.quantity ?? "0") -
-        parseFloat(debt?.quantity ?? "0") -
-        parseFloat(reserved?.quantity ?? "0")
+      parseFloat(positive?.quantity ?? "0") - parseFloat(debt?.quantity ?? "0")
     )
   );
 }

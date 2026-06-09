@@ -162,7 +162,6 @@ test("demand queue allocates scarce stock by rank without overclaiming", async (
     .select({
       onHandQty: inventoryItemBalances.onHandQty,
       demandQty: inventoryItemBalances.demandQty,
-      shortageQty: inventoryItemBalances.shortageQty,
       availableToPromise: inventoryItemBalances.availableToPromise,
     })
     .from(inventoryItemBalances)
@@ -171,7 +170,6 @@ test("demand queue allocates scarce stock by rank without overclaiming", async (
   expect(balance).toMatchObject({
     onHandQty: "10.0000",
     demandQty: "16.0000",
-    shortageQty: "6.0000",
     availableToPromise: "-6.0000",
   });
 });

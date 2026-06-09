@@ -13,7 +13,6 @@ async function main() {
   console.log(`Inventory projection diff for org ${TEST_ORG_ID}`);
   console.log(`- item deltas: ${result.summary.itemDeltas}`);
   console.log(`- lot deltas: ${result.summary.lotDeltas}`);
-  console.log(`- reservation deltas: ${result.summary.reservationDeltas}`);
   console.log(`- demand deltas: ${result.summary.demandDeltas}`);
   console.log(`- expected deltas: ${result.summary.expectedDeltas}`);
   console.log(`- legacy lot deltas: ${result.summary.legacyLotDeltas}`);

@@ -1,6 +1,6 @@
 ---
 title: Inventory
-description: The lot, ledger, cost, commitment, and projection model behind every stock movement.
+description: The lot, ledger, cost, demand, and projection model behind every stock movement.
 section: Concepts
 order: 110
 ---
@@ -12,8 +12,8 @@ Inventory is the shared truth behind Ashicore. It is used by purchasing, manufac
 Inventory has three layers:
 
 - **Documents** explain why stock should change: purchase orders, manufacturing orders, sales shipments, stocktakes, and adjustments.
-- **Ledger events** record what actually changed: receipts, consumption, output, reservation changes, expected-supply changes, stocktake gains, and stocktake losses.
-- **Projections** make the system fast: item balances, lot balances, committed quantity, expected quantity, and available quantity.
+- **Ledger events** record what actually changed: receipts, consumption, output, demand changes, expected-supply changes, stocktake gains, and stocktake losses.
+- **Projections** make the system fast: item balances, lot balances, demand quantity, expected quantity, and physical availability.
 
 Users mostly see documents and projections. The ledger is what makes the answer auditable.
 
@@ -21,9 +21,9 @@ Users mostly see documents and projections. The ledger is what makes the answer 
 
 On-hand quantity is physical stock that exists in the system.
 
-Available quantity is stock that can be promised. It excludes blocked/rejected stock and stock already committed to active demand.
+Available quantity is physical stock eligible for use. Planning coverage decides which demand can use it.
 
-Committed quantity is stock reserved by active sales or production demand.
+Covered quantity is the demand-queue result for active sales or production demand.
 
 Expected quantity is inbound supply from ordered purchase orders or released manufacturing orders.
 
@@ -70,9 +70,9 @@ These workflows should not directly change on-hand stock:
 
 ## Safety rules
 
-Stock, lots, costs, commitments, expected supply, dispositions, and allocations must go through the canonical inventory paths. A feature should never "just update quantity."
+Stock, lots, costs, demand, expected supply, dispositions, and physical execution must go through the canonical inventory paths. A feature should never "just update quantity."
 
-Draft records can usually be changed freely. Once a record has created expected supply, committed demand, picked ingredients, received lots, shipped lots, or produced output, the system must clean up dependent projections in the same transaction or block the edit.
+Draft records can usually be changed freely. Once a record has created expected supply, open demand, picked ingredients, received lots, shipped lots, or produced output, the system must clean up dependent projections in the same transaction or block the edit.
 
 ## Example
 

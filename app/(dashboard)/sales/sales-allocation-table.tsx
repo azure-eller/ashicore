@@ -263,6 +263,56 @@ function getInventoryById(items: ItemRow[]) {
   return new Map(flattenProducts(items).map((item) => [item.id, item]));
 }
 
+function filterInventoryByItemId(items: ItemRow[], itemId: string | null) {
+  if (!itemId) return items;
+
+  return items.flatMap((item): ItemRow[] => {
+    const matchingSubRows = item.subRows?.filter((subRow) => subRow.id === itemId) ?? [];
+    if (item.id === itemId) {
+      return [{ ...item, subRows: matchingSubRows.length > 0 ? matchingSubRows : item.subRows }];
+    }
+    if (matchingSubRows.length > 0) {
+      return [{ ...item, subRows: matchingSubRows }];
+    }
+    return [];
+  });
+}
+
+function filterOrdersByItemId(
+  orders: SalesOrderListRow[],
+  itemId: string | null
+) {
+  if (!itemId) return orders;
+
+  return orders
+    .map((order) => ({
+      ...order,
+      lines: order.lines.filter((line) => line.itemId === itemId),
+    }))
+    .filter((order) => order.lines.length > 0);
+}
+
+function filterManufacturingDemandRowsByItemId(
+  rows: ManufacturingAllocationDemandRow[],
+  itemId: string | null
+) {
+  if (!itemId) return rows;
+
+  return rows
+    .map((row) => ({
+      ...row,
+      ingredients: row.ingredients.filter((ingredient) => ingredient.itemId === itemId),
+    }))
+    .filter((row) => row.ingredients.length > 0);
+}
+
+function filterCoverageRowsByItemId(
+  rows: ProductCoverageRow[],
+  itemId: string | null
+) {
+  return itemId ? rows.filter((row) => row.itemId === itemId) : rows;
+}
+
 function getAllocatorProducts(
   orders: SalesOrderListRow[],
   inventory: ItemRow[],
@@ -1481,12 +1531,14 @@ export function SalesAllocationTable({
   initialProductCoverage = [],
   initialManufacturingDemandRows = [],
   organizationId,
+  itemId = null,
 }: {
   initialData: SalesOrderListRow[];
   initialInventory?: ItemRow[];
   initialProductCoverage?: ProductCoverageRow[];
   initialManufacturingDemandRows?: ManufacturingAllocationDemandRow[];
   organizationId: string;
+  itemId?: string | null;
 }) {
   const searchParams = useSearchParams();
   const gridApiRef = useRef<GridApi<SalesAllocationGridRow> | null>(null);
@@ -1536,18 +1588,34 @@ export function SalesAllocationTable({
     staleTime: 0,
     refetchOnMount: "always",
   });
+  const scopedOrders = useMemo(
+    () => filterOrdersByItemId(orders, itemId),
+    [orders, itemId]
+  );
+  const scopedInventory = useMemo(
+    () => filterInventoryByItemId(inventory, itemId),
+    [inventory, itemId]
+  );
+  const scopedManufacturingDemandRows = useMemo(
+    () => filterManufacturingDemandRowsByItemId(initialManufacturingDemandRows, itemId),
+    [initialManufacturingDemandRows, itemId]
+  );
+  const scopedProductCoverage = useMemo(
+    () => filterCoverageRowsByItemId(initialProductCoverage, itemId),
+    [initialProductCoverage, itemId]
+  );
   const hiddenProductIds = allocatorPreference.hiddenProductIds;
   const hiddenProductIdSet = useMemo(
     () => new Set(hiddenProductIds),
     [hiddenProductIds]
   );
   const allProducts = useMemo(
-    () => getAllocatorProducts(orders, inventory, initialManufacturingDemandRows),
-    [orders, inventory, initialManufacturingDemandRows]
+    () => getAllocatorProducts(scopedOrders, scopedInventory, scopedManufacturingDemandRows),
+    [scopedOrders, scopedInventory, scopedManufacturingDemandRows]
   );
   const productsWithCoverage = useMemo(() => {
     const coverageByItemId = new Map(
-      initialProductCoverage.map((coverage) => [coverage.itemId, coverage])
+      scopedProductCoverage.map((coverage) => [coverage.itemId, coverage])
     );
     return allProducts.map((product) => {
       const coverage = coverageByItemId.get(product.itemId);
@@ -1559,7 +1627,7 @@ export function SalesAllocationTable({
         sources: coverage.sources,
       };
     });
-  }, [allProducts, initialProductCoverage]);
+  }, [allProducts, scopedProductCoverage]);
   const visibleProducts = useMemo(
     () =>
       productsWithCoverage.filter(
@@ -1571,8 +1639,8 @@ export function SalesAllocationTable({
     [productsWithCoverage, hiddenProductIdSet, hiddenFamilies, shownExtraProductIds]
   );
   const allRows = useMemo(
-    () => buildRows(orders, productsWithCoverage, initialManufacturingDemandRows),
-    [initialManufacturingDemandRows, orders, productsWithCoverage]
+    () => buildRows(scopedOrders, productsWithCoverage, scopedManufacturingDemandRows),
+    [scopedManufacturingDemandRows, scopedOrders, productsWithCoverage]
   );
   const searchedRows = useMemo(
     () => getFilteredRows(allRows, search),

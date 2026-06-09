@@ -14,7 +14,6 @@ import {
   type InventoryDisposition,
   inventoryEvents,
   inventoryLotBalances,
-  inventoryReservationsSummary,
   itemFamilies,
   itemVariantValues,
   items,
@@ -63,16 +62,12 @@ import {
   lockItemsInTx,
   manualDecreaseStockInTx,
   manualIncreaseStockInTx,
-  defaultLocationIdSubquery,
   projectedAvailableQty,
-  projectedCommittedQty,
   projectedDemandQty,
   projectedExpectedQty,
   projectedLotUnitCost,
   projectedOnHandQty,
   projectedPotentialQty,
-  projectedReservableOnHandQty,
-  projectedShortageQty,
   recordCostBasisChangeInTx,
   scrapLotDispositionInTx,
 } from "@/lib/inventory/kernel";
@@ -97,10 +92,6 @@ import type {
   ItemType,
   VariantOptionValueDisplay,
 } from "../types";
-import {
-  buildItemCommitmentSummary,
-  type ItemCommitmentSummary,
-} from "../commitment-summary";
 import {
   applyMarginTiers,
   calculateMarginPercent,
@@ -210,26 +201,14 @@ const lastCountedAtSubquery = sql<string | null>`(
   WHERE ${inventoryEvents.itemId} = ${items.id}
     AND ${inventoryEvents.eventType} IN ('stocktake_verification', 'stocktake_gain', 'stocktake_loss')
 )`.as("lastCountedAt");
-const committedQtySubquery = projectedCommittedQty(
-  items.organizationId,
-  items.id
-).as("committedQty");
 const demandQtySubquery = projectedDemandQty(
   items.organizationId,
   items.id
 ).as("demandQty");
-const shortageQtySubquery = projectedShortageQty(
-  items.organizationId,
-  items.id
-).as("shortageQty");
 const availableQtySubquery = projectedAvailableQty(
   items.organizationId,
   items.id
 ).as("availableQty");
-const reservableOnHandQtySubquery = projectedReservableOnHandQty(
-  items.organizationId,
-  items.id
-).as("reservableOnHandQty");
 const expectedQtySubquery = projectedExpectedQty(
   items.organizationId,
   items.id
@@ -746,9 +725,7 @@ export async function getItems(filters?: {
                 optionCombinationKey: items.optionCombinationKey,
                 stock: stockSubquery,
                 lastCountedAt: lastCountedAtSubquery,
-                committedQty: committedQtySubquery,
                 demandQty: demandQtySubquery,
-                shortageQty: shortageQtySubquery,
                 availableQty: availableQtySubquery,
                 expectedQty: expectedQtySubquery,
                 safetyStock: trimScale(items.safetyStock).as("safetyStock"),
@@ -855,9 +832,7 @@ export async function getItems(filters?: {
                   lotTrackingMode:
                     row.lotTrackingMode === "untracked" ? "untracked" : "tracked",
                   stock: row.stock,
-                  committedQty: row.committedQty,
                   demandQty: row.demandQty,
-                  shortageQty: row.shortageQty,
                   availableQty: row.availableQty,
                   expectedQty: row.expectedQty,
                   safetyStock: row.safetyStock,
@@ -980,9 +955,7 @@ export async function getItem(id: string) {
         bomLockedAt: items.bomLockedAt,
         bomLockedByUserId: items.bomLockedByUserId,
         stock: stockSubquery,
-        committedQty: committedQtySubquery,
         demandQty: demandQtySubquery,
-        shortageQty: shortageQtySubquery,
         availableQty: availableQtySubquery,
         expectedQty: expectedQtySubquery,
         safetyStock: trimScale(items.safetyStock).as("safetyStock"),
@@ -1097,67 +1070,6 @@ export async function getItem(id: string) {
       currentBomRevision,
       supplierSources,
     };
-  });
-}
-
-export async function getItemCommitmentSummary(
-  itemId: string
-): Promise<ItemCommitmentSummary> {
-  return withAuthedOrgContext(async (tx) => {
-    const [itemRow] = await tx
-      .select({
-        itemId: items.id,
-        onHandQty: stockSubquery,
-        reservableOnHandQty: reservableOnHandQtySubquery,
-        availableQty: availableQtySubquery,
-        committedQty: committedQtySubquery,
-        demandQty: demandQtySubquery,
-        shortageQty: shortageQtySubquery,
-        unitName: unitDefinitions.name,
-        unitUom: unitDefinitions.uom,
-      })
-      .from(items)
-      .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
-      .where(and(eq(items.id, itemId), isNull(items.deletedAt)));
-
-    if (!itemRow) {
-      throw new InventoryError("Item not found", 404);
-    }
-
-    const customerReservations = await tx
-      .select({
-        customerId: salesOrders.customerId,
-        customerName: salesOrders.customerName,
-        quantity: trimScale(sql`SUM(${inventoryReservationsSummary.quantity})`).as(
-          "quantity"
-        ),
-      })
-      .from(inventoryReservationsSummary)
-      .innerJoin(
-        salesOrderLines,
-        eq(inventoryReservationsSummary.referenceId, salesOrderLines.id)
-      )
-      .innerJoin(salesOrders, eq(salesOrderLines.salesOrderId, salesOrders.id))
-      .where(
-        and(
-          eq(inventoryReservationsSummary.itemId, itemId),
-          eq(
-            inventoryReservationsSummary.locationId,
-            defaultLocationIdSubquery(inventoryReservationsSummary.organizationId)
-          ),
-          eq(inventoryReservationsSummary.referenceType, "sales_order_line"),
-          eq(salesOrders.status, "open"),
-          isNull(salesOrders.deletedAt),
-          sql`${inventoryReservationsSummary.quantity} > 0`
-        )
-      )
-      .groupBy(salesOrders.customerId, salesOrders.customerName)
-      .orderBy(desc(sql`SUM(${inventoryReservationsSummary.quantity})`));
-
-    return buildItemCommitmentSummary({
-      ...itemRow,
-      customerReservations,
-    });
   });
 }
 

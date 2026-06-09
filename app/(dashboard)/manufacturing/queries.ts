@@ -15,10 +15,8 @@ import {
 import {
   inventoryEvents,
   inventoryExpectedSummary,
-  inventoryItemBalances,
   inventoryLotBalances,
   type InventoryDisposition,
-  inventoryReservationsSummary,
   bomRevisions,
   itemFamilies,
   items,
@@ -67,7 +65,6 @@ import {
   editExpectedFromManufacturingInTx,
   applyDemandReferenceDeltasInTx,
   applyExpectedReferenceDeltasInTx,
-  applyReservationReferenceDeltasInTx,
   beginInventoryOperationInTx,
   cancelReleasedManufacturingOrderInTx,
   consumeStockFifoInTx,
@@ -75,13 +72,13 @@ import {
   deriveInventoryIdempotencyKey,
   finishInventoryOperationInTx,
   getDefaultInventoryLocationInTx,
-  getManufacturingIngredientReservationRowsInTx,
+  getManufacturingIngredientDemandRowsInTx,
   lockItemsInTx,
   pickManufacturingIngredientInTx,
   produceManufacturedStockInTx,
   projectedLotUnitCost,
   reconcileIngredientActualsInTx,
-  releaseIngredientReservationForManufacturingInTx,
+  releaseIngredientDemandForManufacturingInTx,
   restockExistingLotInTx,
 } from "@/lib/inventory/kernel";
 import { getSalesOrderManufacturingSummariesInTx } from "@/lib/manufacturing/sales-order-manufacturability";
@@ -1635,7 +1632,7 @@ async function activateManufacturingOrderInTx(
     });
   }
 
-  const reservationIngredientRows =
+  const demandIngredientRows =
     order.manufacturingMode === "batch"
       ? await tx
           .select({
@@ -1673,7 +1670,7 @@ async function activateManufacturingOrderInTx(
     organizationId: orgId,
     manufacturingOrderId: order.id,
     actorUserId: params.actorUserId ?? null,
-    ingredients: reservationIngredientRows.map((line) => ({
+    ingredients: demandIngredientRows.map((line) => ({
       ingredientId: line.ingredientId,
       itemId: line.itemId,
       quantity: parseFloat(line.plannedQuantity),
@@ -1872,25 +1869,12 @@ async function getLotAgeAvailabilityInTx(
     itemId: string;
     minimumLotAgeDays: number;
     requiredDate: string;
-    reservationCredit?: number;
   }
 ) {
   const cutoffReceivedDate = subtractDays(
     params.requiredDate,
     params.minimumLotAgeDays
   );
-  const [balance] = await tx
-    .select({
-      committedQty: trimScale(inventoryItemBalances.committedQty).as("committedQty"),
-    })
-    .from(inventoryItemBalances)
-    .where(
-      and(
-        eq(inventoryItemBalances.organizationId, params.organizationId),
-        eq(inventoryItemBalances.locationId, params.locationId),
-        eq(inventoryItemBalances.itemId, params.itemId)
-      )
-    );
   const rows = await tx
     .select({
       quantity: trimScale(inventoryLotBalances.quantity).as("quantity"),
@@ -1927,16 +1911,34 @@ async function getLotAgeAvailabilityInTx(
     }
   }
 
-  const committedQty = Math.max(
-    0,
-    parseFloat(balance?.committedQty ?? "0") - (params.reservationCredit ?? 0)
-  );
-
   return {
-    eligible: normalizeQuantityNumber(Math.max(0, eligible - committedQty)),
+    eligible: normalizeQuantityNumber(Math.max(0, eligible)),
     ineligible: normalizeQuantityNumber(ineligible),
     nextEligibleDate,
   };
+}
+
+async function getManufacturingIngredientQueueAvailableQtyInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    ingredientId: string;
+    itemId: string;
+  }
+) {
+  const coverageByDemandKey = await getDemandQueueCoverageByDemandKeyForItemsInTx(tx, {
+    organizationId: params.organizationId,
+    itemIds: [params.itemId],
+    includeManufacturingDetail: true,
+  });
+  const coverage = coverageByDemandKey.get(
+    demandQueueCoverageKey({
+      demandType: "manufacturing_order_ingredient",
+      demandId: params.ingredientId,
+    })
+  );
+
+  return normalizeQuantityNumber(Number.parseFloat(coverage?.inStockQty ?? "0") || 0);
 }
 
 async function getEditableManufacturingIngredientSnapshotInTx(
@@ -2153,7 +2155,7 @@ async function getBatchIngredientsInTx(tx: Tx, batchId: string) {
   }));
 }
 
-async function getManufacturingIngredientReservationRowsForBatchesInTx(
+async function getManufacturingIngredientDemandRowsForBatchesInTx(
   tx: Tx,
   manufacturingOrderId: string,
   batchIds: string[]
@@ -2887,20 +2889,6 @@ async function reverseManufacturingOutputInTx(
       .where(eq(manufacturingOrderIngredients.id, ingredientId));
 
     await applyDemandReferenceDeltasInTx(tx, {
-      organizationId: params.organizationId,
-      locationId: location.id,
-      actorUserId: params.actorUserId,
-      eventSubtype: "manufacturing_output_reversal",
-      deltas: [
-        {
-          itemId: ingredient.itemId,
-          referenceType: "manufacturing_order_ingredient",
-          referenceId: ingredientId,
-          quantity: reversed.quantity,
-        },
-      ],
-    });
-    await applyReservationReferenceDeltasInTx(tx, {
       organizationId: params.organizationId,
       locationId: location.id,
       actorUserId: params.actorUserId,
@@ -4979,7 +4967,7 @@ export async function updateManufacturingOrder(
       .where(eq(manufacturingOrderOperationCosts.manufacturingOrderId, id));
 
     if (isOpenManufacturingOrder(existing)) {
-      await releaseIngredientReservationForManufacturingInTx(tx, {
+      await releaseIngredientDemandForManufacturingInTx(tx, {
         organizationId: orgId,
         manufacturingOrderId: id,
         actorUserId: userId,
@@ -5787,20 +5775,6 @@ export async function recordManufacturingOutput(
           },
         ],
       });
-      await applyReservationReferenceDeltasInTx(tx, {
-        organizationId: orgId,
-        locationId: location.id,
-        actorUserId: userId,
-        eventSubtype: "manufacturing_output",
-        deltas: [
-          {
-            itemId: ingredient.itemId,
-            referenceType: "manufacturing_order_ingredient",
-            referenceId: ingredient.id,
-            quantity: -autoConsumedQuantity,
-          },
-        ],
-      });
     }
 
     const materialCostTotal = produceIngredientRows.reduce(
@@ -6082,13 +6056,13 @@ async function completeDiscreteManufacturingOrder(
         );
       }
 
-      const reservationRows = await getManufacturingIngredientReservationRowsInTx(tx, id);
-      await releaseIngredientReservationForManufacturingInTx(tx, {
+      const demandRows = await getManufacturingIngredientDemandRowsInTx(tx, id);
+      await releaseIngredientDemandForManufacturingInTx(tx, {
         organizationId: orgId,
         manufacturingOrderId: id,
         actorUserId: userId,
         reason: "completed",
-        ingredientIds: reservationRows.map((row) => row.ingredientId),
+        ingredientIds: demandRows.map((row) => row.ingredientId),
       });
       await releaseRemainingExpectedOutputInTx(tx, {
         organizationId: orgId,
@@ -6487,7 +6461,7 @@ export async function completeManufacturingBatch(
         )[0]?.plannedQuantity ?? "0"
       );
       const ingredientRows = await getBatchIngredientsInTx(tx, batchId);
-      await releaseIngredientReservationForManufacturingInTx(tx, {
+      await releaseIngredientDemandForManufacturingInTx(tx, {
         organizationId: orgId,
         manufacturingOrderId: orderId,
         actorUserId: userId,
@@ -6910,30 +6884,12 @@ export async function pickManufacturingIngredient(
 
     if (minimumLotAgeDays != null) {
       const location = await getDefaultInventoryLocationInTx(tx, orgId);
-      const [ownReservation] = await tx
-        .select({
-          quantity: trimScale(inventoryReservationsSummary.quantity).as("quantity"),
-        })
-        .from(inventoryReservationsSummary)
-        .where(
-          and(
-            eq(inventoryReservationsSummary.organizationId, orgId),
-            eq(inventoryReservationsSummary.locationId, location.id),
-            eq(inventoryReservationsSummary.itemId, ingredient.itemId),
-            eq(
-              inventoryReservationsSummary.referenceType,
-              "manufacturing_order_ingredient"
-            ),
-            eq(inventoryReservationsSummary.referenceId, ingredient.id)
-          )
-        );
       const ageAvailability = await getLotAgeAvailabilityInTx(tx, {
         organizationId: orgId,
         locationId: location.id,
         itemId: ingredient.itemId,
         minimumLotAgeDays,
         requiredDate: pickDate,
-        reservationCredit: parseFloat(ownReservation?.quantity ?? "0"),
       });
 
       if (
@@ -7001,6 +6957,30 @@ export async function pickManufacturingIngredient(
           })
           .where(eq(manufacturingOrderBatches.id, batch.id));
       }
+    }
+
+    const queueAvailable = await getManufacturingIngredientQueueAvailableQtyInTx(tx, {
+      organizationId: orgId,
+      ingredientId,
+      itemId: ingredient.itemId,
+    });
+
+    if (queueAvailable < remainingQuantity && !confirmNegativeStock) {
+      throw new ManufacturingError(`Not enough ${ingredient.itemName}.`, 409, {
+        shortage: {
+          ingredients: [
+            {
+              itemId: ingredient.itemId,
+              itemName: ingredient.itemName,
+              unitName: ingredient.unitName,
+              needed: remainingQuantity,
+              available: queueAvailable,
+              shortage: normalizeQuantityNumber(remainingQuantity - queueAvailable),
+              warningType: "queue_conflict",
+            },
+          ],
+        },
+      });
     }
 
     try {
@@ -7471,8 +7451,8 @@ export async function deleteManufacturingOrdersInTx(
   for (const order of orders) {
     if (!isOpenManufacturingOrder(order)) continue;
 
-    let reservationRows: Awaited<
-      ReturnType<typeof getManufacturingIngredientReservationRowsInTx>
+    let demandRows: Awaited<
+      ReturnType<typeof getManufacturingIngredientDemandRowsInTx>
     > = [];
 
     if (order.manufacturingMode === "batch") {
@@ -7480,16 +7460,16 @@ export async function deleteManufacturingOrdersInTx(
       const deletableBatchIds = batches
         .filter((batch) => batch.status !== "completed")
         .map((batch) => batch.id);
-      reservationRows =
+      demandRows =
         deletableBatchIds.length > 0
-          ? await getManufacturingIngredientReservationRowsForBatchesInTx(
+          ? await getManufacturingIngredientDemandRowsForBatchesInTx(
               tx,
               order.id,
               deletableBatchIds
             )
           : [];
     } else {
-      reservationRows = await getManufacturingIngredientReservationRowsInTx(tx, order.id);
+      demandRows = await getManufacturingIngredientDemandRowsInTx(tx, order.id);
     }
 
     await cancelReleasedManufacturingOrderInTx(tx, {
@@ -7498,7 +7478,7 @@ export async function deleteManufacturingOrdersInTx(
       productId: order.productId,
       actorUserId: params.actorUserId,
       idempotencyKey: `delete-manufacturing-order:${order.id}`,
-      ingredientRows: reservationRows.map((row) => ({
+      ingredientRows: demandRows.map((row) => ({
         ingredientId: row.ingredientId,
         itemId: row.itemId,
         pickedQuantity: parseFloat(row.pickedQuantity),

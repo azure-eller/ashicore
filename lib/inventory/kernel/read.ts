@@ -91,9 +91,7 @@ function itemBalanceSubquery(
   organizationId: SqlExpression,
   itemId: SqlExpression,
   column: typeof inventoryItemBalances.onHandQty
-    | typeof inventoryItemBalances.committedQty
     | typeof inventoryItemBalances.demandQty
-    | typeof inventoryItemBalances.shortageQty
     | typeof inventoryItemBalances.expectedQty
     | typeof inventoryItemBalances.availableToPromise
 ) {
@@ -137,16 +135,6 @@ export function projectedOnHandQty(organizationId: SqlExpression, itemId: SqlExp
   ));
 }
 
-export function projectedCommittedQty(
-  organizationId: SqlExpression,
-  itemId: SqlExpression
-) {
-  return trimScale(projectedCommittedQtyExpr(
-    organizationId,
-    itemId,
-  ));
-}
-
 export function projectedExpectedQty(organizationId: SqlExpression, itemId: SqlExpression) {
   return trimScale(projectedExpectedQtyExpr(
     organizationId,
@@ -156,13 +144,6 @@ export function projectedExpectedQty(organizationId: SqlExpression, itemId: SqlE
 
 export function projectedDemandQty(organizationId: SqlExpression, itemId: SqlExpression) {
   return trimScale(projectedDemandQtyExpr(
-    organizationId,
-    itemId,
-  ));
-}
-
-export function projectedShortageQty(organizationId: SqlExpression, itemId: SqlExpression) {
-  return trimScale(projectedShortageQtyExpr(
     organizationId,
     itemId,
   ));
@@ -268,17 +249,6 @@ export function projectedOnHandQtyExpr(
   )}, 0)`;
 }
 
-export function projectedCommittedQtyExpr(
-  organizationId: SqlExpression,
-  itemId: SqlExpression
-) {
-  return sql`COALESCE(${itemBalanceSubquery(
-    organizationId,
-    itemId,
-    inventoryItemBalances.committedQty
-  )}, 0)`;
-}
-
 export function projectedExpectedQtyExpr(
   organizationId: SqlExpression,
   itemId: SqlExpression
@@ -298,17 +268,6 @@ export function projectedDemandQtyExpr(
     organizationId,
     itemId,
     inventoryItemBalances.demandQty
-  )}, 0)`;
-}
-
-export function projectedShortageQtyExpr(
-  organizationId: SqlExpression,
-  itemId: SqlExpression
-) {
-  return sql`COALESCE(${itemBalanceSubquery(
-    organizationId,
-    itemId,
-    inventoryItemBalances.shortageQty
   )}, 0)`;
 }
 
@@ -346,11 +305,7 @@ export function projectedAvailableQtyExpr(
   organizationId: SqlExpression,
   itemId: SqlExpression
 ) {
-  return sql`GREATEST(
-    0,
-    ${projectedReservableOnHandQtyExpr(organizationId, itemId)}
-    - ${projectedCommittedQtyExpr(organizationId, itemId)}
-  )`;
+  return projectedReservableOnHandQtyExpr(organizationId, itemId);
 }
 
 export function projectedAgeEligibleAvailableQtyExpr(
@@ -388,7 +343,6 @@ export function projectedAgeEligibleAvailableQtyExpr(
   return sql`GREATEST(
     0,
     GREATEST(0, ${ageEligiblePositiveQty} - ${debtQty})
-    - ${projectedCommittedQtyExpr(organizationId, itemId)}
   )`;
 }
 

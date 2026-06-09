@@ -48,7 +48,6 @@ async function expectProjectionDiffClean(orgId: string, itemIds?: string[]) {
 
   expect(diff.itemDeltas).toHaveLength(0);
   expect(diff.lotDeltas).toHaveLength(0);
-  expect(diff.reservationDeltas).toHaveLength(0);
   expect(diff.expectedDeltas).toHaveLength(0);
   expect(diff.legacyLotDeltas).toHaveLength(0);
 }

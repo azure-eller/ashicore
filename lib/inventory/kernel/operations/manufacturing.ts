@@ -3,7 +3,6 @@ import {
   type InventoryDisposition,
   inventoryDemandSummary,
   inventoryExpectedSummary,
-  inventoryReservationsSummary,
   manufacturingOrderIngredients,
   manufacturingPickAllocations,
 } from "@/lib/db/schema";
@@ -16,7 +15,6 @@ import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/location
 import {
   applyDemandReferenceDeltasInTx,
   applyExpectedReferenceDeltasInTx,
-  applyReservationReferenceDeltasInTx,
   beginInventoryOperationInTx,
   finishInventoryOperationInTx,
 } from "@/lib/inventory/kernel/operations/common";
@@ -24,7 +22,7 @@ import {
   appendPositiveStockToExistingLotInTx,
   consumeStockFifoInTx,
   createPositiveStockEventInTx,
-  getCurrentAvailableQtyAtLocationInTx,
+  getPhysicalAvailableOnHandQtyAtLocationInTx,
   restockExistingLotInTx,
 } from "@/lib/inventory/kernel/operations/stock-core";
 
@@ -208,7 +206,7 @@ export async function addIngredientDemandForManufacturingInTx(
   return result;
 }
 
-export async function releaseIngredientReservationForManufacturingInTx(
+export async function releaseIngredientDemandForManufacturingInTx(
   tx: Tx,
   params: {
     organizationId: string;
@@ -221,7 +219,7 @@ export async function releaseIngredientReservationForManufacturingInTx(
 ) {
   const replay = await beginInventoryOperationInTx<{ referenceIds: string[] }>(tx, {
     organizationId: params.organizationId,
-    operationName: "releaseIngredientReservationForManufacturing",
+    operationName: "releaseIngredientDemandForManufacturing",
     idempotencyKey: params.idempotencyKey ?? null,
     payload: {
       manufacturingOrderId: params.manufacturingOrderId,
@@ -235,21 +233,6 @@ export async function releaseIngredientReservationForManufacturingInTx(
   }
 
   const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
-  const existingReservationRows = await tx
-    .select({
-      itemId: inventoryReservationsSummary.itemId,
-      referenceId: inventoryReservationsSummary.referenceId,
-      quantity: inventoryReservationsSummary.quantity,
-    })
-    .from(inventoryReservationsSummary)
-    .where(
-      and(
-        eq(inventoryReservationsSummary.organizationId, params.organizationId),
-        eq(inventoryReservationsSummary.locationId, location.id),
-        eq(inventoryReservationsSummary.referenceType, "manufacturing_order_ingredient"),
-        inArray(inventoryReservationsSummary.referenceId, params.ingredientIds)
-      )
-    );
   const existingDemandRows = await tx
     .select({
       itemId: inventoryDemandSummary.itemId,
@@ -280,32 +263,14 @@ export async function releaseIngredientReservationForManufacturingInTx(
     })),
   });
 
-  const reservationEvents = await applyReservationReferenceDeltasInTx(tx, {
-    organizationId: params.organizationId,
-    locationId: location.id,
-    actorUserId: params.actorUserId ?? null,
-    eventSubtype: params.reason,
-    deltas: existingReservationRows.map((row) => ({
-      itemId: row.itemId,
-      referenceType: "manufacturing_order_ingredient",
-      referenceId: row.referenceId,
-      quantity: -parseFloat(row.quantity),
-    })),
-  });
-
   const result = {
-    referenceIds: [
-      ...new Set([
-        ...existingDemandRows.map((row) => row.referenceId),
-        ...existingReservationRows.map((row) => row.referenceId),
-      ]),
-    ],
+    referenceIds: [...new Set(existingDemandRows.map((row) => row.referenceId))],
   };
 
   await finishInventoryOperationInTx(tx, {
     organizationId: params.organizationId,
     idempotencyKey: params.idempotencyKey ?? null,
-    firstEventId: demandEvents[0]?.id ?? reservationEvents[0]?.id ?? null,
+    firstEventId: demandEvents[0]?.id ?? null,
     result,
   });
 
@@ -348,28 +313,16 @@ export async function pickManufacturingIngredientInTx(
 
   const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
   await lockItemsInTx(tx, [params.itemId]);
-  const [ownReservationRow] = await tx
-    .select({ quantity: inventoryReservationsSummary.quantity })
-    .from(inventoryReservationsSummary)
-    .where(
-      and(
-        eq(inventoryReservationsSummary.organizationId, params.organizationId),
-        eq(inventoryReservationsSummary.locationId, location.id),
-        eq(inventoryReservationsSummary.referenceType, "manufacturing_order_ingredient"),
-        eq(inventoryReservationsSummary.referenceId, params.ingredientId)
-      )
-    );
-  const available = await getCurrentAvailableQtyAtLocationInTx(tx, {
+  const available = await getPhysicalAvailableOnHandQtyAtLocationInTx(tx, {
     organizationId: params.organizationId,
     locationId: location.id,
     itemId: params.itemId,
   });
-  const ownReservation = parseFloat(ownReservationRow?.quantity ?? "0");
 
-  if (available + ownReservation < params.quantity && !params.allowNegativeStock) {
+  if (available < params.quantity && !params.allowNegativeStock) {
     throw new InsufficientStockError({
       itemId: params.itemId,
-      available: available + ownReservation,
+      available,
       requested: params.quantity,
     });
   }
@@ -426,35 +379,6 @@ export async function pickManufacturingIngredientInTx(
         quantity: -params.quantity,
       },
     ],
-  });
-
-  const existingReservationRows = await tx
-    .select({
-      itemId: inventoryReservationsSummary.itemId,
-      referenceId: inventoryReservationsSummary.referenceId,
-      quantity: inventoryReservationsSummary.quantity,
-    })
-    .from(inventoryReservationsSummary)
-    .where(
-      and(
-        eq(inventoryReservationsSummary.organizationId, params.organizationId),
-        eq(inventoryReservationsSummary.locationId, location.id),
-        eq(inventoryReservationsSummary.referenceType, "manufacturing_order_ingredient"),
-        eq(inventoryReservationsSummary.referenceId, params.ingredientId)
-      )
-    );
-
-  await applyReservationReferenceDeltasInTx(tx, {
-    organizationId: params.organizationId,
-    locationId: location.id,
-    actorUserId: params.actorUserId ?? null,
-    eventSubtype: "picked",
-    deltas: existingReservationRows.map((row) => ({
-      itemId: row.itemId,
-      referenceType: "manufacturing_order_ingredient",
-      referenceId: row.referenceId,
-      quantity: -parseFloat(row.quantity),
-    })),
   });
 
   const result = { eventIds: consumed.eventIds };
@@ -752,7 +676,7 @@ export async function cancelReleasedManufacturingOrderInTx(
     eventIds.push(...result.eventIds);
   }
 
-  await releaseIngredientReservationForManufacturingInTx(tx, {
+  await releaseIngredientDemandForManufacturingInTx(tx, {
     organizationId: params.organizationId,
     manufacturingOrderId: params.manufacturingOrderId,
     actorUserId: params.actorUserId ?? null,
@@ -802,7 +726,7 @@ export async function cancelReleasedManufacturingOrderInTx(
   return result;
 }
 
-export async function getManufacturingIngredientReservationRowsInTx(
+export async function getManufacturingIngredientDemandRowsInTx(
   tx: Tx,
   manufacturingOrderId: string
 ) {

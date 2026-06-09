@@ -19,13 +19,13 @@ const INVENTORY_LOCK_SPECS: Record<InventoryOperationName, SourceLockSpec | null
   releaseExpectedFromPurchase: { table: "purchase_orders", required: true },
   receivePurchaseStock: { table: "purchase_orders", required: true },
   revaluePurchaseLandedCost: { table: "purchase_orders", required: true },
-  reserveForSales: { table: "sales_orders", required: true },
-  releaseReservationForSalesLine: { table: "sales_orders", required: true },
+  recordSalesDemand: { table: "sales_orders", required: true },
+  releaseSalesDemand: { table: "sales_orders", required: true },
   consumeForShipment: { table: "sales_orders", required: true },
   addExpectedFromManufacturing: { table: "manufacturing_orders", required: true },
   editExpectedFromManufacturing: { table: "manufacturing_orders", required: true },
   reserveIngredientsForManufacturing: { table: "manufacturing_orders", required: true },
-  releaseIngredientReservationForManufacturing: {
+  releaseIngredientDemandForManufacturing: {
     table: "manufacturing_orders",
     required: true,
   },
