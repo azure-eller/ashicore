@@ -10,9 +10,6 @@ export const ON_HAND_STOCK_TOOLTIP =
 export const AVAILABLE_QTY_TOOLTIP =
   "Physical stock available on hand.";
 
-export const COVERED_QTY_TOOLTIP =
-  "Demand covered by current queue priority.";
-
 export const SALES_LINE_ALLOCATED_QTY_TOOLTIP =
   "Stock covered for this sales order line.";
 
@@ -94,12 +91,6 @@ export const LOT_UNIT_COST_TOOLTIP =
   "Inventory value assigned to one stocking unit.";
 
 export const NOT_SELLABLE_TOOLTIP = "Hidden from sales order pickers.";
-
-export const COVERAGE_STATUS_TOOLTIP = {
-  fully: "All demand is covered.",
-  partial: "Some demand is covered; the rest is backordered.",
-  backordered: "No demand is covered.",
-} as const;
 
 export const LOT_DISPOSITION_TOOLTIP =
   "Lot status: available, blocked, rejected, or scrap.";

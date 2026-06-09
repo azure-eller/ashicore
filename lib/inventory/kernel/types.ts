@@ -51,12 +51,3 @@ export type InventoryEventInput = {
   occurredAt?: Date;
   metadata?: Record<string, unknown> | null;
 };
-
-export type InventoryOperationResult = {
-  eventIds: string[];
-  projectionDeltas: {
-    itemIds: string[];
-    lotIds: string[];
-    expectedRefs: string[];
-  };
-};

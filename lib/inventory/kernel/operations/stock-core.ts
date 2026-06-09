@@ -257,39 +257,6 @@ export async function getCurrentAvailableOnHandQtyInTx(tx: Tx, itemId: string) {
   );
 }
 
-export async function getPhysicalAvailableOnHandQtyInTx(tx: Tx, itemId: string) {
-  const [positive] = await tx
-    .select({
-      quantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
-    })
-    .from(inventoryLotBalances)
-	    .where(
-	      and(
-	        eq(inventoryLotBalances.itemId, itemId),
-	        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
-	        sql`${inventoryLotBalances.quantity} > 0`
-	      )
-	    );
-  const [debt] = await tx
-    .select({
-      quantity: sql<string>`COALESCE(ABS(SUM(${inventoryLotBalances.quantity})), 0)`,
-    })
-    .from(inventoryLotBalances)
-    .where(
-      and(
-        eq(inventoryLotBalances.itemId, itemId),
-        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
-        sql`${inventoryLotBalances.quantity} < 0`
-      )
-    );
-  return Math.max(
-    0,
-    roundQuantity(
-      parseFloat(positive?.quantity ?? "0") - parseFloat(debt?.quantity ?? "0")
-    )
-  );
-}
-
 export async function getPhysicalAvailableOnHandQtyAtLocationInTx(
   tx: Tx,
   params: {

@@ -124,7 +124,7 @@ export function getReplenishmentStatus(
   const projectedStock = calcProjectedStock(row);
   const safetyStock = Math.max(0, parseQuantity(row.safetyStock));
 
-  if (safetyStock > 0 && projectedStock <= safetyStock) {
+  if (projectedStock < 0 || (safetyStock > 0 && projectedStock <= safetyStock)) {
     return "order-now";
   }
 

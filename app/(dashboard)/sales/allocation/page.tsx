@@ -83,6 +83,7 @@ async function SalesAllocationData({ itemId }: { itemId: string | null }) {
       initialProductCoverage={buildProductCoverageFromDemandQueue(coverage)}
       initialManufacturingDemandRows={buildManufacturingRowsFromCoverage(coverage)}
       organizationId={context.orgId}
+      itemId={itemId}
     />
   );
 }
