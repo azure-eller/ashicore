@@ -1632,7 +1632,7 @@ async function activateManufacturingOrderInTx(
     });
   }
 
-  const reservationIngredientRows =
+  const demandIngredientRows =
     order.manufacturingMode === "batch"
       ? await tx
           .select({
@@ -1670,7 +1670,7 @@ async function activateManufacturingOrderInTx(
     organizationId: orgId,
     manufacturingOrderId: order.id,
     actorUserId: params.actorUserId ?? null,
-    ingredients: reservationIngredientRows.map((line) => ({
+    ingredients: demandIngredientRows.map((line) => ({
       ingredientId: line.ingredientId,
       itemId: line.itemId,
       quantity: parseFloat(line.plannedQuantity),
@@ -2155,7 +2155,7 @@ async function getBatchIngredientsInTx(tx: Tx, batchId: string) {
   }));
 }
 
-async function getManufacturingIngredientReservationRowsForBatchesInTx(
+async function getManufacturingIngredientDemandRowsForBatchesInTx(
   tx: Tx,
   manufacturingOrderId: string,
   batchIds: string[]
@@ -6056,13 +6056,13 @@ async function completeDiscreteManufacturingOrder(
         );
       }
 
-      const reservationRows = await getManufacturingIngredientDemandRowsInTx(tx, id);
+      const demandRows = await getManufacturingIngredientDemandRowsInTx(tx, id);
       await releaseIngredientDemandForManufacturingInTx(tx, {
         organizationId: orgId,
         manufacturingOrderId: id,
         actorUserId: userId,
         reason: "completed",
-        ingredientIds: reservationRows.map((row) => row.ingredientId),
+        ingredientIds: demandRows.map((row) => row.ingredientId),
       });
       await releaseRemainingExpectedOutputInTx(tx, {
         organizationId: orgId,
@@ -7451,7 +7451,7 @@ export async function deleteManufacturingOrdersInTx(
   for (const order of orders) {
     if (!isOpenManufacturingOrder(order)) continue;
 
-    let reservationRows: Awaited<
+    let demandRows: Awaited<
       ReturnType<typeof getManufacturingIngredientDemandRowsInTx>
     > = [];
 
@@ -7460,16 +7460,16 @@ export async function deleteManufacturingOrdersInTx(
       const deletableBatchIds = batches
         .filter((batch) => batch.status !== "completed")
         .map((batch) => batch.id);
-      reservationRows =
+      demandRows =
         deletableBatchIds.length > 0
-          ? await getManufacturingIngredientReservationRowsForBatchesInTx(
+          ? await getManufacturingIngredientDemandRowsForBatchesInTx(
               tx,
               order.id,
               deletableBatchIds
             )
           : [];
     } else {
-      reservationRows = await getManufacturingIngredientDemandRowsInTx(tx, order.id);
+      demandRows = await getManufacturingIngredientDemandRowsInTx(tx, order.id);
     }
 
     await cancelReleasedManufacturingOrderInTx(tx, {
@@ -7478,7 +7478,7 @@ export async function deleteManufacturingOrdersInTx(
       productId: order.productId,
       actorUserId: params.actorUserId,
       idempotencyKey: `delete-manufacturing-order:${order.id}`,
-      ingredientRows: reservationRows.map((row) => ({
+      ingredientRows: demandRows.map((row) => ({
         ingredientId: row.ingredientId,
         itemId: row.itemId,
         pickedQuantity: parseFloat(row.pickedQuantity),

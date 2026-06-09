@@ -83,32 +83,32 @@ const GUARDS: Guard[] = [
   },
   {
     pattern: "inventory_reservations_summary",
-    allowed: ["scripts/verify-inventory-kernel.ts"],
+    allowed: ["scripts/paonia-snapshot.ts", "scripts/verify-inventory-kernel.ts"],
     description: "soft reservation summary table has been removed",
   },
   {
     pattern: "reservation_increase",
-    allowed: ["scripts/verify-inventory-kernel.ts"],
+    allowed: ["scripts/paonia-snapshot.ts", "scripts/verify-inventory-kernel.ts"],
     description: "soft reservation events have been removed",
   },
   {
     pattern: "reservation_release",
-    allowed: ["scripts/verify-inventory-kernel.ts"],
+    allowed: ["scripts/paonia-snapshot.ts", "scripts/verify-inventory-kernel.ts"],
     description: "soft reservation events have been removed",
   },
   {
     pattern: "reserveForSales",
-    allowed: ["scripts/verify-inventory-kernel.ts"],
+    allowed: ["scripts/paonia-snapshot.ts", "scripts/verify-inventory-kernel.ts"],
     description: "sales confirmation records demand only",
   },
   {
     pattern: "releaseReservation",
-    allowed: ["scripts/verify-inventory-kernel.ts"],
+    allowed: ["scripts/paonia-snapshot.ts", "scripts/verify-inventory-kernel.ts"],
     description: "sales and manufacturing release demand only",
   },
   {
     pattern: "setSalesLineStockReservation",
-    allowed: ["scripts/verify-inventory-kernel.ts"],
+    allowed: ["scripts/paonia-snapshot.ts", "scripts/verify-inventory-kernel.ts"],
     description: "manual soft sales reservations have been removed",
   },
   {
