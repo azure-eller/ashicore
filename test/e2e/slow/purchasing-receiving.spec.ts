@@ -18,6 +18,7 @@ import {
   testFetch,
   updateItem,
 } from "../../helpers/api";
+import { TEST_ACCOUNT_EMAIL } from "../../helpers/test-account";
 import { createMaterialFixture, expectResponse, unitId } from "./story-helpers";
 
 test.describe("purchasing receiving operating story", () => {
@@ -87,6 +88,37 @@ test.describe("purchasing receiving operating story", () => {
     await expect(page.getByRole("row").filter({ hasText: orderNumber })).toContainText(
       supplier.body.name
     );
+  });
+
+  test("sends purchase order documents and keeps the email sheet current", async ({
+    page,
+  }) => {
+    await page.goto(`/purchasing/order/${orderId}`);
+    await page.getByRole("button", { name: /PO email/ }).click();
+
+    const sheet = page.getByRole("dialog", { name: /Send documents/ });
+    await expect(sheet.getByLabel(/Include/)).toBeChecked();
+    await expect(sheet.getByLabel("BCC")).toHaveValue(TEST_ACCOUNT_EMAIL);
+    await expect(sheet.getByLabel("Subject")).toBeVisible();
+
+    await sheet.getByRole("button", { expanded: true }).click();
+    await expect(sheet.getByRole("link", { name: /PO-.*\.pdf/ })).toBeVisible();
+    await expect(sheet.getByRole("button", { name: /Add documents/ })).toBeVisible();
+    await sheet.locator('button[aria-expanded="false"]').first().click();
+
+    const emailResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes(`/api/purchase-orders/${orderId}/email`) &&
+        response.request().method() === "POST",
+    );
+    await sheet.getByRole("button", { name: "Send 1 email" }).click();
+    expect((await emailResponse).status()).toBe(200);
+    await expect(sheet).toBeHidden();
+
+    await page.getByRole("button", { name: /PO email/ }).click();
+    await expect(sheet.getByText(/Already sent/)).toBeVisible();
+    await expect(sheet.getByLabel(/Include/)).not.toBeChecked();
+    await expect(sheet.getByRole("link", { name: /PO-.*\.pdf/ })).toBeVisible();
   });
 
   test("partial receipt converts only received quantity into physical stock", async ({ db, page }) => {

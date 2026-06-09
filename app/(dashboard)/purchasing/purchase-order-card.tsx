@@ -94,6 +94,7 @@ import {
   PURCHASE_UNIT_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import type {
+  PurchaseOrderAccountingGroupState,
   PurchaseOrderDetail,
   PurchaseOrderEditData,
   PurchaseOrderMaterialOption,
@@ -787,6 +788,9 @@ export function PurchaseOrderCard({
   const [poEmailError, setPoEmailError] = useState(
     initialData?.xeroPoEmailError ?? null,
   );
+  const [accountingGroupStates, setAccountingGroupStates] = useState<
+    PurchaseOrderAccountingGroupState[]
+  >(initialData?.accountingGroupStates ?? []);
   const [poEmailDialogOpen, setPoEmailDialogOpen] = useState(false);
   const [poEmailDialogValues, setPoEmailDialogValues] =
     useState<PurchaseOrderEmailDialogValues>(() => ({
@@ -964,6 +968,7 @@ export function PurchaseOrderCard({
       setSavedOrderId(result.id);
       setSavedOrderNumber(result.orderNumber);
       setDisplayStatus(result.status);
+      setAccountingGroupStates(result.accountingGroupStates);
     },
   });
   const draftValues = purchaseOrderController.draft;
@@ -1864,7 +1869,26 @@ export function PurchaseOrderCard({
       setPoEmailStatus("pending");
       return { previousStatus: poEmailStatus };
     },
-    onSuccess: async () => {
+    onSuccess: async (result) => {
+      const emailedAt = new Date();
+      setAccountingGroupStates((current) => {
+        const byKey = new Map(current.map((state) => [state.groupKey, state]));
+        for (const sent of result.sent) {
+          const existing = byKey.get(sent.groupKey);
+          byKey.set(sent.groupKey, {
+            groupKey: sent.groupKey,
+            pushStatus: existing?.pushStatus ?? null,
+            pushError: existing?.pushError ?? null,
+            externalDocumentId: existing?.externalDocumentId ?? null,
+            externalDocumentNumber: existing?.externalDocumentNumber ?? null,
+            pushedAt: existing?.pushedAt ?? null,
+            emailStatus: "sent",
+            emailError: null,
+            emailedAt,
+          });
+        }
+        return [...byKey.values()];
+      });
       setPoEmailStatus("sent");
       setPoEmailDialogOpen(false);
       await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
@@ -2201,9 +2225,9 @@ export function PurchaseOrderCard({
       ? initialData.supplierEmail
       : selectedSupplier?.email ?? null;
   const accountingGroupStateByKey = useMemo(() => {
-    const rows = initialData?.accountingGroupStates ?? [];
+    const rows = accountingGroupStates;
     return new Map(rows.map((state) => [state.groupKey, state]));
-  }, [initialData?.accountingGroupStates]);
+  }, [accountingGroupStates]);
   const resolvedSupplierGroups = useMemo(() => {
     if (!watchedSupplierId) return [];
     const supplier = selectedSupplier ?? {
@@ -2264,7 +2288,7 @@ export function PurchaseOrderCard({
         isAdditionalCost: !group.isPurchaseOrderSupplier,
         to: group.supplier.email ?? "",
         replyTo: userEmail,
-        bcc: "",
+        bcc: userEmail,
         subject,
         message: `Hi,\n\nYou should find the necessary documents for ${savedOrderNumber ?? "this order"} attached to this email.\nPlease let me know if anything is missing.\n\nBest regards,\n${userName || userEmail}\n${organizationName}`,
         includePdf: true,

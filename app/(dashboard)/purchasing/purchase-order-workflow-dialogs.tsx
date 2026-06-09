@@ -209,9 +209,14 @@ export function PurchaseOrderEmailDialog({
   const [expandedGroupKeys, setExpandedGroupKeys] = useState<Set<string>>(
     () => new Set(),
   );
+  const [collapsedDefaultGroupKeys, setCollapsedDefaultGroupKeys] = useState<
+    Set<string>
+  >(() => new Set());
+  const singleGroupKey = groups.length === 1 ? groups[0]?.groupKey : null;
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) {
       setExpandedGroupKeys(new Set());
+      setCollapsedDefaultGroupKeys(new Set());
     }
     onOpenChange(nextOpen);
   };
@@ -234,12 +239,27 @@ export function PurchaseOrderEmailDialog({
     });
   };
   const toggleExpanded = (groupKey: string) => {
+    const group = groups.find((item) => item.groupKey === groupKey);
+    const defaultExpanded =
+      group?.include === true &&
+      singleGroupKey === groupKey &&
+      !collapsedDefaultGroupKeys.has(groupKey);
+    const expanded = expandedGroupKeys.has(groupKey) || defaultExpanded;
     setExpandedGroupKeys((current) => {
       const next = new Set(current);
-      if (next.has(groupKey)) {
+      if (expanded) {
         next.delete(groupKey);
       } else {
         next.add(groupKey);
+      }
+      return next;
+    });
+    setCollapsedDefaultGroupKeys((current) => {
+      const next = new Set(current);
+      if (expanded) {
+        next.add(groupKey);
+      } else {
+        next.delete(groupKey);
       }
       return next;
     });
@@ -250,12 +270,25 @@ export function PurchaseOrderEmailDialog({
     included: boolean,
   ) => {
     updateGroup(index, { include: included });
-    if (!included) {
+    if (included) {
+      setCollapsedDefaultGroupKeys((current) => {
+        if (!current.has(groupKey)) return current;
+        const next = new Set(current);
+        next.delete(groupKey);
+        return next;
+      });
+    } else {
       // Excluded cards collapse as well as dim.
       setExpandedGroupKeys((current) => {
         if (!current.has(groupKey)) return current;
         const next = new Set(current);
         next.delete(groupKey);
+        return next;
+      });
+      setCollapsedDefaultGroupKeys((current) => {
+        if (current.has(groupKey)) return current;
+        const next = new Set(current);
+        next.add(groupKey);
         return next;
       });
     }
@@ -285,7 +318,11 @@ export function PurchaseOrderEmailDialog({
         {orderId ? (
           <div className="grid flex-1 content-start gap-(--space-4) overflow-y-auto bg-[var(--color-surface)] px-(--space-8) py-(--space-6)">
             {groups.map((group, index) => {
-              const expanded = expandedGroupKeys.has(group.groupKey);
+              const expanded =
+                expandedGroupKeys.has(group.groupKey) ||
+                (group.include &&
+                  singleGroupKey === group.groupKey &&
+                  !collapsedDefaultGroupKeys.has(group.groupKey));
               const pdfFileName = group.isAdditionalCost
                 ? `${orderNumber ?? "Purchase order"}-${group.label}.pdf`
                 : `${orderNumber ?? "Purchase order"}.pdf`;
@@ -301,6 +338,81 @@ export function PurchaseOrderEmailDialog({
               const subjectLabel = group.subject.trim() || "Missing subject";
               const availableAttachments = attachments.filter(
                 (file) => !(group.attachmentFileIds ?? []).includes(file.id),
+              );
+              const attachmentControls = (
+                <>
+                  {includePdf ? (
+                    <AttachmentChip
+                      href={`/api/purchase-orders/${orderId}/pdf?groupKey=${encodeURIComponent(group.groupKey)}`}
+                      filename={pdfFileName}
+                      onRemove={() =>
+                        updateGroup(index, { includePdf: false })
+                      }
+                      disabled={pending}
+                    />
+                  ) : null}
+                  {selectedAttachments.map((file) => (
+                    <AttachmentChip
+                      key={file.id}
+                      href={`/api/purchase-orders/${orderId}/files/${file.id}`}
+                      filename={file.filename}
+                      onRemove={() => onRemoveDocument(group.groupKey, file.id)}
+                      disabled={pending}
+                    />
+                  ))}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon-xs"
+                        className="rounded-[var(--radius-md)]"
+                        aria-label={`Add documents to ${group.label}`}
+                        disabled={uploadPending || pending}
+                      >
+                        <HugeiconsIcon icon={Add01Icon} size={15} />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="min-w-72">
+                      {!includePdf ? (
+                        <DropdownMenuItem
+                          onSelect={() =>
+                            updateGroup(index, { includePdf: true })
+                          }
+                        >
+                          <HugeiconsIcon icon={CheckmarkCircle02Icon} size={16} />
+                          Add PO
+                        </DropdownMenuItem>
+                      ) : null}
+                      <DropdownMenuItem disabled>
+                        <HugeiconsIcon icon={File01Icon} size={16} />
+                        Request for quote
+                      </DropdownMenuItem>
+                      {availableAttachments.map((file) => (
+                        <DropdownMenuItem
+                          key={file.id}
+                          onSelect={() =>
+                            updateGroup(index, {
+                              attachmentFileIds: [
+                                ...(group.attachmentFileIds ?? []),
+                                file.id,
+                              ],
+                            })
+                          }
+                        >
+                          <HugeiconsIcon icon={File01Icon} size={16} />
+                          {file.filename}
+                        </DropdownMenuItem>
+                      ))}
+                      <DropdownMenuItem
+                        onSelect={() => onAddDocuments(group.groupKey)}
+                      >
+                        <HugeiconsIcon icon={Upload01Icon} size={16} />
+                        Custom attachment
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </>
               );
 
               return (
@@ -355,7 +467,7 @@ export function PurchaseOrderEmailDialog({
                       </span>
                       {group.status === "sent" ? (
                         <span className="shrink-0 text-[length:var(--text-xs)] text-muted-foreground">
-                          Sent
+                          Already sent
                           {group.sentAt
                             ? ` ${new Date(group.sentAt).toLocaleDateString()}`
                             : ""}
@@ -372,85 +484,19 @@ export function PurchaseOrderEmailDialog({
                     </button>
                   </div>
 
+                  {!expanded ? (
+                    <div className="flex flex-wrap items-center gap-(--space-3) border-t border-[var(--color-line-soft)] px-(--space-5) pb-(--space-5) pt-(--space-4)">
+                      {attachmentControls}
+                    </div>
+                  ) : null}
+
                   {expanded ? (
                     <div className="grid gap-2 px-4 pb-4">
                       <p className="font-mono text-[length:var(--text-xs)] font-semibold uppercase tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)]">
                         Attachments
                       </p>
                       <div className="flex flex-wrap items-center gap-(--space-3)">
-                        {includePdf ? (
-                          <AttachmentChip
-                            href={`/api/purchase-orders/${orderId}/pdf?groupKey=${encodeURIComponent(group.groupKey)}`}
-                            filename={pdfFileName}
-                            onRemove={() =>
-                              updateGroup(index, { includePdf: false })
-                            }
-                            disabled={pending}
-                          />
-                        ) : null}
-                        {selectedAttachments.map((file) => (
-                          <AttachmentChip
-                            key={file.id}
-                            href={`/api/purchase-orders/${orderId}/files/${file.id}`}
-                            filename={file.filename}
-                            onRemove={() =>
-                              onRemoveDocument(group.groupKey, file.id)
-                            }
-                            disabled={pending}
-                          />
-                        ))}
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="icon-xs"
-                              className="rounded-[var(--radius-md)]"
-                              aria-label={`Add documents to ${group.label}`}
-                              disabled={uploadPending || pending}
-                            >
-                              <HugeiconsIcon icon={Add01Icon} size={15} />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start" className="min-w-72">
-                            {!includePdf ? (
-                              <DropdownMenuItem
-                                onSelect={() =>
-                                  updateGroup(index, { includePdf: true })
-                                }
-                              >
-                                <HugeiconsIcon icon={CheckmarkCircle02Icon} size={16} />
-                                Add PO
-                              </DropdownMenuItem>
-                            ) : null}
-                            <DropdownMenuItem disabled>
-                              <HugeiconsIcon icon={File01Icon} size={16} />
-                              Request for quote
-                            </DropdownMenuItem>
-                            {availableAttachments.map((file) => (
-                              <DropdownMenuItem
-                                key={file.id}
-                                onSelect={() =>
-                                  updateGroup(index, {
-                                    attachmentFileIds: [
-                                      ...(group.attachmentFileIds ?? []),
-                                      file.id,
-                                    ],
-                                  })
-                                }
-                              >
-                                <HugeiconsIcon icon={File01Icon} size={16} />
-                                {file.filename}
-                              </DropdownMenuItem>
-                            ))}
-                            <DropdownMenuItem
-                              onSelect={() => onAddDocuments(group.groupKey)}
-                            >
-                              <HugeiconsIcon icon={Upload01Icon} size={16} />
-                              Custom attachment
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                        {attachmentControls}
                       </div>
                       {documentCount === 0 ? (
                         <p className="text-[length:var(--text-xs)] text-muted-foreground">
