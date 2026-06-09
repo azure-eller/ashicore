@@ -19,7 +19,7 @@ Use drafts to prepare work. Submit, order, release, receive, complete, allocate,
 
 ## System behavior
 
-Ashicore uses document status to decide when a record contributes to expected supply, demand, commitments, and history. This prevents early drafts from creating false availability or false shortages.
+Ashicore uses document status to decide when a record contributes to expected supply, demand, coverage, and history. This prevents early drafts from creating false availability or false shortages.
 
 ## Examples
 

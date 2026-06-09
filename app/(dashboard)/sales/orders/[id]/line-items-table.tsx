@@ -426,7 +426,7 @@ export function LineItemsTable({
             <AlertDialogTitle>Delete line?</AlertDialogTitle>
             <AlertDialogDescription>
               {confirmDelete
-                ? `${confirmDelete.itemName} has covered or shipped quantity. Removing it will update coverage and reservations. This cannot be undone.`
+                ? `${confirmDelete.itemName} has covered or shipped quantity. Removing it will update demand coverage. This cannot be undone.`
                 : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>

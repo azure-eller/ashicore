@@ -102,8 +102,71 @@ test.describe("manufacturing demand and completion heartbeat", () => {
           eq(inventoryDemandSummary.referenceType, "manufacturing_order_ingredient"),
           eq(inventoryDemandSummary.referenceId, ingredient.id)
         )
-      );
+    );
     expect(demand.quantity).toBe("6.0000");
+  });
+
+  test("ingredient pick warns before taking stock covered by earlier demand", async ({
+    db,
+  }) => {
+    const fixture = await createBomFixture("Queue Pick");
+    const earlierOrder = await createManufacturingOrder({
+      productId: fixture.productId,
+      plannedQuantity: "5",
+      ingredients: [{ itemId: fixture.componentId, quantityPerUnit: "2" }],
+      confirmShortage: false,
+    });
+    expect(earlierOrder.status, JSON.stringify(earlierOrder.body)).toBe(201);
+    const laterOrder = await createManufacturingOrder({
+      productId: fixture.productId,
+      plannedQuantity: "5",
+      ingredients: [{ itemId: fixture.componentId, quantityPerUnit: "2" }],
+      confirmShortage: false,
+    });
+    expect(laterOrder.status, JSON.stringify(laterOrder.body)).toBe(201);
+
+    const reorder = await testFetch("/api/manufacturing-orders/priority-ranks", {
+      method: "PATCH",
+      body: JSON.stringify({
+        orderIds: [earlierOrder.body.id, laterOrder.body.id],
+      }),
+    });
+    expect(reorder.status, await reorder.text()).toBe(200);
+    expect((await releaseManufacturingOrder(earlierOrder.body.id)).status).toBe(200);
+    expect(
+      (await releaseManufacturingOrder(laterOrder.body.id, { confirmShortage: true }))
+        .status
+    ).toBe(200);
+
+    const [laterIngredient] = await db
+      .select({ id: manufacturingOrderIngredients.id })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, laterOrder.body.id));
+    const firstPick = await testFetch(
+      `/api/manufacturing-orders/${laterOrder.body.id}/ingredients/${laterIngredient.id}/pick`,
+      {
+        method: "POST",
+        body: JSON.stringify({ confirmNegativeStock: false }),
+      }
+    );
+    const firstPickBody = await firstPick.json();
+    expect(firstPick.status, JSON.stringify(firstPickBody)).toBe(409);
+    expect(firstPickBody?.shortage?.ingredients?.[0]).toMatchObject({
+      itemId: fixture.componentId,
+      available: 0,
+      needed: 10,
+      shortage: 10,
+      warningType: "queue_conflict",
+    });
+
+    const confirmedPick = await testFetch(
+      `/api/manufacturing-orders/${laterOrder.body.id}/ingredients/${laterIngredient.id}/pick`,
+      {
+        method: "POST",
+        body: JSON.stringify({ confirmNegativeStock: true }),
+      }
+    );
+    expect(confirmedPick.status, await confirmedPick.text()).toBe(200);
   });
 
   test("completion consumes ingredients once and produces output once", async ({

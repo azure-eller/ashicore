@@ -15,7 +15,7 @@ Use Playwright lanes for app behavior. Prefer real DB assertions over mocks. Inv
 
 ## Workflow checks
 
-For UI changes, use the feature in a browser. For domain changes, exercise the mutation path and inspect the dependent state: balances, lots, ledger entries, commitments, expected supply, statuses, and deleted records.
+For UI changes, use the feature in a browser. For domain changes, exercise the mutation path and inspect the dependent state: balances, lots, ledger entries, demand coverage, expected supply, statuses, and deleted records.
 
 ## PR evidence
 

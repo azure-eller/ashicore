@@ -1,6 +1,6 @@
 ---
-title: Allocate Stock
-description: Reserve available inventory for customer or production demand.
+title: Prioritize Demand
+description: Decide which customer or production demand should receive scarce supply.
 section: How-to
 order: 220
 ---
@@ -11,17 +11,16 @@ The team needs to decide which order or job gets scarce stock.
 
 ## Steps
 
-1. Open the allocation workspace or demand view.
-2. Review available quantity, existing commitments, blocked stock, and expected supply.
-3. Select the demand that should receive stock.
-4. Allocate from available stock.
-5. Review remaining shortages.
-6. Release or move allocations if priorities change.
+1. Open the demand view.
+2. Review physical availability, existing demand coverage, blocked stock, and expected supply.
+3. Move the highest-priority demand earlier in the queue.
+4. Review updated coverage and remaining shortages.
+5. Reprioritize demand if the plan changes.
 
 ## System behavior
 
-Allocation reduces available stock without reducing on-hand stock. The physical quantity changes later through shipment or manufacturing consumption.
+Priority changes do not reduce on-hand stock. They recompute planning coverage. Physical quantity changes later through shipment or manufacturing consumption.
 
 ## Edge cases
 
-If availability is lower than expected, check blocked lots, other commitments, and open demand. If a document is deleted or reduced, dependent allocation should be released.
+If coverage is lower than expected, check blocked lots, earlier demand, and open expected supply. If a document is deleted or reduced, queue coverage recomputes from the remaining demand.

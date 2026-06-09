@@ -19,7 +19,7 @@ Sales v1 includes:
 - multi-line sales orders
 - customer and product snapshots on saved orders
 - `open` and `done` statuses
-- projection-backed committed supply from non-deleted open orders with non-deleted lines
+- projection-backed demand coverage from non-deleted open orders with non-deleted lines
 - order-level shipping with optional partial stock consumption
 - order-level shipping fee capture and margin visibility
 - FIFO stock deduction during shipping

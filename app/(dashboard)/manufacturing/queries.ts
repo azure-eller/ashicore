@@ -1918,6 +1918,29 @@ async function getLotAgeAvailabilityInTx(
   };
 }
 
+async function getManufacturingIngredientQueueAvailableQtyInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    ingredientId: string;
+    itemId: string;
+  }
+) {
+  const coverageByDemandKey = await getDemandQueueCoverageByDemandKeyForItemsInTx(tx, {
+    organizationId: params.organizationId,
+    itemIds: [params.itemId],
+    includeManufacturingDetail: true,
+  });
+  const coverage = coverageByDemandKey.get(
+    demandQueueCoverageKey({
+      demandType: "manufacturing_order_ingredient",
+      demandId: params.ingredientId,
+    })
+  );
+
+  return normalizeQuantityNumber(Number.parseFloat(coverage?.inStockQty ?? "0") || 0);
+}
+
 async function getEditableManufacturingIngredientSnapshotInTx(
   tx: Tx,
   manufacturingOrderId: string
@@ -6934,6 +6957,30 @@ export async function pickManufacturingIngredient(
           })
           .where(eq(manufacturingOrderBatches.id, batch.id));
       }
+    }
+
+    const queueAvailable = await getManufacturingIngredientQueueAvailableQtyInTx(tx, {
+      organizationId: orgId,
+      ingredientId,
+      itemId: ingredient.itemId,
+    });
+
+    if (queueAvailable < remainingQuantity && !confirmNegativeStock) {
+      throw new ManufacturingError(`Not enough ${ingredient.itemName}.`, 409, {
+        shortage: {
+          ingredients: [
+            {
+              itemId: ingredient.itemId,
+              itemName: ingredient.itemName,
+              unitName: ingredient.unitName,
+              needed: remainingQuantity,
+              available: queueAvailable,
+              shortage: normalizeQuantityNumber(remainingQuantity - queueAvailable),
+              warningType: "queue_conflict",
+            },
+          ],
+        },
+      });
     }
 
     try {

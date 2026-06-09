@@ -18,7 +18,7 @@ Everything starts with inventory, but inventory is not an editable number. Inven
 - stocktakes reconcile physical counts back to the ledger
 - dispositions decide whether stock is available, blocked, or rejected
 
-Purchasing, manufacturing, sales, and stocktakes all talk to the inventory kernel. That is what keeps on-hand quantity, available quantity, committed demand, expected supply, lot cost, and audit history aligned.
+Purchasing, manufacturing, sales, and stocktakes all talk to the inventory kernel. That is what keeps on-hand quantity, available quantity, open demand, expected supply, lot cost, and audit history aligned.
 
 ## The daily flow
 
@@ -57,7 +57,7 @@ Use available quantity to answer "what can I promise right now?"
 
 Use expected quantity to answer "what is already on its way from purchasing or production?"
 
-Use committed quantity to answer "what has already been promised to sales or production?"
+Use demand coverage to answer "which sales or production demand is covered by current or expected supply?"
 
 Use planning to answer "what should we buy or make next?"
 

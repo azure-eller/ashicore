@@ -30,13 +30,13 @@ Still excluded in v1:
 - child manufacturing orders
 - auto-created orders from sales without an explicit user action
 
-The inventory kernel now provides reservation and unpick semantics for manufacturing, but the UI still keeps execution flows narrow and guided.
+The inventory kernel now provides demand release and unpick semantics for manufacturing, but the UI still keeps execution flows narrow and guided.
 
 ## Workflow
 
 Top-level statuses stay small:
 
-- `open`: editable operational work; execution may have reversible picked or reserved ingredients
+- `open`: editable operational work; execution may have reversible picked ingredients and open ingredient demand
 - `done`: terminal; production output or finalized consumption has been recorded
 
 Open-order editing is split by risk:
@@ -54,8 +54,8 @@ Allowed transitions:
 
 No revert-to-open in v1.
 
-Deleting an open manufacturing order releases expected supply, clears active
-allocations, and reverses picked/reserved ingredient state in the same
+Deleting an open manufacturing order releases expected supply and ingredient
+demand, and reverses picked ingredient state in the same
 transaction. Completed orders, completed batches, and produced lots block
 deletion because production output history must be preserved.
 

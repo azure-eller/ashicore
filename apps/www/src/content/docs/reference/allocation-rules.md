@@ -5,7 +5,7 @@ section: Reference
 order: 310
 ---
 
-Use this page when deciding whether stock can be reserved, moved, released, or consumed.
+Use this page when deciding whether demand is covered, reordered, released, or physically consumed.
 
 ## Active demand
 
@@ -38,7 +38,7 @@ Creating or increasing a planned shipment should move matching active allocation
 
 Decreasing or deleting a planned shipment should move excess allocation back to order-line demand when the underlying order demand still exists.
 
-Shipping consumes stock. It should release or satisfy the corresponding reservation in the same transaction as the shipment inventory event.
+Shipping recomputes queue coverage in the transaction, then consumes physical stock through the execution policy.
 
 Deleting demand must release dependent allocations. Do not leave orphaned allocation rows attached to deleted sales orders, shipments, manufacturing orders, or lines.
 
@@ -48,9 +48,9 @@ Allocation cannot exceed eligible supply.
 
 Allocation cannot exceed open demand for the target bucket.
 
-Allocation should not make on-hand stock change. It changes availability and commitment, not physical quantity.
+Coverage should not make on-hand stock change. It changes the planning answer, not physical quantity.
 
-Reservations and availability should be updated through the inventory kernel. No feature should mutate committed or available quantity directly.
+Demand and physical stock should be updated through the inventory kernel. No feature should mutate availability directly.
 
 ## Planning relationship
 
@@ -60,11 +60,11 @@ Allocation is a priority decision inside that world. It does not remove the need
 
 ## Troubleshooting
 
-If an item looks short after allocation, check whether stock is blocked, already reserved, or only expected from a draft manufacturing order.
+If an item looks short after coverage, check whether stock is blocked, claimed by earlier demand, or only expected from a draft manufacturing order.
 
 If a shipment has no supply but the order line does, check whether allocation was moved from order-line demand to shipment-line demand when the shipment was created.
 
-If available quantity seems too low, look for active reservations on confirmed sales orders, planned shipments, or released manufacturing ingredient demand.
+If available quantity seems too low, inspect demand-queue coverage for confirmed sales orders, planned shipments, and released manufacturing ingredient demand.
 
 ## Related docs
 

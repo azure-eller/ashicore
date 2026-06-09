@@ -58,7 +58,7 @@ shortageQuantity = Math.max(0, -projectedQuantity)
 availableStock = Math.max(0, onHand)
 ```
 
-`availableStock` is physical display context only. Queue coverage decides which demand is covered by that stock; the planning formula does not persist or subtract soft reservations because confirmed sales and released manufacturing component needs are already demand facts.
+`availableStock` is physical display context only. Queue coverage decides which demand is covered by that stock; the planning formula does not persist or subtract soft planning claims because confirmed sales and released manufacturing component needs are already demand facts.
 
 ## Replenishment Status
 

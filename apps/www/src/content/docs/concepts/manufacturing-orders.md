@@ -88,7 +88,7 @@ Finished-product lots carry the resulting unit cost. Sales margin later reads th
 
 An open order can be deleted or cancelled only while its inventory effects can be reversed safely.
 
-Deleting an open manufacturing order should release expected finished-good supply, clear active allocations, and reverse picked or reserved ingredient state in one transaction.
+Deleting an open manufacturing order should release expected finished-good supply, release ingredient demand, and reverse picked ingredient state in one transaction.
 
 Completed output blocks deletion. Produced lots are history.
 

@@ -39,7 +39,7 @@ Use allocation when a customer order, shipment, or production plan deserves prio
 4. Allocate from available lots or released manufacturing supply.
 5. Recheck the remaining shortage and downstream plan.
 
-If the order changes, release or move the allocation. Do not leave old reservations attached to stale quantities.
+If the order changes, update the demand quantity or priority. Do not leave stale planning state attached to old quantities.
 
 ## What allocation does not mean
 
@@ -57,11 +57,11 @@ Allocation writes must preserve these invariants:
 - allocation cannot remain attached to deleted demand
 - shipment allocation must track planned shipment quantity changes
 - deleting an order, shipment, or manufacturing order must release dependent active allocations
-- draft sales orders and draft manufacturing orders must not reserve real supply
+- draft sales orders and draft manufacturing orders must not claim real supply
 
 ## Example
 
-A confirmed sales order needs 20 bags. Ten bags are on hand and another 15 are expected from a released manufacturing order. The allocator can reserve the 10 available bags and optionally reserve future supply from the released manufacturing order. If the user creates a planned shipment for 8 bags, the relevant reservation moves from the order-line bucket to the shipment-line bucket so shipping has a precise supply plan.
+A confirmed sales order needs 20 bags. Ten bags are on hand and another 15 are expected from a released manufacturing order. The demand queue covers the highest-priority demand first and marks the rest as expected or short. If priority changes, coverage recalculates from the queue instead of moving persisted planning claims.
 
 ## Related docs
 

@@ -162,7 +162,7 @@ Sales order lines follow the same replace-in-transaction pattern as BOM rows:
 
 - editing a draft order deletes all existing lines, then inserts the fresh set
 - deleting an order soft-deletes only the order row; the saved lines remain attached to that order for history
-- committed quantity calculations ignore soft-deleted orders
+- demand coverage ignores soft-deleted orders
 
 ### Manufacturing Orders
 
