@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -61,7 +61,11 @@ function check(name: string, ok: boolean, detail?: string): Check {
   return { name, ok, detail };
 }
 
-function runVercelEnvList(options: Required<Pick<Options, "vercelProjectId" | "vercelTeamId">> & Pick<Options, "vercelProjectName" | "environment">) {
+function withLinkedVercelProject<T>(
+  options: Required<Pick<Options, "vercelProjectId" | "vercelTeamId">> &
+    Pick<Options, "vercelProjectName">,
+  callback: (cwd: string) => T
+) {
   const cwd = mkdtempSync(join(tmpdir(), "ashicore-launch-check-"));
   try {
     const vercelDir = join(cwd, ".vercel");
@@ -85,9 +89,30 @@ function runVercelEnvList(options: Required<Pick<Options, "vercelProjectId" | "v
   }
 
   try {
+    return callback(cwd);
+  } finally {
+    rmSync(cwd, { force: true, recursive: true });
+  }
+}
+
+function runVercelEnvPull(
+  options: Required<Pick<Options, "vercelProjectId" | "vercelTeamId">> &
+    Pick<Options, "vercelProjectName" | "environment">
+) {
+  return withLinkedVercelProject(options, (cwd) => {
+    const envPath = join(cwd, ".env.production.local");
     const result = spawnSync(
       "vercel",
-      ["env", "ls", options.environment, "--cwd", cwd, "--no-color"],
+      [
+        "env",
+        "pull",
+        envPath,
+        `--environment=${options.environment}`,
+        "--yes",
+        "--cwd",
+        cwd,
+        "--no-color",
+      ],
       {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
@@ -99,32 +124,43 @@ function runVercelEnvList(options: Required<Pick<Options, "vercelProjectId" | "v
       throw new Error((result.stderr || result.stdout).trim());
     }
 
-    return result.stdout;
-  } finally {
-    rmSync(cwd, { force: true, recursive: true });
-  }
+    return parseDotEnv(envPath);
+  });
 }
 
-function envNamesFromVercelOutput(output: string) {
-  const names = new Set<string>();
-  for (const line of output.split("\n")) {
+function parseDotEnv(path: string) {
+  const env = new Map<string, string>();
+  const text = readFileSync(path, "utf8");
+
+  for (const line of text.split("\n")) {
     const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith(">") || trimmed.startsWith("name ")) {
+    if (!trimmed || trimmed.startsWith("#")) {
       continue;
     }
-    const [name] = trimmed.split(/\s+/, 1);
-    if (/^[A-Z0-9_]+$/.test(name)) {
-      names.add(name);
+    const equals = trimmed.indexOf("=");
+    if (equals < 1) {
+      continue;
+    }
+    const name = trimmed.slice(0, equals);
+    let value = trimmed.slice(equals + 1);
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (/^[A-Z0-9_]+$/.test(name) && value.trim()) {
+      env.set(name, value);
     }
   }
-  return names;
+  return env;
 }
 
-function localEnvNames() {
-  return new Set(
+function localEnvValues() {
+  return new Map(
     Object.entries(process.env)
       .filter(([, value]) => Boolean(value?.trim()))
-      .map(([name]) => name)
+      .map(([name, value]) => [name, value?.trim() ?? ""])
   );
 }
 
@@ -152,30 +188,29 @@ function printChecks(checks: Check[]) {
 async function main() {
   const options = parseArgs();
   const checks: Check[] = [];
-  let envNames: Set<string>;
+  let envValues: Map<string, string>;
 
   if (options.vercelProjectId && options.vercelTeamId) {
-    const output = runVercelEnvList({
+    envValues = runVercelEnvPull({
       vercelProjectId: options.vercelProjectId,
       vercelTeamId: options.vercelTeamId,
       vercelProjectName: options.vercelProjectName,
       environment: options.environment,
     });
-    envNames = envNamesFromVercelOutput(output);
   } else {
-    envNames = localEnvNames();
+    envValues = localEnvValues();
   }
 
   for (const name of REQUIRED_ENV) {
-    checks.push(check(`env ${name}`, envNames.has(name)));
+    checks.push(check(`env ${name}`, envValues.has(name)));
   }
 
-  if (envNames.has("STRIPE_LIVE_MODE")) {
+  if (envValues.has("STRIPE_LIVE_MODE")) {
     checks.push(
       check(
         "Stripe live mode expected",
-        process.env.STRIPE_LIVE_MODE === "1" || options.vercelProjectId !== undefined,
-        "verify encrypted value is 1 in Vercel"
+        envValues.get("STRIPE_LIVE_MODE") === "1",
+        "STRIPE_LIVE_MODE must be exactly 1"
       )
     );
   }

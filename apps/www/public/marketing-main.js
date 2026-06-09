@@ -30,7 +30,9 @@
     if (href.startsWith('/docs')) {
       trackEvent('docs_link_clicked', { path: href });
     }
-    if (href.startsWith('/sign-up')) {
+    const signupStart = link.dataset.analyticsSignupStart === 'true';
+    const signupPath = new URL(href, window.location.origin).pathname;
+    if (signupStart || signupPath === '/sign-up') {
       const url = new URL(href, window.location.origin);
       trackEvent('signup_started', {
         plan: url.searchParams.get('plan') === 'paid' ? 'paid' : 'free',
