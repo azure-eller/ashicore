@@ -21,7 +21,6 @@ const eslintConfig = defineConfig([
     ".worktrees/**",
     "apps/**",
     "packages/**",
-    "archived/**",
     "docs/design-system/reference/**",
     "docs/design-system/sales-order-detail/**",
     "docs/*-redesign/**",
