@@ -20,7 +20,8 @@ export type TransactionalEmailInput = {
     | "password-reset"
     | "team-invite"
     | "purchase-order"
-    | "invoice";
+    | "invoice"
+    | "internal-alert";
   from?: string;
   to: string;
   replyTo?: string;

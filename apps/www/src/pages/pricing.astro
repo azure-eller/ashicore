@@ -32,7 +32,16 @@ import { PRO_SIGN_UP_URL, SIGN_UP_URL } from "../lib/site";
           <li><span class="ck">✓</span> Unlimited users</li>
           <li><span class="ck">✓</span> 1 location</li>
         </ul>
-        <a href={SIGN_UP_URL} class="btn btn-ghost">Start free</a>
+        <a
+          href={SIGN_UP_URL}
+          class="btn btn-ghost"
+          data-analytics-event="pricing_plan_clicked"
+          data-analytics-placement="pricing-page"
+          data-analytics-plan="free"
+          data-analytics-signup-start="true"
+        >
+          Start free
+        </a>
       </section>
 
       <section class="plan rec">
@@ -51,7 +60,16 @@ import { PRO_SIGN_UP_URL, SIGN_UP_URL } from "../lib/site";
           <li><span class="ck">✓</span> Integrations including Shopify and QBO</li>
           <li><span class="ck">✓</span> Priority onboarding &amp; support</li>
         </ul>
-        <a href={PRO_SIGN_UP_URL} class="btn btn-primary">Choose Pro <span class="arr">→</span></a>
+        <a
+          href={PRO_SIGN_UP_URL}
+          class="btn btn-primary"
+          data-analytics-event="pricing_plan_clicked"
+          data-analytics-placement="pricing-page"
+          data-analytics-plan="paid"
+          data-analytics-signup-start="true"
+        >
+          Choose Pro <span class="arr">→</span>
+        </a>
       </section>
     </div>
     <p class="price-foot">

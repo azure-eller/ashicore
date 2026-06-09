@@ -8,6 +8,7 @@ import {
   setOrgStripeCustomerId,
   updateOrgBillingState,
 } from "./dal";
+import { sendFounderAlert } from "@/lib/internal-alerts";
 import type { BillingPlan, BillingStatus } from "./types";
 
 const STRIPE_API_VERSION = "2026-05-27.dahlia";
@@ -177,10 +178,27 @@ export async function createCheckoutSession({
     }
   }
 
-  return stripe.checkout.sessions.create(
+  const session = await stripe.checkout.sessions.create(
     {
       mode: "subscription",
+      branding_settings: {
+        background_color: "#F3F3F4",
+        border_style: "rounded",
+        button_color: "#F2CD34",
+        display_name: "ashicore",
+        font_family: "inter",
+        icon: {
+          type: "url",
+          url: "https://ashicore.app/icon.svg",
+        },
+      },
       customer: stripeCustomerId,
+      custom_text: {
+        submit: {
+          message:
+            "Start your Ashicore workspace. You can manage billing from settings after checkout.",
+        },
+      },
       line_items: [{ price: corePriceId, quantity: 1 }],
       success_url: appUrl(successPath ?? "/settings/billing?success=1"),
       cancel_url: appUrl(cancelPath ?? "/settings/billing"),
@@ -191,6 +209,23 @@ export async function createCheckoutSession({
     },
     { idempotencyKey: `org-core-checkout-${orgId}-${idempotencyKey}` }
   );
+
+  await sendFounderAlert({
+    kind: "checkout_started",
+    subject: `Ashicore checkout started: ${orgName}`,
+    idempotencyKey: `founder-alert-checkout-started-${session.id}`,
+    fields: [
+      { label: "Organization", value: orgName },
+      { label: "Plan", value: "core" },
+      { label: "User email", value: userEmail },
+      { label: "Organization ID", value: orgId },
+      { label: "Stripe customer ID", value: stripeCustomerId },
+      { label: "Checkout session ID", value: session.id },
+      { label: "Checkout URL", value: session.url },
+    ],
+  });
+
+  return session;
 }
 
 export async function createPortalSession({ orgId }: { orgId: string }) {
@@ -312,6 +347,38 @@ export async function applySubscriptionState({
     stripeCustomerId,
     ...state,
   });
+
+  if (state.plan === "core" && state.status === "active") {
+    await sendFounderAlert({
+      kind: "subscription_active",
+      subject: `New Ashicore paid subscription: ${org.name}`,
+      idempotencyKey: `founder-alert-subscription-active-${subscription.id}`,
+      fields: [
+        { label: "Organization", value: org.name },
+        { label: "Plan", value: state.plan },
+        { label: "Status", value: state.status },
+        { label: "Organization ID", value: org.id },
+        { label: "Stripe customer ID", value: stripeCustomerId },
+        { label: "Subscription ID", value: subscription.id },
+        { label: "Current period end", value: state.currentPeriodEnd },
+      ],
+    });
+  } else if (state.status === "past_due" || state.status === "canceled") {
+    await sendFounderAlert({
+      kind: "subscription_attention",
+      subject: `Ashicore subscription needs attention: ${org.name}`,
+      idempotencyKey: `founder-alert-subscription-${state.status}-${subscription.id}`,
+      fields: [
+        { label: "Organization", value: org.name },
+        { label: "Plan", value: state.plan },
+        { label: "Status", value: state.status },
+        { label: "Organization ID", value: org.id },
+        { label: "Stripe customer ID", value: stripeCustomerId },
+        { label: "Subscription ID", value: subscription.id },
+        { label: "Stripe subscription status", value: subscription.status },
+      ],
+    });
+  }
 }
 
 export async function syncOrgBillingFromStripe(orgId: string) {

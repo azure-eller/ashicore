@@ -42,6 +42,7 @@
     "verify:production-migration-order": "tsx scripts/verify-production-migration-order.ts",
     "verify:db-schema": "tsx scripts/verify-db-schema.ts",
     "verify:production-schema": "tsx scripts/verify-db-schema.ts --production",
+    "launch:check": "tsx scripts/check-launch-readiness.ts",
     "verify:inventory": "pnpm verify:inventory-kernel && pnpm verify:inventory-state",
     "eval:onboarding-import": "NODE_OPTIONS='--conditions react-server' tsx scripts/eval-onboarding-import.ts",
     "eval:onboarding-import:all": "NODE_OPTIONS='--conditions react-server' tsx scripts/eval-onboarding-import-suite.ts",

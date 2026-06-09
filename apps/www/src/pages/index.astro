@@ -19,7 +19,15 @@ import { PRO_SIGN_UP_URL, SIGN_UP_URL } from "../lib/site";
       <h1 class="h-display reveal d1">Onboard in <span class="hl">hours</span>, not months.</h1>
       <p class="lede reveal d2">ashicore is the batch-manufacturing ERP that onboards itself. Hand us your spreadsheets, photos, and PDFs — our AI reads them and builds your inventory, recipes, and lots as clean structured data.</p>
       <div class="hero-cta reveal d3">
-        <a href="#pricing" class="btn btn-primary btn-lg">Start free <span class="arr">→</span></a>
+        <a
+          href="#pricing"
+          class="btn btn-primary btn-lg"
+          data-analytics-event="cta_start_free_clicked"
+          data-analytics-placement="hero"
+          data-analytics-plan="free"
+        >
+          Start free <span class="arr">→</span>
+        </a>
         <a href="#how" class="btn btn-ghost btn-lg">See how it works</a>
       </div>
       <div class="hero-trust reveal d3">
@@ -326,7 +334,16 @@ import { PRO_SIGN_UP_URL, SIGN_UP_URL } from "../lib/site";
           <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Unlimited users</li>
           <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> 1 location</li>
         </ul>
-        <a href={SIGN_UP_URL} class="btn btn-ghost">Start free</a>
+        <a
+          href={SIGN_UP_URL}
+          class="btn btn-ghost"
+          data-analytics-event="pricing_plan_clicked"
+          data-analytics-placement="home-pricing"
+          data-analytics-plan="free"
+          data-analytics-signup-start="true"
+        >
+          Start free
+        </a>
       </div>
 
       <div class="plan rec reveal d1">
@@ -343,7 +360,16 @@ import { PRO_SIGN_UP_URL, SIGN_UP_URL } from "../lib/site";
           <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Integrations (Shopify, QBO…)</li>
           <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Priority onboarding &amp; support</li>
         </ul>
-        <a href={PRO_SIGN_UP_URL} class="btn btn-primary">Choose Pro <span class="arr">→</span></a>
+        <a
+          href={PRO_SIGN_UP_URL}
+          class="btn btn-primary"
+          data-analytics-event="pricing_plan_clicked"
+          data-analytics-placement="home-pricing"
+          data-analytics-plan="paid"
+          data-analytics-signup-start="true"
+        >
+          Choose Pro <span class="arr">→</span>
+        </a>
       </div>
     </div>
     <p class="price-foot">No card required to start · switch plans anytime · cancel whenever</p>
@@ -358,7 +384,15 @@ import { PRO_SIGN_UP_URL, SIGN_UP_URL } from "../lib/site";
       <h2 class="h-section">Bring the shoebox. We'll bring the system.</h2>
       <p class="lede">Upload your files today and watch your operation become structured data in hours. Free to start, no card required.</p>
       <div class="hero-cta">
-        <a href="#pricing" class="btn btn-primary btn-lg">Start free <span class="arr">→</span></a>
+        <a
+          href="#pricing"
+          class="btn btn-primary btn-lg"
+          data-analytics-event="cta_start_free_clicked"
+          data-analytics-placement="final-cta"
+          data-analytics-plan="free"
+        >
+          Start free <span class="arr">→</span>
+        </a>
         <a href="/support" class="btn btn-ghost btn-lg" style="color:var(--on-ground); border-color:var(--ground-line);">Book a walkthrough</a>
       </div>
     </div>

@@ -1,4 +1,5 @@
 ---
+import Analytics from "@vercel/analytics/astro";
 import logo from "../assets/logo.svg";
 import "../styles/global.css";
 import {
@@ -48,6 +49,7 @@ const isHome = path === "/";
     <meta name="twitter:card" content="summary_large_image" />
   </head>
   <body>
+    <Analytics />
     <div class="site-shell">
       <header class="nav" id="nav">
         <div class="wrap nav-inner">
@@ -69,8 +71,25 @@ const isHome = path === "/";
             <a href="/#pricing">Pricing</a>
           </nav>
           <div class="nav-cta">
-            <a href={SIGN_IN_URL} class="login">Log in</a>
-            <a href={SIGN_UP_URL} class="btn btn-dark">Start free</a>
+            <a
+              href={SIGN_IN_URL}
+              class="login"
+              data-analytics-event="cta_login_clicked"
+              data-analytics-placement="header"
+              data-analytics-target="sign-in"
+            >
+              Log in
+            </a>
+            <a
+              href={SIGN_UP_URL}
+              class="btn btn-dark"
+              data-analytics-event="cta_start_free_clicked"
+              data-analytics-placement="header"
+              data-analytics-plan="free"
+              data-analytics-signup-start="true"
+            >
+              Start free
+            </a>
           </div>
         </div>
       </header>
@@ -115,9 +134,28 @@ const isHome = path === "/";
           <div>
             <h4>Get started</h4>
             <ul>
-              <li><a href={SIGN_UP_URL}>Start free</a></li>
+              <li>
+                <a
+                  href={SIGN_UP_URL}
+                  data-analytics-event="cta_start_free_clicked"
+                  data-analytics-placement="footer"
+                  data-analytics-plan="free"
+                  data-analytics-signup-start="true"
+                >
+                  Start free
+                </a>
+              </li>
               <li><a href="/support">Book a walkthrough</a></li>
-              <li><a href={SIGN_IN_URL}>Log in</a></li>
+              <li>
+                <a
+                  href={SIGN_IN_URL}
+                  data-analytics-event="cta_login_clicked"
+                  data-analytics-placement="footer"
+                  data-analytics-target="sign-in"
+                >
+                  Log in
+                </a>
+              </li>
             </ul>
           </div>
         </div>
