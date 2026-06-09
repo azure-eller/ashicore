@@ -70,7 +70,7 @@ Size: 2399 LOC, 15 `test()` blocks.
   - No concurrent pick attempts on the same ingredient.
   - No concurrent batch `/start` calls.
   - The allocation-promise → lot-hold materialization (1944–2129) runs purely sequentially; no test exercises "MO completes while downstream pick is in flight".
-  - The sequence increment for `MO-YYYY-NNNN` is read with raw `nextval` (482–487) — no test verifies sequence holes do not appear when concurrent creates fail.
+  - Manufacturing-order number generation has changed since this audit; recheck concurrent create coverage before using this note.
 
 - **Flake risks**
   - `await page.waitForLoadState("networkidle")` at 2040 — known to flake on Next.js apps with background revalidations.

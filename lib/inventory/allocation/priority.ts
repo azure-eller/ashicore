@@ -1,4 +1,5 @@
 import type { AllocationDemandType } from "./types";
+import { compareDocumentNumbers } from "@/lib/document-number-format";
 
 export type AllocationDemandOrder = {
   demandType: AllocationDemandType;
@@ -37,7 +38,8 @@ export function compareDemandOrder<T extends AllocationDemandOrder>(
   if (rankCompare !== 0) return rankCompare;
   const dateCompare = compareNullableDate(left.priorityDate, right.priorityDate);
   if (dateCompare !== 0) return dateCompare;
-  return left.priorityLabel.localeCompare(right.priorityLabel, undefined, {
-    numeric: true,
-  });
+  if (left.demandType === "manufacturing_order_ingredient") {
+    return compareDocumentNumbers(left.priorityLabel, right.priorityLabel, "MO");
+  }
+  return compareDocumentNumbers(left.priorityLabel, right.priorityLabel, "SO");
 }

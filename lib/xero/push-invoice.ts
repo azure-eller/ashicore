@@ -585,13 +585,15 @@ export async function pushSalesOrderToXero(
       payloadHash
     );
   } else {
+    const lookupInvoiceNumber =
+      data.order.xeroInvoiceNumber ?? data.order.orderNumber;
     const existing = await findXeroInvoiceForSalesOrder(
       orgId,
-      data.order.orderNumber
+      lookupInvoiceNumber
     );
     if (existing) {
       invoiceId = existing.invoiceID;
-      invoiceNumber = existing.invoiceNumber ?? data.order.orderNumber;
+      invoiceNumber = existing.invoiceNumber ?? lookupInvoiceNumber;
       adopted = true;
       await persistPushSuccess(
         orgId,

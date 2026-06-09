@@ -193,7 +193,7 @@ const basePurchaseOrderSchema = createInsertSchema(purchaseOrders, {
     .string()
     .trim()
     .min(1, "Purchase order number is required")
-    .max(64, "Purchase order number must be 64 characters or fewer")
+    .max(32, "Purchase order number must be 32 characters or fewer")
     .optional()
     .nullable(),
   supplierId: z.string().min(1, "Supplier is required"),

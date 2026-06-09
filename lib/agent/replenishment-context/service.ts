@@ -27,6 +27,7 @@ import {
   type InventoryEventType,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
+import { documentNumberSortSql } from "@/lib/document-numbers";
 import { type Tx, withOrgContext } from "@/lib/db/with-org-context";
 import {
   normalizeNumeric,
@@ -464,6 +465,7 @@ async function loadIncomingPurchasesInTx(
     )
     .orderBy(
       asc(purchaseOrders.expectedDate),
+      asc(documentNumberSortSql(purchaseOrders.orderNumber, "PO")),
       asc(purchaseOrders.orderNumber),
       asc(purchaseOrderLines.sortOrder),
       asc(purchaseOrderLines.id)

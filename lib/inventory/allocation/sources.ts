@@ -7,6 +7,7 @@ import {
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import { serializeDbTimestamp } from "@/lib/db/timestamps";
+import { documentNumberSortSql } from "@/lib/document-numbers";
 import type { Tx } from "@/lib/db/with-org-context";
 import type { LotTrackingMode } from "@/lib/inventory/lot-tracking";
 import { normalizeNumeric, roundQuantity } from "@/lib/format";
@@ -155,6 +156,7 @@ export async function loadAllocationSourcesForItemsInTx(
     .orderBy(
       asc(manufacturingOrders.productId),
       asc(manufacturingOrders.plannedDate),
+      asc(documentNumberSortSql(manufacturingOrders.orderNumber, "MO")),
       asc(manufacturingOrders.orderNumber)
     );
 

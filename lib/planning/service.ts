@@ -25,6 +25,7 @@ import {
   variantOptionValues,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
+import { documentNumberSortSql } from "@/lib/document-numbers";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
@@ -1103,6 +1104,7 @@ async function getSalesDemandFactsInTx(tx: Tx): Promise<InternalDemandFact[]> {
     .orderBy(
       asc(salesOrders.orderDate),
       asc(salesOrders.requestedDate),
+      asc(documentNumberSortSql(salesOrders.orderNumber, "SO")),
       asc(salesOrders.orderNumber),
       asc(salesOrderLines.sortOrder),
       asc(salesOrderLines.id)
@@ -1196,6 +1198,7 @@ async function getOpenManufacturingComponentDemandFactsInTx(
     )
     .orderBy(
       asc(manufacturingOrders.plannedDate),
+      asc(documentNumberSortSql(manufacturingOrders.orderNumber, "MO")),
       asc(manufacturingOrders.orderNumber),
       asc(manufacturingOrderIngredients.sortOrder),
       asc(manufacturingOrderIngredients.id)
@@ -1301,6 +1304,7 @@ async function getPurchaseSupplyFactsInTx(tx: Tx): Promise<SupplyFact[]> {
     )
     .orderBy(
       asc(purchaseOrders.expectedDate),
+      asc(documentNumberSortSql(purchaseOrders.orderNumber, "PO")),
       asc(purchaseOrders.orderNumber),
       asc(purchaseOrderLines.sortOrder),
       asc(purchaseOrderLines.id)
@@ -1370,6 +1374,7 @@ async function getManufacturingSupplyFactsInTx(tx: Tx): Promise<SupplyFact[]> {
     )
     .orderBy(
       asc(manufacturingOrders.plannedDate),
+      asc(documentNumberSortSql(manufacturingOrders.orderNumber, "MO")),
       asc(manufacturingOrders.orderNumber),
       asc(manufacturingOrders.id)
     );

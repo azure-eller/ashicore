@@ -21,6 +21,7 @@ import {
   unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
+import { documentNumberSortSql } from "@/lib/document-numbers";
 import { type Tx, withOrgContext } from "@/lib/db/with-org-context";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import { normalizeNumeric, roundQuantity, todayInTimeZone } from "@/lib/format";
@@ -237,6 +238,7 @@ async function loadOpenSalesOrdersInTx(
       asc(salesOrders.shipDate),
       asc(salesOrders.requestedDate),
       asc(salesOrders.orderDate),
+      asc(documentNumberSortSql(salesOrders.orderNumber, "SO")),
       asc(salesOrders.orderNumber),
       asc(salesOrderLines.sortOrder),
       asc(salesOrderLines.createdAt)
@@ -340,6 +342,7 @@ async function loadOpenManufacturingOrdersInTx(
       sql`${manufacturingOrders.priorityRank} IS NULL`,
       asc(manufacturingOrders.priorityRank),
       asc(manufacturingOrders.plannedDate),
+      asc(documentNumberSortSql(manufacturingOrders.orderNumber, "MO")),
       asc(manufacturingOrders.orderNumber),
       asc(manufacturingOrderIngredients.sortOrder)
     );
@@ -418,6 +421,7 @@ async function loadOpenPurchaseOrdersInTx(
     )
     .orderBy(
       asc(purchaseOrders.expectedDate),
+      asc(documentNumberSortSql(purchaseOrders.orderNumber, "PO")),
       asc(purchaseOrders.orderNumber),
       asc(purchaseOrderLines.sortOrder)
     );

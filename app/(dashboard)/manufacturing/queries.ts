@@ -58,6 +58,10 @@ import {
   lockManufacturingPriorityQueueInTx,
 } from "@/lib/manufacturing-priority-lock";
 import {
+  documentNumberSortSql,
+  generateShortDocumentNumberInTx,
+} from "@/lib/document-numbers";
+import {
   addExpectedFromManufacturingInTx,
   addIngredientDemandForManufacturingInTx,
   editExpectedFromManufacturingInTx,
@@ -611,21 +615,7 @@ function calculatePlannedIngredientQuantity(params: {
 }
 
 async function generateMONumber(tx: Tx, orgId: string) {
-  const year = new Date().getFullYear();
-  const prefix = `MO-${year}-`;
-  const pattern = `^${prefix}(\\d+)$`;
-  await tx.execute(
-    sql`SELECT pg_advisory_xact_lock(hashtext(${`manufacturing-order-number:${orgId}:${year}`}))`
-  );
-  const result = await tx.execute(sql`
-    SELECT COALESCE(MAX((substring(${manufacturingOrders.orderNumber} from ${pattern}))::integer), 0) AS max
-    FROM ${manufacturingOrders}
-    WHERE ${manufacturingOrders.organizationId} = ${orgId}
-      AND ${manufacturingOrders.orderNumber} LIKE ${`${prefix}%`}
-  `);
-  const raw = (result.rows[0] as { max: string | number | null }).max;
-  const next = Number(raw ?? 0) + 1;
-  return `${prefix}${String(next).padStart(4, "0")}`;
+  return generateShortDocumentNumberInTx(tx, "manufacturing_order", orgId);
 }
 
 async function getLockedManufacturingOrderInTx(
@@ -765,6 +755,7 @@ async function rerankOpenManufacturingOrdersInTx(tx: Tx, orgId: string) {
     .orderBy(
       sql`${manufacturingOrders.priorityRank} IS NULL`,
       asc(manufacturingOrders.priorityRank),
+      asc(documentNumberSortSql(manufacturingOrders.orderNumber, "MO")),
       asc(manufacturingOrders.orderNumber),
       asc(manufacturingOrders.id)
     )
@@ -3507,6 +3498,7 @@ export async function getManufacturingOrders(): Promise<ManufacturingOrderListRo
             sql`${effectiveManufacturingPriorityRankSql()} IS NULL`,
             asc(effectiveManufacturingPriorityRankSql()),
             asc(manufacturingOrders.plannedDate),
+            asc(documentNumberSortSql(manufacturingOrders.orderNumber, "MO")),
             asc(manufacturingOrders.orderNumber),
             asc(manufacturingOrders.id)
           )) as Array<
@@ -5280,6 +5272,7 @@ export async function reorderManufacturingOrderPriorityRanks(
       )
       .orderBy(
         asc(sql`COALESCE(${manufacturingOrders.priorityRank}, 2147483647)`),
+        asc(documentNumberSortSql(manufacturingOrders.orderNumber, "MO")),
         asc(manufacturingOrders.orderNumber)
       )
       .for("update");

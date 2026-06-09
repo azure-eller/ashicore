@@ -771,14 +771,16 @@ export async function pushPurchaseOrderToXero(
       payloadHash
     );
   } else {
+    const lookupPurchaseOrderNumber =
+      data.order.xeroPurchaseOrderNumber ?? data.order.orderNumber;
     const existing = await findXeroPurchaseOrderForPurchaseOrder(
       orgId,
-      data.order.orderNumber
+      lookupPurchaseOrderNumber
     );
     if (existing) {
       purchaseOrderId = existing.purchaseOrderID;
       purchaseOrderNumber =
-        existing.purchaseOrderNumber ?? data.order.orderNumber;
+        existing.purchaseOrderNumber ?? lookupPurchaseOrderNumber;
       adopted = true;
       await persistPushSuccess(
         orgId,

@@ -6,6 +6,7 @@ import {
   inventoryLocations,
   manufacturingOrders,
   purchaseOrderLines,
+  purchaseOrders,
   salesOrderLines,
   salesOrders,
 } from "../../../lib/db/schema";
@@ -29,6 +30,8 @@ import {
   testFetch,
 } from "../../helpers/api";
 import { computeDemandQueueCoverage } from "../../../lib/inventory/allocation/coverage-engine";
+import { compareDocumentNumbers } from "../../../lib/document-number-format";
+import { compareDemandOrder } from "../../../lib/inventory/allocation/priority";
 import {
   consumeStockFifoInTx,
   createPositiveStockEventInTx,
@@ -265,14 +268,14 @@ test("manufacturing ingredient coverage counts late-maturing lots until the full
         itemId: "item-1",
         itemName: "Bomb 50/50 / 1 yd tote",
         unitName: "Each",
-        label: "MO-2026-0001",
+        label: "MO-1",
         contextLabel: "Bomb 50/50 / 1 cf bag",
         requiredDate: "2026-06-04",
         href: null,
         openQty: 5,
         priorityRank: 1,
         priorityDate: "2026-06-04",
-        priorityLabel: "MO-2026-0001",
+        priorityLabel: "MO-1",
         lateSupplyBehavior: "expected",
         minimumLotAgeDays: 7,
       },
@@ -282,14 +285,14 @@ test("manufacturing ingredient coverage counts late-maturing lots until the full
         itemId: "item-1",
         itemName: "Bomb 50/50 / 1 yd tote",
         unitName: "Each",
-        label: "MO-2026-0002",
+        label: "MO-2",
         contextLabel: "Bomb 50/50 / 1 cf bag",
         requiredDate: "2026-06-04",
         href: null,
         openQty: 8.75,
         priorityRank: 2,
         priorityDate: "2026-06-04",
-        priorityLabel: "MO-2026-0002",
+        priorityLabel: "MO-2",
         lateSupplyBehavior: "expected",
         minimumLotAgeDays: 7,
       },
@@ -1747,4 +1750,164 @@ test("make-to-order creation rounds batch products up to whole batches", async (
     requestedQuantity: "17.5000",
     numberOfBatches: 2,
   });
+});
+
+test("document numbers continue from legacy and short suffixes without padding", async ({
+  db,
+}) => {
+  const ts = Date.now();
+  const baseSuffix = Number(String(ts).slice(-9));
+  const legacyPoSuffix = baseSuffix + 100_000;
+  const shortSoSuffix = baseSuffix + 200_000;
+  const legacyMoSuffix = baseSuffix + 300_000;
+  const tooLargeSuffix = `9${String(ts).slice(-9)}${String(ts + 1).slice(-9)}`;
+  const orgId = getOrgId();
+  const unitId = getUnitId();
+
+  expect(
+    [
+      "SO-2",
+      "SO-2026-0001",
+      "SO-9999999999999999999",
+      "SO-3",
+    ].toSorted((left, right) => compareDocumentNumbers(left, right, "SO"))
+  ).toEqual(["SO-2026-0001", "SO-2", "SO-3", "SO-9999999999999999999"]);
+  expect(
+    [
+      {
+        demandType: "sales_order_line" as const,
+        priorityRank: 1,
+        priorityDate: "2026-06-01",
+        priorityLabel: "SO-2",
+      },
+      {
+        demandType: "sales_order_line" as const,
+        priorityRank: 1,
+        priorityDate: "2026-06-01",
+        priorityLabel: "SO-2026-0001-urgent",
+      },
+      {
+        demandType: "sales_order_line" as const,
+        priorityRank: 1,
+        priorityDate: "2026-06-01",
+        priorityLabel: "SO-3",
+      },
+    ]
+      .toSorted(compareDemandOrder)
+      .map((order) => order.priorityLabel)
+  ).toEqual(["SO-2026-0001-urgent", "SO-2", "SO-3"]);
+
+  const supplier = await createSupplier({ name: `Fast Numbering Supplier ${ts}` });
+  expect(supplier.status).toBe(201);
+  const material = await createItem({
+    itemType: "material",
+    name: `Fast Numbering Material ${ts}`,
+    sku: `FAST-NUM-MAT-${ts}`,
+    category: `Fast Numbering ${ts}`,
+    description: null,
+    unitDefinitionId: unitId,
+    defaultPurchasePrice: "1.00",
+    defaultSellingPrice: null,
+    stock: "0",
+    safetyStock: "0",
+    bom: [],
+  });
+  expect(material.status, JSON.stringify(material.body)).toBe(201);
+
+  await db.insert(purchaseOrders).values({
+    organizationId: orgId,
+    orderNumber: `PO-2026-${legacyPoSuffix}-rush`,
+    supplierId: supplier.body.id,
+    supplierName: `Fast Numbering Supplier ${ts}`,
+  });
+  await db.insert(purchaseOrders).values({
+    organizationId: orgId,
+    orderNumber: `PO-${tooLargeSuffix}`,
+    supplierId: supplier.body.id,
+    supplierName: `Fast Numbering Supplier ${ts}`,
+  });
+  const purchase = await createPurchaseOrder({
+    supplierId: supplier.body.id,
+    lines: [
+      {
+        itemId: material.body.id,
+        quantityOrdered: "1",
+        unitCost: "1.00",
+      },
+    ],
+  });
+  expect(purchase.status).toBe(201);
+  expect(purchase.body.orderNumber).toBe(`PO-${legacyPoSuffix + 1}`);
+
+  const customer = await createCustomer({ name: `Fast Numbering Customer ${ts}` });
+  expect(customer.status).toBe(201);
+  await db.insert(salesOrders).values({
+    organizationId: orgId,
+    orderNumber: `SO-${shortSoSuffix}-custom`,
+    customerId: customer.body.id,
+    customerName: `Fast Numbering Customer ${ts}`,
+  });
+  await db.insert(salesOrders).values({
+    organizationId: orgId,
+    orderNumber: `SO-${tooLargeSuffix}`,
+    customerId: customer.body.id,
+    customerName: `Fast Numbering Customer ${ts}`,
+  });
+
+  const product = await createItem({
+    itemType: "product",
+    name: `Fast Numbering Product ${ts}`,
+    sellable: true,
+    sku: `FAST-NUM-PROD-${ts}`,
+    category: `Fast Numbering ${ts}`,
+    description: null,
+    unitDefinitionId: unitId,
+    defaultPurchasePrice: null,
+    defaultSellingPrice: "10.00",
+    stock: "0",
+    safetyStock: "0",
+    bom: [{ componentId: material.body.id, quantity: "1" }],
+  });
+  expect(product.status, JSON.stringify(product.body)).toBe(201);
+
+  const sales = await createSalesOrder({
+    customerId: customer.body.id,
+    lines: [{ itemId: product.body.id, quantity: "1", unitPrice: "10.00" }],
+  });
+  expect(sales.status).toBe(201);
+  const salesRows = await db
+    .select({ orderNumber: salesOrders.orderNumber })
+    .from(salesOrders)
+    .where(eq(salesOrders.id, sales.body.id));
+  expect(salesRows[0]?.orderNumber).toBe(`SO-${shortSoSuffix + 1}`);
+
+  await db.insert(manufacturingOrders).values({
+    organizationId: orgId,
+    orderNumber: `MO-2026-${legacyMoSuffix}`,
+    productId: product.body.id,
+    productName: `Fast Numbering Product ${ts}`,
+    unitName: "Each",
+    requestedQuantity: "1",
+    plannedQuantity: "1",
+  });
+  await db.insert(manufacturingOrders).values({
+    organizationId: orgId,
+    orderNumber: `MO-${tooLargeSuffix}`,
+    productId: product.body.id,
+    productName: `Fast Numbering Product ${ts}`,
+    unitName: "Each",
+    requestedQuantity: "1",
+    plannedQuantity: "1",
+  });
+  const manufacturing = await createManufacturingOrder({
+    productId: product.body.id,
+    plannedQuantity: "1",
+    ingredients: [{ itemId: material.body.id, quantityPerUnit: "1" }],
+  });
+  expect(manufacturing.status).toBe(201);
+  const manufacturingRows = await db
+    .select({ orderNumber: manufacturingOrders.orderNumber })
+    .from(manufacturingOrders)
+    .where(eq(manufacturingOrders.id, manufacturing.body.id));
+  expect(manufacturingRows[0]?.orderNumber).toBe(`MO-${legacyMoSuffix + 1}`);
 });

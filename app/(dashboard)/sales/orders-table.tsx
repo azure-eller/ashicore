@@ -50,6 +50,7 @@ import {
   SALES_ORDER_SHIP_DATE_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import { formatDate, formatPrice, formatQuantity, parseQuantity } from "@/lib/format";
+import { compareDocumentNumbers } from "@/lib/document-number-format";
 import { displaySalesOrderNotes } from "@/lib/sales/import-notes";
 import {
   getSalesItemsAvailabilityState,
@@ -548,9 +549,7 @@ function compareSalesOrderRank(
     return rankCompare;
   }
 
-  return left.orderNumber.localeCompare(right.orderNumber, undefined, {
-    numeric: true,
-  });
+  return compareDocumentNumbers(left.orderNumber, right.orderNumber, "SO");
 }
 
 function salesOrderMatchesSearch(
@@ -887,9 +886,7 @@ function OrdersTableContent({
             </Link>
           ) : null,
         comparator: (left, right) =>
-          String(left ?? "").localeCompare(String(right ?? ""), undefined, {
-            numeric: true,
-          }),
+          compareDocumentNumbers(String(left ?? ""), String(right ?? ""), "SO"),
       },
       {
         field: "customerName",
@@ -1010,10 +1007,10 @@ function OrdersTableContent({
             return dateCompare;
           }
 
-          return (leftNode.data?.orderNumber ?? "").localeCompare(
+          return compareDocumentNumbers(
+            leftNode.data?.orderNumber ?? "",
             rightNode.data?.orderNumber ?? "",
-            undefined,
-            { numeric: true }
+            "SO"
           );
         },
       },

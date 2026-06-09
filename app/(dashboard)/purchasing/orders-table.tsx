@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ICellRendererParams } from "ag-grid-community";
 import { ERPDataGridList } from "@/components/erp-data-grid-list";
 import type { ColDef } from "@/components/erp-data-grid";
+import { compareDocumentNumbers } from "@/lib/document-number-format";
 import { formatDate, formatPrice } from "@/lib/format";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import {
@@ -287,9 +288,7 @@ function createColumns(): ColDef<PurchaseOrderListRow>[] {
           </Link>
         ) : null,
       comparator: (left, right) =>
-        String(left ?? "").localeCompare(String(right ?? ""), undefined, {
-          numeric: true,
-        }),
+        compareDocumentNumbers(String(left ?? ""), String(right ?? ""), "PO"),
     },
     {
       field: "supplierName",

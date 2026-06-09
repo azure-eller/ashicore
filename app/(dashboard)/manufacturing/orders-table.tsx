@@ -47,6 +47,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { formatDate, formatQuantity } from "@/lib/format";
+import { compareDocumentNumbers } from "@/lib/document-number-format";
 import {
   getIngredientsDisplayState,
   getProductionDisplayState,
@@ -244,9 +245,7 @@ function compareManufacturingRank(
     return rankCompare;
   }
 
-  return left.orderNumber.localeCompare(right.orderNumber, undefined, {
-    numeric: true,
-  });
+  return compareDocumentNumbers(left.orderNumber, right.orderNumber, "MO");
 }
 
 function manufacturingOrderMatchesSearch(
@@ -439,9 +438,7 @@ export function OrdersTable({
             </Link>
           ) : null,
         comparator: (left, right) =>
-          String(left ?? "").localeCompare(String(right ?? ""), undefined, {
-            numeric: true,
-          }),
+          compareDocumentNumbers(String(left ?? ""), String(right ?? ""), "MO"),
       },
       {
         field: "productName",

@@ -20,6 +20,7 @@ import {
 } from "@/lib/manufacturing/consumption";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
 import { parseQuantity, roundQuantity } from "@/lib/format";
+import { compareDocumentNumbers } from "@/lib/document-number-format";
 import type {
   SalesIngredientsFulfillmentState,
   SalesItemsFulfillmentState,
@@ -136,9 +137,11 @@ function compareAvailabilityLines(
   const orderDateCompare = left.orderDate.localeCompare(right.orderDate);
   if (orderDateCompare !== 0) return orderDateCompare;
 
-  const orderCompare = left.orderNumber.localeCompare(right.orderNumber, undefined, {
-    numeric: true,
-  });
+  const orderCompare = compareDocumentNumbers(
+    left.orderNumber,
+    right.orderNumber,
+    "SO"
+  );
   if (orderCompare !== 0) return orderCompare;
 
   return left.sortOrder - right.sortOrder;

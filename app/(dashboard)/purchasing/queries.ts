@@ -62,6 +62,10 @@ import {
   revaluePurchaseLandedCostInTx,
 } from "@/lib/inventory/kernel";
 import { DomainError, type DomainFieldErrors } from "@/lib/errors/domain-error";
+import {
+  documentNumberSortSql,
+  generateShortDocumentNumberInTx,
+} from "@/lib/document-numbers";
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import type {
   InsertPurchaseOrder,
@@ -360,37 +364,7 @@ async function getLockedPurchaseOrderInTx(tx: Tx, id: string) {
 }
 
 async function generateOrderNumber(tx: Tx, orgId: string) {
-  const year = new Date().getFullYear();
-
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const result = await tx.execute(
-      sql`SELECT nextval('purchasing.order_number_seq') AS val`,
-    );
-    const raw = (result.rows[0] as { val: string | number }).val;
-    const sequenceValue = Number(raw);
-    const orderNumber = `PO-${year}-${String(sequenceValue).padStart(4, "0")}`;
-
-    const [existing] = await tx
-      .select({ id: purchaseOrders.id })
-      .from(purchaseOrders)
-      .where(
-        and(
-          eq(purchaseOrders.organizationId, orgId),
-          eq(purchaseOrders.orderNumber, orderNumber),
-          isNull(purchaseOrders.deletedAt),
-        ),
-      )
-      .limit(1);
-
-    if (!existing) {
-      return orderNumber;
-    }
-  }
-
-  throw new PurchasingError(
-    "Unable to generate a unique purchase order number.",
-    500,
-  );
+  return generateShortDocumentNumberInTx(tx, "purchase_order", orgId);
 }
 
 async function resolvePurchaseOrderNumberInTx(
@@ -1326,6 +1300,7 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderListRow[]> {
           )
           .orderBy(
             desc(purchaseOrders.createdAt),
+            asc(documentNumberSortSql(purchaseOrders.orderNumber, "PO")),
             asc(purchaseOrders.orderNumber),
             asc(purchaseOrders.id),
           );

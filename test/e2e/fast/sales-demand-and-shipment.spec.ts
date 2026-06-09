@@ -229,7 +229,7 @@ test.describe("sales demand and shipping heartbeat", () => {
 
     const order = await createSalesOrder({
       customerId: customer.body.id,
-      orderNumber: `SO-2026-1182_${ts}`,
+      orderNumber: `SO-1182_${ts}`,
       orderDate: "2026-05-01",
       shipDate: "2026-05-02",
       lines: [{ itemId: productId, quantity: "2", unitPrice: "12.00" }],
@@ -252,7 +252,7 @@ test.describe("sales demand and shipping heartbeat", () => {
       .where(eq(salesOrders.id, duplicatedOrder.id));
 
     expect(row.orderNumber).toBe(
-      `SO-2026-1182_${ts}`.slice(0, 32 - "_COPY".length) + "_COPY"
+      `SO-1182_${ts}`.slice(0, 32 - "_COPY".length) + "_COPY"
     );
   });
 

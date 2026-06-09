@@ -5,6 +5,7 @@ import {
   manufacturingOrders,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
+import { documentNumberSortSql } from "@/lib/document-numbers";
 import { roundQuantity } from "@/lib/format";
 import {
   getMinimumLotAgeDays,
@@ -101,6 +102,7 @@ async function loadManufacturingIngredientRowsInTx(
     .orderBy(
       asc(manufacturingOrderIngredients.itemId),
       asc(manufacturingOrders.plannedDate),
+      asc(documentNumberSortSql(manufacturingOrders.orderNumber, "MO")),
       asc(manufacturingOrders.orderNumber),
       asc(manufacturingOrderIngredients.sortOrder)
     );

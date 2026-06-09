@@ -10,6 +10,7 @@ import {
   variantOptionValues,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
+import { documentNumberSortSql } from "@/lib/document-numbers";
 import { roundQuantity } from "@/lib/format";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
@@ -177,6 +178,7 @@ async function loadSalesRowsInTx(
     .orderBy(
       asc(salesOrderLines.itemId),
       asc(salesOrders.shipDate),
+      asc(documentNumberSortSql(salesOrders.orderNumber, "SO")),
       asc(salesOrders.orderNumber),
       asc(salesOrderLines.sortOrder)
     );

@@ -13,6 +13,7 @@ import {
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import { serializeDbTimestamp } from "@/lib/db/timestamps";
+import { documentNumberSortSql } from "@/lib/document-numbers";
 import { roundQuantity, todayInTimeZone } from "@/lib/format";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
@@ -397,6 +398,7 @@ async function getOpenPurchaseSupplyForItemsInTx(
     .orderBy(
       asc(purchaseOrderLines.itemId),
       asc(purchaseOrders.expectedDate),
+      asc(documentNumberSortSql(purchaseOrders.orderNumber, "PO")),
       asc(purchaseOrders.orderNumber),
       asc(purchaseOrderLines.sortOrder),
       asc(purchaseOrderLines.id)

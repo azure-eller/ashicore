@@ -79,6 +79,11 @@ import {
   DomainError,
 } from "@/lib/errors/domain-error";
 import {
+  documentNumberSortSql,
+  generateShortDocumentNumberInTx,
+} from "@/lib/document-numbers";
+import { compareDocumentNumbers } from "@/lib/document-number-format";
+import {
   calculateMarginMetrics,
   calculateUnitMarginMetrics,
 } from "@/lib/margin";
@@ -1270,10 +1275,10 @@ async function getLinkedManufacturingOrdersBySalesOrderIdInTx(
     .toSorted((left, right) => {
       const createdCompare = right.createdAt.getTime() - left.createdAt.getTime();
       if (createdCompare !== 0) return createdCompare;
-      const orderCompare = left.orderNumber.localeCompare(
+      const orderCompare = compareDocumentNumbers(
+        left.orderNumber,
         right.orderNumber,
-        undefined,
-        { numeric: true }
+        "MO"
       );
       if (orderCompare !== 0) return orderCompare;
       return left.id.localeCompare(right.id);
@@ -1453,6 +1458,7 @@ async function rerankOpenSalesOrdersInTx(tx: Tx, orgId: string) {
       asc(salesOrders.shipDate),
       asc(salesOrders.requestedDate),
       asc(salesOrders.orderDate),
+      asc(documentNumberSortSql(salesOrders.orderNumber, "SO")),
       asc(salesOrders.orderNumber),
       asc(salesOrders.id)
     );
@@ -1488,21 +1494,7 @@ async function rerankOpenSalesOrdersInTx(tx: Tx, orgId: string) {
 }
 
 async function generateOrderNumber(tx: Tx, organizationId: string) {
-  const year = new Date().getFullYear();
-  const prefix = `SO-${year}-`;
-  const pattern = `^${prefix}(\\d+)$`;
-  await tx.execute(
-    sql`SELECT pg_advisory_xact_lock(hashtext(${`sales-order-number:${organizationId}:${year}`}))`
-  );
-  const result = await tx.execute(sql`
-    SELECT COALESCE(MAX((substring(${salesOrders.orderNumber} from ${pattern}))::integer), 0) AS max
-    FROM ${salesOrders}
-    WHERE ${salesOrders.organizationId} = ${organizationId}
-      AND ${salesOrders.orderNumber} LIKE ${`${prefix}%`}
-  `);
-  const raw = (result.rows[0] as { max: string | number | null }).max;
-  const next = Number(raw ?? 0) + 1;
-  return `${prefix}${String(next).padStart(4, "0")}`;
+  return generateShortDocumentNumberInTx(tx, "sales_order", organizationId);
 }
 
 async function resolveSalesOrderNumberInTx(
@@ -1776,7 +1768,11 @@ async function getSalesLotPickPlansByLineInTx(
               inArray(manufacturingOrders.status, ["open", "done"])
             )
           )
-          .orderBy(asc(manufacturingOrders.plannedDate), asc(manufacturingOrders.orderNumber));
+          .orderBy(
+            asc(manufacturingOrders.plannedDate),
+            asc(documentNumberSortSql(manufacturingOrders.orderNumber, "MO")),
+            asc(manufacturingOrders.orderNumber)
+          );
   const linkedManufacturingRowsByLineId = new Map<
     string,
     Array<(typeof linkedManufacturingRows)[number]>
@@ -3587,7 +3583,11 @@ async function getCustomerSalesOrdersInTx(tx: Tx, customerId: string) {
     .where(
       and(eq(salesOrders.customerId, customerId), isNull(salesOrders.deletedAt))
     )
-    .orderBy(desc(salesOrders.createdAt), asc(salesOrders.orderNumber));
+    .orderBy(
+      desc(salesOrders.createdAt),
+      asc(documentNumberSortSql(salesOrders.orderNumber, "SO")),
+      asc(salesOrders.orderNumber)
+    );
 
   return rows.map((row) => ({
     ...row,
@@ -4969,6 +4969,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             asc(salesOrders.priorityRank),
             asc(salesOrders.shipDate),
             desc(salesOrders.createdAt),
+            asc(documentNumberSortSql(salesOrders.orderNumber, "SO")),
             asc(salesOrders.orderNumber),
             asc(salesOrders.id)
           );
@@ -5374,6 +5375,7 @@ export async function reorderSalesOrderPriorityRanks(
       )
       .orderBy(
         asc(sql`COALESCE(${salesOrders.priorityRank}, 2147483647)`),
+        asc(documentNumberSortSql(salesOrders.orderNumber, "SO")),
         asc(salesOrders.orderNumber)
       )
       .for("update");
