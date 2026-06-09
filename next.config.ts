@@ -22,15 +22,15 @@ const erpAssetOrigin =
   normalizeUrl(process.env.NEXT_PUBLIC_ERP_ASSET_ORIGIN) ??
   normalizeUrl(process.env.ERP_ASSET_ORIGIN) ??
   normalizeUrl(process.env.VERCEL_PROJECT_PRODUCTION_URL);
+const shouldUseErpAssetOrigin =
+  process.env.NODE_ENV === "production" &&
+  (!process.env.VERCEL_ENV || process.env.VERCEL_ENV === "production");
 
 const nextConfig: NextConfig = {
   // Allow a separate build output dir (e.g. `pnpm review`'s validation build) so it
   // doesn't clobber a running dev server's default `.next`.
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
-  assetPrefix:
-    process.env.NODE_ENV === "production" && erpAssetOrigin
-      ? erpAssetOrigin
-      : undefined,
+  assetPrefix: shouldUseErpAssetOrigin && erpAssetOrigin ? erpAssetOrigin : undefined,
   turbopack: {
     root: process.cwd(),
   },
