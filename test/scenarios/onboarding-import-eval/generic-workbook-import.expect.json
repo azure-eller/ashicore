@@ -1,0 +1,71 @@
+{
+  "description": "Generic workbook should extract comments, formulas, current-sheet stock, partners, and BOM without using archive counts.",
+  "minItems": 3,
+  "minCustomers": 1,
+  "minSuppliers": 2,
+  "minOpeningStock": 3,
+  "minPositiveOpeningStock": 3,
+  "maxOpeningStock": 3,
+  "minBoms": 1,
+  "requiredItemNames": [
+    "Tomato Mix",
+    "Compost Blend",
+    "Seed Packet"
+  ],
+  "requiredCustomerNames": [
+    "River Farmstand"
+  ],
+  "requiredSupplierNames": [
+    "Valley Inputs",
+    "Seed House"
+  ],
+  "requiredOpeningStockItemNames": [
+    "Tomato Mix",
+    "Compost Blend",
+    "Seed Packet"
+  ],
+  "requiredOpeningStockItemUnitUoms": {
+    "Tomato Mix": [
+      "lb"
+    ],
+    "Compost Blend": [
+      "cu yd"
+    ],
+    "Seed Packet": [
+      "ea",
+      "pcs"
+    ]
+  },
+  "requiredUoms": [
+    "lb",
+    "cu yd"
+  ],
+  "requiredUomAnyOf": [
+    [
+      "ea",
+      "pcs"
+    ]
+  ],
+  "requiredTextMatches": [
+    "River Farmstand",
+    "Valley Inputs",
+    "Seed House"
+  ],
+  "forbiddenUoms": [
+    "bag",
+    "tote",
+    "packet"
+  ],
+  "openingStockAllowedSheetMatches": [
+    "current"
+  ],
+  "openingStockForbiddenSheetMatches": [
+    "archive",
+    "2025"
+  ],
+  "forbidDuplicateOpeningStockItemRefs": true,
+  "forbidDuplicateUnitDefinitions": true,
+  "requireProvenance": true,
+  "maxMissingReferenceIssues": 0,
+  "maxBlockingIssues": 0
+}

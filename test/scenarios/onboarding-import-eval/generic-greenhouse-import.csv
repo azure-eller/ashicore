@@ -1,0 +1,8 @@
+section,name,sku,item_type,unit_name,unit_size,uom,quantity,unit_cost,supplier,customer,email,component,component_qty,component_unit,notes
+item,Basil Seed,SEED-BASIL,material,each,1,ea,,,,Greenline Supply,,,,
+item,Potting Soil,SOIL-POT,material,bag,40,lb,28,7.50,Greenline Supply,,,,
+item,Basil Starter Tray,TRAY-BASIL,product,each,1,ea,14,3.25,,North Market,north@example.com,,,
+supplier,Greenline Supply,,,,,,,,Greenline Supply,,,,
+customer,North Market,,,,,,,,,North Market,north@example.com,,,
+bom,Basil Starter Tray,,,,,,,,,,,Basil Seed,1,each,per tray
+bom,Basil Starter Tray,,,,,,,,,,,Potting Soil,0.25,bag,per tray
