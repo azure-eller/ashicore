@@ -324,7 +324,7 @@ const producedLotSelectionFields = {
 };
 
 export const completeManufacturingOrderSchema = z.object({
-  actualQuantity: positiveDecimalString("Actual quantity").optional(),
+  actualQuantity: positiveDecimalString("Actual quantity").nullish(),
   batchCount: z.number().int("Batches must be a whole number").positive("Batches must be positive").optional(),
   outputDisposition: z.enum(["available", "blocked"]).default("available"),
   ingredientActuals: z.array(ingredientActualSchema).default([]),
@@ -336,7 +336,7 @@ export type CompleteManufacturingOrder = z.infer<
 >;
 
 export const completeManufacturingBatchSchema = z.object({
-  actualQuantity: positiveDecimalString("Actual quantity").optional(),
+  actualQuantity: positiveDecimalString("Actual quantity").nullish(),
   outputDisposition: z.enum(["available", "blocked"]).default("available"),
   ingredientActuals: z.array(ingredientActualSchema).default([]),
   confirmNegativeStock: z.boolean().optional(),

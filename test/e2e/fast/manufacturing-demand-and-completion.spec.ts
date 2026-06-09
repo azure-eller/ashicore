@@ -314,7 +314,15 @@ test.describe("manufacturing demand and completion heartbeat", () => {
     expect(batch1Output.status).toBe(200);
     const batch1Complete = await testFetch(
       `/api/manufacturing-orders/${orderId}/batches/${batch1}/complete`,
-      { method: "POST", body: JSON.stringify({}) }
+      {
+        method: "POST",
+        body: JSON.stringify({
+          actualQuantity: null,
+          outputDisposition: "available",
+          ingredientActuals: [],
+          confirmNegativeStock: false,
+        }),
+      }
     );
     expect(batch1Complete.status).toBe(200);
 
