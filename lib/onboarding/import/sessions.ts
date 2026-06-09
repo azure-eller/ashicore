@@ -32,6 +32,7 @@ import {
 import { supplierDefaultValues } from "@/lib/schemas/suppliers";
 import { customerDefaultValues } from "@/lib/schemas/customers";
 import type { PrivateFileUpload } from "@/lib/blob-storage";
+import { getUomOptions } from "@/lib/units-of-measure";
 import { businessDateToUtcDate, hashImportPackage } from "./hash";
 import { getSkuImportLimitInTx } from "./entitlements";
 import {
@@ -42,6 +43,9 @@ import {
 } from "./types";
 
 const SESSION_TTL_DAYS = 14;
+const allowedImportUoms = new Set(
+  getUomOptions().flatMap((group) => group.options.map((option) => option.value)),
+);
 
 export const patchImportSessionSchema = z.object({
   openingStockAsOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -98,7 +102,30 @@ function isReviewActive(record: {
 
 function isPositiveNumericString(value: string | null | undefined): value is string {
   if (value == null) return false;
-  return /^\d+(\.\d+)?$/.test(String(value).trim());
+  const parsed = Number(String(value).trim());
+  return Number.isFinite(parsed) && parsed > 0;
+}
+
+function isPhoneLike(value: string | null | undefined) {
+  if (!value) return true;
+  const trimmed = value.trim();
+  const digits = trimmed.replace(/\D/g, "");
+  return digits.length >= 7 && digits.length <= 15 && /^[+\d\s().\-xext]+$/i.test(trimmed);
+}
+
+function unitDefinitionKey(unit: { name: string; size: string; uom: string }) {
+  return `${unit.name.trim().toLowerCase()}|${unit.size}|${unit.uom}`;
+}
+
+function isGenericPackagingUnitName(name: string) {
+  return (
+    /^\d+(?:\.\d+)?\s+pallets?$/i.test(name) ||
+    /^(?:bags?|totes?|pallets?|yards?|cfb|cyt|cyd|cy)$/i.test(name.trim())
+  );
+}
+
+function isCountPrefixedDimensionalUnit(unit: { name: string }) {
+  return /^\d+(?:\.\d+)?\s*ea\b/i.test(unit.name) && /\b(?:cfb|cf|cyt|cyd|cy)\b/i.test(unit.name);
 }
 
 function diffFields(
@@ -293,8 +320,65 @@ export async function validateImportPackageInTx(
     issues.push({ severity: "blocking", message: "Unit references must be unique." });
   }
 
+  for (const unit of pkg.units) {
+    if (!isReviewSelected(unit)) continue;
+    if (!allowedImportUoms.has(unit.uom)) {
+      issues.push({
+        severity: "blocking",
+        message: `Unit ${unit.name} uses unsupported UOM "${unit.uom}". Use the package/display name in Name and a supported base UOM such as lb, kg, cu ft, cu yd, gal, or ea.`,
+        path: `units.${unit.tempId}.uom`,
+      });
+    }
+    if (isGenericPackagingUnitName(unit.name)) {
+      issues.push({
+        severity: "blocking",
+        message: `Unit ${unit.name} is generic packaging shorthand. Use a dimensional package name such as 2cfb bag or 1 cu yd tote, or leave order-only packaging out.`,
+        path: `units.${unit.tempId}.name`,
+      });
+    }
+    if (isCountPrefixedDimensionalUnit(unit)) {
+      issues.push({
+        severity: "blocking",
+        message: `Unit ${unit.name} includes an order quantity/count prefix. Use the underlying dimensional stock unit instead.`,
+        path: `units.${unit.tempId}.name`,
+      });
+    }
+  }
+  const unitDefinitionKeys = pkg.units
+    .filter((unit) => isReviewSelected(unit))
+    .map(unitDefinitionKey);
+  if (new Set(unitDefinitionKeys).size !== unitDefinitionKeys.length) {
+    issues.push({
+      severity: "blocking",
+      message: "Duplicate unit definitions must be merged before approval.",
+      path: "units",
+    });
+  }
+
   if (new Set(pkg.items.map((item) => item.tempId)).size !== pkg.items.length) {
     issues.push({ severity: "blocking", message: "Item references must be unique." });
+  }
+
+  for (const supplier of pkg.suppliers) {
+    if (!isReviewActive(supplier)) continue;
+    if (!isPhoneLike(supplier.phone)) {
+      issues.push({
+        severity: "blocking",
+        message: `Supplier ${supplier.name} has a non-phone value in phone. Put addresses, names, and delivery notes somewhere else or leave phone blank.`,
+        path: `suppliers.${supplier.tempId}.phone`,
+      });
+    }
+  }
+
+  for (const customer of pkg.customers) {
+    if (!isReviewActive(customer)) continue;
+    if (!isPhoneLike(customer.phone)) {
+      issues.push({
+        severity: "blocking",
+        message: `Customer ${customer.name} has a non-phone value in phone. Put addresses, names, and delivery notes somewhere else or leave phone blank.`,
+        path: `customers.${customer.tempId}.phone`,
+      });
+    }
   }
 
   const skus = pkg.items.map((item) => key(item.sku)).filter((sku): sku is string => sku != null);
@@ -353,6 +437,13 @@ export async function validateImportPackageInTx(
         path: `openingStock.${stock.itemRef}`,
       });
     }
+    if (!isPositiveNumericString(stock.quantity)) {
+      issues.push({
+        severity: "blocking",
+        message: `Opening stock for ${stock.itemRef} needs a positive quantity before approval.`,
+        path: `openingStock.${stock.itemRef}.quantity`,
+      });
+    }
     if (!isPositiveNumericString(stock.unitCost)) {
       issues.push({
         severity: "blocking",
@@ -365,6 +456,13 @@ export async function validateImportPackageInTx(
   for (const bom of pkg.boms) {
     if (!isReviewSelected(bom)) continue;
     const product = pkg.items.find((item) => item.tempId === bom.productRef);
+    if (bom.components.length === 0) {
+      issues.push({
+        severity: "blocking",
+        message: `BOM ${bom.productRef} needs at least one explicit component before approval.`,
+        path: `boms.${bom.productRef}.components`,
+      });
+    }
     if (!product || product.itemType !== "product" || !activeItemRefs.has(bom.productRef)) {
       issues.push({
         severity: "blocking",
@@ -804,6 +902,9 @@ export async function approveImportSession(
         }
         const itemId = itemIdByRef.get(stock.itemRef);
         if (!itemId) throw new DomainError(`Item ${stock.itemRef} was not resolved.`);
+        if (!isPositiveNumericString(stock.quantity)) {
+          throw new DomainError(`Opening stock for ${stock.itemRef} needs a positive quantity.`);
+        }
         if (!isPositiveNumericString(stock.unitCost)) {
           throw new DomainError(`Opening stock for ${stock.itemRef} needs a numeric unit cost.`);
         }

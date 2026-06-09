@@ -43,6 +43,8 @@
     "verify:db-schema": "tsx scripts/verify-db-schema.ts",
     "verify:production-schema": "tsx scripts/verify-db-schema.ts --production",
     "verify:inventory": "pnpm verify:inventory-kernel && pnpm verify:inventory-state",
+    "eval:onboarding-import": "NODE_OPTIONS='--conditions react-server' tsx scripts/eval-onboarding-import.ts",
+    "eval:onboarding-import:all": "NODE_OPTIONS='--conditions react-server' tsx scripts/eval-onboarding-import-suite.ts",
     "verify:fast-heartbeat": "tsx scripts/verify-fast-heartbeat.ts",
     "verify:slow-stories": "tsx scripts/verify-slow-stories.ts",
     "db:generate": "drizzle-kit generate && tsx scripts/make-migrations-idempotent.ts",

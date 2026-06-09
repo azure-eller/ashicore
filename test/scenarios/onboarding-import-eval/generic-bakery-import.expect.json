@@ -1,0 +1,60 @@
+{
+  "description": "Generic bakery PDF should extract partner records, stock, and a simple BOM from a readable PDF.",
+  "minItems": 3,
+  "minCustomers": 1,
+  "minSuppliers": 1,
+  "minOpeningStock": 3,
+  "minPositiveOpeningStock": 3,
+  "maxOpeningStock": 3,
+  "minBoms": 1,
+  "requiredItemNames": [
+    "Bread Flour",
+    "Yeast Packet",
+    "Country Loaf"
+  ],
+  "requiredCustomerNames": [
+    "Downtown Cafe"
+  ],
+  "requiredSupplierNames": [
+    "Mill Creek Flour Co"
+  ],
+  "requiredOpeningStockItemNames": [
+    "Bread Flour",
+    "Yeast Packet",
+    "Country Loaf"
+  ],
+  "requiredOpeningStockItemUnitUoms": {
+    "Bread Flour": [
+      "lb"
+    ],
+    "Yeast Packet": [
+      "ea",
+      "pcs"
+    ],
+    "Country Loaf": [
+      "ea",
+      "pcs"
+    ]
+  },
+  "requiredUoms": [
+    "lb"
+  ],
+  "requiredUomAnyOf": [
+    [
+      "ea",
+      "pcs"
+    ]
+  ],
+  "requiredTextMatches": [
+    "Mill Creek Flour Co",
+    "Downtown Cafe",
+    "Country Loaf"
+  ],
+  "forbiddenUoms": [
+    "bag",
+    "dozen"
+  ],
+  "requireProvenance": true,
+  "maxMissingReferenceIssues": 0,
+  "maxBlockingIssues": 2
+}

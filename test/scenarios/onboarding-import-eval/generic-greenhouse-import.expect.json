@@ -1,0 +1,62 @@
+{
+  "description": "Generic greenhouse CSV should extract stock, partner records, and a simple BOM without Paonia-specific rules.",
+  "minItems": 3,
+  "minCustomers": 1,
+  "minSuppliers": 1,
+  "minOpeningStock": 2,
+  "minPositiveOpeningStock": 2,
+  "maxOpeningStock": 2,
+  "minBoms": 1,
+  "requiredItemNames": [
+    "Basil Seed",
+    "Potting Soil",
+    "Basil Starter Tray"
+  ],
+  "requiredCustomerNames": [
+    "North Market"
+  ],
+  "requiredSupplierNames": [
+    "Greenline Supply"
+  ],
+  "requiredOpeningStockItemNames": [
+    "Potting Soil",
+    "Basil Starter Tray"
+  ],
+  "forbiddenOpeningStockItemNames": [
+    "Basil Seed"
+  ],
+  "requiredOpeningStockItemUnitUoms": {
+    "Potting Soil": [
+      "lb"
+    ],
+    "Basil Starter Tray": [
+      "ea",
+      "pcs"
+    ]
+  },
+  "requiredUoms": [
+    "lb"
+  ],
+  "requiredUomAnyOf": [
+    [
+      "ea",
+      "pcs"
+    ]
+  ],
+  "requiredTextMatches": [
+    "Greenline Supply",
+    "North Market",
+    "Basil Starter Tray"
+  ],
+  "forbiddenUoms": [
+    "bag",
+    "tray",
+    "pallet"
+  ],
+  "forbiddenQuestionMatches": [
+    "\\bbom\\b.*\\b(?:stock unit|conversion|unitref)\\b"
+  ],
+  "requireProvenance": true,
+  "maxMissingReferenceIssues": 0,
+  "maxBlockingIssues": 0
+}

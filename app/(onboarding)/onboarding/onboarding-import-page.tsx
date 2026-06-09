@@ -826,9 +826,8 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
     !preview?.hash ||
     hasOtherBlocking;
 
-  const columns = useMemo<Array<ColDef<ReviewRow>>>(
-    () => [
-      {
+  const columns = useMemo<Array<ColDef<ReviewRow>>>(() => {
+    const includeColumn: ColDef<ReviewRow> = {
         field: "selected",
         headerName: "",
         width: 48,
@@ -847,24 +846,83 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
             }}
           />
         ),
-      },
+      };
+    const actionColumn: ColDef<ReviewRow> = { field: "action", headerName: "Action", width: 104, editable: false };
+    const sourceColumn: ColDef<ReviewRow> = { field: "source", headerName: "Source", width: 210, editable: false };
+    const confidenceColumn: ColDef<ReviewRow> = {
+      field: "confidence",
+      headerName: "Confidence",
+      width: 160,
+      editable: false,
+      cellRenderer: ConfidenceCell,
+    };
+    const reviewColumns = [sourceColumn, confidenceColumn];
+
+    if (activeTab === "items") {
+      return [
+        includeColumn,
+        actionColumn,
+        { field: "kind", headerName: "Type", width: 112, editable: false },
+        { field: "primary", headerName: "SKU", width: 150, editable: true },
+        { field: "secondary", headerName: "Name", flex: 1, minWidth: 220, editable: true },
+        { field: "quantity", headerName: "On hand", width: 120, editable: true, cellClass: "font-mono tabular-nums" },
+        { field: "unitCost", headerName: "Price / cost", width: 120, editable: true, cellClass: "font-mono tabular-nums" },
+        ...reviewColumns,
+      ];
+    }
+
+    if (activeTab === "suppliers") {
+      return [
+        includeColumn,
+        actionColumn,
+        { field: "primary", headerName: "Code", width: 150, editable: true },
+        { field: "secondary", headerName: "Supplier", flex: 1, minWidth: 220, editable: true },
+        ...reviewColumns,
+      ];
+    }
+
+    if (activeTab === "customers") {
+      return [
+        includeColumn,
+        actionColumn,
+        { field: "primary", headerName: "Email", width: 220, editable: true },
+        { field: "secondary", headerName: "Customer", flex: 1, minWidth: 220, editable: true },
+        ...reviewColumns,
+      ];
+    }
+
+    if (activeTab === "openingStock") {
+      return [
+        includeColumn,
+        actionColumn,
+        { field: "primary", headerName: "Item", flex: 1, minWidth: 220, editable: false },
+        { field: "secondary", headerName: "Lot", width: 160, editable: true },
+        { field: "quantity", headerName: "On hand", width: 120, editable: true, cellClass: "font-mono tabular-nums" },
+        { field: "unitCost", headerName: "Unit cost", width: 120, editable: true, cellClass: "font-mono tabular-nums" },
+        ...reviewColumns,
+      ];
+    }
+
+    if (activeTab === "boms") {
+      return [
+        includeColumn,
+        actionColumn,
+        { field: "primary", headerName: "Product", flex: 1, minWidth: 220, editable: false },
+        { field: "secondary", headerName: "Components", width: 160, editable: false },
+        { field: "quantity", headerName: "Output qty", width: 120, editable: false, cellClass: "font-mono tabular-nums" },
+        ...reviewColumns,
+      ];
+    }
+
+    return [
+      includeColumn,
       { field: "action", headerName: "Action", width: 104, editable: false },
-      { field: "kind", headerName: "Type", width: 112, editable: false },
-      { field: "primary", headerName: activeTab === "items" ? "SKU" : "Code / email", width: 150, editable: true },
-      { field: "secondary", headerName: "Name / detail", flex: 1, minWidth: 220, editable: true },
-      { field: "quantity", headerName: "On hand", width: 120, editable: activeTab !== "suppliers" && activeTab !== "customers", cellClass: "font-mono tabular-nums" },
-      { field: "unitCost", headerName: "Unit cost", width: 120, editable: activeTab === "items" || activeTab === "openingStock", cellClass: "font-mono tabular-nums" },
-      { field: "source", headerName: "Source", width: 210, editable: false },
-      {
-        field: "confidence",
-        headerName: "Confidence",
-        width: 160,
-        editable: false,
-        cellRenderer: ConfidenceCell,
-      },
-    ],
-    [activeTab],
-  );
+      { field: "primary", headerName: "Name", flex: 1, minWidth: 220, editable: true },
+      { field: "secondary", headerName: "UOM", width: 120, editable: true },
+      { field: "quantity", headerName: "Size", width: 120, editable: true, cellClass: "font-mono tabular-nums" },
+      ...reviewColumns,
+    ];
+  }, [activeTab]);
 
   function handleCellValueChanged(event: CellValueChangedEvent<ReviewRow>) {
     if (!event.data || !reviewPackage) return;
