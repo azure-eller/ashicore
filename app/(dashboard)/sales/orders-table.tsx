@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   useMutation,
   useQuery,
@@ -21,6 +21,7 @@ import {
   DatabaseExportIcon,
   Delete02Icon,
   Sorting05Icon,
+  Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -60,30 +61,18 @@ import {
   type FulfillmentDisplayState,
 } from "@/lib/sales/fulfillment-status";
 import {
-  ProductionStatusCell,
   ingredientsStatusEmptyMessage,
 } from "./sales-order-table-action-cells";
-import { OrderStatusControl } from "@/components/card-page/order-status-control";
 import {
   isSalesOrderStatusDisabled,
   salesOrderStatusConfig,
+  type SalesOrderStatusContext,
 } from "@/components/card-page/order-status-configs";
+import {
+  CreateManufacturingOrdersDialog,
+  defaultManufacturingPlannedDate,
+} from "./create-manufacturing-orders-dialog";
 import type { SalesOrderListRow } from "./types";
-
-function SalesDeliveryCell({ order }: { order: SalesOrderListRow }) {
-  const queryClient = useQueryClient();
-  return (
-    <OrderStatusControl
-      config={salesOrderStatusConfig}
-      ctx={{ order }}
-      disabled={isSalesOrderStatusDisabled(order)}
-      onChanged={() => {
-        void queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
-        void queryClient.invalidateQueries({ queryKey: ["items"] });
-      }}
-    />
-  );
-}
 
 const OPEN_SALES_STATUSES = ["open"] as const;
 const DONE_SALES_STATUSES = ["done"] as const;
@@ -211,13 +200,24 @@ const STATUS_CELL_COLUMN_IDS = new Set([
 const STATUS_PANEL_OVERLAY_SELECTOR = [
   "[data-sales-order-status-panel]",
   "[data-slot='dropdown-menu-content']",
+  "[data-slot='dialog-content']",
+  "[data-slot='dialog-overlay']",
   "[role='menu']",
+  "[role='dialog']",
   "[data-radix-popper-content-wrapper]",
 ].join(",");
 const OPEN_STATUS_PANEL_MENU_SELECTOR =
   "[data-slot='dropdown-menu-content'][data-state='open'], [role='menu'][data-state='open']";
 const STATUS_PANEL_WIDTH = 560;
 const STATUS_PANEL_MARGIN = 12;
+const DELIVERY_STATUS_SWATCH: Record<string, string> = {
+  neutral: "bg-[var(--color-muted-solid)]",
+  info: "bg-[var(--color-muted-solid)]",
+  warning: "bg-[var(--color-warning-solid)]",
+  danger: "bg-[var(--color-danger-solid)]",
+  success: "bg-[var(--color-success-solid)]",
+  accent: "bg-[var(--color-warning-solid)]",
+};
 
 type SalesOrderPanelKind =
   | "allocation"
@@ -339,6 +339,196 @@ function buildSalesOrderGridRow(order: SalesOrderListRow): SalesOrderGridRow {
 
 function StatusCell({ state }: { state: FulfillmentDisplayState }) {
   return <FulfillmentStatusBlock state={state} />;
+}
+
+function PanelActionButton({
+  children,
+  disabled,
+  leading,
+  active,
+  onClick,
+}: {
+  children: ReactNode;
+  disabled?: boolean;
+  leading?: ReactNode;
+  active?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={[
+        "flex h-(--height-menu-item) w-full items-center gap-(--space-3) rounded-(--radius-md) px-(--space-3) text-left text-[length:var(--text-control)]",
+        active ? "bg-[var(--color-accent-soft)] text-[var(--color-accent-ink)]" : "",
+        disabled && !active
+          ? "cursor-not-allowed opacity-50"
+          : "cursor-pointer hover:bg-[var(--color-surface-alt)]",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      {leading}
+      <span className="min-w-0 flex-1 truncate">{children}</span>
+      {active ? <HugeiconsIcon icon={Tick02Icon} size={14} aria-hidden /> : null}
+    </button>
+  );
+}
+
+function SalesDeliveryPanelContent({
+  order,
+  onClose,
+}: {
+  order: SalesOrderListRow;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [dialogTarget, setDialogTarget] = useState<string | null>(null);
+  const ctx: SalesOrderStatusContext = { order };
+  const current = salesOrderStatusConfig.current(ctx);
+  const options = salesOrderStatusConfig.options(ctx);
+  const disabled = isSalesOrderStatusDisabled(order);
+
+  const handleDone = (status?: string) => {
+    setDialogTarget(null);
+    onClose();
+    void status;
+    void queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
+    void queryClient.invalidateQueries({ queryKey: ["items"] });
+  };
+
+  return (
+    <>
+      <div className="grid gap-(--space-1)">
+        {options.map((option) => {
+          const active = option.value === current;
+          const kind = salesOrderStatusConfig.transitionKind(current, option.value, ctx);
+          const selectable = !disabled && (kind === "instant" || kind === "dialog");
+
+          return (
+            <PanelActionButton
+              key={option.value}
+              active={active}
+              disabled={!selectable && !active}
+              leading={
+                <span
+                  className={`inline-block size-(--space-6) rounded-(--radius-full) ${
+                    DELIVERY_STATUS_SWATCH[option.tone]
+                  }`}
+                />
+              }
+              onClick={() => {
+                if (!selectable) return;
+                if (kind === "dialog") setDialogTarget(option.value);
+              }}
+            >
+              {option.label}
+            </PanelActionButton>
+          );
+        })}
+      </div>
+      {dialogTarget && salesOrderStatusConfig.renderDialog
+        ? salesOrderStatusConfig.renderDialog({
+            to: dialogTarget,
+            ctx,
+            onClose: () => setDialogTarget(null),
+            onDone: handleDone,
+          })
+        : null}
+    </>
+  );
+}
+
+function ProductionPanelContent({ order }: { order: SalesOrderListRow }) {
+  const state = getProductionState(order);
+  const [makeToOrderOpen, setMakeToOrderOpen] = useState(false);
+  const [manufacturingStrategy, setManufacturingStrategy] =
+    useState<"make_to_order" | "make_to_stock">("make_to_order");
+  const isMakeAction = order.status === "open" && state.label === "Make";
+  const hasOpenManufacturingOrders = order.openManufacturingOrders.length > 0;
+
+  if (!isMakeAction && !hasOpenManufacturingOrders) {
+    return (
+      <div className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
+        No production actions available.
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="grid gap-(--space-1)">
+        {isMakeAction ? (
+          <>
+            <PanelActionButton
+              leading={<HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="size-(--space-8)" />}
+              onClick={() => {
+                setManufacturingStrategy("make_to_order");
+                setMakeToOrderOpen(true);
+              }}
+            >
+              Make to order
+            </PanelActionButton>
+            <PanelActionButton
+              leading={<HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="size-(--space-8)" />}
+              onClick={() => {
+                setManufacturingStrategy("make_to_stock");
+                setMakeToOrderOpen(true);
+              }}
+            >
+              Make to stock
+            </PanelActionButton>
+          </>
+        ) : null}
+        {hasOpenManufacturingOrders ? (
+          <>
+            <div className="px-(--space-3) pt-(--space-2) pb-(--space-1) font-mono text-[length:var(--text-xs)] font-bold uppercase tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)]">
+              Manufacturing orders
+            </div>
+            {order.openManufacturingOrders.map((mo) => (
+              <Link
+                key={mo.id}
+                href={`/manufacturing/order/${mo.id}`}
+                className="grid min-w-0 gap-(--space-1) rounded-(--radius-md) px-(--space-3) py-(--space-3) hover:bg-[var(--color-surface-alt)]"
+              >
+                <div className="truncate font-mono text-[length:var(--text-sm)] font-semibold">
+                  {mo.orderNumber}
+                </div>
+                <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-(--space-4) text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                  <span className="truncate">{mo.productName}</span>
+                  <span className="font-mono tabular-nums">
+                    {mo.plannedQuantity} {mo.unitName}
+                  </span>
+                </div>
+                <div className="truncate font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                  Deadline {mo.plannedDate ? formatDate(mo.plannedDate) : "—"}
+                </div>
+              </Link>
+            ))}
+          </>
+        ) : null}
+      </div>
+      <CreateManufacturingOrdersDialog
+        salesOrderId={order.id}
+        open={makeToOrderOpen}
+        onOpenChange={setMakeToOrderOpen}
+        showTrigger={false}
+        manufacturingStrategy={manufacturingStrategy}
+        salesOrderLabel={`${order.orderNumber} - ${order.customerName}`}
+        initialPlannedDate={defaultManufacturingPlannedDate(order.shipDate ?? null)}
+        openManufacturingOrders={order.openManufacturingOrders.map((mo) => ({
+          id: mo.id,
+          orderNumber: mo.orderNumber,
+          itemName: mo.productName,
+          quantity: `${mo.plannedQuantity} ${mo.unitName}`,
+          plannedDate: mo.plannedDate,
+          priorityRank: mo.priorityRank,
+          status: mo.status,
+        }))}
+      />
+    </>
+  );
 }
 
 function doneSalesOrderRank(order: SalesOrderListRow) {
@@ -493,16 +683,11 @@ function SalesOrderStatusPanel({
           />
         ) : null}
         {panel.kind === "productionState" ? (
-          <ProductionStatusCell
-            state={getProductionState(order)}
-            salesOrderId={order.id}
-            salesOrderStatus={order.status}
-            salesOrderLabel={`${order.orderNumber} - ${order.customerName}`}
-            shipDate={order.shipDate}
-            openManufacturingOrders={order.openManufacturingOrders}
-          />
+          <ProductionPanelContent order={order} />
         ) : null}
-        {panel.kind === "deliveryState" ? <SalesDeliveryCell order={order} /> : null}
+        {panel.kind === "deliveryState" ? (
+          <SalesDeliveryPanelContent order={order} onClose={onClose} />
+        ) : null}
       </div>
     </div>
   );
