@@ -181,7 +181,24 @@ export async function createCheckoutSession({
   const session = await stripe.checkout.sessions.create(
     {
       mode: "subscription",
+      branding_settings: {
+        background_color: "#F3F3F4",
+        border_style: "rounded",
+        button_color: "#F2CD34",
+        display_name: "ashicore",
+        font_family: "inter",
+        icon: {
+          type: "url",
+          url: "https://ashicore.app/icon.svg",
+        },
+      },
       customer: stripeCustomerId,
+      custom_text: {
+        submit: {
+          message:
+            "Start your Ashicore workspace. You can manage billing from settings after checkout.",
+        },
+      },
       line_items: [{ price: corePriceId, quantity: 1 }],
       success_url: appUrl(successPath ?? "/settings/billing?success=1"),
       cancel_url: appUrl(cancelPath ?? "/settings/billing"),
