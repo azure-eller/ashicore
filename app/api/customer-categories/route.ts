@@ -5,12 +5,7 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleAccess, assertModuleReadAccess } from "@/lib/dal/auth";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
 import { insertCustomerCategorySchema } from "@/lib/schemas/customer-categories";
-import {
-  createCustomerCategory,
-  deleteCustomerCategories,
-  getCustomerCategories,
-  SalesError,
-} from "@/app/(dashboard)/sales/queries";
+import { createCustomerCategory, deleteCustomerCategories, getCustomerCategories } from "@/app/(dashboard)/sales/queries";
 
 export const GET = apiHandler(async (request) => {
   await assertModuleReadAccess("sales", request.headers);
@@ -22,24 +17,14 @@ export const POST = apiHandler(async (request) => {
   await assertModuleAccess("sales", "admin", request.headers);
   const data = await parseJsonBody(request, insertCustomerCategorySchema);
 
-  try {
-    const category = await createCustomerCategory(data);
-    return jsonCreated(category);
-  } catch (error) {
-    if (error instanceof SalesError) return error.toResponse();
-    throw error;
-  }
+  const category = await createCustomerCategory(data);
+  return jsonCreated(category);
 });
 
 export const DELETE = apiHandler(async (request) => {
   await assertModuleAccess("sales", "admin", request.headers);
   const data = await parseJsonBody(request, bulkDeleteSchema);
 
-  try {
-    const result = await deleteCustomerCategories(data.ids);
-    return NextResponse.json(result);
-  } catch (error) {
-    if (error instanceof SalesError) return error.toResponse();
-    throw error;
-  }
+  const result = await deleteCustomerCategories(data.ids);
+  return NextResponse.json(result);
 });

@@ -4,13 +4,7 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonNotFound, jsonSuccess } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { patchSupplierSchema, updateSupplierSchema } from "@/lib/schemas/suppliers";
-import {
-  deleteSupplier,
-  getSupplier,
-  patchSupplier,
-  PurchasingError,
-  updateSupplier,
-} from "@/app/(dashboard)/purchasing/queries";
+import { deleteSupplier, getSupplier, patchSupplier, updateSupplier } from "@/app/(dashboard)/purchasing/queries";
 
 
 export const GET = apiHandler(async (_request: Request, ctx: unknown) => {
@@ -55,16 +49,11 @@ export const DELETE = apiHandler(async (_request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("purchasing", _request.headers);
   const { id } = await (ctx as RouteContext).params;
 
-  try {
-    const result = await deleteSupplier(id);
+  const result = await deleteSupplier(id);
 
-    if (!result.deleted) {
-      return jsonNotFound("Supplier not found");
-    }
-
-    return jsonSuccess();
-  } catch (error) {
-    if (error instanceof PurchasingError) return error.toResponse();
-    throw error;
+  if (!result.deleted) {
+    return jsonNotFound("Supplier not found");
   }
+
+  return jsonSuccess();
 });

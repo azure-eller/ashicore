@@ -3,10 +3,7 @@ import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/
 import { parseOptionalJsonBody } from "@/lib/api/request-body";
 import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
-import {
-  shipSalesOrder,
-  SalesError,
-} from "@/app/(dashboard)/sales/queries";
+import { shipSalesOrder } from "@/app/(dashboard)/sales/queries";
 import { shipSalesOrderSchema } from "@/lib/schemas/sales-orders";
 
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
@@ -15,16 +12,11 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   const idempotencyKey = requireIdempotencyKey(request, "shipSalesOrder");
   const options = await parseOptionalJsonBody(request, shipSalesOrderSchema, {});
 
-  try {
-    const order = await shipSalesOrder(id, { idempotencyKey, ...options });
+  const order = await shipSalesOrder(id, { idempotencyKey, ...options });
 
-    if (!order) {
-      return jsonNotFound("Order not found");
-    }
-
-    return NextResponse.json(order);
-  } catch (error) {
-    if (error instanceof SalesError) return error.toResponse();
-    throw error;
+  if (!order) {
+    return jsonNotFound("Order not found");
   }
+
+  return NextResponse.json(order);
 });

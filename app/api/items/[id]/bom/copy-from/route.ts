@@ -4,7 +4,7 @@ import { z } from "zod";
 import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
-import { copyCurrentBomToVariants, InventoryError } from "@/app/(dashboard)/inventory/queries";
+import { copyCurrentBomToVariants } from "@/app/(dashboard)/inventory/queries";
 
 const copyFromSchema = z.object({
   sourceVariantId: z.string().uuid(),
@@ -16,18 +16,13 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   const idempotencyKey = requireIdempotencyKey(request, "copyBomFromVariant");
   const { id } = await (ctx as RouteContext).params;
   const input = await parseJsonBody(request, copyFromSchema);
-  try {
-    const result = await copyCurrentBomToVariants(input.sourceVariantId, [id], input.note, {
-      idempotencyKey,
-    });
-    for (const row of result.copied) {
-      revalidatePath(`/inventory/products/${row.id}`);
-      revalidatePath(`/inventory/products/${row.id}/recipe`);
-      revalidatePath(`/inventory/products/${row.id}/production`);
-    }
-    return NextResponse.json({ revisionId: result.copied[0]?.revisionId ?? null });
-  } catch (error) {
-    if (error instanceof InventoryError) return error.toResponse();
-    throw error;
+  const result = await copyCurrentBomToVariants(input.sourceVariantId, [id], input.note, {
+    idempotencyKey,
+  });
+  for (const row of result.copied) {
+    revalidatePath(`/inventory/products/${row.id}`);
+    revalidatePath(`/inventory/products/${row.id}/recipe`);
+    revalidatePath(`/inventory/products/${row.id}/production`);
   }
+  return NextResponse.json({ revisionId: result.copied[0]?.revisionId ?? null });
 });

@@ -4,11 +4,7 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonNotFound, jsonCreated } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { createManufacturingOrdersFromSalesOrderSchema } from "@/lib/schemas/manufacturing-orders";
-import {
-  createManufacturingOrdersFromSalesOrder,
-  getManufacturingSalesOrderPreview,
-  ManufacturingError,
-} from "@/app/(dashboard)/manufacturing/queries";
+import { createManufacturingOrdersFromSalesOrder, getManufacturingSalesOrderPreview } from "@/app/(dashboard)/manufacturing/queries";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -34,11 +30,6 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
     createManufacturingOrdersFromSalesOrderSchema,
   );
 
-  try {
-    const result = await createManufacturingOrdersFromSalesOrder(routeId, data);
-    return jsonCreated(result);
-  } catch (error) {
-    if (error instanceof ManufacturingError) return error.toResponse();
-    throw error;
-  }
+  const result = await createManufacturingOrdersFromSalesOrder(routeId, data);
+  return jsonCreated(result);
 });

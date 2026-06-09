@@ -4,7 +4,7 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { patchSalesOrderLineSchema } from "@/lib/schemas/sales-orders";
-import { patchSalesOrderLine, SalesError } from "@/app/(dashboard)/sales/queries";
+import { patchSalesOrderLine } from "@/app/(dashboard)/sales/queries";
 
 export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("sales", request.headers);
@@ -15,14 +15,9 @@ export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   };
   const data = await parseJsonBody(request, patchSalesOrderLineSchema);
 
-  try {
-    const order = await patchSalesOrderLine(id, lineId, data, { idempotencyKey });
-    if (!order) {
-      return jsonNotFound("Line not found");
-    }
-    return NextResponse.json(order);
-  } catch (error) {
-    if (error instanceof SalesError) return error.toResponse();
-    throw error;
+  const order = await patchSalesOrderLine(id, lineId, data, { idempotencyKey });
+  if (!order) {
+    return jsonNotFound("Line not found");
   }
+  return NextResponse.json(order);
 });

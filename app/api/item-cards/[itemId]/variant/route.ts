@@ -3,13 +3,7 @@ import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/
 import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonCreated } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
-import {
-  createItemCardVariant,
-  itemCardVariantCreateSchema,
-  itemCardVariantUpdateSchema,
-  ItemCardError,
-  updateItemCardVariant,
-} from "@/lib/inventory/item-cards";
+import { createItemCardVariant, itemCardVariantCreateSchema, itemCardVariantUpdateSchema, updateItemCardVariant } from "@/lib/inventory/item-cards";
 
 /**
  * Variant-level field PATCH for the card UI. Companion to
@@ -21,13 +15,8 @@ export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   const idempotencyKey = requireIdempotencyKey(request, "updateItemCardVariant");
   const { itemId } = await ((ctx as RouteContext).params as unknown as Promise<{ itemId: string }>);
   const data = await parseJsonBody(request, itemCardVariantUpdateSchema);
-  try {
-    const item = await updateItemCardVariant(itemId, data, { idempotencyKey });
-    return NextResponse.json(item);
-  } catch (error) {
-    if (error instanceof ItemCardError) return error.toResponse();
-    throw error;
-  }
+  const item = await updateItemCardVariant(itemId, data, { idempotencyKey });
+  return NextResponse.json(item);
 });
 
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
@@ -35,11 +24,6 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   const idempotencyKey = requireIdempotencyKey(request, "createItemCardVariant");
   const { itemId } = await ((ctx as RouteContext).params as unknown as Promise<{ itemId: string }>);
   const data = await parseJsonBody(request, itemCardVariantCreateSchema);
-  try {
-    const item = await createItemCardVariant(itemId, data, { idempotencyKey });
-    return jsonCreated(item);
-  } catch (error) {
-    if (error instanceof ItemCardError) return error.toResponse();
-    throw error;
-  }
+  const item = await createItemCardVariant(itemId, data, { idempotencyKey });
+  return jsonCreated(item);
 });

@@ -4,12 +4,7 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonError, jsonCreated } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
-import {
-  createPurchaseOrder,
-  deletePurchaseOrders,
-  getPurchaseOrders,
-  PurchasingError,
-} from "@/app/(dashboard)/purchasing/queries";
+import { createPurchaseOrder, deletePurchaseOrders, getPurchaseOrders } from "@/app/(dashboard)/purchasing/queries";
 import { insertPurchaseOrderSchema } from "@/lib/schemas/purchase-orders";
 
 
@@ -23,13 +18,8 @@ export const POST = apiHandler(async (request) => {
   await assertModuleWriteAccess("purchasing", request.headers);
   const data = await parseJsonBody(request, insertPurchaseOrderSchema);
 
-  try {
-    const order = await createPurchaseOrder(data);
-    return jsonCreated(order);
-  } catch (error) {
-    if (error instanceof PurchasingError) return error.toResponse();
-    throw error;
-  }
+  const order = await createPurchaseOrder(data);
+  return jsonCreated(order);
 });
 
 export const DELETE = apiHandler(async (request) => {

@@ -6,12 +6,7 @@ import { deletePrivateBlobsIfConfigured } from "@/lib/blob-storage";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { insertCustomerSchema } from "@/lib/schemas/customers";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
-import {
-  createCustomer,
-  deleteCustomers,
-  getCustomers,
-  SalesError,
-} from "@/app/(dashboard)/sales/queries";
+import { createCustomer, deleteCustomers, getCustomers } from "@/app/(dashboard)/sales/queries";
 
 
 export const GET = apiHandler(async (request) => {
@@ -31,13 +26,8 @@ export const DELETE = apiHandler(async (request) => {
   await assertModuleWriteAccess("sales", request.headers);
   const data = await parseJsonBody(request, bulkDeleteSchema);
 
-  try {
-    const result = await deleteCustomers(data.ids);
-    await deletePrivateBlobsIfConfigured(result.blobUrls);
+  const result = await deleteCustomers(data.ids);
+  await deletePrivateBlobsIfConfigured(result.blobUrls);
 
-    return NextResponse.json(result);
-  } catch (error) {
-    if (error instanceof SalesError) return error.toResponse();
-    throw error;
-  }
+  return NextResponse.json(result);
 });

@@ -4,8 +4,6 @@ import { apiHandler } from "@/lib/api/handler";
 import { parseOptionalJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess, getAuthedMemberContext } from "@/lib/dal/auth";
 import { importPaidShopifyOrders } from "@/lib/shopify/import-orders";
-import { ShopifyError } from "@/lib/shopify/client";
-
 const bodySchema = z
   .object({
     shopBaseUrl: z.string().url().optional(),
@@ -31,13 +29,8 @@ export const POST = apiHandler(async (request: Request) => {
     );
   }
 
-  try {
-    const result = await importPaidShopifyOrders(context.orgId, {
-      shopBaseUrl: body?.shopBaseUrl,
-    });
-    return NextResponse.json(result);
-  } catch (error) {
-    if (error instanceof ShopifyError) return error.toResponse();
-    throw error;
-  }
+  const result = await importPaidShopifyOrders(context.orgId, {
+    shopBaseUrl: body?.shopBaseUrl,
+  });
+  return NextResponse.json(result);
 });

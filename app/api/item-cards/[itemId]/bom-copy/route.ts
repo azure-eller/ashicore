@@ -6,11 +6,7 @@ import {
   assertLockedBomManagementAccess,
   assertModuleWriteAccess,
 } from "@/lib/dal/auth";
-import {
-  copyCurrentBomToVariants,
-  hasLockedBomCopyTarget,
-  InventoryError,
-} from "@/app/(dashboard)/inventory/queries";
+import { copyCurrentBomToVariants, hasLockedBomCopyTarget } from "@/app/(dashboard)/inventory/queries";
 
 const bomCopySchema = z.object({
   targetVariantIds: z.array(z.string().uuid()).optional(),
@@ -25,20 +21,15 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   }>);
   const data = await parseJsonBody(request, bomCopySchema);
 
-  try {
-    if (await hasLockedBomCopyTarget(itemId, data.targetVariantIds)) {
-      await assertLockedBomManagementAccess(request.headers);
-    }
-
-    const result = await copyCurrentBomToVariants(
-      itemId,
-      data.targetVariantIds,
-      data.note ?? null,
-      { idempotencyKey },
-    );
-    return jsonCreated(result);
-  } catch (error) {
-    if (error instanceof InventoryError) return error.toResponse();
-    throw error;
+  if (await hasLockedBomCopyTarget(itemId, data.targetVariantIds)) {
+    await assertLockedBomManagementAccess(request.headers);
   }
+
+  const result = await copyCurrentBomToVariants(
+    itemId,
+    data.targetVariantIds,
+    data.note ?? null,
+    { idempotencyKey },
+  );
+  return jsonCreated(result);
 });

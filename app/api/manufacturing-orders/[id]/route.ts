@@ -7,13 +7,7 @@ import {
   patchManufacturingOrderSchema,
   updateManufacturingOrderSchema,
 } from "@/lib/schemas/manufacturing-orders";
-import {
-  deleteManufacturingOrder,
-  getManufacturingOrder,
-  ManufacturingError,
-  patchManufacturingOrder,
-  updateManufacturingOrder,
-} from "@/app/(dashboard)/manufacturing/queries";
+import { deleteManufacturingOrder, getManufacturingOrder, patchManufacturingOrder, updateManufacturingOrder } from "@/app/(dashboard)/manufacturing/queries";
 
 
 export const GET = apiHandler(async (_request: Request, ctx: unknown) => {
@@ -33,23 +27,18 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
   const data = await parseJsonBody(request, updateManufacturingOrderSchema);
 
-  try {
-    const updated = await updateManufacturingOrder(id, data);
+  const updated = await updateManufacturingOrder(id, data);
 
-    if (!updated) {
-      return jsonNotFound("Order not found");
-    }
-
-    const order = await getManufacturingOrder(id);
-    if (!order) {
-      return jsonNotFound("Order not found");
-    }
-
-    return NextResponse.json(order);
-  } catch (error) {
-    if (error instanceof ManufacturingError) return error.toResponse();
-    throw error;
+  if (!updated) {
+    return jsonNotFound("Order not found");
   }
+
+  const order = await getManufacturingOrder(id);
+  if (!order) {
+    return jsonNotFound("Order not found");
+  }
+
+  return NextResponse.json(order);
 });
 
 export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
@@ -57,23 +46,18 @@ export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
   const data = await parseJsonBody(request, patchManufacturingOrderSchema);
 
-  try {
-    const patched = await patchManufacturingOrder(id, data);
+  const patched = await patchManufacturingOrder(id, data);
 
-    if (!patched) {
-      return jsonNotFound("Order not found");
-    }
-
-    const order = await getManufacturingOrder(id);
-    if (!order) {
-      return jsonNotFound("Order not found");
-    }
-
-    return NextResponse.json(order);
-  } catch (error) {
-    if (error instanceof ManufacturingError) return error.toResponse();
-    throw error;
+  if (!patched) {
+    return jsonNotFound("Order not found");
   }
+
+  const order = await getManufacturingOrder(id);
+  if (!order) {
+    return jsonNotFound("Order not found");
+  }
+
+  return NextResponse.json(order);
 });
 
 export const DELETE = apiHandler(async (_request: Request, ctx: unknown) => {
