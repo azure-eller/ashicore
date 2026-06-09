@@ -39,15 +39,7 @@ const marginTierClass: Record<NonNullable<ItemRow["marginTier"]>, string> = {
 };
 
 function getInventoryAttention(row: ItemRow): InventoryAttention | null {
-  const shortage = parseFloat(row.shortageQty);
   const calculatedStock = calcStock(row);
-
-  if (shortage > 0) {
-    return {
-      label: "Backordered",
-      tooltip: "Accepted demand is not fully reserved.",
-    };
-  }
 
   if (calculatedStock < 0) {
     return {

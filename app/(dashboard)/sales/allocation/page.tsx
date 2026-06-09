@@ -16,15 +16,24 @@ import {
 } from "@/lib/inventory/allocation/demand-queue";
 import OrdersTableLoading from "../orders-table-loading";
 
-export default function SalesAllocationPage() {
+type SalesAllocationPageProps = {
+  searchParams: Promise<{ itemId?: string | string[] }>;
+};
+
+export default async function SalesAllocationPage({
+  searchParams,
+}: SalesAllocationPageProps) {
+  const params = await searchParams;
+  const itemId = Array.isArray(params.itemId) ? params.itemId[0] : params.itemId;
+
   return (
     <Suspense fallback={<OrdersTableLoading />}>
-      <SalesAllocationData />
+      <SalesAllocationData itemId={itemId ?? null} />
     </Suspense>
   );
 }
 
-async function SalesAllocationData() {
+async function SalesAllocationData({ itemId }: { itemId: string | null }) {
   const [context, orders, inventory] = await Promise.all([
     getAuthedMemberContext(),
     getSalesOrders(),
@@ -47,7 +56,7 @@ async function SalesAllocationData() {
   const manufacturingDemandRows = canReadManufacturing
     ? await getOpenManufacturingIngredientItemIds()
     : [];
-  const allocationItemIds = [
+  const allocationItemIds = itemId ? [itemId] : [
     ...salesProductIds,
     ...manufacturingDemandRows,
   ];
@@ -55,10 +64,22 @@ async function SalesAllocationData() {
     allocationItemIds,
     canReadManufacturing
   );
+  const initialInventory = itemId
+    ? inventory.filter((item) => item.id === itemId)
+    : inventory;
+  const initialOrders = itemId
+    ? orders
+        .map((order) => ({
+          ...order,
+          lines: order.lines.filter((line) => line.itemId === itemId),
+        }))
+        .filter((order) => order.lines.length > 0)
+    : orders;
+
   return (
     <SalesAllocationTable
-      initialData={orders}
-      initialInventory={inventory}
+      initialData={initialOrders}
+      initialInventory={initialInventory}
       initialProductCoverage={buildProductCoverageFromDemandQueue(coverage)}
       initialManufacturingDemandRows={buildManufacturingRowsFromCoverage(coverage)}
       organizationId={context.orgId}

@@ -6,7 +6,6 @@ import {
   inventoryExpectedSummary,
   inventoryItemBalances,
   inventoryLotBalances,
-  inventoryReservationsSummary,
   lots,
 } from "@/lib/db/schema";
 import { normalizeNumeric, roundQuantity } from "@/lib/format";
@@ -31,8 +30,6 @@ const STOCK_DECREASE_TYPES = new Set([
   "quality_scrap",
 ]);
 
-const RESERVATION_INCREASE_TYPES = new Set(["reservation_increase"]);
-const RESERVATION_RELEASE_TYPES = new Set(["reservation_release"]);
 const DEMAND_INCREASE_TYPES = new Set(["demand_increase"]);
 const DEMAND_RELEASE_TYPES = new Set(["demand_release"]);
 const EXPECTED_INCREASE_TYPES = new Set(["expected_increase"]);
@@ -44,7 +41,6 @@ type ComputedItemBalance = {
   locationId: string;
   itemId: string;
   onHandQty: number;
-  committedQty: number;
   demandQty: number;
   expectedQty: number;
 };
@@ -76,7 +72,6 @@ function buildFilters(
     inventoryEvents?: typeof inventoryEvents.itemId;
     inventoryItemBalances?: typeof inventoryItemBalances.itemId;
     inventoryLotBalances?: typeof inventoryLotBalances.itemId;
-    inventoryReservationsSummary?: typeof inventoryReservationsSummary.itemId;
     inventoryDemandSummary?: typeof inventoryDemandSummary.itemId;
     inventoryExpectedSummary?: typeof inventoryExpectedSummary.itemId;
   }
@@ -123,7 +118,6 @@ export async function computeItemBalancesFromLedger(
       locationId: row.locationId,
       itemId: row.itemId,
       onHandQty: 0,
-      committedQty: 0,
       demandQty: 0,
       expectedQty: 0,
     };
@@ -133,10 +127,6 @@ export async function computeItemBalancesFromLedger(
       current.onHandQty = roundQuantity(current.onHandQty + quantity);
     } else if (STOCK_DECREASE_TYPES.has(row.eventType)) {
       current.onHandQty = roundQuantity(current.onHandQty - quantity);
-    } else if (RESERVATION_INCREASE_TYPES.has(row.eventType)) {
-      current.committedQty = roundQuantity(current.committedQty + quantity);
-    } else if (RESERVATION_RELEASE_TYPES.has(row.eventType)) {
-      current.committedQty = roundQuantity(current.committedQty - quantity);
     } else if (DEMAND_INCREASE_TYPES.has(row.eventType)) {
       current.demandQty = roundQuantity(current.demandQty + quantity);
     } else if (DEMAND_RELEASE_TYPES.has(row.eventType)) {
@@ -145,66 +135,6 @@ export async function computeItemBalancesFromLedger(
       current.expectedQty = roundQuantity(current.expectedQty + quantity);
     } else if (EXPECTED_RELEASE_TYPES.has(row.eventType)) {
       current.expectedQty = roundQuantity(current.expectedQty - quantity);
-    }
-
-    computed.set(key, current);
-  }
-
-  return computed;
-}
-
-export async function computeReservationSummaryFromLedger(
-  tx: Tx,
-  organizationId: string,
-  itemIds?: string[]
-) {
-  const filters = buildFilters(organizationId, itemIds, {
-    inventoryEvents: inventoryEvents.itemId,
-  });
-
-  const rows = await tx
-    .select({
-      locationId: inventoryEvents.locationId,
-      itemId: inventoryEvents.itemId,
-      referenceType: inventoryEvents.referenceType,
-      referenceId: inventoryEvents.referenceId,
-      eventType: inventoryEvents.eventType,
-      quantity: inventoryEvents.quantity,
-    })
-    .from(inventoryEvents)
-    .where(and(...filters));
-
-  const computed = new Map<BalanceKey, ComputedReferenceBalance>();
-
-  for (const row of rows) {
-    if (
-      !row.referenceType ||
-      !row.referenceId ||
-      (!RESERVATION_INCREASE_TYPES.has(row.eventType) &&
-        !RESERVATION_RELEASE_TYPES.has(row.eventType))
-    ) {
-      continue;
-    }
-
-    const key = balanceKey([
-      row.locationId,
-      row.itemId,
-      row.referenceType,
-      row.referenceId,
-    ]);
-    const current = computed.get(key) ?? {
-      locationId: row.locationId,
-      itemId: row.itemId,
-      referenceType: row.referenceType,
-      referenceId: row.referenceId,
-      quantity: 0,
-    };
-    const quantity = parseFloat(row.quantity);
-
-    if (RESERVATION_INCREASE_TYPES.has(row.eventType)) {
-      current.quantity = roundQuantity(current.quantity + quantity);
-    } else {
-      current.quantity = roundQuantity(current.quantity - quantity);
     }
 
     computed.set(key, current);
@@ -431,7 +361,6 @@ export async function diffProjections(
 ) {
   const itemBalanceFilters = [eq(inventoryItemBalances.organizationId, organizationId)];
   const lotBalanceFilters = [eq(inventoryLotBalances.organizationId, organizationId)];
-  const reservationFilters = [eq(inventoryReservationsSummary.organizationId, organizationId)];
   const demandFilters = [eq(inventoryDemandSummary.organizationId, organizationId)];
   const expectedFilters = [eq(inventoryExpectedSummary.organizationId, organizationId)];
   const legacyLotFilters = [eq(lots.organizationId, organizationId)];
@@ -439,7 +368,6 @@ export async function diffProjections(
   if (itemIds && itemIds.length > 0) {
     itemBalanceFilters.push(inArray(inventoryItemBalances.itemId, itemIds));
     lotBalanceFilters.push(inArray(inventoryLotBalances.itemId, itemIds));
-    reservationFilters.push(inArray(inventoryReservationsSummary.itemId, itemIds));
     demandFilters.push(inArray(inventoryDemandSummary.itemId, itemIds));
     expectedFilters.push(inArray(inventoryExpectedSummary.itemId, itemIds));
     legacyLotFilters.push(inArray(lots.itemId, itemIds));
@@ -451,11 +379,6 @@ export async function diffProjections(
     itemIds
   );
   const computedLots = await computeLotBalancesFromLedger(
-    tx,
-    organizationId,
-    itemIds
-  );
-  const computedReservations = await computeReservationSummaryFromLedger(
     tx,
     organizationId,
     itemIds
@@ -478,10 +401,6 @@ export async function diffProjections(
     .select()
     .from(inventoryLotBalances)
     .where(and(...lotBalanceFilters));
-  const storedReservations = await tx
-    .select()
-    .from(inventoryReservationsSummary)
-    .where(and(...reservationFilters));
   const storedDemand = await tx
     .select()
     .from(inventoryDemandSummary)
@@ -505,12 +424,6 @@ export async function diffProjections(
   const storedLotsByKey = new Map(
     storedLots.map((row) => [
       balanceKey([row.locationId, row.itemId, row.lotId, row.disposition]),
-      row,
-    ])
-  );
-  const storedReservationsByKey = new Map(
-    storedReservations.map((row) => [
-      balanceKey([row.locationId, row.itemId, row.referenceType, row.referenceId]),
       row,
     ])
   );
@@ -569,10 +482,6 @@ export async function diffProjections(
     ...computedLots.keys(),
     ...storedLotsByKey.keys(),
   ]);
-  const reservationKeys = new Set([
-    ...computedReservations.keys(),
-    ...storedReservationsByKey.keys(),
-  ]);
   const demandKeys = new Set([
     ...computedDemand.keys(),
     ...storedDemandByKey.keys(),
@@ -594,27 +503,20 @@ export async function diffProjections(
         locationId: row?.locationId ?? "",
         itemId: row?.itemId ?? "",
         onHandQty: 0,
-        committedQty: 0,
         demandQty: 0,
         expectedQty: 0,
       };
 
       const actual = {
         onHandQty: normalizeNumeric(parseFloat(row?.onHandQty ?? "0")),
-        committedQty: normalizeNumeric(parseFloat(row?.committedQty ?? "0")),
         demandQty: normalizeNumeric(parseFloat(row?.demandQty ?? "0")),
-        shortageQty: normalizeNumeric(parseFloat(row?.shortageQty ?? "0")),
         expectedQty: normalizeNumeric(parseFloat(row?.expectedQty ?? "0")),
         availableToPromise: normalizeNumeric(parseFloat(row?.availableToPromise ?? "0")),
       };
 
       const expected = {
         onHandQty: normalizeNumeric(computed.onHandQty),
-        committedQty: normalizeNumeric(computed.committedQty),
         demandQty: normalizeNumeric(computed.demandQty),
-        shortageQty: normalizeNumeric(
-          Math.max(0, roundQuantity(computed.demandQty - computed.committedQty))
-        ),
         expectedQty: normalizeNumeric(computed.expectedQty),
         availableToPromise: normalizeNumeric(
           roundQuantity(
@@ -630,9 +532,7 @@ export async function diffProjections(
 
       if (
         actual.onHandQty === expected.onHandQty &&
-        actual.committedQty === expected.committedQty &&
         actual.demandQty === expected.demandQty &&
-        actual.shortageQty === expected.shortageQty &&
         actual.expectedQty === expected.expectedQty &&
         actual.availableToPromise === expected.availableToPromise
       ) {
@@ -679,33 +579,6 @@ export async function diffProjections(
   return {
     itemDeltas,
     lotDeltas,
-    reservationDeltas: Array.from(reservationKeys)
-      .map((key) => {
-        const row = storedReservationsByKey.get(key);
-        const computed = computedReservations.get(key) ?? {
-          locationId: row?.locationId ?? "",
-          itemId: row?.itemId ?? "",
-          referenceType: row?.referenceType ?? "",
-          referenceId: row?.referenceId ?? "",
-          quantity: 0,
-        };
-        const actual = normalizeNumeric(parseFloat(row?.quantity ?? "0"));
-        const expected = normalizeNumeric(computed.quantity);
-
-        if (actual === expected) {
-          return null;
-        }
-
-        return {
-          locationId: row?.locationId ?? computed.locationId,
-          itemId: row?.itemId ?? computed.itemId,
-          referenceType: row?.referenceType ?? computed.referenceType,
-          referenceId: row?.referenceId ?? computed.referenceId,
-          actual,
-          expected,
-        };
-      })
-      .filter(Boolean),
     demandDeltas: Array.from(demandKeys)
       .map((key) => {
         const row = storedDemandByKey.get(key);

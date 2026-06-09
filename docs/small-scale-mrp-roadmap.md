@@ -29,7 +29,7 @@ The goal is not to build a full ERP. The goal is to make day-to-day execution re
 
 The transactional core already exists:
 
-- inventory items with `stock`, `committedQty`, `expectedQty`, and `safetyStock`
+- inventory items with `stock`, `demandQty`, `expectedQty`, and `safetyStock`
 - lot-backed stock and FIFO consumption
 - purchase orders with receiving
 - manufacturing orders with release and completion

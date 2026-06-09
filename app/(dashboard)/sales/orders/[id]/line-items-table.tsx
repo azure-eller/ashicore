@@ -369,7 +369,7 @@ export function LineItemsTable({
 
   const requestDelete = (line: SalesOrderDetailLine) => {
     if (deleteLineLockedReason(line)) return;
-    if (Number(line.reservedQty) > 0 || Number(line.shippedQuantity) > 0) {
+    if (Number(line.shippedQuantity) > 0) {
       setConfirmDelete(line);
       return;
     }

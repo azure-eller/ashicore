@@ -249,7 +249,7 @@ Schedule:
 Behavior:
 
 - the route walks every organization in `system.organization`
-- for each org, it recomputes item, lot, reservation, and expected projections from `inventory.inventory_events`
+- for each org, it recomputes item, lot, demand, and expected projections from `inventory.inventory_events`
 - if any org has drift, the route throws
 - `apiHandler` sends the exception to Sentry and returns a non-2xx response so the cron run is visibly failed
 

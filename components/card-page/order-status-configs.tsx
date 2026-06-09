@@ -108,11 +108,11 @@ function NegativeStockNotice({ items }: { items: NegativeStockWarningPayload[] }
         {items.map((item) => (
           <li key={item.itemId}>
             {stockWarningDescription(item)}
-            {item.commitments?.length ? (
+            {item.conflicts?.length ? (
               <ul className="mt-1 space-y-0.5">
-                {item.commitments.map((commitment) => (
-                  <li key={`${commitment.referenceType}:${commitment.referenceId}`}>
-                    {commitment.label}: {formatQuantity(String(commitment.quantity))}
+                {item.conflicts.map((conflict) => (
+                  <li key={`${conflict.referenceType}:${conflict.referenceId}`}>
+                    {conflict.label}: {formatQuantity(String(conflict.quantity))}
                   </li>
                 ))}
               </ul>

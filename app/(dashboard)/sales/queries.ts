@@ -22,7 +22,6 @@ import {
   accountingDocumentSyncs,
   customers,
   inventoryEvents,
-  inventoryReservationsSummary,
   integrationExternalRecords,
   itemFamilies,
   itemVariantValues,
@@ -62,18 +61,15 @@ import {
   InsufficientStockError,
   LinkedManufacturingOutputUnavailableError,
   lockItemsInTx,
-  releaseReservationForSalesLineInTx,
+  releaseSalesDemandForSalesLineInTx,
   projectedAvailableQty,
-  projectedCommittedQty,
   projectedDemandQty,
   projectedExpectedQty,
   projectedOnHandQty,
   projectedOnHandQtyExpr,
   projectedPotentialQty,
-  projectedShortageQty,
-  recordSalesDemandAndReservationsInTx,
-  reserveForSalesInTx,
-  releaseReservationForSalesQuantitiesInTx,
+  recordSalesDemandInTx,
+  releaseSalesDemandForQuantitiesInTx,
 } from "@/lib/inventory/kernel";
 import {
   DomainError,
@@ -184,18 +180,10 @@ import { getEstimatedUnitCostsByItemIdInTx } from "@/lib/inventory/estimated-cos
 import { getAddressEntryInTx } from "@/lib/dal/addresses";
 
 const stockSubquery = projectedOnHandQty(items.organizationId, items.id).as("stock");
-const committedQtySubquery = projectedCommittedQty(
-  items.organizationId,
-  items.id
-).as("committedQty");
 const demandQtySubquery = projectedDemandQty(
   items.organizationId,
   items.id
 ).as("demandQty");
-const shortageQtySubquery = projectedShortageQty(
-  items.organizationId,
-  items.id
-).as("shortageQty");
 const availableQtySubquery = projectedAvailableQty(
   items.organizationId,
   items.id
@@ -412,9 +400,7 @@ type SalesItemValidationRow = {
   variantValues: SalesVariantValue[];
   defaultSellingPrice: string | null;
   stock: string;
-  committedQty: string;
   demandQty: string;
-  shortageQty: string;
   availableQty: string;
   expectedQty: string;
   safetyStock: string;
@@ -2591,9 +2577,7 @@ async function getValidatedSalesItemsInTx(
         "defaultSellingPrice"
       ),
       stock: stockSubquery,
-      committedQty: committedQtySubquery,
       demandQty: demandQtySubquery,
-      shortageQty: shortageQtySubquery,
       availableQty: availableQtySubquery,
       expectedQty: expectedQtySubquery,
       safetyStock: trimScale(items.safetyStock).as("safetyStock"),
@@ -4870,9 +4854,7 @@ export async function getSalesOrderItemOptions(): Promise<SalesOrderItemOption[]
           "defaultSellingPrice"
         ),
         stock: stockSubquery,
-        committedQty: committedQtySubquery,
         demandQty: demandQtySubquery,
-        shortageQty: shortageQtySubquery,
         availableQty: availableQtySubquery,
         expectedQty: expectedQtySubquery,
         safetyStock: trimScale(items.safetyStock).as("safetyStock"),
@@ -4916,9 +4898,7 @@ export async function getSalesOrderItemOptions(): Promise<SalesOrderItemOption[]
           defaultSellingPrice: row.defaultSellingPrice,
           estimatedUnitCost: null,
           stock: row.stock,
-          committedQty: row.committedQty,
           demandQty: row.demandQty,
-          shortageQty: row.shortageQty,
           availableQty: row.availableQty,
           expectedQty: row.expectedQty,
           safetyStock: row.safetyStock,
@@ -5595,13 +5575,6 @@ export async function getSalesOrder(
         ).as("onHandQty"),
         availableQty: availableQtySubquery,
         allocatedQty: sql<string>`'0'`.as("allocatedQty"),
-        reservedQty: trimScale(sql`COALESCE((
-          SELECT SUM(${inventoryReservationsSummary.quantity})
-          FROM ${inventoryReservationsSummary}
-          WHERE ${inventoryReservationsSummary.organizationId} = ${orgId}
-            AND ${inventoryReservationsSummary.referenceType} = 'sales_order_line'
-            AND ${inventoryReservationsSummary.referenceId} = ${salesOrderLines.id}
-        ), 0)`).as("reservedQty"),
         potential: projectedPotentialQty(
           items.organizationId,
           items.id,
@@ -5715,7 +5688,6 @@ export async function getSalesOrder(
       return {
         ...line,
         reservationAllocatedQty: line.allocatedQty,
-        reservedQty: line.reservedQty,
         shippedQuantity: normalizeNumeric(shippedQuantity),
         plannedQuantity: normalizeNumeric(plannedQuantity),
         cancelledQuantity: normalizeNumeric(cancelledQuantity),
@@ -6207,7 +6179,7 @@ export async function createSalesOrder(
           })
         : [];
 
-    await reserveForSalesInTx(tx, {
+    await recordSalesDemandInTx(tx, {
       organizationId: orgId,
       salesOrderId: order.id,
       actorUserId: userId,
@@ -6337,7 +6309,7 @@ export async function updateSalesOrder(
         prepared.preparedLines
       );
 
-      await releaseReservationForSalesLineInTx(tx, {
+      await releaseSalesDemandForSalesLineInTx(tx, {
         organizationId: orgId,
         salesOrderId: id,
         actorUserId: userId,
@@ -6419,7 +6391,7 @@ export async function updateSalesOrder(
       })
       .where(eq(salesOrders.id, id));
 
-    await reserveForSalesInTx(tx, {
+    await recordSalesDemandInTx(tx, {
       organizationId: orgId,
       salesOrderId: id,
       actorUserId: userId,
@@ -6553,12 +6525,10 @@ async function buildStockWarningPayloadInTx(
     requested: params.requested,
     shortage,
     reason: "negative_stock",
-    committedToOthers: 0,
-    commitments: [],
   };
 }
 
-async function resolveDemandQueueCommitmentsInTx(
+async function resolveDemandQueueConflictsInTx(
   tx: Tx,
   candidates: Array<{
     demandType: "sales_order_line" | "manufacturing_order_ingredient";
@@ -6568,7 +6538,7 @@ async function resolveDemandQueueCommitmentsInTx(
     quantity: number;
     href: string | null;
   }>
-): Promise<NonNullable<NegativeStockWarningPayload["commitments"]>> {
+): Promise<NonNullable<NegativeStockWarningPayload["conflicts"]>> {
   const salesDemandIds = candidates
     .filter((candidate) => candidate.demandType === "sales_order_line")
     .map((candidate) => candidate.demandId);
@@ -6611,12 +6581,12 @@ async function resolveDemandQueueCommitmentsInTx(
     manufacturingRows.map((row) => [row.demandId, row])
   );
 
-  const commitments: NonNullable<NegativeStockWarningPayload["commitments"]> = [];
+  const conflicts: NonNullable<NegativeStockWarningPayload["conflicts"]> = [];
   for (const candidate of candidates) {
     if (candidate.demandType === "sales_order_line") {
       const row = salesByDemandId.get(candidate.demandId);
       if (!row) continue;
-      commitments.push({
+      conflicts.push({
         referenceType: "sales_order",
         referenceId: row.orderId,
         label: `${row.orderNumber} ${row.customerName}`,
@@ -6628,7 +6598,7 @@ async function resolveDemandQueueCommitmentsInTx(
 
     const row = manufacturingByDemandId.get(candidate.demandId);
     if (!row) continue;
-    commitments.push({
+    conflicts.push({
       referenceType: "manufacturing_order",
       referenceId: row.orderId,
       label: `${row.orderNumber} ${row.productName}`,
@@ -6637,7 +6607,7 @@ async function resolveDemandQueueCommitmentsInTx(
     });
   }
 
-  return commitments;
+  return conflicts;
 }
 
 async function buildDemandQueueShippingWarningInTx(
@@ -6675,7 +6645,7 @@ async function buildDemandQueueShippingWarningInTx(
     const available = roundQuantity(Number(lineCoverage?.inStockQty ?? 0));
     if (available >= line.quantity) continue;
 
-    const commitmentCandidates = getDemandQueueInventoryLotClaimConflicts({
+    const conflictCandidates = getDemandQueueInventoryLotClaimConflicts({
       coverage: itemCoverage,
       excludeDemand: {
         demandType: "sales_order_line",
@@ -6683,20 +6653,20 @@ async function buildDemandQueueShippingWarningInTx(
       },
       quantity: roundQuantity(line.quantity - available),
     });
-    const commitments = await resolveDemandQueueCommitmentsInTx(
+    const conflicts = await resolveDemandQueueConflictsInTx(
       tx,
-      commitmentCandidates
+      conflictCandidates
     );
-    const committedToOthers = roundQuantity(
-      commitments.reduce((sum, commitment) => sum + commitment.quantity, 0)
+    const claimedByHigherPriority = roundQuantity(
+      conflicts.reduce((sum, conflict) => sum + conflict.quantity, 0)
     );
     const shortage = roundQuantity(line.quantity - available);
     const reason =
-      committedToOthers <= 0
+      claimedByHigherPriority <= 0
         ? "negative_stock"
-        : committedToOthers >= shortage
-          ? "commitment_conflict"
-          : "commitment_and_negative_stock";
+        : claimedByHigherPriority >= shortage
+          ? "queue_conflict"
+          : "queue_conflict_and_negative_stock";
 
     return {
       itemId: line.itemId,
@@ -6705,8 +6675,8 @@ async function buildDemandQueueShippingWarningInTx(
       requested: line.quantity,
       shortage,
       reason,
-      committedToOthers,
-      commitments: commitments.slice(0, 5),
+      claimedByHigherPriority,
+      conflicts: conflicts.slice(0, 5),
     };
   }
 
@@ -7678,7 +7648,7 @@ export async function patchSalesOrderLine(
     if (patch.quantity != null) {
       const quantityDelta = roundQuantity(nextQuantityNumber - currentQuantityNumber);
       if (quantityDelta > 0) {
-        await recordSalesDemandAndReservationsInTx(tx, {
+        await recordSalesDemandInTx(tx, {
           organizationId: orgId,
           salesOrderId: orderId,
           actorUserId: userId,
@@ -7686,14 +7656,7 @@ export async function patchSalesOrderLine(
             options?.idempotencyKey,
             "patch-line-quantity-increase"
           ),
-          demandLines: [
-            {
-              salesOrderLineId: lineId,
-              itemId: existingLine.itemId,
-              quantity: quantityDelta,
-            },
-          ],
-          reservationLines: [
+          lines: [
             {
               salesOrderLineId: lineId,
               itemId: existingLine.itemId,
@@ -7702,7 +7665,7 @@ export async function patchSalesOrderLine(
           ],
         });
       } else if (quantityDelta < 0) {
-        await releaseReservationForSalesQuantitiesInTx(tx, {
+        await releaseSalesDemandForQuantitiesInTx(tx, {
           organizationId: orgId,
           salesOrderId: orderId,
           actorUserId: userId,
@@ -7825,7 +7788,7 @@ export async function deleteSalesOrder(
       })
       .where(eq(salesOrders.id, id));
 
-	    await releaseReservationForSalesLineInTx(tx, {
+	    await releaseSalesDemandForSalesLineInTx(tx, {
       organizationId: orgId,
       salesOrderId: id,
       actorUserId: userId,
@@ -7925,7 +7888,7 @@ export async function deleteSalesOrders(
       .set({ priorityRank: null, deletedAt, updatedAt: deletedAt })
       .where(inArray(salesOrders.id, orderIds));
 
-    await releaseReservationForSalesLineInTx(tx, {
+    await releaseSalesDemandForSalesLineInTx(tx, {
       organizationId: orgId,
       salesOrderId: orderIds.join(","),
       actorUserId: userId,

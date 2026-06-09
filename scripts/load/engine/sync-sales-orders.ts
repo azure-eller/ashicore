@@ -8,8 +8,8 @@ import {
 import { normalizeMoney, normalizeNumeric } from "@/lib/format";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
-  releaseReservationForSalesLineInTx,
-  reserveForSalesInTx,
+  releaseSalesDemandForSalesLineInTx,
+  recordSalesDemandInTx,
 } from "@/lib/inventory/kernel/operations/sales";
 import { buildExistingItemsByName, findExistingItem } from "./seeds";
 import {
@@ -280,7 +280,7 @@ async function reserveConfirmedImportLinesInTx(
 
   if (linesToReserve.length === 0) return;
 
-  await reserveForSalesInTx(tx, {
+  await recordSalesDemandInTx(tx, {
     organizationId: orgId,
     salesOrderId,
     actorUserId: null,
@@ -759,7 +759,7 @@ export async function applySalesImportOrdersInTx(
           .from(salesOrderLines)
           .where(eq(salesOrderLines.salesOrderId, order.existingId));
         if (existingLineIds.length > 0) {
-          await releaseReservationForSalesLineInTx(tx, {
+          await releaseSalesDemandForSalesLineInTx(tx, {
             organizationId: orgId,
             salesOrderId: order.existingId,
             actorUserId: null,

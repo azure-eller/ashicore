@@ -43,7 +43,7 @@ const GUARDS: Guard[] = [
   {
     pattern: "items.committedQty",
     allowed: ["scripts/verify-inventory-kernel.ts"],
-    description: "active code must read committed quantity from projections",
+    description: "soft committed quantity must not be an active planning source",
   },
   {
     pattern: "items.expectedQty",
@@ -68,11 +68,63 @@ const GUARDS: Guard[] = [
   },
   {
     pattern: "committed_qty",
-    allowed: [
-      "lib/db/schema/inventory-projections.ts",
-      "scripts/verify-inventory-kernel.ts",
-    ],
-    description: "raw committed_qty references should only exist in projection schema",
+    allowed: ["scripts/verify-inventory-kernel.ts"],
+    description: "committed_qty projection column has been removed",
+  },
+  {
+    pattern: "shortage_qty",
+    allowed: ["scripts/verify-inventory-kernel.ts"],
+    description: "shortage_qty projection column has been removed",
+  },
+  {
+    pattern: "inventoryReservationsSummary",
+    allowed: ["scripts/verify-inventory-kernel.ts"],
+    description: "soft reservation summary table has been removed",
+  },
+  {
+    pattern: "inventory_reservations_summary",
+    allowed: ["scripts/verify-inventory-kernel.ts"],
+    description: "soft reservation summary table has been removed",
+  },
+  {
+    pattern: "reservation_increase",
+    allowed: ["scripts/verify-inventory-kernel.ts"],
+    description: "soft reservation events have been removed",
+  },
+  {
+    pattern: "reservation_release",
+    allowed: ["scripts/verify-inventory-kernel.ts"],
+    description: "soft reservation events have been removed",
+  },
+  {
+    pattern: "reserveForSales",
+    allowed: ["scripts/verify-inventory-kernel.ts"],
+    description: "sales confirmation records demand only",
+  },
+  {
+    pattern: "releaseReservation",
+    allowed: ["scripts/verify-inventory-kernel.ts"],
+    description: "sales and manufacturing release demand only",
+  },
+  {
+    pattern: "setSalesLineStockReservation",
+    allowed: ["scripts/verify-inventory-kernel.ts"],
+    description: "manual soft sales reservations have been removed",
+  },
+  {
+    pattern: "committedToOthers",
+    allowed: ["scripts/verify-inventory-kernel.ts"],
+    description: "shipping warnings use demand queue conflict terminology",
+  },
+  {
+    pattern: "commitment_conflict",
+    allowed: ["scripts/verify-inventory-kernel.ts"],
+    description: "shipping warnings use demand queue conflict terminology",
+  },
+  {
+    pattern: "reservedQty",
+    allowed: ["scripts/verify-inventory-kernel.ts"],
+    description: "reserved quantity fields have been removed from active APIs",
   },
   {
     pattern: "expected_qty",

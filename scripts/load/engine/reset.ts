@@ -83,19 +83,6 @@ const STEPS: CountStep[] = [
     },
   },
   {
-    table: "inventory.inventory_reservations_summary",
-    count: (tx, orgId) =>
-      readCount(
-        tx,
-        sql`SELECT COUNT(*)::int AS n FROM inventory.inventory_reservations_summary WHERE organization_id = ${orgId}`
-      ),
-    delete: async (tx, orgId) => {
-      await tx.execute(
-        sql`DELETE FROM inventory.inventory_reservations_summary WHERE organization_id = ${orgId}`
-      );
-    },
-  },
-  {
     table: "inventory.inventory_expected_summary",
     count: (tx, orgId) =>
       readCount(

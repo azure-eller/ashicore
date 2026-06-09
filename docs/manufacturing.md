@@ -69,7 +69,7 @@ Manufacturing orders may have an optional `priorityRank`:
 - draft and released orders may be ranked or reprioritized
 - completed orders keep their historical rank but cannot be changed
 
-Ranking only changes queue order. It does not affect inventory, reservations, costing, Xero, shipments, or status transitions.
+Ranking changes demand queue order. It does not directly mutate inventory, costing, Xero, shipments, or status transitions.
 
 ## Execution Surfaces
 
@@ -162,7 +162,7 @@ Release validates that:
 - draft ingredient rows are structurally valid
 
 Release does not warn on current ingredient shortages. It records planned
-ingredient demand/reservations and expected finished-good supply immediately.
+ingredient demand and expected finished-good supply immediately.
 Picking remains the stock-consuming step and may warn/require confirmation for
 negative stock or lot eligibility.
 
@@ -200,7 +200,6 @@ When a worker picks an ingredient:
 - lock FIFO candidate `inventory.lots` rows
 - deduct the remaining quantity immediately
 - write one `manufacturing_ingredient_consumption` event per consumed lot
-- emit `reservation_release` for the picked ingredient quantity
 - persist the lot allocations in `manufacturing_pick_allocations`
 - update ingredient `pickedQuantity`, `pickStatus`, and `pickedAt`
 
@@ -305,7 +304,7 @@ Cancellation is inventory-aware:
 
 Released cancellation also:
 
-- releases any remaining ingredient reservations
+- releases any remaining ingredient demand
 - releases the output-side expected supply
 
 Produced output still cannot be cancelled in v1.

@@ -100,9 +100,7 @@ export const inventoryItemBalances = inventorySchema
         .notNull()
         .references(() => items.id, { onDelete: "cascade" }),
       onHandQty: numeric("on_hand_qty", { precision: 18, scale: 4 }).notNull().default("0"),
-      committedQty: numeric("committed_qty", { precision: 18, scale: 4 }).notNull().default("0"),
       demandQty: numeric("demand_qty", { precision: 18, scale: 4 }).notNull().default("0"),
-      shortageQty: numeric("shortage_qty", { precision: 18, scale: 4 }).notNull().default("0"),
       expectedQty: numeric("expected_qty", { precision: 18, scale: 4 }).notNull().default("0"),
       availableToPromise: numeric("available_to_promise", {
         precision: 18,
@@ -118,49 +116,6 @@ export const inventoryItemBalances = inventorySchema
         columns: [table.organizationId, table.locationId, table.itemId],
       }),
       pgPolicy("inventory_item_balances_org_isolation", {
-        for: "all",
-        to: "public",
-        using: sql`organization_id = current_setting('app.current_org_id', true)`,
-        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
-      }),
-    ]
-  )
-  .enableRLS();
-
-export const inventoryReservationsSummary = inventorySchema
-  .table(
-    "inventory_reservations_summary",
-    {
-      organizationId: text("organization_id").notNull(),
-      locationId: uuid("location_id")
-        .notNull()
-        .references(() => inventoryLocations.id),
-      itemId: uuid("item_id")
-        .notNull()
-        .references(() => items.id, { onDelete: "cascade" }),
-      referenceType: varchar("reference_type", { length: 64 }).notNull(),
-      referenceId: uuid("reference_id").notNull(),
-      quantity: numeric("quantity", { precision: 18, scale: 4 }).notNull().default("0"),
-      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-    },
-    (table) => [
-      primaryKey({
-        name: "inventory_reservations_summary_pk",
-        columns: [
-          table.organizationId,
-          table.locationId,
-          table.itemId,
-          table.referenceType,
-          table.referenceId,
-        ],
-      }),
-      index("inventory_reservations_summary_reference_idx").on(
-        table.organizationId,
-        table.referenceType,
-        table.referenceId
-      ),
-      pgPolicy("inventory_reservations_summary_org_isolation", {
         for: "all",
         to: "public",
         using: sql`organization_id = current_setting('app.current_org_id', true)`,

@@ -29,7 +29,6 @@ import { documentNumberSortSql } from "@/lib/document-numbers";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
-  projectedCommittedQty,
   projectedExpectedQty,
   projectedOnHandQty,
 } from "@/lib/inventory/kernel";
@@ -105,7 +104,6 @@ type PlanningItemRecord = {
   unitUom: string | null;
   safetyStock: string;
   onHandQuantity: string;
-  reservedQuantity: string;
   expectedQuantity: string;
   defaultPurchasePrice: string | null;
   purchaseUnitDefinitionId: string | null;
@@ -1034,9 +1032,6 @@ async function getPlanningItemsInTx(tx: Tx): Promise<PlanningItemRecord[]> {
       onHandQuantity: projectedOnHandQty(items.organizationId, items.id).as(
         "onHandQuantity"
       ),
-      reservedQuantity: projectedCommittedQty(items.organizationId, items.id).as(
-        "reservedQuantity"
-      ),
       expectedQuantity: projectedExpectedQty(items.organizationId, items.id).as(
         "expectedQuantity"
       ),
@@ -1238,13 +1233,11 @@ async function getOpenManufacturingComponentDemandFactsInTx(
 function getInventoryFacts(itemsList: PlanningItemRecord[]): InventoryFact[] {
   return itemsList.map((item) => {
     const onHandQuantity = toQuantity(item.onHandQuantity);
-    const reservedQuantity = toQuantity(item.reservedQuantity);
-    const availableQuantity = positiveQuantity(onHandQuantity - reservedQuantity);
+    const availableQuantity = positiveQuantity(onHandQuantity);
 
     return {
       itemId: item.id,
       onHandQuantity: normalizeQuantity(onHandQuantity),
-      reservedQuantity: normalizeQuantity(reservedQuantity),
       availableQuantity: normalizeQuantity(availableQuantity),
       expectedQuantity: item.expectedQuantity,
       sourceRefs: [itemRef(item)],
@@ -1946,8 +1939,7 @@ function buildPlanningRows(args: {
     };
     const inventory = inventoryByItem.get(item.id);
     const onHandQuantity = toQuantity(inventory?.onHandQuantity);
-    const reservedQuantity = toQuantity(inventory?.reservedQuantity);
-    const availableStock = positiveQuantity(onHandQuantity - reservedQuantity);
+    const availableStock = positiveQuantity(onHandQuantity);
     const projectedQuantity = roundQuantity(
       onHandQuantity +
         bucket.incomingPurchaseOrderQuantity +
@@ -2007,7 +1999,6 @@ function buildPlanningRows(args: {
       ...itemDemandFacts.flatMap((fact) => fact.reasonCodes),
       ...itemSupplyFacts.flatMap((fact) => fact.reasonCodes),
       ...(onHandQuantity > 0 ? ["inventory_available" as const] : []),
-      ...(reservedQuantity > 0 ? ["reserved_stock" as const] : []),
       shortageQuantity > 0 ? "projected_shortage" : "no_shortage",
     ]);
     const hasSuggestedBuy =
@@ -2040,7 +2031,6 @@ function buildPlanningRows(args: {
       planningType,
       demandQuantity: normalizeQuantity(bucket.demandQuantity),
       availableStock: normalizeQuantity(availableStock),
-      reservedQuantity: normalizeQuantity(reservedQuantity),
       incomingPurchaseOrderQuantity: normalizeQuantity(
         bucket.incomingPurchaseOrderQuantity
       ),

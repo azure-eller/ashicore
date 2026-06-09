@@ -166,7 +166,6 @@ export function makeDraftLine(input: {
     onHandQty: null,
     availableQty: null,
     allocatedQty: "0",
-    reservedQty: "0",
     potential: null,
     shortQty: "0",
     sourceSummary: "",

@@ -22,9 +22,7 @@ export type VariantRow = {
   displayName: string;
   sku: string | null;
   stock: string;
-  committedQty: string;
   demandQty: string;
-  shortageQty: string;
   availableQty: string;
   expectedQty: string;
   safetyStock: string;
@@ -63,9 +61,7 @@ export type ItemRow = {
   itemType: ItemType;
   lotTrackingMode: "tracked" | "untracked";
   stock: string;
-  committedQty: string;
   demandQty: string;
-  shortageQty: string;
   availableQty: string;
   expectedQty: string;
   safetyStock: string;
@@ -123,13 +119,12 @@ export function calcProjectedStock(
 }
 
 export function getReplenishmentStatus(
-  row: Pick<ItemRow, "stock" | "demandQty" | "expectedQty" | "safetyStock" | "shortageQty">,
+  row: Pick<ItemRow, "stock" | "demandQty" | "expectedQty" | "safetyStock">,
 ): ReplenishmentStatus {
   const projectedStock = calcProjectedStock(row);
   const safetyStock = Math.max(0, parseQuantity(row.safetyStock));
-  const shortage = parseQuantity(row.shortageQty);
 
-  if (shortage > 0 || (safetyStock > 0 && projectedStock <= safetyStock)) {
+  if (safetyStock > 0 && projectedStock <= safetyStock) {
     return "order-now";
   }
 

@@ -94,7 +94,7 @@ Invalid transitions:
 
 - deleting an open order soft-deletes the order row, deletes linked open
   manufacturing orders created specifically for that sales order, and releases
-  active reservations
+  open demand
 - editing a draft order hard-deletes all existing lines, then inserts a fresh set
 - shipped fulfillment, finalized invoices, accounting pushes, completed
   manufacturing output, and finalized inventory consumption block deletion
@@ -182,24 +182,25 @@ allocation contracts should not ask operators to choose or inspect that lot.
 
 ## Committed Supply Projection
 
-Only this contributes to committed supply:
+Only this contributes to sales demand:
 
 - non-deleted orders
 - status = `open`
 - non-deleted lines
 
-`done` orders do not contribute to committed supply. For partial shipping,
-committed supply is the remaining open demand, not the original ordered
-quantity.
+`done` orders do not contribute to sales demand. For partial shipping, demand is
+the remaining open quantity, not the original ordered quantity.
 
 The kernel model is:
 
-- `reservation_increase` and `reservation_release` ledger events
-- `inventory_reservations_summary` for open per-line reservations
-- `inventory_item_balances.committedQty` for hot-path availability reads
+- `demand_increase` and `demand_release` ledger events for open business demand
+- live demand queue coverage for planning availability and queue conflicts
+- physical lot consumption events for shipping execution
 
 Implementation rule:
 
-- sales DAL code must call the kernel reservation operations for create, edit,
-  delete, and order shipping paths
-- sales must never mutate committed quantity directly or bypass the kernel projections
+- sales DAL code must record/release demand for create, edit, delete, and order
+  shipping paths
+- sales shipping validates demand-specific queue coverage in the transaction,
+  then consumes physical stock through linked-output/FIFO execution rules
+- sales must never persist soft planning claims or bypass the inventory kernel

@@ -664,9 +664,6 @@ async function loadRelevantInventoryContextInTx(
       onHandQty: trimScale(sql`COALESCE(SUM(${inventoryItemBalances.onHandQty}), 0)`).as(
         "onHandQty"
       ),
-      reservedQty: trimScale(
-        sql`COALESCE(SUM(${inventoryItemBalances.committedQty}), 0)`
-      ).as("reservedQty"),
       expectedQty: trimScale(
         sql`COALESCE(SUM(${inventoryItemBalances.expectedQty}), 0)`
       ).as("expectedQty"),
@@ -772,7 +769,6 @@ async function loadRelevantInventoryContextInTx(
     const planningRow = planningRowsByItemId.get(row.itemId);
     const inventoryFact = inventoryFactsByItemId.get(row.itemId);
     const onHandQty = inventoryFact?.onHandQuantity ?? row.onHandQty;
-    const reservedQty = inventoryFact?.reservedQuantity ?? row.reservedQty;
     const expectedQty = inventoryFact?.expectedQuantity ?? row.expectedQty;
     return {
       itemId: row.itemId,
@@ -782,8 +778,7 @@ async function loadRelevantInventoryContextInTx(
       onHandQty,
       availableQty:
         inventoryFact?.availableQuantity ??
-        quantityString(toQuantity(onHandQty) - toQuantity(reservedQty)),
-      reservedQty,
+        quantityString(toQuantity(onHandQty)),
       expectedQty,
       projectedQty: planningRow?.projectedQuantity ?? quantityString(toQuantity(onHandQty)),
       lots: lotsByItemId.get(row.itemId) ?? [],
@@ -1513,7 +1508,6 @@ function buildRawProductionContext(
           unitName: item.unitName,
           onHandQty: item.onHandQty,
           availableQty: item.availableQty,
-          reservedQty: item.reservedQty,
           expectedQty: item.expectedQty,
           openSalesDemandQty: quantityString(salesDemand?.demandQty ?? 0),
           openSalesCoveredQty: quantityString(salesDemand?.coveredQty ?? 0),

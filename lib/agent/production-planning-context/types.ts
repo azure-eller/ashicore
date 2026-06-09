@@ -157,9 +157,8 @@ export type AgentInventoryContext = {
   lotTrackingMode: "tracked" | "untracked";
   unitName: string | null;
   onHandQty: string;
-  /** Current usable on-hand after reservations; not projected future availability. */
+  /** Current usable physical on-hand; not projected future availability. */
   availableQty: string;
-  reservedQty: string;
   expectedQty: string;
   /** Planning-derived net projected quantity after demand and open supply. */
   projectedQty: string;
@@ -354,7 +353,6 @@ export type AgentProductionRawContext = {
     unitName: string | null;
     onHandQty: string;
     availableQty: string;
-    reservedQty: string;
     expectedQty: string;
     openSalesDemandQty: string;
     openSalesCoveredQty: string;

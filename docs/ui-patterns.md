@@ -384,14 +384,14 @@ One line. Definition or formula. Period.
 Good (already in `lib/tooltip-copy.ts`):
 
 - `Stock - demand + expected - safety stock.`
-- `Reservable stock after existing hard reservations.`
+- `Physical stock available on hand.`
 - `Quantity expected from active released manufacturing orders.`
 - `Buffer stock intentionally held back.`
 
 Bad (rewrite if seen):
 
 - ✗ `How many units could be manufactured from current ingredient stock.` → ✓ `Units producible from current ingredient stock.`
-- ✗ `This shows the available stock you can sell to customers right now.` → ✓ `Reservable stock after existing hard reservations.`
+- ✗ `This shows the available stock you can sell to customers right now.` → ✓ `Physical stock available on hand.`
 - ✗ Tooltip text matching the trigger label exactly (e.g. "Edit" on a button labelled Edit) → ✓ drop the tooltip.
 
 ### Where the copy lives
@@ -409,7 +409,7 @@ Pick the trigger that's already on screen:
 <SortableHeader column={column} label="Calculated Stock" tooltip="Stock - demand + expected - safety stock." />
 
 // Non-sortable header or inline label — dotted underline, default cursor
-<TooltipHeader label="Available" tooltip="Reservable stock after demand and reservations." />
+<TooltipHeader label="Available" tooltip="Physical stock available on hand." />
 
 // Status pill, badge, or alert dot — wrap the existing element
 <Tooltip>

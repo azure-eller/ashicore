@@ -2,11 +2,11 @@ import { formatQuantity } from "@/lib/format";
 import type { NegativeStockWarningPayload } from "@/app/(dashboard)/sales/types";
 
 export function stockWarningTitle(warning: NegativeStockWarningPayload) {
-  if (warning.reason === "commitment_conflict") {
-    return "Ship stock committed elsewhere?";
+  if (warning.reason === "queue_conflict") {
+    return "Ship stock claimed by earlier demand?";
   }
-  if (warning.reason === "commitment_and_negative_stock") {
-    return "Ship despite commitment conflict?";
+  if (warning.reason === "queue_conflict_and_negative_stock") {
+    return "Ship despite queue conflict?";
   }
   return "Ship despite shortage?";
 }
@@ -14,16 +14,16 @@ export function stockWarningTitle(warning: NegativeStockWarningPayload) {
 export function stockWarningDescription(warning: NegativeStockWarningPayload) {
   const requested = formatQuantity(String(warning.requested));
   const available = formatQuantity(String(warning.available));
-  const committed = formatQuantity(String(warning.committedToOthers ?? 0));
+  const claimed = formatQuantity(String(warning.claimedByHigherPriority ?? 0));
   const shortage = formatQuantity(String(warning.shortage));
 
-  if (warning.reason === "commitment_conflict") {
-    return `${warning.itemName} needs ${requested}. ${available} is free for this order, and ${committed} is already committed to other orders. Shipping will take stock from another order.`;
+  if (warning.reason === "queue_conflict") {
+    return `${warning.itemName} needs ${requested}. ${available} is covered for this order, and ${claimed} is claimed by earlier demand. Shipping will take stock from another order.`;
   }
 
-  if (warning.reason === "commitment_and_negative_stock") {
-    return `${warning.itemName} needs ${requested}. ${available} is free for this order, and ${committed} is already committed to other orders. Shipping will take committed stock and still leave a shortage of ${shortage}.`;
+  if (warning.reason === "queue_conflict_and_negative_stock") {
+    return `${warning.itemName} needs ${requested}. ${available} is covered for this order, and ${claimed} is claimed by earlier demand. Shipping will take earlier-demand stock and still leave a shortage of ${shortage}.`;
   }
 
-  return `${warning.itemName} is short by ${shortage} (${available} free for this order, needs ${requested}). Shipping will drive stock negative.`;
+  return `${warning.itemName} is short by ${shortage} (${available} covered for this order, needs ${requested}). Shipping will drive stock negative.`;
 }
