@@ -359,6 +359,46 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     });
     expect(editResponse.status, await editResponse.text()).toBe(200);
 
+    const [editedOrder] = await db
+      .select({ status: purchaseOrders.status, receivedAt: purchaseOrders.receivedAt })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, order.id));
+    expect(editedOrder.status).toBe("received");
+    expect(editedOrder.receivedAt).not.toBeNull();
+
+    const expectedRows = await db
+      .select({ referenceId: inventoryExpectedSummary.referenceId })
+      .from(inventoryExpectedSummary)
+      .where(
+        and(
+          eq(inventoryExpectedSummary.referenceType, "purchase_order_line"),
+          eq(inventoryExpectedSummary.referenceId, line.id),
+        ),
+      );
+    expect(expectedRows).toHaveLength(0);
+
+    const materialEditResponse = await testFetch(`/api/purchase-orders/${order.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        supplierId: supplier.body.id,
+        expectedDate: "2026-05-20",
+        shippingCost: "60.00",
+        notes: null,
+        accountingPurchaseAccountCode: null,
+        lines: [{ itemId, quantityOrdered: "11", unitCost: "10.00" }],
+        additionalCosts: [
+          {
+            costType: "shipping",
+            reference: "Freight",
+            distributionMethod: "by_value",
+            accountingPurchaseAccountCode: null,
+            amount: "60.00",
+          },
+        ],
+      }),
+    });
+    expect(materialEditResponse.status, await materialEditResponse.text()).toBe(400);
+
     const [reval] = await db
       .select({
         quantity: inventoryEvents.quantity,

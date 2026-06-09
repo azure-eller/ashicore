@@ -158,6 +158,12 @@ export function isBlankPurchaseOrderAdditionalCost(
   );
 }
 
+function hasPurchaseOrderAdditionalCostAmount(
+  cost: PurchaseOrderAdditionalCostPayloadRow | undefined,
+) {
+  return Boolean(cost?.amount?.trim());
+}
+
 export function createPurchaseOrderAdditionalCostRow(
   values?: Partial<PurchaseOrderAdditionalCostDraftRow>,
 ): PurchaseOrderAdditionalCostDraftRow {
@@ -183,7 +189,7 @@ export function toPurchaseOrderAdditionalCostPayloadRows(
   rows: PurchaseOrderAdditionalCostDraftRow[],
 ): PurchaseOrderAdditionalCostPayloadRow[] {
   return rows
-    .filter((row) => !isBlankPurchaseOrderAdditionalCost(row))
+    .filter(hasPurchaseOrderAdditionalCostAmount)
     .map(({ costType, reference, supplierId, distributionMethod, amount }) => ({
       costType: costType ?? "shipping",
       reference: reference ?? null,
@@ -515,7 +521,7 @@ function mergePurchaseOrderServerResult(
     next.lines = appendBlankPurchaseOrderLineRows(next.lines, draft.lines);
   }
   if (!hasNewerAdditionalCostEdits) {
-    next.additionalCosts = appendBlankPurchaseOrderAdditionalCostRows(
+    next.additionalCosts = appendIncompletePurchaseOrderAdditionalCostRows(
       next.additionalCosts,
       draft.additionalCosts,
     );
@@ -534,14 +540,16 @@ function appendBlankPurchaseOrderLineRows(
   return blankDraftRows.length === 0 ? serverRows : [...serverRows, ...blankDraftRows];
 }
 
-function appendBlankPurchaseOrderAdditionalCostRows(
+function appendIncompletePurchaseOrderAdditionalCostRows(
   serverRows: PurchaseOrderAdditionalCostDraftRow[],
   draftRows: PurchaseOrderAdditionalCostDraftRow[],
 ) {
-  const blankDraftRows = draftRows.filter(
-    (row) => !row.id && isBlankPurchaseOrderAdditionalCost(row),
+  const incompleteDraftRows = draftRows.filter(
+    (row) => !row.id && !hasPurchaseOrderAdditionalCostAmount(row),
   );
-  return blankDraftRows.length === 0 ? serverRows : [...serverRows, ...blankDraftRows];
+  return incompleteDraftRows.length === 0
+    ? serverRows
+    : [...serverRows, ...incompleteDraftRows];
 }
 
 const purchaseOrderDefaultValuesFallback: InsertPurchaseOrder = {

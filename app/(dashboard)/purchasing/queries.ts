@@ -2419,6 +2419,25 @@ export async function duplicatePurchaseOrder(id: string) {
   });
 }
 
+function sameNumericValue(
+  left: string | null | undefined,
+  right: string | null | undefined,
+) {
+  const leftNumber = Number(left ?? "");
+  const rightNumber = Number(right ?? "");
+  if (!Number.isFinite(leftNumber) || !Number.isFinite(rightNumber)) {
+    return (left ?? null) === (right ?? null);
+  }
+  return Math.abs(leftNumber - rightNumber) < 0.000001;
+}
+
+function sameNullableValue(
+  left: string | null | undefined,
+  right: string | null | undefined,
+) {
+  return (left ?? null) === (right ?? null);
+}
+
 export async function updatePurchaseOrder(
   id: string,
   data: UpdatePurchaseOrder,
@@ -2496,11 +2515,32 @@ export async function updatePurchaseOrder(
 
       for (const line of prepared.preparedLines) {
         const existingLine = existingLineByItemId.get(line.itemId);
+        if (order.status === "received" && !existingLine) {
+          throw new PurchasingError(
+            "Received purchase order material lines cannot be changed.",
+            400,
+          );
+        }
         if (existingLine) {
           const quantityReceived = parseFloat(existingLine.quantityReceived);
           const stockQuantityReceived = parseFloat(
             existingLine.stockQuantityReceived,
           );
+          if (
+            order.status === "received" &&
+            (!sameNumericValue(line.quantityOrdered, existingLine.quantityOrdered) ||
+              !sameNumericValue(
+                line.stockQuantityOrdered,
+                existingLine.stockQuantityOrdered,
+              ) ||
+              !sameNumericValue(line.unitCost, existingLine.unitCost) ||
+              !sameNullableValue(line.taxRateId, existingLine.taxRateId))
+          ) {
+            throw new PurchasingError(
+              "Received purchase order material lines cannot be changed.",
+              400,
+            );
+          }
           if (
             parseFloat(line.quantityOrdered) < quantityReceived ||
             parseFloat(line.stockQuantityOrdered) < stockQuantityReceived

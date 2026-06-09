@@ -873,7 +873,8 @@ export function PurchaseOrderCard({
   const readOnly = !canWrite || displayStatus === "received";
   const canDeletePurchaseOrder =
     canWrite && (displayStatus === "draft" || displayStatus === "ordered");
-  const billAffectingReadOnly = readOnly || purchaseBillStatus === "pushed";
+  const materialLinesReadOnly = readOnly || purchaseBillStatus === "pushed";
+  const additionalCostsReadOnly = !canWrite || purchaseBillStatus === "pushed";
   const [purchaseOrderSupplierOptions, setPurchaseOrderSupplierOptions] =
     useState<SupplierOption[]>(suppliers);
   useEffect(() => {
@@ -1186,7 +1187,7 @@ export function PurchaseOrderCard({
         headerTooltip: PURCHASE_MATERIAL_TOOLTIP,
         minWidth: 300,
         flex: 1.6,
-        editable: (data) => !billAffectingReadOnly && !receivedMaterialIds.has(data?.itemId ?? ""),
+        editable: (data) => !materialLinesReadOnly && !receivedMaterialIds.has(data?.itemId ?? ""),
         options: materialOptions,
         placeholder: "Search or create item",
         emptyMessage: "No materials found",
@@ -1250,7 +1251,7 @@ export function PurchaseOrderCard({
         headerTooltip: PO_ORDERED_QTY_TOOLTIP,
         minWidth: 104,
         flex: 0.5,
-        editable: !billAffectingReadOnly,
+        editable: !materialLinesReadOnly,
         valueSetter: (
           params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>,
         ) => {
@@ -1294,7 +1295,7 @@ export function PurchaseOrderCard({
         headerTooltip: PURCHASE_UNIT_COST_TOOLTIP,
         minWidth: 132,
         flex: 0.65,
-        editable: !billAffectingReadOnly,
+        editable: !materialLinesReadOnly,
         valueSetter: (
           params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>,
         ) => {
@@ -1339,7 +1340,7 @@ export function PurchaseOrderCard({
         headerName: "Tax",
         minWidth: 128,
         flex: 0.5,
-        editable: !billAffectingReadOnly,
+        editable: !materialLinesReadOnly,
         values: ["", ...taxRates.map((rate) => rate.id)],
         valueFormatter: ({ value }) => {
           if (!value) return "0%";
@@ -1383,7 +1384,7 @@ export function PurchaseOrderCard({
     materialMap,
     materialOptions,
     receivedMaterialIds,
-    billAffectingReadOnly,
+    materialLinesReadOnly,
     taxRates,
     taxRateMap,
   ]);
@@ -1448,7 +1449,7 @@ export function PurchaseOrderCard({
         headerTooltip: PURCHASE_ADDITIONAL_COST_TYPE_TOOLTIP,
         minWidth: 128,
         flex: 0.75,
-        editable: !billAffectingReadOnly,
+        editable: !additionalCostsReadOnly,
         values: Object.keys(ADDITIONAL_COST_TYPE_LABELS),
         valueFormatter: ({
           value,
@@ -1473,7 +1474,7 @@ export function PurchaseOrderCard({
         headerTooltip: PURCHASE_COST_REFERENCE_TOOLTIP,
         minWidth: 172,
         flex: 1.25,
-        editable: !billAffectingReadOnly,
+        editable: !additionalCostsReadOnly,
         valueSetter: (
           params: ValueSetterParams<
             PurchaseOrderAdditionalCostGridRow,
@@ -1491,7 +1492,7 @@ export function PurchaseOrderCard({
         headerName: "Supplier",
         minWidth: 180,
         flex: 1,
-        editable: !billAffectingReadOnly,
+        editable: !additionalCostsReadOnly,
         values: ["", ...supplierOptionsSorted.map((supplier) => supplier.id)],
         createSelectOption: {
           label: "Create supplier...",
@@ -1524,7 +1525,7 @@ export function PurchaseOrderCard({
         headerTooltip: PURCHASE_COST_DISTRIBUTION_TOOLTIP,
         minWidth: 148,
         flex: 0.8,
-        editable: !billAffectingReadOnly,
+        editable: !additionalCostsReadOnly,
         values: Object.keys(ADDITIONAL_COST_DISTRIBUTION_LABELS),
         valueFormatter: ({
           value,
@@ -1549,7 +1550,7 @@ export function PurchaseOrderCard({
         headerTooltip: PURCHASE_COST_AMOUNT_TOOLTIP,
         minWidth: 128,
         flex: 0.65,
-        editable: !billAffectingReadOnly,
+        editable: !additionalCostsReadOnly,
         valueSetter: (
           params: ValueSetterParams<
             PurchaseOrderAdditionalCostGridRow,
@@ -1586,7 +1587,7 @@ export function PurchaseOrderCard({
   }, [
     additionalCostGridRows,
     fieldErrors.additionalCosts,
-    billAffectingReadOnly,
+    additionalCostsReadOnly,
     createAdditionalCostSupplier,
     rememberSupplierForCurrentMaterials,
     supplierOptionsSorted,
@@ -2348,7 +2349,7 @@ export function PurchaseOrderCard({
       : purchaseOrderController.error
     : "All changes saved";
   const cardSaveState: CardSaveState = (() => {
-    if (readOnly) return "readonly";
+    if (readOnly && additionalCostsReadOnly) return "readonly";
     if (autosaveState === "saving") return "saving";
     if (autosaveState === "error") return "failed";
     if (!savedOrderId || autosaveState === "dirty") {
@@ -2656,7 +2657,7 @@ export function PurchaseOrderCard({
                     onEdit={openEditAddressDialog}
                     inputClassName={styles.underlineControl}
                     labelClassName={styles.formLabel}
-                    readOnly={billAffectingReadOnly}
+                    readOnly={materialLinesReadOnly}
                   />
                 </div>
               </div>
@@ -2670,7 +2671,7 @@ export function PurchaseOrderCard({
                 createRow={createLineRow}
                 onRowsChange={handleLineRowsChange}
                 addLabel="Add material"
-                readOnly={billAffectingReadOnly}
+                readOnly={materialLinesReadOnly}
                 canDeleteRow={(row) => !receivedMaterialIds.has(row.itemId ?? "")}
                 getDeleteDisabledReason={(row) =>
                   receivedMaterialIds.has(row.itemId ?? "")
@@ -2684,7 +2685,7 @@ export function PurchaseOrderCard({
                     <button
                       type="button"
                       className="inline-flex min-h-7 items-center gap-(--space-1) rounded-[var(--radius-md)] border-0 bg-transparent px-(--space-3) py-0 text-[length:var(--text-sm)] font-medium text-[var(--color-accent-ink)] outline-none transition-colors duration-(--duration-1) ease-(--ease-out) hover:bg-[var(--color-accent-soft)] focus-visible:shadow-[0_0_0_4px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-50"
-                      disabled={billAffectingReadOnly}
+                      disabled={additionalCostsReadOnly}
                       onClick={() => {
                         setAdditionalCostsExpanded(true);
                         if (additionalCostGridRows.length === 0) {
@@ -2711,7 +2712,7 @@ export function PurchaseOrderCard({
                   createRow={createAdditionalCostRow}
                   onRowsChange={handleAdditionalCostRowsChange}
                   addLabel="Add cost"
-                  readOnly={billAffectingReadOnly}
+                  readOnly={additionalCostsReadOnly}
                   emptyMessage="No additional costs yet."
                   error={additionalCostsError}
                 />
