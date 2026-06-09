@@ -5,13 +5,7 @@ import { jsonError, jsonNotFound, jsonCreated } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
 import { insertManufacturingOrderSchema } from "@/lib/schemas/manufacturing-orders";
-import {
-  createManufacturingOrder,
-  deleteManufacturingOrders,
-  getManufacturingOrder,
-  getManufacturingOrders,
-  ManufacturingError,
-} from "@/app/(dashboard)/manufacturing/queries";
+import { createManufacturingOrder, deleteManufacturingOrders, getManufacturingOrder, getManufacturingOrders } from "@/app/(dashboard)/manufacturing/queries";
 
 export const GET = apiHandler(async (request) => {
   await assertModuleReadAccess("manufacturing", request.headers);
@@ -35,17 +29,12 @@ export const POST = apiHandler(async (request) => {
   await assertModuleWriteAccess("manufacturing", request.headers);
   const data = await parseJsonBody(request, insertManufacturingOrderSchema);
 
-  try {
-    const created = await createManufacturingOrder(data);
-    const order = await getManufacturingOrder(created.id);
+  const created = await createManufacturingOrder(data);
+  const order = await getManufacturingOrder(created.id);
 
-    if (!order) {
-      return jsonNotFound("Order not found");
-    }
-
-    return jsonCreated(order);
-  } catch (error) {
-    if (error instanceof ManufacturingError) return error.toResponse();
-    throw error;
+  if (!order) {
+    return jsonNotFound("Order not found");
   }
+
+  return jsonCreated(order);
 });

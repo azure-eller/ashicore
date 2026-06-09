@@ -5,13 +5,7 @@ import { jsonNotFound, jsonSuccess } from "@/lib/api/responses";
 import { deletePrivateBlobsIfConfigured } from "@/lib/blob-storage";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { patchCustomerSchema, updateCustomerSchema } from "@/lib/schemas/customers";
-import {
-  deleteCustomer,
-  getCustomerDetail,
-  patchCustomer,
-  SalesError,
-  updateCustomer,
-} from "@/app/(dashboard)/sales/queries";
+import { deleteCustomer, getCustomerDetail, patchCustomer, updateCustomer } from "@/app/(dashboard)/sales/queries";
 
 export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleReadAccess("sales", request.headers);
@@ -55,18 +49,13 @@ export const DELETE = apiHandler(async (_request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("sales", _request.headers);
   const { id } = await (ctx as RouteContext).params;
 
-  try {
-    const result = await deleteCustomer(id);
+  const result = await deleteCustomer(id);
 
-    if (!result.deleted) {
-      return jsonNotFound("Customer not found");
-    }
-
-    await deletePrivateBlobsIfConfigured(result.blobUrls);
-
-    return jsonSuccess();
-  } catch (error) {
-    if (error instanceof SalesError) return error.toResponse();
-    throw error;
+  if (!result.deleted) {
+    return jsonNotFound("Customer not found");
   }
+
+  await deletePrivateBlobsIfConfigured(result.blobUrls);
+
+  return jsonSuccess();
 });

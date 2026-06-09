@@ -7,8 +7,6 @@ import {
   previewXeroImportUndo,
   type ContactImportEntity,
 } from "@/lib/xero/import-contacts";
-import { XeroError } from "@/lib/xero/errors";
-
 type RouteContext = {
   params: Promise<{ id: string }>;
 };
@@ -32,14 +30,9 @@ export const POST = apiHandler(
     const memberContext = await getAuthedApiMemberContext(request.headers);
     const { id } = await context.params;
 
-    try {
-      const entityType = await getXeroImportRunEntityType(memberContext.orgId, id);
-      assertImportResetAccess(memberContext.assignedRoles, entityType);
-      const result = await previewXeroImportUndo(memberContext.orgId, id);
-      return NextResponse.json(result);
-    } catch (error) {
-      if (error instanceof XeroError) return error.toResponse();
-      throw error;
-    }
+    const entityType = await getXeroImportRunEntityType(memberContext.orgId, id);
+    assertImportResetAccess(memberContext.assignedRoles, entityType);
+    const result = await previewXeroImportUndo(memberContext.orgId, id);
+    return NextResponse.json(result);
   }
 );

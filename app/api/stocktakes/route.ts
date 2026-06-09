@@ -6,12 +6,7 @@ import { requestSearchParams } from "@/lib/routing/search-params";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { createStocktakeSchema } from "@/lib/schemas/stocktakes";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
-import {
-  createStocktake,
-  deleteStocktakes,
-  getStocktakes,
-  StocktakeError,
-} from "@/lib/dal/stocktakes";
+import { createStocktake, deleteStocktakes, getStocktakes } from "@/lib/dal/stocktakes";
 
 export const GET = apiHandler(async (request) => {
   await assertModuleReadAccess("inventory", request.headers);
@@ -41,11 +36,6 @@ export const POST = apiHandler(async (request) => {
   await assertModuleWriteAccess("inventory", request.headers);
   const data = await parseJsonBody(request, createStocktakeSchema);
 
-  try {
-    const stocktake = await createStocktake(data);
-    return jsonCreated(stocktake);
-  } catch (error) {
-    if (error instanceof StocktakeError) return error.toResponse();
-    throw error;
-  }
+  const stocktake = await createStocktake(data);
+  return jsonCreated(stocktake);
 });

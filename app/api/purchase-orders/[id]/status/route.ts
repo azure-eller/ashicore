@@ -5,7 +5,6 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import {
   getPurchaseOrder,
-  PurchasingError,
   receivePurchaseOrder,
   submitPurchaseOrder,
 } from "@/app/(dashboard)/purchasing/queries";
@@ -33,55 +32,50 @@ export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
     return NextResponse.json({ id });
   }
 
-  try {
-    if (status === "ordered") {
-      const result = await submitPurchaseOrder(id, {
-        idempotencyKey: `${idempotencyKey}:submit`,
-        syncAccounting: false,
-        sendEmail: false,
-      });
-      if (!result) {
-        return NextResponse.json(
-          { error: "Purchase order not found" },
-          { status: 404 },
-        );
-      }
-      return NextResponse.json(result);
-    }
-
-    if (status === "received") {
-      const receivableLines = order.lines
-        .filter((line) => Number(line.quantityRemaining) > 0)
-        .map((line) => ({
-          lineId: line.id,
-          quantityReceived: line.quantityRemaining,
-          disposition: "available" as const,
-        }));
-
-      if (receivableLines.length === 0) {
-        return NextResponse.json({ id });
-      }
-
-      const result = await receivePurchaseOrder(
-        id,
-        { lines: receivableLines, confirmOverReceipt: false },
-        { idempotencyKey: `${idempotencyKey}:receive` },
+  if (status === "ordered") {
+    const result = await submitPurchaseOrder(id, {
+      idempotencyKey: `${idempotencyKey}:submit`,
+      syncAccounting: false,
+      sendEmail: false,
+    });
+    if (!result) {
+      return NextResponse.json(
+        { error: "Purchase order not found" },
+        { status: 404 },
       );
-      if (!result) {
-        return NextResponse.json(
-          { error: "Purchase order not found" },
-          { status: 404 },
-        );
-      }
-      return NextResponse.json(result);
+    }
+    return NextResponse.json(result);
+  }
+
+  if (status === "received") {
+    const receivableLines = order.lines
+      .filter((line) => Number(line.quantityRemaining) > 0)
+      .map((line) => ({
+        lineId: line.id,
+        quantityReceived: line.quantityRemaining,
+        disposition: "available" as const,
+      }));
+
+    if (receivableLines.length === 0) {
+      return NextResponse.json({ id });
     }
 
-    return NextResponse.json(
-      { error: "This status transition is not available from the list." },
-      { status: 400 },
+    const result = await receivePurchaseOrder(
+      id,
+      { lines: receivableLines, confirmOverReceipt: false },
+      { idempotencyKey: `${idempotencyKey}:receive` },
     );
-  } catch (error) {
-    if (error instanceof PurchasingError) return error.toResponse();
-    throw error;
+    if (!result) {
+      return NextResponse.json(
+        { error: "Purchase order not found" },
+        { status: 404 },
+      );
+    }
+    return NextResponse.json(result);
   }
+
+  return NextResponse.json(
+    { error: "This status transition is not available from the list." },
+    { status: 400 },
+  );
 });

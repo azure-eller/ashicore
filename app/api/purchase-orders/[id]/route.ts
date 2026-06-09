@@ -8,12 +8,7 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonError, jsonNotFound, jsonSuccess } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { updatePurchaseOrderSchema } from "@/lib/schemas/purchase-orders";
-import {
-  deletePurchaseOrder,
-  getPurchaseOrder,
-  PurchasingError,
-  updatePurchaseOrder,
-} from "@/app/(dashboard)/purchasing/queries";
+import { deletePurchaseOrder, getPurchaseOrder, updatePurchaseOrder } from "@/app/(dashboard)/purchasing/queries";
 import { getActiveAccountingProvider } from "@/lib/dal/accounting";
 
 
@@ -38,18 +33,13 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   const data = await parseJsonBody(request, updatePurchaseOrderSchema);
   const idempotencyKey = requireIdempotencyKey(request, "updatePurchaseOrder");
 
-  try {
-    const order = await updatePurchaseOrder(id, data, { idempotencyKey });
+  const order = await updatePurchaseOrder(id, data, { idempotencyKey });
 
-    if (!order) {
-      return jsonNotFound("Purchase order not found");
-    }
-
-    return NextResponse.json(order);
-  } catch (error) {
-    if (error instanceof PurchasingError) return error.toResponse();
-    throw error;
+  if (!order) {
+    return jsonNotFound("Purchase order not found");
   }
+
+  return NextResponse.json(order);
 });
 
 export const DELETE = apiHandler(async (_request: Request, ctx: unknown) => {

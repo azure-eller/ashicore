@@ -4,11 +4,7 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { updateStocktakeSchema } from "@/lib/schemas/stocktakes";
-import {
-  getStocktake,
-  StocktakeError,
-  updateStocktakeCounts,
-} from "@/lib/dal/stocktakes";
+import { getStocktake, updateStocktakeCounts } from "@/lib/dal/stocktakes";
 
 export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
@@ -27,16 +23,11 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("inventory", request.headers);
   const data = await parseJsonBody(request, updateStocktakeSchema);
 
-  try {
-    const stocktake = await updateStocktakeCounts(id, data);
+  const stocktake = await updateStocktakeCounts(id, data);
 
-    if (!stocktake) {
-      return jsonNotFound("Stocktake not found");
-    }
-
-    return NextResponse.json(stocktake);
-  } catch (error) {
-    if (error instanceof StocktakeError) return error.toResponse();
-    throw error;
+  if (!stocktake) {
+    return jsonNotFound("Stocktake not found");
   }
+
+  return NextResponse.json(stocktake);
 });

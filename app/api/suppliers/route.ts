@@ -5,12 +5,7 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { insertSupplierSchema } from "@/lib/schemas/suppliers";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
-import {
-  createSupplier,
-  deleteSuppliers,
-  getSuppliers,
-  PurchasingError,
-} from "@/app/(dashboard)/purchasing/queries";
+import { createSupplier, deleteSuppliers, getSuppliers } from "@/app/(dashboard)/purchasing/queries";
 
 
 export const GET = apiHandler(async (request) => {
@@ -30,11 +25,6 @@ export const DELETE = apiHandler(async (request) => {
   await assertModuleWriteAccess("purchasing", request.headers);
   const data = await parseJsonBody(request, bulkDeleteSchema);
 
-  try {
-    const result = await deleteSuppliers(data.ids);
-    return NextResponse.json(result);
-  } catch (error) {
-    if (error instanceof PurchasingError) return error.toResponse();
-    throw error;
-  }
+  const result = await deleteSuppliers(data.ids);
+  return NextResponse.json(result);
 });

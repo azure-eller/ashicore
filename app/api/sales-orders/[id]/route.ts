@@ -7,13 +7,7 @@ import {
   patchSalesOrderHeaderSchema,
   updateSalesOrderSchema,
 } from "@/lib/schemas/sales-orders";
-import {
-  deleteSalesOrder,
-  getSalesOrder,
-  patchSalesOrderHeader,
-  SalesError,
-  updateSalesOrder,
-} from "@/app/(dashboard)/sales/queries";
+import { deleteSalesOrder, getSalesOrder, patchSalesOrderHeader, updateSalesOrder } from "@/app/(dashboard)/sales/queries";
 import { getActiveAccountingProvider } from "@/lib/dal/accounting";
 
 
@@ -38,20 +32,15 @@ export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
   const data = await parseJsonBody(request, patchSalesOrderHeaderSchema);
 
-  try {
-    const patched = await patchSalesOrderHeader(id, data, { idempotencyKey });
-    if (!patched) {
-      return jsonNotFound("Order not found");
-    }
-    const order = await getSalesOrder(id);
-    if (!order) {
-      return jsonNotFound("Order not found");
-    }
-    return NextResponse.json(order);
-  } catch (error) {
-    if (error instanceof SalesError) return error.toResponse();
-    throw error;
+  const patched = await patchSalesOrderHeader(id, data, { idempotencyKey });
+  if (!patched) {
+    return jsonNotFound("Order not found");
   }
+  const order = await getSalesOrder(id);
+  if (!order) {
+    return jsonNotFound("Order not found");
+  }
+  return NextResponse.json(order);
 });
 
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
@@ -60,31 +49,20 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
   const data = await parseJsonBody(request, updateSalesOrderSchema);
 
-  try {
-    const order = await updateSalesOrder(id, data, { idempotencyKey });
+  const order = await updateSalesOrder(id, data, { idempotencyKey });
 
-    if (!order) {
-      return jsonNotFound("Order not found");
-    }
-
-    return NextResponse.json(order);
-  } catch (error) {
-    if (error instanceof SalesError) return error.toResponse();
-    throw error;
+  if (!order) {
+    return jsonNotFound("Order not found");
   }
+
+  return NextResponse.json(order);
 });
 
 export const DELETE = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("sales", request.headers);
   const idempotencyKey = requireIdempotencyKey(request, "deleteSalesOrder");
   const { id } = await (ctx as RouteContext).params;
-  let result;
-  try {
-    result = await deleteSalesOrder(id, { idempotencyKey });
-  } catch (error) {
-    if (error instanceof SalesError) return error.toResponse();
-    throw error;
-  }
+  const result = await deleteSalesOrder(id, { idempotencyKey });
 
   if (!result.deleted) {
     return jsonNotFound("Order not found");

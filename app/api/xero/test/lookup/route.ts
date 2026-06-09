@@ -5,7 +5,6 @@ import { requestSearchParams } from "@/lib/routing/search-params";
 import { assertModuleWriteAccess, withAuthedOrgContext } from "@/lib/dal/auth";
 import { findXeroInvoiceForSalesOrder } from "@/lib/xero/push-invoice";
 import { findXeroPurchaseOrderForPurchaseOrder } from "@/lib/xero/push-purchase-order";
-import { XeroError } from "@/lib/xero/errors";
 import { blockXeroTestEndpointInProduction } from "@/lib/xero/test-endpoints";
 
 export const dynamic = "force-dynamic";
@@ -29,22 +28,17 @@ export const GET = apiHandler(async (request: Request) => {
   }
 
   return withAuthedOrgContext(async (_tx, orgId) => {
-    try {
-      if (entity === "invoice") {
-        const found = await findXeroInvoiceForSalesOrder(orgId, reference);
-        return NextResponse.json({ found: !!found, match: found });
-      }
-      if (entity === "purchase_order") {
-        const found = await findXeroPurchaseOrderForPurchaseOrder(
-          orgId,
-          reference
-        );
-        return NextResponse.json({ found: !!found, match: found });
-      }
-      return jsonError("entity must be 'invoice' or 'purchase_order'");
-    } catch (error) {
-      if (error instanceof XeroError) return error.toResponse();
-      throw error;
+    if (entity === "invoice") {
+      const found = await findXeroInvoiceForSalesOrder(orgId, reference);
+      return NextResponse.json({ found: !!found, match: found });
     }
+    if (entity === "purchase_order") {
+      const found = await findXeroPurchaseOrderForPurchaseOrder(
+        orgId,
+        reference
+      );
+      return NextResponse.json({ found: !!found, match: found });
+    }
+    return jsonError("entity must be 'invoice' or 'purchase_order'");
   });
 });
