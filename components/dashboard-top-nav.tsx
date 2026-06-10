@@ -7,12 +7,14 @@ import {
   useRef,
   useState,
 } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
   AddCircleIcon,
+  ChatSparkIcon,
   CheckmarkCircle02Icon,
   LogoutIcon,
   MoreHorizontalIcon,
@@ -77,6 +79,11 @@ const useIsomorphicLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 type NavModule = ReturnType<typeof getDashboardNavModules>[number];
+
+const AgentChatSheet = dynamic(
+  () => import("@/components/agent-chat-sheet").then((mod) => mod.AgentChatSheet),
+  { ssr: false }
+);
 
 function ModuleTab({
   module,
@@ -298,6 +305,10 @@ export function DashboardTopNav({
   const [switchError, setSwitchError] = useState<string | null>(null);
   const [pageSearchOpen, setPageSearchOpen] = useState(false);
   const [pageSearch, setPageSearch] = useState("");
+  const [agentChatOpen, setAgentChatOpen] = useState(false);
+  // Mounted lazily on first open, then kept mounted so the conversation
+  // survives closing the sheet.
+  const [agentChatMounted, setAgentChatMounted] = useState(false);
   const modules = getDashboardNavModules(assignedRoles);
   const createActions = getDashboardCreateActions(assignedRoles);
   const searchActions = getDashboardSearchActions(assignedRoles);
@@ -481,6 +492,28 @@ export function DashboardTopNav({
                 </div>
               </PopoverContent>
             </Popover>
+            <Button
+              id="dashboard-agent-chat-trigger"
+              type="button"
+              variant="outline"
+              className="h-(--height-topnav-control) gap-(--space-4) rounded-(--radius-full) border-[var(--chrome-line)] bg-transparent px-(--space-6) text-[length:var(--text-md)] font-semibold text-[var(--chrome-fg)] shadow-none hover:bg-[var(--chrome-line)] hover:text-[var(--chrome-fg)] aria-expanded:bg-[var(--chrome-line)] max-sm:px-(--space-5)"
+              aria-label="Open Ash assistant"
+              aria-expanded={agentChatOpen}
+              aria-controls="dashboard-agent-chat-sheet"
+              onClick={() => {
+                setAgentChatMounted(true);
+                setAgentChatOpen(true);
+              }}
+            >
+              <span className="flex size-(--space-9) items-center justify-center rounded-(--radius-sm) bg-[var(--chrome-fg)] text-[var(--color-accent)]">
+                <HugeiconsIcon
+                  icon={ChatSparkIcon}
+                  strokeWidth={2}
+                  className="size-(--space-6)"
+                />
+              </span>
+              <span className="max-sm:sr-only">Ash</span>
+            </Button>
             {createActions.length > 0 ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -658,6 +691,9 @@ export function DashboardTopNav({
             })}
           </div>
         </nav>
+      ) : null}
+      {agentChatMounted ? (
+        <AgentChatSheet open={agentChatOpen} onOpenChange={setAgentChatOpen} />
       ) : null}
     </>
   );

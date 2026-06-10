@@ -62,6 +62,7 @@ next-env.d.ts
 /.claude/*
 !/.claude/skills/
 /.tmp/
+/.tmp/source/
 /.xero-evidence/
 /entities.json
 /mempalace.yaml

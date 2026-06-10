@@ -1,0 +1,239 @@
+import "server-only";
+
+import { randomUUID } from "node:crypto";
+import {
+  createUIMessageStream,
+  createUIMessageStreamResponse,
+  type UIMessage,
+  type UIMessageStreamWriter,
+} from "ai";
+import { z } from "zod";
+import {
+  runAgentTask,
+  type AgentRuntimeEvent,
+  type AgentRuntimeMessage,
+  type AgentToolMemberContext,
+  type AgentToolResult,
+} from "@/lib/agent/core";
+import { createOpenAIResponsesAgentProvider } from "@/lib/agent/providers/openai-responses";
+import { dashboardChatAgentTask } from "@/lib/agent/chat/task";
+
+const uiMessagePartSchema = z.object({ type: z.string() }).passthrough();
+const uiMessageSchema = z
+  .object({
+    id: z.string(),
+    role: z.enum(["system", "user", "assistant"]),
+    parts: z.array(uiMessagePartSchema),
+  })
+  .passthrough() as z.ZodType<UIMessage>;
+
+export const dashboardChatRequestSchema = z.object({
+  id: z.string().optional(),
+  context: z.string().max(240).optional(),
+  messages: z.array(uiMessageSchema),
+});
+
+function partText(part: UIMessage["parts"][number]) {
+  if (part.type !== "text") return "";
+  return typeof part.text === "string" ? part.text : "";
+}
+
+function messageText(message: UIMessage) {
+  return message.parts.map(partText).join("").trim();
+}
+
+function uiMessageToRuntimeMessage(message: UIMessage): AgentRuntimeMessage | null {
+  const content = messageText(message);
+  if (!content) return null;
+
+  if (message.role === "user") {
+    return { role: "user", content };
+  }
+
+  if (message.role === "assistant") {
+    return { role: "assistant", content };
+  }
+
+  return null;
+}
+
+export function dashboardChatMessagesToRuntime(messages: UIMessage[]) {
+  const latestUserIndex = messages.findLastIndex((message) => message.role === "user");
+  if (latestUserIndex === -1) {
+    return null;
+  }
+
+  const input = messageText(messages[latestUserIndex]!);
+  if (!input) {
+    return null;
+  }
+
+  return {
+    input,
+    history: messages
+      .slice(Math.max(0, latestUserIndex - 12), latestUserIndex)
+      .map(uiMessageToRuntimeMessage)
+      .filter((message): message is AgentRuntimeMessage => message != null),
+  };
+}
+
+function toolOutput(result: AgentToolResult) {
+  if (result.status === "failed") {
+    return { error: result.error };
+  }
+
+  return {
+    summary: result.summary,
+    artifact: result.artifact,
+    data: result.data,
+  };
+}
+
+function writeToolEvent(
+  writer: UIMessageStreamWriter,
+  event: Extract<AgentRuntimeEvent, { type: "tool_started" | "tool_completed" | "tool_failed" }>,
+) {
+  if (event.type === "tool_started") {
+    writer.write({
+      type: "tool-input-available",
+      toolCallId: event.toolCall.id,
+      toolName: event.toolCall.name,
+      input: event.toolCall.input,
+      dynamic: true,
+    });
+    return;
+  }
+
+  if (event.type === "tool_completed") {
+    writer.write({
+      type: "tool-output-available",
+      toolCallId: event.toolCall.id,
+      output: toolOutput(event.result),
+      dynamic: true,
+    });
+    return;
+  }
+
+  writer.write({
+    type: "tool-output-error",
+    toolCallId: event.toolCall.id,
+    errorText: event.error.message,
+    dynamic: true,
+  });
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "Agent chat failed.";
+}
+
+export function createDashboardChatResponse(args: {
+  messages: UIMessage[];
+  organizationName: string;
+  member: AgentToolMemberContext;
+  pageContext?: string;
+  abortSignal: AbortSignal;
+  now?: Date;
+}) {
+  const prepared = dashboardChatMessagesToRuntime(args.messages);
+  if (!prepared) {
+    return new Response("A user message is required.", { status: 400 });
+  }
+
+  const stream = createUIMessageStream({
+    originalMessages: args.messages,
+    onError: errorMessage,
+    execute: async ({ writer }) => {
+      // Text and reasoning parts are framed per turn: opened on first delta,
+      // closed at the turn boundary, so parts interleave with tool calls in
+      // the order the model produced them.
+      let textId: string | null = null;
+      let reasoningId: string | null = null;
+
+      const endTextPart = () => {
+        if (!textId) return;
+        writer.write({ type: "text-end", id: textId });
+        textId = null;
+      };
+      const endReasoningPart = () => {
+        if (!reasoningId) return;
+        writer.write({ type: "reasoning-end", id: reasoningId });
+        reasoningId = null;
+      };
+      for await (const event of runAgentTask({
+        task: dashboardChatAgentTask,
+        provider: createOpenAIResponsesAgentProvider(),
+        input: [
+          `Current organization: ${args.organizationName}`,
+          args.pageContext ? `Page context: ${args.pageContext}` : null,
+          `User message:\n${prepared.input}`,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+        history: prepared.history,
+        run: {
+          runId: randomUUID(),
+          now: (args.now ?? new Date()).toISOString(),
+          abortSignal: args.abortSignal,
+          artifacts: null,
+          member: args.member,
+        },
+        // Backstop against runaway loops, not a scope limit — tool results enter
+        // the transcript as compact projections, so deep tool chains stay cheap.
+        maxTurns: 12,
+      })) {
+        switch (event.type) {
+          case "model_text_delta":
+            endReasoningPart();
+            if (!textId) {
+              textId = randomUUID();
+              writer.write({ type: "text-start", id: textId });
+            }
+            writer.write({ type: "text-delta", id: textId, delta: event.delta });
+            break;
+          case "model_reasoning_delta":
+            if (!reasoningId) {
+              reasoningId = randomUUID();
+              writer.write({ type: "reasoning-start", id: reasoningId });
+            }
+            writer.write({ type: "reasoning-delta", id: reasoningId, delta: event.delta });
+            break;
+          case "model_message":
+            endReasoningPart();
+            endTextPart();
+            break;
+          case "tool_call_started":
+            endReasoningPart();
+            writer.write({
+              type: "tool-input-start",
+              toolCallId: event.toolCallId,
+              toolName: event.toolName,
+              dynamic: true,
+            });
+            break;
+          case "tool_started":
+          case "tool_completed":
+          case "tool_failed":
+            writeToolEvent(writer, event);
+            break;
+          case "validation_failed":
+            writer.write({
+              type: "data-validation",
+              data: { errors: event.errors },
+              transient: true,
+            });
+            break;
+          case "run_failed":
+            writer.write({ type: "error", errorText: event.error });
+            break;
+          default:
+            break;
+        }
+      }
+
+      endReasoningPart();
+      endTextPart();
+    },
+  });
+
+  return createUIMessageStreamResponse({ stream });
+}
