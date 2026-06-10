@@ -24,7 +24,7 @@ export default async function Page({
     const nextPath = target ?? DEFAULT_SIGN_IN_TARGET
 
     if (await isMfaRequiredForSession(session)) {
-      redirect(`/mfa-setup?next=${encodeURIComponent(nextPath)}`)
+      redirect(`/two-factor?next=${encodeURIComponent(nextPath)}`)
     }
 
     if (!session.session.activeOrganizationId) {

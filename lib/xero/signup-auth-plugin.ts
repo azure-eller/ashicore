@@ -20,7 +20,7 @@ function settingsRedirect() {
 }
 
 function mfaSetupRedirect(next: string) {
-  return `/mfa-setup?next=${encodeURIComponent(next)}`;
+  return `/two-factor?next=${encodeURIComponent(next)}`;
 }
 
 function signupErrorRedirect(reason: string) {

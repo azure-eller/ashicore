@@ -141,7 +141,7 @@ test.describe("Xero App Store signup", () => {
     const { id: intentId } = await seedIntent({ email, token, tenantId });
 
     await page.goto(`/api/auth/xero-signup/complete?intent=${intentId}&token=${token}`);
-    await page.waitForURL("**/mfa-setup?next=**");
+    await page.waitForURL("**/two-factor?next=**");
     const mfaUrl = new URL(page.url());
     expect(mfaUrl.searchParams.get("next")).toBe(CONNECTED_SETTINGS_URL);
 

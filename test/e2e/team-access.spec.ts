@@ -138,12 +138,12 @@ async function acceptInviteAsNewUser(
   await page.getByLabel(/^Confirm Password$/).fill(password);
   await page.locator("form").getByRole("button", { name: "Create Account" }).click();
   await page.waitForURL(
-    (url) => ["/mfa-setup", expectedPath].includes(url.pathname),
+    (url) => ["/two-factor", expectedPath].includes(url.pathname),
     { timeout: 15_000 }
   );
   await markUserMfaEnrolled(db, email);
 
-  if (new URL(page.url()).pathname === "/mfa-setup") {
+  if (new URL(page.url()).pathname === "/two-factor") {
     await page.goto(expectedPath);
   }
 
@@ -259,7 +259,7 @@ test.describe("Team access", () => {
     await page.getByLabel(/^Confirm Password$/).fill(orgOwnerPassword);
     await page.getByRole("button", { name: "Continue" }).click();
     await page.waitForURL((url) =>
-      ["/mfa-setup", "/org-setup"].includes(url.pathname)
+      ["/two-factor", "/org-setup"].includes(url.pathname)
     );
     await markUserMfaEnrolled(db, orgOwnerEmail);
     await page.goto("/org-setup");

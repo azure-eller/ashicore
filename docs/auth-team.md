@@ -95,11 +95,10 @@ Do not wrap request-auth helpers that read `headers()` in React `cache()`. Membe
 - Local/test worktree servers set `AUTH_MFA_DISABLED=1` and bypass MFA in
   `development` / `test` only; production and preview-like environments must
   not set this flag.
-- New sign-ups go to `/mfa-setup` before organization setup.
-- Existing signed-in users without MFA are redirected to `/mfa-setup` before
+- New sign-ups go to `/two-factor` before organization setup.
+- Existing signed-in users without MFA are redirected to `/two-factor` before
   dashboard or API access.
-- Users with MFA enabled complete `/two-factor` after password sign-in unless
-  the device is trusted.
+- Users complete `/two-factor` with an email code unless the device is trusted.
 - Supported method is email OTP. Authenticator-app TOTP and backup-code UI are
   intentionally hidden until the product supports recovery/setup clearly.
 - Better Auth owns the MFA-enabled user flag, email OTP verification records,
@@ -110,7 +109,7 @@ Do not wrap request-auth helpers that read `headers()` in React `cache()`. Membe
 - Keep `/two-factor` public in `proxy.ts`; Better Auth removes the normal
   session cookie while a 2FA challenge is pending and uses a signed temporary
   two-factor cookie instead.
-- Invite acceptance may create/join the organization before MFA setup, but the
+- Invite acceptance may create/join the organization before email-code verification, but the
   user is still blocked from app access until MFA is enrolled.
 
 ## Resend Wrapper

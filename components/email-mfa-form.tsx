@@ -27,10 +27,9 @@ import { apiJson } from "@/lib/client/api";
 
 type EmailMfaFormProps = {
   next: string;
-  mode: "setup" | "challenge";
 };
 
-export function EmailMfaForm({ next, mode }: EmailMfaFormProps) {
+export function EmailMfaForm({ next }: EmailMfaFormProps) {
   const router = useRouter();
   const [code, setCode] = useState("");
   const [codeSent, setCodeSent] = useState(false);
@@ -94,9 +93,7 @@ export function EmailMfaForm({ next, mode }: EmailMfaFormProps) {
         <CardDescription>
           {codeSent
             ? "Enter the 6-digit code from the email we just sent."
-            : mode === "setup"
-              ? "To finish setup, send a one-time code to the email address on this account."
-              : "Send a one-time code to the email address on this account."}
+            : "Send a one-time code to the email address on this account."}
         </CardDescription>
       </CardHeader>
       <CardContent className="p-(--space-10)">
@@ -174,11 +171,9 @@ export function EmailMfaForm({ next, mode }: EmailMfaFormProps) {
               </>
             )}
             {error ? <FieldError>{error}</FieldError> : null}
-            {mode === "challenge" ? (
-              <FieldDescription className="text-center">
-                Not your account? <Link href="/sign-in">Sign in again</Link>
-              </FieldDescription>
-            ) : null}
+            <FieldDescription className="text-center">
+              Not your account? <Link href="/sign-in">Sign in again</Link>
+            </FieldDescription>
           </FieldGroup>
         </form>
       </CardContent>

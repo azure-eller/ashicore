@@ -267,7 +267,7 @@ export async function getAuthedMemberContext(): Promise<MemberContext> {
   const { session, context } = await getRequestAuthState();
 
   if (session && (await isMfaRequiredForSession(session))) {
-    redirect("/mfa-setup");
+    redirect("/two-factor");
   }
 
   if (!context) {
@@ -338,7 +338,7 @@ export async function getAuthedApiMemberContext(
   }
 
   if (await isMfaRequiredForSession(session)) {
-    throw new AuthorizationError("Multi-factor authentication setup required.", 403);
+    redirect("/two-factor");
   }
 
   const context = await resolveMemberContext(normalizedHeaders, session);

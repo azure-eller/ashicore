@@ -21,7 +21,7 @@ export default async function Page({
 
   if (await isMfaRequiredForSession(session)) {
     redirect(
-      `/mfa-setup?next=${encodeURIComponent(
+      `/two-factor?next=${encodeURIComponent(
         plan ? `/org-setup?plan=${plan}` : "/org-setup"
       )}`
     );
