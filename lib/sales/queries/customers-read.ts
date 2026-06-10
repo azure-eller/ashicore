@@ -89,6 +89,16 @@ const customerRowSelect = {
       AND ${integrationExternalRecords.localRecordId} = ${customers.id}
     LIMIT 1
   )`,
+  nextTaskId: sql<string | null>`(
+    SELECT ca.id::text
+    FROM ${customerActivities} ca
+    WHERE ca.customer_id = ${customers.id}
+      AND ca.type = 'task'
+      AND ca.status = 'open'
+      AND ca.deleted_at IS NULL
+    ORDER BY ca.due_date ASC NULLS LAST, ca.created_at ASC, ca.id ASC
+    LIMIT 1
+  )`.as("nextTaskId"),
   nextTaskTitle: sql<string | null>`(
     SELECT ca.title
     FROM ${customerActivities} ca

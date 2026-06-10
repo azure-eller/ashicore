@@ -59,6 +59,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
 import {
   MutableLines,
@@ -73,7 +79,6 @@ import {
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import {
   CardField,
-  CardSelectField,
   CardTextField,
 } from "@/components/card-page/card-field";
 import {
@@ -214,6 +219,20 @@ const accountPriorityOptions = [
 
 const noActivityProjectValue = "__no_activity_project__";
 const newProjectSentinel = "__new_project__";
+
+const accountStateDots: Record<string, string> = {
+  active: "bg-[var(--color-success)]",
+  growth: "bg-[var(--color-accent)]",
+  at_risk: "bg-[var(--color-warning)]",
+  former: "bg-[var(--color-ink-faint)]",
+};
+
+const accountPriorityDots: Record<string, string> = {
+  strategic: "bg-[var(--color-accent)]",
+  high: "bg-[var(--color-warning)]",
+  standard: "bg-[var(--color-ink-faint)]",
+  low: "bg-[var(--color-line)]",
+};
 
 type ActivityStreamFilter =
   | { kind: "project"; id: string; name: string }
@@ -452,6 +471,47 @@ export function CustomerCard({
     <CardPage>
       <CardPageHeader
         title={display.name.trim() || "New customer"}
+        meta={
+          <div className="flex flex-wrap items-center gap-(--space-2)">
+            <HeaderMetaPill
+              label="State"
+              value={display.accountState}
+              options={accountStateOptions}
+              dotClassName={accountStateDots[display.accountState]}
+              disabled={readOnly}
+              onSelect={(accountState) =>
+                commitCustomerPatch({
+                  accountState: accountState as PatchCustomer["accountState"],
+                })
+              }
+            />
+            <HeaderMetaPill
+              label="Priority"
+              value={display.accountPriority}
+              options={accountPriorityOptions}
+              dotClassName={accountPriorityDots[display.accountPriority]}
+              disabled={readOnly}
+              onSelect={(accountPriority) =>
+                commitCustomerPatch({
+                  accountPriority:
+                    accountPriority as PatchCustomer["accountPriority"],
+                })
+              }
+            />
+            <HeaderMetaPill
+              label="Category"
+              value={display.customerCategoryId ?? noCustomerCategoryValue}
+              options={categoryOptions}
+              disabled={readOnly}
+              onSelect={(value) =>
+                commitCustomerPatch({
+                  customerCategoryId:
+                    value === noCustomerCategoryValue ? null : value,
+                })
+              }
+            />
+          </div>
+        }
         saveState={cardSaveState}
         saveMessage={cardSaveMessage}
         fallbackHref="/sales/customers"
@@ -514,41 +574,6 @@ export function CustomerCard({
                 onCommit={(phone) => commitCustomerPatch({ phone })}
               />
             </CardField>
-            <CardSelectField
-              label="Category"
-              value={display.customerCategoryId ?? noCustomerCategoryValue}
-              disabled={readOnly}
-              options={categoryOptions}
-              onValueChange={(value) =>
-                commitCustomerPatch({
-                  customerCategoryId:
-                    value === noCustomerCategoryValue ? null : value,
-                })
-              }
-            />
-            <CardSelectField
-              label="State"
-              value={display.accountState}
-              disabled={readOnly}
-              options={accountStateOptions}
-              onValueChange={(accountState) =>
-                commitCustomerPatch({
-                  accountState: accountState as PatchCustomer["accountState"],
-                })
-              }
-            />
-            <CardSelectField
-              label="Priority"
-              value={display.accountPriority}
-              disabled={readOnly}
-              options={accountPriorityOptions}
-              onValueChange={(accountPriority) =>
-                commitCustomerPatch({
-                  accountPriority:
-                    accountPriority as PatchCustomer["accountPriority"],
-                })
-              }
-            />
             <CardField label="Shipping address" htmlFor="customer-shipping-address">
               <CustomerAddressInput
                 id="customer-shipping-address"
@@ -893,6 +918,7 @@ function ActivitySection({
   const [projectId, setProjectId] = useState(noActivityProjectValue);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [streamSheetOpen, setStreamSheetOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectStatus, setNewProjectStatus] = useState<"planning" | "active">("planning");
   const [newProjectTargetDate, setNewProjectTargetDate] = useState("");
@@ -1026,7 +1052,20 @@ function ActivitySection({
     newProjectMutation.error;
 
   return (
-    <CardSection title="Activity" count={`· ${rows.length}`}>
+    <CardSection
+      title="Activity"
+      count={`· ${rows.length}`}
+      actions={
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setStreamSheetOpen(true)}
+        >
+          View all →
+        </Button>
+      }
+    >
       <div className="grid gap-(--space-5)">
         {!readOnly ? (
           <div className="grid gap-0 rounded-(--radius-md) border border-[var(--color-line)]">
@@ -1169,196 +1208,43 @@ function ActivitySection({
           </div>
         ) : null}
 
-        {!readOnly || openTasks.length > 0 ? (
-          <div className="grid gap-(--space-2)">
-            <h3 className={styles.sectionHeading}>
-              Upcoming · {openTasks.length}
-            </h3>
-            {openTasks.length === 0 ? (
-              <p className="rounded-(--radius-md) border border-dashed border-[var(--color-line)] px-(--space-4) py-(--space-3) text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
-                Nothing scheduled — create a task above.
-              </p>
-            ) : null}
-            <ul className="grid gap-(--space-2)">
-              {openTasks.map((task) => {
-                return (
-                  <li
-                    key={task.id}
-                    className="flex items-center gap-(--space-3) py-(--space-2)"
-                  >
-                    <Checkbox
-                      aria-label={`Complete "${task.title}"`}
-                      checked={false}
-                      disabled={readOnly || pending}
-                      onCheckedChange={() =>
-                        patchMutation.mutate({
-                          activityId: task.id,
-                          status: "done",
-                        })
-                      }
-                    />
-                    <span className="min-w-0 flex-1 truncate text-[length:var(--text-sm)]">
-                      {renderWithMentions(task.title ?? "", task.attendees, onFilterChange)}
-                    </span>
-                    {task.projectName && task.customerProjectId ? (
-                      <ActivityProjectChip
-                        name={task.projectName}
-                        onSelect={() =>
-                          onFilterChange({
-                            kind: "project",
-                            id: task.customerProjectId as string,
-                            name: task.projectName as string,
-                          })
-                        }
-                      />
-                    ) : null}
-                    <span
-                      className={cn(
-                        "whitespace-nowrap rounded-full border px-(--space-4) py-(--space-1) text-[length:var(--text-xs)]",
-                        !task.dueDate &&
-                          "border-dashed border-[var(--color-line)] text-[var(--color-ink-faint)]",
-                        task.dueDate && task.dueDate < today
-                          ? "border-transparent bg-[var(--color-danger-soft)] text-[var(--color-danger)]"
-                          : task.dueDate === today
-                            ? "border-transparent bg-[var(--color-warning-soft)] text-[var(--color-ink)]"
-                            : task.dueDate
-                              ? "border-[var(--color-line)] text-[var(--color-ink-faint)]"
-                              : undefined
-                      )}
-                    >
-                      {task.dueDate
-                        ? `Due ${formatDate(task.dueDate)}${
-                            task.dueDate < today
-                              ? " · Overdue"
-                              : task.dueDate === today
-                                ? " · Today"
-                                : ""
-                          }`
-                        : "No due date"}
-                    </span>
-                    {!readOnly ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Delete "${task.title}"`}
-                        disabled={pending}
-                        onClick={() => deleteMutation.mutate(task.id)}
-                      >
-                        <HugeiconsIcon icon={Delete02Icon} />
-                      </Button>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ) : null}
-
-        {timelineMonths.length > 0 ? (
-          <div className="grid gap-(--space-5)">
-            {timelineMonths.map((month) => (
-              <div key={month.label} className="grid gap-(--space-3)">
-                <div className="flex items-center gap-(--space-4)">
-                  <h3 className={styles.sectionHeading}>{month.label}</h3>
-                  <div className="h-px flex-1 bg-[var(--color-line)]" />
-                </div>
-                <ul className="grid gap-(--space-4)">
-                  {month.entries.map((entry) => (
-                    <li key={entry.id} className="flex gap-(--space-4)">
-                      {entry.type === "task" ? (
-                        <Checkbox
-                          aria-label={`Reopen "${entry.title}"`}
-                          checked
-                          disabled={readOnly || pending}
-                          className="mt-(--space-1)"
-                          onCheckedChange={() =>
-                            patchMutation.mutate({
-                              activityId: entry.id,
-                              status: "open",
-                            })
-                          }
-                        />
-                      ) : (
-                        <span className="mt-(--space-1) flex size-(--space-9) shrink-0 items-center justify-center rounded-full border border-[var(--color-line)] text-[var(--color-ink-faint)]">
-                          <HugeiconsIcon
-                            icon={activityTimelineIcons[entry.type]}
-                            className="size-(--space-6)"
-                          />
-                        </span>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-(--space-3)">
-                          <span className="text-[length:var(--text-xs)] font-medium uppercase tracking-wide text-[var(--color-ink-faint)]">
-                            {activityComposerMeta[entry.type].label}
-                            {entry.type === "task" ? " · Done" : ""}
-                          </span>
-                          {entry.createdByName ? (
-                            <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-                              {entry.createdByName}
-                            </span>
-                          ) : null}
-                          <span className="font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-                            {formatDate(toDateOnlyString(timelineDate(entry)))}
-                          </span>
-                          {entry.projectName && entry.customerProjectId ? (
-                            <ActivityProjectChip
-                              name={entry.projectName}
-                              onSelect={() =>
-                                onFilterChange({
-                                  kind: "project",
-                                  id: entry.customerProjectId as string,
-                                  name: entry.projectName as string,
-                                })
-                              }
-                            />
-                          ) : null}
-                        </div>
-                        {entry.title ? (
-                          <p className="mt-(--space-2) text-[length:var(--text-sm)]">
-                            {renderWithMentions(entry.title, entry.attendees, onFilterChange)}
-                          </p>
-                        ) : null}
-                        {entry.body ? (
-                          <p className="mt-(--space-2) whitespace-pre-wrap text-[length:var(--text-sm)] leading-[var(--leading-md)] text-[var(--color-ink)]">
-                            {renderWithMentions(entry.body, entry.attendees, onFilterChange)}
-                          </p>
-                        ) : null}
-                        {entry.attendees.some(
-                          (attendee) =>
-                            !`${entry.title ?? ""} ${entry.body ?? ""}`.includes(
-                              `@${attendee.contactName}`
-                            )
-                        ) ? (
-                          <p className="mt-(--space-2) flex flex-wrap gap-(--space-3) text-[length:var(--text-xs)]">
-                            {entry.attendees
-                              .filter(
-                                (attendee) =>
-                                  !`${entry.title ?? ""} ${entry.body ?? ""}`.includes(
-                                    `@${attendee.contactName}`
-                                  )
-                              )
-                              .map((attendee) => (
-                                <MentionToken
-                                  key={attendee.id}
-                                  name={attendee.contactName}
-                                  contactId={attendee.contactId}
-                                  onFilterChange={onFilterChange}
-                                />
-                              ))}
-                          </p>
-                        ) : null}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        ) : openTasks.length === 0 ? (
-          <EmptyState density="compact">No activity yet.</EmptyState>
-        ) : null}
+        <ActivityStreamLists
+          openTasks={openTasks}
+          timelineMonths={timelineMonths}
+          readOnly={readOnly}
+          pending={pending}
+          today={today}
+          onToggle={(args) => patchMutation.mutate(args)}
+          onDelete={(activityId) => deleteMutation.mutate(activityId)}
+          onFilterChange={onFilterChange}
+        />
       </div>
+
+      <Sheet open={streamSheetOpen} onOpenChange={setStreamSheetOpen}>
+        <SheetContent
+          side="right"
+          className="gap-0 overflow-hidden p-0 data-[side=right]:w-[min(560px,94vw)] data-[side=right]:sm:max-w-[min(560px,94vw)]"
+        >
+          <SheetHeader>
+            <SheetTitle>Activity · {rows.length}</SheetTitle>
+            <SheetDescription className="sr-only">
+              The full activity stream for this customer.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="grid min-h-0 flex-1 content-start gap-(--space-5) overflow-y-auto p-(--space-8)">
+            <ActivityStreamLists
+              openTasks={openTasks}
+              timelineMonths={timelineMonths}
+              readOnly={readOnly}
+              pending={pending}
+              today={today}
+              onToggle={(args) => patchMutation.mutate(args)}
+              onDelete={(activityId) => deleteMutation.mutate(activityId)}
+              onFilterChange={onFilterChange}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <Sheet open={newProjectOpen} onOpenChange={setNewProjectOpen}>
         <SheetContent
@@ -1424,6 +1310,269 @@ function ActivitySection({
         </SheetContent>
       </Sheet>
     </CardSection>
+  );
+}
+
+function ActivityStreamLists({
+  openTasks,
+  timelineMonths,
+  readOnly,
+  pending,
+  today,
+  onToggle,
+  onDelete,
+  onFilterChange,
+}: {
+  openTasks: CustomerActivityRow[];
+  timelineMonths: Array<{ label: string; entries: CustomerActivityRow[] }>;
+  readOnly: boolean;
+  pending: boolean;
+  today: string;
+  onToggle: (args: { activityId: string; status: "open" | "done" }) => void;
+  onDelete: (activityId: string) => void;
+  onFilterChange: (filter: ActivityStreamFilter) => void;
+}) {
+  return (
+    <>
+        {!readOnly || openTasks.length > 0 ? (
+          <div className="grid gap-(--space-2)">
+            <h3 className={styles.sectionHeading}>
+              Upcoming · {openTasks.length}
+            </h3>
+            {openTasks.length === 0 ? (
+              <p className="rounded-(--radius-md) border border-dashed border-[var(--color-line)] px-(--space-4) py-(--space-3) text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
+                Nothing scheduled — create a task above.
+              </p>
+            ) : null}
+            <ul className="grid gap-(--space-2)">
+              {openTasks.map((task) => {
+                return (
+                  <li
+                    key={task.id}
+                    className="flex items-center gap-(--space-3) py-(--space-2)"
+                  >
+                    <Checkbox
+                      aria-label={`Complete "${task.title}"`}
+                      checked={false}
+                      disabled={readOnly || pending}
+                      onCheckedChange={() =>
+                        onToggle({
+                          activityId: task.id,
+                          status: "done",
+                        })
+                      }
+                    />
+                    <span className="min-w-0 flex-1 truncate text-[length:var(--text-sm)]">
+                      {renderWithMentions(task.title ?? "", task.attendees, onFilterChange)}
+                    </span>
+                    {task.projectName && task.customerProjectId ? (
+                      <ActivityProjectChip
+                        name={task.projectName}
+                        onSelect={() =>
+                          onFilterChange({
+                            kind: "project",
+                            id: task.customerProjectId as string,
+                            name: task.projectName as string,
+                          })
+                        }
+                      />
+                    ) : null}
+                    <span
+                      className={cn(
+                        "whitespace-nowrap rounded-full border px-(--space-4) py-(--space-1) text-[length:var(--text-xs)]",
+                        !task.dueDate &&
+                          "border-dashed border-[var(--color-line)] text-[var(--color-ink-faint)]",
+                        task.dueDate && task.dueDate < today
+                          ? "border-transparent bg-[var(--color-danger-soft)] text-[var(--color-danger)]"
+                          : task.dueDate === today
+                            ? "border-transparent bg-[var(--color-warning-soft)] text-[var(--color-ink)]"
+                            : task.dueDate
+                              ? "border-[var(--color-line)] text-[var(--color-ink-faint)]"
+                              : undefined
+                      )}
+                    >
+                      {task.dueDate
+                        ? `Due ${formatDate(task.dueDate)}${
+                            task.dueDate < today
+                              ? " · Overdue"
+                              : task.dueDate === today
+                                ? " · Today"
+                                : ""
+                          }`
+                        : "No due date"}
+                    </span>
+                    {!readOnly ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Delete "${task.title}"`}
+                        disabled={pending}
+                        onClick={() => onDelete(task.id)}
+                      >
+                        <HugeiconsIcon icon={Delete02Icon} />
+                      </Button>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : null}
+
+        {timelineMonths.length > 0 ? (
+          <div className="grid gap-(--space-5)">
+            {timelineMonths.map((month) => (
+              <div key={month.label} className="grid gap-(--space-3)">
+                <div className="flex items-center gap-(--space-4)">
+                  <h3 className={styles.sectionHeading}>{month.label}</h3>
+                  <div className="h-px flex-1 bg-[var(--color-line)]" />
+                </div>
+                <ul className="grid gap-(--space-4)">
+                  {month.entries.map((entry) => (
+                    <li key={entry.id} className="flex gap-(--space-4)">
+                      {entry.type === "task" ? (
+                        <Checkbox
+                          aria-label={`Reopen "${entry.title}"`}
+                          checked
+                          disabled={readOnly || pending}
+                          className="mt-(--space-1)"
+                          onCheckedChange={() =>
+                            onToggle({
+                              activityId: entry.id,
+                              status: "open",
+                            })
+                          }
+                        />
+                      ) : (
+                        <span className="mt-(--space-1) flex size-(--space-9) shrink-0 items-center justify-center rounded-full border border-[var(--color-line)] text-[var(--color-ink-faint)]">
+                          <HugeiconsIcon
+                            icon={activityTimelineIcons[entry.type]}
+                            className="size-(--space-6)"
+                          />
+                        </span>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-(--space-3)">
+                          <span className="text-[length:var(--text-xs)] font-medium uppercase tracking-wide text-[var(--color-ink-faint)]">
+                            {activityComposerMeta[entry.type].label}
+                            {entry.type === "task" ? " · Done" : ""}
+                          </span>
+                          {entry.createdByName ? (
+                            <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                              {entry.createdByName}
+                            </span>
+                          ) : null}
+                          <span className="font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                            {relativeDayLabel(timelineDate(entry))}
+                          </span>
+                          {entry.projectName && entry.customerProjectId ? (
+                            <ActivityProjectChip
+                              name={entry.projectName}
+                              onSelect={() =>
+                                onFilterChange({
+                                  kind: "project",
+                                  id: entry.customerProjectId as string,
+                                  name: entry.projectName as string,
+                                })
+                              }
+                            />
+                          ) : null}
+                        </div>
+                        {entry.title ? (
+                          <p className="mt-(--space-2) text-[length:var(--text-sm)]">
+                            {renderWithMentions(entry.title, entry.attendees, onFilterChange)}
+                          </p>
+                        ) : null}
+                        {entry.body ? (
+                          <p className="mt-(--space-2) whitespace-pre-wrap text-[length:var(--text-sm)] leading-[var(--leading-md)] text-[var(--color-ink)]">
+                            {renderWithMentions(entry.body, entry.attendees, onFilterChange)}
+                          </p>
+                        ) : null}
+                        {entry.attendees.some(
+                          (attendee) =>
+                            !`${entry.title ?? ""} ${entry.body ?? ""}`.includes(
+                              `@${attendee.contactName}`
+                            )
+                        ) ? (
+                          <p className="mt-(--space-2) flex flex-wrap gap-(--space-3) text-[length:var(--text-xs)]">
+                            {entry.attendees
+                              .filter(
+                                (attendee) =>
+                                  !`${entry.title ?? ""} ${entry.body ?? ""}`.includes(
+                                    `@${attendee.contactName}`
+                                  )
+                              )
+                              .map((attendee) => (
+                                <MentionToken
+                                  key={attendee.id}
+                                  name={attendee.contactName}
+                                  contactId={attendee.contactId}
+                                  onFilterChange={onFilterChange}
+                                />
+                              ))}
+                          </p>
+                        ) : null}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        ) : openTasks.length === 0 ? (
+          <EmptyState density="compact">No activity yet.</EmptyState>
+        ) : null}
+    </>
+  );
+}
+
+function HeaderMetaPill({
+  label,
+  value,
+  options,
+  dotClassName,
+  disabled,
+  onSelect,
+}: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  dotClassName?: string;
+  disabled: boolean;
+  onSelect: (value: string) => void;
+}) {
+  const current = options.find((option) => option.value === value);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="rounded-full"
+          aria-label={`${label}: ${current?.label ?? value}`}
+          disabled={disabled}
+        >
+          {dotClassName ? (
+            <span className={cn("size-(--space-4) rounded-full", dotClassName)} />
+          ) : null}
+          <span className="text-[var(--color-ink-faint)]">{label}</span>
+          {current?.label ?? value}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        {options.map((option) => (
+          <DropdownMenuCheckboxItem
+            key={option.value}
+            checked={option.value === value}
+            onCheckedChange={() => onSelect(option.value)}
+          >
+            {option.label}
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -1528,6 +1677,15 @@ function groupTimelineByMonth(entries: CustomerActivityRow[]) {
 
 function timelineDate(entry: CustomerActivityRow) {
   return new Date(entry.completedAt ?? entry.occurredAt);
+}
+
+function relativeDayLabel(date: Date) {
+  const day = toDateOnlyString(date);
+  const today = toDateOnlyString(new Date());
+  const yesterday = toDateOnlyString(new Date(Date.now() - 86_400_000));
+  if (day && day === today) return "Today";
+  if (day && day === yesterday) return "Yesterday";
+  return day ? formatDate(day) : "";
 }
 
 function CustomerAddressInput({
@@ -1729,6 +1887,7 @@ function makeDraftCustomer(draft: InsertCustomer): CustomerDetailData {
     primaryContactName: null,
     primaryContactEmail: null,
     primaryContactPhone: null,
+    nextTaskId: null,
     nextTaskTitle: null,
     nextTaskDueDate: null,
     xeroContactId: null,

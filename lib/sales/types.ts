@@ -42,6 +42,7 @@ export type CustomerRow = {
   shipPostcode: string | null;
   shipCountry: string | null;
   xeroContactId: string | null;
+  nextTaskId: string | null;
   nextTaskTitle: string | null;
   nextTaskDueDate: string | null;
   deletedAt: Date | null;

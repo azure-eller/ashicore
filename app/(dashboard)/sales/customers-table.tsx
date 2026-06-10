@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ICellRendererParams } from "ag-grid-community";
+import { Checkbox } from "@/components/ui/checkbox";
+import { patchCustomerActivity } from "@/lib/api/clients/customers";
 import { ERPDataGridList } from "@/components/erp-data-grid-list";
 import type { ColDef } from "@/components/erp-data-grid";
 import { SegmentedCountFilter } from "@/components/segmented-count-filter";
@@ -13,7 +16,7 @@ import type { CustomerRow } from "@/lib/sales/types";
 
 type CustomerView = "all" | "due";
 
-const columns: ColDef<CustomerRow>[] = [
+const baseColumns: ColDef<CustomerRow>[] = [
   {
     field: "name",
     headerName: "Name",
@@ -88,6 +91,38 @@ export function CustomersTable({
   today: string;
 }) {
   const [view, setView] = useState<CustomerView>("all");
+  const queryClient = useQueryClient();
+  const completeTask = useMutation({
+    mutationFn: ({ customerId, taskId }: { customerId: string; taskId: string }) =>
+      patchCustomerActivity(customerId, taskId, { status: "done" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["customers"] }),
+  });
+  const columns = useMemo<ColDef<CustomerRow>[]>(() => {
+    const checkColumn: ColDef<CustomerRow> = {
+      colId: "completeTask",
+      headerName: "",
+      width: 56,
+      minWidth: 56,
+      cellRenderer: ({ data }: ICellRendererParams<CustomerRow>) => {
+        if (!data?.nextTaskId || !data.nextTaskTitle) return null;
+        return (
+          <Checkbox
+            aria-label={`Complete "${data.nextTaskTitle}"`}
+            checked={false}
+            disabled={completeTask.isPending}
+            onCheckedChange={() =>
+              completeTask.mutate({
+                customerId: data.id,
+                taskId: data.nextTaskId as string,
+              })
+            }
+          />
+        );
+      },
+    };
+    const [nameColumn, ...rest] = baseColumns;
+    return [nameColumn, checkColumn, ...rest];
+  }, [completeTask]);
   const filteredRows = useMemo(
     () => filterCustomersForView(initialData, view, today),
     [initialData, today, view]
