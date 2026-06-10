@@ -33,6 +33,7 @@ export async function POST(request: Request) {
       messages: body.messages,
       organizationName: context.organizationName,
       pageContext: body.context,
+      chatId: body.id,
       member: {
         userId: context.userId,
         orgId: context.orgId,
