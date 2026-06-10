@@ -135,6 +135,9 @@ const GUARDS: Guard[] = [
       "scripts/consolidate-untracked-internal-lots.ts",
       "scripts/verify-inventory-kernel.ts",
       "test/e2e/reconciliation/global-invariants.spec.ts",
+      // Names the agent_query.items_stock view columns in the query tool's
+      // prompt; the view itself encodes the kernel projection (0154 migration).
+      "lib/agent/chat/read-tools.ts",
     ],
     description: "raw expected_qty references should only exist in projection and stocktake snapshot schema",
   },

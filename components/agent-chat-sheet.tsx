@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
@@ -9,7 +8,6 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
   Alert02Icon,
-  ArrowRight02Icon,
   ArrowUp02Icon,
   Calendar03Icon,
   Cancel01Icon,
@@ -28,7 +26,6 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { StatusLabel } from "@/components/ui/status-label";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
@@ -37,21 +34,11 @@ type AgentChatSheetProps = {
   onOpenChange: (open: boolean) => void;
 };
 
-type AgentSalesOrderRow = {
-  id: string;
-  orderNumber: string;
-  customerName: string;
-  status: "open" | "done";
-  formattedTotal: string;
-  dueDate: string | null;
-  fulfillmentLabel: string;
-  riskFlags: string[];
-  href: string;
-};
-
-type ListSalesOrdersOutput = {
-  totalMatched: number;
-  rows: AgentSalesOrderRow[];
+type AgentQueryOutput = {
+  columns: string[];
+  rows: Array<Record<string, unknown>>;
+  rowCount: number;
+  truncated: boolean;
 };
 
 type ToolOutput = {
@@ -139,8 +126,8 @@ function pageContext(pathname: string | null) {
 
 function toolLabel(toolName: string) {
   switch (toolName) {
-    case "list_sales_orders":
-      return "Scanning sales orders";
+    case "query":
+      return "Querying data";
     default:
       return `Running ${toolName}`;
   }
@@ -159,13 +146,20 @@ function AshGlyph({ className }: { className?: string }) {
   );
 }
 
-function isListSalesOrdersOutput(value: unknown): value is ListSalesOrdersOutput {
+function isQueryOutput(value: unknown): value is AgentQueryOutput {
   return (
     typeof value === "object" &&
     value != null &&
-    "rows" in value &&
-    Array.isArray((value as { rows: unknown }).rows)
+    "columns" in value &&
+    Array.isArray((value as { columns: unknown }).columns) &&
+    Array.isArray((value as { rows?: unknown }).rows)
   );
+}
+
+function cellText(value: unknown) {
+  if (value == null) return "";
+  const text = String(value);
+  return text.length > 60 ? `${text.slice(0, 60)}…` : text;
 }
 
 function MessageText({
@@ -211,75 +205,56 @@ function MessageText({
   );
 }
 
-function OrdersCard({ output }: { output: ListSalesOrdersOutput }) {
+function QueryResultCard({ output }: { output: AgentQueryOutput }) {
   const rows = output.rows.slice(0, 5);
+  if (output.rowCount === 0 || output.columns.length === 0) return null;
 
   return (
     <div className="overflow-hidden rounded-(--radius-lg) border border-[var(--color-line)] bg-[var(--color-surface)]">
       <div className="flex items-center justify-between gap-(--space-4) border-b border-[var(--color-line)] bg-[var(--color-surface-sunk)] px-(--space-5) py-(--space-4)">
-        <div className="min-w-0">
-          <div className="font-mono text-[length:var(--text-xs)] font-semibold tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)] uppercase">
-            Sales orders
-          </div>
-          <div className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-            {output.totalMatched} matched
-          </div>
+        <div className="font-mono text-[length:var(--text-xs)] font-semibold tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)] uppercase">
+          Query result
         </div>
-        <Badge variant="outline">{rows.length} shown</Badge>
+        <Badge variant="outline">
+          {output.rowCount}
+          {output.truncated ? "+" : ""} rows
+        </Badge>
       </div>
-      <div className="divide-y divide-[var(--color-line-soft)]">
-        {rows.map((order) => (
-          <Link
-            key={order.id}
-            href={order.href}
-            className="block px-(--space-5) py-(--space-4) hover:bg-[var(--color-surface-alt)]"
-          >
-            <div className="flex items-start justify-between gap-(--space-4)">
-              <div className="min-w-0">
-                <div className="truncate font-mono text-[length:var(--text-xs)] font-semibold text-[var(--color-ink)]">
-                  {order.orderNumber}
-                </div>
-                <div className="truncate text-[length:var(--text-sm)] text-[var(--color-ink)]">
-                  {order.customerName}
-                </div>
-                <div className="truncate text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-                  {order.formattedTotal}
-                </div>
-              </div>
-              <div className="flex shrink-0 flex-col items-end gap-(--space-2)">
-                <StatusLabel tone={order.status === "done" ? "success" : "info"}>
-                  {order.status}
-                </StatusLabel>
-                <span className="font-mono text-[length:var(--text-2xs)] font-semibold tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)] uppercase">
-                  {order.dueDate ? `Due ${order.dueDate}` : "No due date"}
-                </span>
-              </div>
-            </div>
-            <div className="mt-(--space-3) flex flex-wrap gap-(--space-2)">
-              <Badge
-                variant={order.riskFlags.includes("blocked") ? "destructive" : "secondary"}
-              >
-                {order.fulfillmentLabel}
-              </Badge>
-              {order.riskFlags.map((flag) => (
-                <Badge
-                  key={flag}
-                  variant={flag === "blocked" || flag === "late" ? "warning" : "outline"}
+      <div className="overflow-x-auto">
+        <table className="w-full text-[length:var(--text-xs)]">
+          <thead>
+            <tr className="border-b border-[var(--color-line-soft)]">
+              {output.columns.map((column) => (
+                <th
+                  key={column}
+                  className="px-(--space-4) py-(--space-3) text-left font-mono text-[length:var(--text-2xs)] font-semibold tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)] uppercase"
                 >
-                  {flag.replace("_", " ")}
-                </Badge>
+                  {column}
+                </th>
               ))}
-            </div>
-          </Link>
-        ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--color-line-soft)]">
+            {rows.map((row, index) => (
+              <tr key={index}>
+                {output.columns.map((column) => (
+                  <td
+                    key={column}
+                    className="max-w-[12rem] truncate px-(--space-4) py-(--space-3) font-mono text-[var(--color-ink)]"
+                  >
+                    {cellText(row[column])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-      <Link
-        href="/sales/orders"
-        className="flex h-(--height-input-md) items-center justify-center gap-(--space-2) border-t border-[var(--color-line)] text-[length:var(--text-sm)] font-semibold text-[var(--color-accent-ink)] hover:bg-[var(--color-accent-soft)]"
-      >
-        Show in table
-        <HugeiconsIcon icon={ArrowRight02Icon} strokeWidth={2} className="size-(--space-5)" />
-      </Link>
+      {output.rowCount > rows.length ? (
+        <div className="border-t border-[var(--color-line)] px-(--space-5) py-(--space-3) text-center font-mono text-[length:var(--text-2xs)] text-[var(--color-ink-faint)]">
+          {output.rowCount - rows.length} more rows in result
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -311,16 +286,18 @@ function ToolPart({ part }: { part: UIMessage["parts"][number] }) {
 
   return (
     <div className="space-y-(--space-3) motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1">
-      <Badge variant="outline">
+      <Badge variant="outline" className="max-w-full">
         <HugeiconsIcon
           icon={CheckmarkCircle02Icon}
           strokeWidth={2}
-          className="text-[var(--status-success-ink)]"
+          className="shrink-0 text-[var(--status-success-ink)]"
         />
-        {output.summary ?? `${part.toolName} complete`}
+        <span className="min-w-0 truncate">
+          {output.summary ?? `${part.toolName} complete`}
+        </span>
       </Badge>
-      {part.toolName === "list_sales_orders" && isListSalesOrdersOutput(data) ? (
-        <OrdersCard output={data} />
+      {part.toolName === "query" && isQueryOutput(data) ? (
+        <QueryResultCard output={data} />
       ) : null}
     </div>
   );
@@ -476,7 +453,7 @@ export function AgentChatSheet({ open, onOpenChange }: AgentChatSheetProps) {
         <ScrollArea
           className="min-h-0 flex-1"
           viewportRef={viewportRef}
-          viewportClassName="px-(--space-6) py-(--space-6)"
+          viewportClassName="px-(--space-6) py-(--space-6) [&>div]:block! [&>div]:min-w-0!"
         >
           <div className="flex min-h-full flex-col gap-(--space-5)">
             {messages.length === 0 ? (
