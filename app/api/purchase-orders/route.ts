@@ -4,7 +4,8 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonError, jsonCreated } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
-import { createPurchaseOrder, deletePurchaseOrders, getPurchaseOrders } from "@/lib/purchasing/queries";
+import { createPurchaseOrder, deletePurchaseOrders } from "@/lib/purchasing/queries/order-write";
+import { getPurchaseOrders } from "@/lib/purchasing/queries/orders-read";
 import { insertPurchaseOrderSchema } from "@/lib/schemas/purchase-orders";
 
 

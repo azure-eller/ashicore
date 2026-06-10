@@ -4,7 +4,7 @@ import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/
 import { parseOptionalJsonBody } from "@/lib/api/request-body";
 import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
-import { submitPurchaseOrder } from "@/lib/purchasing/queries";
+import { submitPurchaseOrder } from "@/lib/purchasing/queries/order-submit";
 
 const submitOptionsSchema = z
   .object({

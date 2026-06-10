@@ -4,7 +4,7 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { receivePurchaseOrderSchema } from "@/lib/schemas/purchase-orders";
-import { receivePurchaseOrder } from "@/lib/purchasing/queries";
+import { receivePurchaseOrder } from "@/lib/purchasing/queries/receiving";
 
 
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {

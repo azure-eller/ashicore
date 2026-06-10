@@ -8,10 +8,7 @@ import {
 } from "@/lib/blob-storage";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { DomainError } from "@/lib/errors/domain-error";
-import {
-  createPurchaseOrderAttachment,
-  getPurchaseOrderFileUploadTarget,
-} from "@/lib/purchasing/queries";
+import { createPurchaseOrderAttachment, getPurchaseOrderFileUploadTarget } from "@/lib/purchasing/queries/attachments";
 import {
   canUseLocalAttachmentStorage,
   deleteLocalAttachment,

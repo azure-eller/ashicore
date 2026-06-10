@@ -7,10 +7,7 @@ import {
   getPrivateBlobForDownload,
 } from "@/lib/blob-storage";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
-import {
-  deletePurchaseOrderAttachment,
-  getPurchaseOrderAttachmentForDownload,
-} from "@/lib/purchasing/queries";
+import { deletePurchaseOrderAttachment, getPurchaseOrderAttachmentForDownload } from "@/lib/purchasing/queries/attachments";
 import {
   deleteLocalAttachment,
   isLocalAttachmentUrl,

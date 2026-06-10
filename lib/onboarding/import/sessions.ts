@@ -21,10 +21,7 @@ import {
 } from "@/lib/inventory/item-cards";
 import { seedOpeningBalanceInTx } from "@/lib/inventory/kernel/operations/inventory";
 import { createBomRevisionInTx } from "@/lib/inventory/queries/bom-write";
-import {
-  createSupplierInTx,
-  patchSupplierInTx,
-} from "@/lib/purchasing/queries";
+import { createSupplierInTx, patchSupplierInTx } from "@/lib/purchasing/queries/suppliers";
 import {
   createCustomerInTx,
   patchCustomerInTx,

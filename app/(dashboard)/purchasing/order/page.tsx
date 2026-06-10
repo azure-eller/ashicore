@@ -3,10 +3,8 @@ import { PurchaseOrderCard } from "@/app/(dashboard)/purchasing/purchase-order-c
 import { purchaseOrderDefaultValues } from "@/lib/schemas/purchase-orders";
 import { getAddressEntries } from "@/lib/dal/addresses";
 import { getTaxSettings } from "@/lib/dal/tax-settings";
-import {
-  getPurchaseOrderMaterialOptions,
-  getSuppliers,
-} from "@/lib/purchasing/queries";
+import { getPurchaseOrderMaterialOptions } from "@/lib/purchasing/queries/orders-read";
+import { getSuppliers } from "@/lib/purchasing/queries/suppliers";
 import { searchParamValues, type SearchParamRecord } from "@/lib/routing/search-params";
 
 export default async function PurchaseOrderDraftPage({

@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getLots } from "@/lib/inventory/queries/item-lots";
 import { getUnitDefinitions } from "@/lib/inventory/queries/units";
 import { getUsedInParents } from "@/lib/inventory/queries/bom-read";
-import { getSuppliers } from "@/lib/purchasing/queries";
+import { getSuppliers } from "@/lib/purchasing/queries/suppliers";
 import { requireModuleReadAccess } from "@/lib/dal/auth";
 import { hasModuleAccess } from "@/lib/authz";
 import { getItemCard, ItemCardError } from "@/lib/inventory/item-cards";

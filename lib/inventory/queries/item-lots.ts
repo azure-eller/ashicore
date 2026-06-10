@@ -11,7 +11,6 @@ import {
   type InventoryDisposition,
   inventoryEvents,
   inventoryLotBalances,
-  items,
   lots,
   salesOrderLines,
 } from "@/lib/db/schema";

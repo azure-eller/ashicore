@@ -3,11 +3,9 @@ import { z } from "zod";
 import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
-import {
-  getPurchaseOrder,
-  receivePurchaseOrder,
-  submitPurchaseOrder,
-} from "@/lib/purchasing/queries";
+import { submitPurchaseOrder } from "@/lib/purchasing/queries/order-submit";
+import { getPurchaseOrder } from "@/lib/purchasing/queries/orders-read";
+import { receivePurchaseOrder } from "@/lib/purchasing/queries/receiving";
 import { PURCHASE_ORDER_STATUSES } from "@/lib/schemas/purchase-orders";
 
 const statusSchema = z.object({

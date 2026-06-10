@@ -2,10 +2,8 @@ import { NextResponse } from "next/server";
 import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
-import {
-  getPurchaseOrder,
-  submitPurchaseOrder,
-} from "@/lib/purchasing/queries";
+import { submitPurchaseOrder } from "@/lib/purchasing/queries/order-submit";
+import { getPurchaseOrder } from "@/lib/purchasing/queries/orders-read";
 import { sendPurchaseOrderEmail } from "@/lib/purchasing/send-purchase-order-email";
 import { sendPurchaseOrderEmailSchema } from "@/lib/schemas/purchase-orders";
 

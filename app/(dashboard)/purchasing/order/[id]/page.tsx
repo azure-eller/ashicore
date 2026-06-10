@@ -1,10 +1,7 @@
 import { redirect } from "next/navigation";
 import { PurchaseOrderCard } from "@/app/(dashboard)/purchasing/purchase-order-card";
-import {
-  getEditablePurchaseOrder,
-  getPurchaseOrderMaterialOptions,
-  getSuppliers,
-} from "@/lib/purchasing/queries";
+import { getEditablePurchaseOrder, getPurchaseOrderMaterialOptions } from "@/lib/purchasing/queries/orders-read";
+import { getSuppliers } from "@/lib/purchasing/queries/suppliers";
 import { getAddressEntries } from "@/lib/dal/addresses";
 import { requireModuleReadAccess } from "@/lib/dal/auth";
 import { getActiveAccountingProvider } from "@/lib/dal/accounting";

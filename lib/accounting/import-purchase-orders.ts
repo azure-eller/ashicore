@@ -46,10 +46,7 @@ import type {
   ExternalPurchaseOrderFetchResult,
   ExternalPurchaseOrderLine,
 } from "@/lib/accounting/providers/types";
-import {
-  upsertImportedAccountingPurchaseOrderInTx,
-  type ImportedAccountingPurchaseOrder,
-} from "@/lib/purchasing/queries";
+import { upsertImportedAccountingPurchaseOrderInTx, type ImportedAccountingPurchaseOrder } from "@/lib/purchasing/queries/accounting-import";
 
 const DEFAULT_SINCE_DATE = "2024-01-01";
 

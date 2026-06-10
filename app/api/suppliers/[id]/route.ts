@@ -4,7 +4,7 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonNotFound, jsonSuccess } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { patchSupplierSchema, updateSupplierSchema } from "@/lib/schemas/suppliers";
-import { deleteSupplier, getSupplier, patchSupplier, updateSupplier } from "@/lib/purchasing/queries";
+import { deleteSupplier, getSupplier, patchSupplier, updateSupplier } from "@/lib/purchasing/queries/suppliers";
 
 
 export const GET = apiHandler(async (_request: Request, ctx: unknown) => {

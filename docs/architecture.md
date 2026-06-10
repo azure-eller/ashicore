@@ -57,10 +57,10 @@ Page component
 | Concern | Path |
 |---------|------|
 | API routes | `app/api/` |
-| DAL queries (inventory) | `app/(dashboard)/inventory/queries.ts` |
-| DAL queries (sales) | `app/(dashboard)/sales/queries.ts` |
-| DAL queries (manufacturing) | `app/(dashboard)/manufacturing/queries.ts` |
-| DAL queries (purchasing) | `app/(dashboard)/purchasing/queries.ts` |
+| DAL queries (inventory) | `lib/inventory/queries/` (topic modules) |
+| DAL queries (sales) | `lib/sales/queries.ts` |
+| DAL queries (manufacturing) | `lib/manufacturing/queries.ts` |
+| DAL queries (purchasing) | `lib/purchasing/queries/` (topic modules) |
 | DAL queries (stocktakes) | `app/(dashboard)/inventory/stocktakes/queries.ts` |
 | DAL auth wrapper | `lib/dal/auth.ts` |
 | RLS org context setter | `lib/db/with-org-context.ts` |

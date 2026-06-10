@@ -13,7 +13,7 @@ import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import { DomainError } from "@/lib/errors/domain-error";
 import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
 import { createManufacturingOrderInTx } from "@/lib/manufacturing/queries";
-import { createPurchaseOrderInTx } from "@/lib/purchasing/queries";
+import { createPurchaseOrderInTx } from "@/lib/purchasing/queries/order-write";
 import type {
   CreatePlanningPurchaseOrderDrafts,
   CreatePlanningManufacturingOrderDraft,

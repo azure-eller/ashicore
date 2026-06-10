@@ -4,7 +4,7 @@ import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { jsonNotFound } from "@/lib/api/responses";
-import { setPurchaseBillManualStatus } from "@/lib/purchasing/queries";
+import { setPurchaseBillManualStatus } from "@/lib/purchasing/queries/bills";
 
 const billStatusSchema = z.object({
   status: z.enum(["not_billed", "partly_billed", "billed"]).nullable(),

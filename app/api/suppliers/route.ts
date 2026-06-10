@@ -5,7 +5,7 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { insertSupplierSchema } from "@/lib/schemas/suppliers";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
-import { createSupplier, deleteSuppliers, getSuppliers } from "@/lib/purchasing/queries";
+import { createSupplier, deleteSuppliers, getSuppliers } from "@/lib/purchasing/queries/suppliers";
 
 
 export const GET = apiHandler(async (request) => {
