@@ -1,10 +1,6 @@
 import { redirect } from "next/navigation";
-import {
-  getBomComponents,
-  getBomRevisionHistory,
-  getBomOperationCosts,
-  getItem,
-} from "@/app/(dashboard)/inventory/queries";
+import { getBomComponents, getBomRevisionHistory, getBomOperationCosts } from "@/lib/inventory/queries/bom-read";
+import { getItem } from "@/lib/inventory/queries/item-detail";
 import { getManufacturingResources } from "@/lib/dal/manufacturing-resources";
 import { getItemCard } from "@/lib/inventory/item-cards";
 import { ProductOperationsTab } from "../../tabs/operations";

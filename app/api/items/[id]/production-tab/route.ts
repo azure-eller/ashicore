@@ -1,10 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  getBomComponents,
-  getBomOperationCosts,
-  getBomRevisionHistory,
-  getItem,
-} from "@/app/(dashboard)/inventory/queries";
+import { getBomComponents, getBomOperationCosts, getBomRevisionHistory } from "@/lib/inventory/queries/bom-read";
+import { getItem } from "@/lib/inventory/queries/item-detail";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleReadAccess } from "@/lib/dal/auth";

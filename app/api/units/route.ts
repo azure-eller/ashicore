@@ -1,5 +1,5 @@
 import { jsonCreated } from "@/lib/api/responses";
-import { createUnitDefinition } from "@/app/(dashboard)/inventory/queries";
+import { createUnitDefinition } from "@/lib/inventory/queries/units";
 import { insertUnitDefinitionSchema } from "@/lib/schemas/units";
 import { apiHandler } from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";

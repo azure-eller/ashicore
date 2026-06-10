@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
-import { getItem, getLots } from "@/app/(dashboard)/inventory/queries";
+import { getItem } from "@/lib/inventory/queries/item-detail";
+import { getLots } from "@/lib/inventory/queries/item-lots";
 import { LotGridTab } from "@/components/card-page/lot-grid-tab";
 import { getItemCard } from "@/lib/inventory/item-cards";
 

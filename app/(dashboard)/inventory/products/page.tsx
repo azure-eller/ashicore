@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { DataTable } from "../data-table";
 import DataTableLoading from "../data-table-loading";
-import { getItems } from "../queries";
+import { getItems } from "@/lib/inventory/queries/items-list";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
 
 export default function ProductsPage() {

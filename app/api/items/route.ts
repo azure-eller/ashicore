@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getItems, createItemWithLot, deleteItems } from "@/app/(dashboard)/inventory/queries";
+import { getItems } from "@/lib/inventory/queries/items-list";
+import { createItemWithLot, deleteItems } from "@/lib/inventory/queries/item-write";
 import { ITEM_TYPES, type ItemType } from "@/lib/inventory/types";
 import { MissingCostBasisError } from "@/lib/inventory/kernel";
 import { insertItemSchema } from "@/lib/schemas/items";

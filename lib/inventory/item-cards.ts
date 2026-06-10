@@ -59,10 +59,10 @@ import {
   consolidateUntrackedFamilyLotsInTx,
   convertUntrackedFamilyLotsToTrackedInTx,
 } from "@/lib/inventory/untracked-lot-consolidation";
-import { createBomRevisionInTx } from "@/lib/inventory/queries/internal";
-import type {
-  BomInputRow,
-  BomOperationCostInputRow,
+import {
+  createBomRevisionInTx,
+  type BomInputRow,
+  type BomOperationCostInputRow,
 } from "@/lib/inventory/queries/bom-write";
 import { getMinimumLotAgeDays } from "@/lib/bom/constraints";
 import {

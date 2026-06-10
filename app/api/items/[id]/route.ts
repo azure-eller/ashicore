@@ -2,10 +2,8 @@ import { NextResponse } from "next/server";
 import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
 import { jsonError, jsonNotFound, jsonSuccess } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
-import {
-  deleteItem,
-  getItem,
-} from "@/app/(dashboard)/inventory/queries";
+import { deleteItem } from "@/lib/inventory/queries/item-write";
+import { getItem } from "@/lib/inventory/queries/item-detail";
 import { deleteVariant, ItemCardError } from "@/lib/inventory/item-cards";
 
 export const DELETE = apiHandler(async (_req: Request, ctx: unknown) => {

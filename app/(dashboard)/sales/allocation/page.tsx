@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { getSalesOrders } from "@/lib/sales/queries";
-import { getItems } from "@/app/(dashboard)/inventory/queries";
+import { getItems } from "@/lib/inventory/queries/items-list";
 import {
   SalesAllocationTable,
   type ManufacturingAllocationDemandRow,

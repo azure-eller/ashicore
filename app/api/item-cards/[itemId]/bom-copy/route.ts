@@ -6,7 +6,7 @@ import {
   assertLockedBomManagementAccess,
   assertModuleWriteAccess,
 } from "@/lib/dal/auth";
-import { copyCurrentBomToVariants, hasLockedBomCopyTarget } from "@/app/(dashboard)/inventory/queries";
+import { copyCurrentBomToVariants, hasLockedBomCopyTarget } from "@/lib/inventory/queries/bom-write";
 
 const bomCopySchema = z.object({
   targetVariantIds: z.array(z.string().uuid()).optional(),

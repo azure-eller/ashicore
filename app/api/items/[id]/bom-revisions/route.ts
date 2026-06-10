@@ -8,7 +8,8 @@ import {
   assertModuleReadAccess,
   assertModuleWriteAccess,
 } from "@/lib/dal/auth";
-import { getBomRevisionHistory, getItem } from "@/app/(dashboard)/inventory/queries";
+import { getBomRevisionHistory } from "@/lib/inventory/queries/bom-read";
+import { getItem } from "@/lib/inventory/queries/item-detail";
 import {
   createBomRevision,
   createBomRevisionSchema,

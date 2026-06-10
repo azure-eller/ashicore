@@ -3,7 +3,7 @@ import { z } from "zod";
 import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
 import { parseOptionalJsonBody } from "@/lib/api/request-body";
 import { jsonNotFound } from "@/lib/api/responses";
-import { setBomLock } from "@/app/(dashboard)/inventory/queries";
+import { setBomLock } from "@/lib/inventory/queries/bom-write";
 import { assertLockedBomManagementAccess } from "@/lib/dal/auth";
 
 const bomLockBodySchema = z.object({

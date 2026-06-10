@@ -4,7 +4,7 @@ import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleReadAccess } from "@/lib/dal/auth";
 import { requestSearchParamRecord } from "@/lib/routing/search-params";
-import { getItemUsageHistory } from "@/app/(dashboard)/inventory/queries";
+import { getItemUsageHistory } from "@/lib/inventory/queries/item-history";
 
 const usageHistorySearchSchema = z.object({
   days: z.coerce.number().int().min(30).max(365).optional(),

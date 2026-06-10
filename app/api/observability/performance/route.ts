@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getItems } from "@/app/(dashboard)/inventory/queries";
+import { getItems } from "@/lib/inventory/queries/items-list";
 import { getInventoryLedger } from "@/app/(dashboard)/inventory/ledger/queries";
 import { getStocktakes } from "@/lib/dal/stocktakes";
 import { getManufacturingOrders } from "@/lib/manufacturing/queries";

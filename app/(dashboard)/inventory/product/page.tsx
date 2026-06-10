@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { requireModuleAccess } from "@/lib/dal/auth";
 import { hasModuleAccess } from "@/lib/authz";
-import { getUnitDefinitions } from "@/app/(dashboard)/inventory/queries";
+import { getUnitDefinitions } from "@/lib/inventory/queries/units";
 import type { ItemCardDto } from "@/lib/api/clients/item-cards";
 import { ProductCard } from "../products/[id]/product-card";
 

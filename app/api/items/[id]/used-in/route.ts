@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import { assertModuleReadAccess } from "@/lib/dal/auth";
-import { getUsedInParents } from "@/app/(dashboard)/inventory/queries";
+import { getUsedInParents } from "@/lib/inventory/queries/bom-read";
 
 export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleReadAccess("inventory", request.headers);

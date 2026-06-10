@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
 import { assertModuleReadAccess } from "@/lib/dal/auth";
-import { getLots } from "@/app/(dashboard)/inventory/queries";
+import { getLots } from "@/lib/inventory/queries/item-lots";
 
 export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleReadAccess("inventory", request.headers);

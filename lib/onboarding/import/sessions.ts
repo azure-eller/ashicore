@@ -20,7 +20,7 @@ import {
   updateItemCardVariantInTx,
 } from "@/lib/inventory/item-cards";
 import { seedOpeningBalanceInTx } from "@/lib/inventory/kernel/operations/inventory";
-import { createBomRevisionInTx } from "@/lib/inventory/queries/internal";
+import { createBomRevisionInTx } from "@/lib/inventory/queries/bom-write";
 import {
   createSupplierInTx,
   patchSupplierInTx,

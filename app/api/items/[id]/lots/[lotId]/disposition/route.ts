@@ -3,7 +3,7 @@ import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { qualityDispositionActionSchema } from "@/lib/schemas/inventory-disposition";
-import { applyLotDispositionAction } from "@/app/(dashboard)/inventory/queries";
+import { applyLotDispositionAction } from "@/lib/inventory/queries/item-lots";
 
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("inventory", request.headers);

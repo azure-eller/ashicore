@@ -1,10 +1,6 @@
 import { redirect } from "next/navigation";
-import {
-  getAvailableComponents,
-  getBomComponents,
-  getBomRevisionHistory,
-  getItem,
-} from "@/app/(dashboard)/inventory/queries";
+import { getAvailableComponents, getBomComponents, getBomRevisionHistory } from "@/lib/inventory/queries/bom-read";
+import { getItem } from "@/lib/inventory/queries/item-detail";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
 import {
   canManageLockedBom,

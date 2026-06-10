@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import { jsonNotFound } from "@/lib/api/responses";
 import { assertBomViewAccess, assertModuleReadAccess } from "@/lib/dal/auth";
-import { getBomRevision, getItem } from "@/app/(dashboard)/inventory/queries";
+import { getBomRevision } from "@/lib/inventory/queries/bom-read";
+import { getItem } from "@/lib/inventory/queries/item-detail";
 
 export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleReadAccess("inventory", request.headers);

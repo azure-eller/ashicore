@@ -1,9 +1,7 @@
 import { redirect } from "next/navigation";
-import {
-  getLots,
-  getUnitDefinitions,
-  getUsedInParents,
-} from "@/app/(dashboard)/inventory/queries";
+import { getLots } from "@/lib/inventory/queries/item-lots";
+import { getUnitDefinitions } from "@/lib/inventory/queries/units";
+import { getUsedInParents } from "@/lib/inventory/queries/bom-read";
 import { getSuppliers } from "@/lib/purchasing/queries";
 import { requireModuleReadAccess } from "@/lib/dal/auth";
 import { hasModuleAccess } from "@/lib/authz";

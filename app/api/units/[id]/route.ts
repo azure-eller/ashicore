@@ -1,5 +1,5 @@
 import { jsonNotFound, jsonOk, jsonSuccess } from "@/lib/api/responses";
-import { deleteUnitDefinition, updateUnitDefinition } from "@/app/(dashboard)/inventory/queries";
+import { deleteUnitDefinition, updateUnitDefinition } from "@/lib/inventory/queries/units";
 import { insertUnitDefinitionSchema } from "@/lib/schemas/units";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";

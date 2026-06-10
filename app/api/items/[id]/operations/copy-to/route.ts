@@ -4,7 +4,7 @@ import { z } from "zod";
 import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
-import { copyCurrentOperationsToVariants } from "@/app/(dashboard)/inventory/queries";
+import { copyCurrentOperationsToVariants } from "@/lib/inventory/queries/bom-write";
 
 const copyToSchema = z.object({
   targetVariantIds: z.array(z.string().uuid()).min(1),

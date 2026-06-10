@@ -7,7 +7,7 @@ import {
 import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
-import { overrideMaterialCurrentStockUnitCost } from "@/app/(dashboard)/inventory/queries";
+import { overrideMaterialCurrentStockUnitCost } from "@/lib/inventory/queries/item-write";
 import { overrideCurrentStockUnitCostSchema } from "@/lib/schemas/items";
 
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {

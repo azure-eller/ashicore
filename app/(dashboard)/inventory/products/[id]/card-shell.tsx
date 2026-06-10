@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
-import { getItem, getUnitDefinitions } from "@/app/(dashboard)/inventory/queries";
+import { getItem } from "@/lib/inventory/queries/item-detail";
+import { getUnitDefinitions } from "@/lib/inventory/queries/units";
 import { requireModuleReadAccess } from "@/lib/dal/auth";
 import { hasModuleAccess } from "@/lib/authz";
 import { getItemCard } from "@/lib/inventory/item-cards";
