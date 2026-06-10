@@ -2,7 +2,10 @@ import { redirect } from "next/navigation";
 import { getAddressEntries } from "@/lib/dal/addresses";
 import { requireModuleReadAccess } from "@/lib/dal/auth";
 import { CustomerCard } from "@/app/(dashboard)/sales/customer-card";
-import { getCustomerDetail } from "@/lib/sales/queries";
+import {
+  getCustomerCategoryOptions,
+  getCustomerDetail,
+} from "@/lib/sales/queries";
 
 export default async function CustomerDetailPage({
   params,
@@ -11,9 +14,10 @@ export default async function CustomerDetailPage({
 }) {
   await requireModuleReadAccess("sales");
   const { id } = await params;
-  const [customer, addresses] = await Promise.all([
+  const [customer, addresses, categories] = await Promise.all([
     getCustomerDetail(id, { includeDeleted: true }),
     getAddressEntries(),
+    getCustomerCategoryOptions(),
   ]);
 
   if (!customer) {
@@ -25,6 +29,7 @@ export default async function CustomerDetailPage({
       initialCustomerId={id}
       initialCustomer={customer}
       addresses={addresses}
+      categories={categories}
     />
   );
 }

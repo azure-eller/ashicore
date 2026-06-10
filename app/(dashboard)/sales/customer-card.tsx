@@ -44,6 +44,7 @@ import {
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetFooter,
   SheetHeader,
   SheetTitle,
@@ -68,6 +69,7 @@ import {
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import {
   CardField,
+  CardCheckboxField,
   CardSelectField,
   CardTextField,
 } from "@/components/card-page/card-field";
@@ -96,6 +98,7 @@ import {
   createAddressEntry,
   createCustomer,
   createCustomerContact,
+  createCustomerCorrespondence,
   createCustomerProjectNote,
   createCustomerProject,
   deleteCustomer,
@@ -136,6 +139,9 @@ import {
   type PatchCustomer,
 } from "@/lib/schemas/customers";
 import type {
+  CustomerCategoryOption,
+  CustomerCorrespondenceRow,
+  CustomerCorrespondenceType,
   CustomerContactRole,
   CustomerContactRow,
   CustomerDetailData,
@@ -150,6 +156,7 @@ type CustomerCardProps = {
   initialCustomerId: string | null;
   initialCustomer: CustomerDetailData | null;
   addresses: AddressEntry[];
+  categories: CustomerCategoryOption[];
 };
 
 type ContactGridRow = CustomerContactRow & { isNew?: boolean };
@@ -201,6 +208,39 @@ const emptyAddressDialogValues: AddressDialogValues = {
   deliveryInstructions: null,
   notes: null,
 };
+const noCustomerCategoryValue = "__no_customer_category__";
+
+const accountStateOptions = [
+  { value: "active", label: "Active" },
+  { value: "growth", label: "Growth" },
+  { value: "at_risk", label: "At risk" },
+  { value: "former", label: "Former" },
+];
+
+const accountPriorityOptions = [
+  { value: "strategic", label: "Strategic" },
+  { value: "high", label: "High" },
+  { value: "standard", label: "Standard" },
+  { value: "low", label: "Low" },
+];
+
+const contactRoleOptions: Array<{ value: CustomerContactRole; label: string }> = [
+  { value: "primary", label: "Primary" },
+  { value: "shipping", label: "Shipping" },
+  { value: "invoicing", label: "Invoices" },
+  { value: "billing", label: "Billing CC" },
+  { value: "field", label: "On site" },
+];
+
+const correspondenceTypeOptions: Array<{
+  value: CustomerCorrespondenceType;
+  label: string;
+}> = [
+  { value: "note", label: "Note" },
+  { value: "call", label: "Call" },
+  { value: "email", label: "Email" },
+  { value: "meeting", label: "Meeting" },
+];
 
 const projectStatusMeta: Record<
   ProjectGridRow["status"],
@@ -215,12 +255,16 @@ export function CustomerCard({
   initialCustomerId,
   initialCustomer,
   addresses,
+  categories,
 }: CustomerCardProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [addressBook, setAddressBook] = useState(addresses);
   const [addressDialogState, setAddressDialogState] =
     useState<AddressDialogState | null>(null);
+  const [activityType, setActivityType] =
+    useState<CustomerCorrespondenceType>("note");
+  const [activityDraft, setActivityDraft] = useState("");
   const engine = useDraftSaveEngine<
     CustomerDetailData,
     CustomerDraftOp,
@@ -329,6 +373,36 @@ export function CustomerCard({
     },
   });
 
+  const activityMutation = useMutation({
+    mutationKey: cardSaveMutationKey(
+      "customer",
+      currentCustomerId ?? "__draft__",
+      "activity"
+    ),
+    mutationFn: ({
+      type,
+      body,
+    }: {
+      type: CustomerCorrespondenceType;
+      body: string;
+    }) =>
+      createCustomerCorrespondence(currentCustomerId as string, {
+        type,
+        occurredAt: undefined,
+        title: null,
+        body,
+        attendeeContactIds: [],
+      }),
+    onSuccess: async () => {
+      setActivityDraft("");
+      if (currentCustomerId) {
+        await queryClient.invalidateQueries({
+          queryKey: ["customer-card", currentCustomerId],
+        });
+      }
+    },
+  });
+
   const commitCustomerPatch = useCallback(
     (patch: PatchCustomer) => {
       if (readOnly) return;
@@ -404,6 +478,16 @@ export function CustomerCard({
         .map(addressEntryToAddressOption)
         .filter((option): option is CustomerAddressOption => option != null),
     [addressBook]
+  );
+  const categoryOptions = useMemo(
+    () => [
+      { value: noCustomerCategoryValue, label: "Uncategorized" },
+      ...categories.map((category) => ({
+        value: category.id,
+        label: category.name,
+      })),
+    ],
+    [categories]
   );
 
   const cardSaveState: CardSaveState = readOnly
@@ -488,6 +572,41 @@ export function CustomerCard({
                 onCommit={(phone) => commitCustomerPatch({ phone })}
               />
             </CardField>
+            <CardSelectField
+              label="Category"
+              value={display.customerCategoryId ?? noCustomerCategoryValue}
+              disabled={readOnly}
+              options={categoryOptions}
+              onValueChange={(value) =>
+                commitCustomerPatch({
+                  customerCategoryId:
+                    value === noCustomerCategoryValue ? null : value,
+                })
+              }
+            />
+            <CardSelectField
+              label="State"
+              value={display.accountState}
+              disabled={readOnly}
+              options={accountStateOptions}
+              onValueChange={(accountState) =>
+                commitCustomerPatch({
+                  accountState: accountState as PatchCustomer["accountState"],
+                })
+              }
+            />
+            <CardSelectField
+              label="Priority"
+              value={display.accountPriority}
+              disabled={readOnly}
+              options={accountPriorityOptions}
+              onValueChange={(accountPriority) =>
+                commitCustomerPatch({
+                  accountPriority:
+                    accountPriority as PatchCustomer["accountPriority"],
+                })
+              }
+            />
             <CardField label="Shipping address" htmlFor="customer-shipping-address">
               <CustomerAddressInput
                 id="customer-shipping-address"
@@ -561,6 +680,23 @@ export function CustomerCard({
               .flush()
               .then(() => options?.onSuccess?.())
               .catch(reportCustomerSaveError);
+          }}
+        />
+
+        <ActivitySection
+          rows={display.correspondence}
+          contacts={display.contacts}
+          readOnly={readOnly || isDraft}
+          activityType={activityType}
+          activityDraft={activityDraft}
+          isSaving={activityMutation.isPending}
+          error={activityMutation.error}
+          onTypeChange={setActivityType}
+          onDraftChange={setActivityDraft}
+          onSubmit={() => {
+            const body = activityDraft.trim();
+            if (!body || readOnly || isDraft) return;
+            activityMutation.mutate({ type: activityType, body });
           }}
         />
 
@@ -655,6 +791,7 @@ function ContactsSection({
   onDelete: (contactId: string) => void;
 }) {
   const [rows, setRows] = useSyncedRows<ContactGridRow>(sourceRows);
+  const [activeContact, setActiveContact] = useState<ContactGridRow | null>(null);
 
   const columns = useMemo<LineField<ContactGridRow>[]>(
     () => [
@@ -698,7 +835,29 @@ function ContactsSection({
         },
       },
       textColumn("name", "Name", !readOnly),
+      {
+        colId: "details",
+        kind: "display",
+        headerName: "",
+        width: 110,
+        minWidth: 110,
+        cellRenderer: (params: ICellRendererParams<ContactGridRow>) => {
+          const row = params.data;
+          if (!row) return null;
+          return (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setActiveContact(row)}
+            >
+              Details
+            </Button>
+          );
+        },
+      },
       textColumn("title", "Role", !readOnly),
+      textColumn("notes", "Notes", !readOnly, 1.4),
       textColumn("email", "Email", !readOnly),
       textColumn("phone", "Phone", !readOnly),
     ],
@@ -734,7 +893,210 @@ function ContactsSection({
         readOnly={readOnly}
         emptyMessage="No contacts yet."
       />
+      {activeContact ? (
+        <ContactDetailSheet
+          key={activeContact.id}
+          contact={activeContact}
+          open
+          readOnly={readOnly}
+          onClose={() => setActiveContact(null)}
+          onSave={(contact) => {
+            setRows((current) => replaceRow(current, contact));
+            if (contact.name.trim()) onSave(contact);
+            setActiveContact(null);
+          }}
+          onDelete={(contactId) => {
+            setRows((current) => current.filter((row) => row.id !== contactId));
+            if (!activeContact.isNew) onDelete(contactId);
+            setActiveContact(null);
+          }}
+        />
+      ) : null}
     </CardSection>
+  );
+}
+
+function ContactDetailSheet({
+  contact,
+  open,
+  readOnly,
+  onClose,
+  onSave,
+  onDelete,
+}: {
+  contact: ContactGridRow;
+  open: boolean;
+  readOnly: boolean;
+  onClose: () => void;
+  onSave: (contact: ContactGridRow) => void;
+  onDelete: (contactId: string) => void;
+}) {
+  const [draft, setDraft] = useState<ContactGridRow>(() => ({ ...contact }));
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const toggleRole = (role: CustomerContactRole, checked: boolean) => {
+    setDraft((current) => ({
+      ...current,
+      roles: checked
+        ? [...new Set([...current.roles, role])]
+        : current.roles.filter((currentRole) => currentRole !== role),
+    }));
+  };
+
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          setConfirmDelete(false);
+          onClose();
+        }
+      }}
+    >
+      <SheetContent
+        side="right"
+        className="gap-0 overflow-hidden p-0 data-[side=right]:w-[min(520px,94vw)] data-[side=right]:sm:max-w-[min(520px,94vw)]"
+      >
+        <SheetHeader>
+          <SheetTitle>Contact</SheetTitle>
+          <SheetDescription className="sr-only">
+            Edit this customer&apos;s contact details, roles, and notes.
+          </SheetDescription>
+        </SheetHeader>
+        <div className="grid min-h-0 flex-1 gap-(--space-8) overflow-y-auto p-(--space-8)">
+          <CardFormRow columns="two">
+            <CardTextField
+              label="Name"
+              value={draft.name}
+              required
+              disabled={readOnly}
+              controlStyle="dialog"
+              onChange={(event) =>
+                setDraft((current) => ({ ...current, name: event.target.value }))
+              }
+            />
+            <CardTextField
+              label="Role"
+              value={draft.title}
+              disabled={readOnly}
+              controlStyle="dialog"
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  title: event.target.value || null,
+                }))
+              }
+            />
+            <CardTextField
+              label="Email"
+              value={draft.email}
+              type="email"
+              disabled={readOnly}
+              controlStyle="dialog"
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  email: event.target.value || null,
+                }))
+              }
+            />
+            <CardTextField
+              label="Phone"
+              value={draft.phone}
+              disabled={readOnly}
+              controlStyle="dialog"
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  phone: event.target.value || null,
+                }))
+              }
+            />
+          </CardFormRow>
+
+          <div className="grid gap-(--space-3)">
+            <h3 className={styles.sectionHeading}>Roles</h3>
+            <div className="grid gap-(--space-3) sm:grid-cols-2">
+              {contactRoleOptions.map((role) => (
+                <CardCheckboxField
+                  key={role.value}
+                  label={role.label}
+                  checked={draft.roles.includes(role.value)}
+                  disabled={readOnly}
+                  controlStyle="dialog"
+                  onCheckedChange={(checked) =>
+                    toggleRole(role.value, checked === true)
+                  }
+                />
+              ))}
+            </div>
+          </div>
+
+          <CardField label="Notes" htmlFor="customer-contact-notes" controlStyle="dialog">
+            <Textarea
+              id="customer-contact-notes"
+              value={draft.notes ?? ""}
+              disabled={readOnly}
+              rows={8}
+              className="text-[length:var(--text-md)] leading-[var(--leading-md)]"
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  notes: event.target.value || null,
+                }))
+              }
+            />
+          </CardField>
+        </div>
+
+        <SheetFooter className="flex-row items-center justify-end gap-(--space-4)">
+          {!readOnly ? (
+            <Button
+              type="button"
+              variant="destructive"
+              className="mr-auto"
+              onClick={() => setConfirmDelete(true)}
+            >
+              Delete contact
+            </Button>
+          ) : null}
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          {!readOnly ? (
+            <Button
+              type="button"
+              disabled={!draft.name.trim()}
+              onClick={() => onSave(draft)}
+            >
+              Save contact
+            </Button>
+          ) : null}
+        </SheetFooter>
+      </SheetContent>
+
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete contact?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This contact will be removed from the customer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="danger"
+              onClick={(event) => {
+                event.preventDefault();
+                onDelete(contact.id);
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Sheet>
   );
 }
 
@@ -946,6 +1308,9 @@ function CustomerProjectDialog({
       >
         <SheetHeader>
           <SheetTitle>{project ? "Project" : "Add project"}</SheetTitle>
+          <SheetDescription className="sr-only">
+            Track project context, notes, files, and linked sales orders.
+          </SheetDescription>
         </SheetHeader>
         <div className="grid min-h-0 flex-1 gap-(--space-8) overflow-y-auto p-(--space-8)">
           {project ? (
@@ -1359,6 +1724,119 @@ function OpenOrdersSection({
   );
 }
 
+function ActivitySection({
+  rows: sourceRows,
+  contacts,
+  readOnly,
+  activityType,
+  activityDraft,
+  isSaving,
+  error,
+  onTypeChange,
+  onDraftChange,
+  onSubmit,
+}: {
+  rows: CustomerCorrespondenceRow[];
+  contacts: CustomerContactRow[];
+  readOnly: boolean;
+  activityType: CustomerCorrespondenceType;
+  activityDraft: string;
+  isSaving: boolean;
+  error: Error | null;
+  onTypeChange: (type: CustomerCorrespondenceType) => void;
+  onDraftChange: (draft: string) => void;
+  onSubmit: () => void;
+}) {
+  const rows = sourceRows
+    .slice()
+    .sort(
+      (a, b) =>
+        new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()
+    );
+
+  return (
+    <CardSection title="Activity" count={`· ${sourceRows.length}`}>
+      <div className="grid gap-(--space-4)">
+        {!readOnly ? (
+          <div className="grid gap-(--space-3)">
+            <CardSelectField
+              label="Type"
+              value={activityType}
+              options={correspondenceTypeOptions}
+              controlStyle="dialog"
+              onValueChange={(value) =>
+                onTypeChange(value as CustomerCorrespondenceType)
+              }
+            />
+            <Textarea
+              value={activityDraft}
+              rows={4}
+              disabled={isSaving}
+              placeholder="Add a customer note..."
+              className="text-[length:var(--text-md)] leading-[var(--leading-md)]"
+              onChange={(event) => onDraftChange(event.target.value)}
+            />
+            <div className="flex items-center justify-end gap-(--space-4)">
+              {error ? <FieldError>{error.message}</FieldError> : null}
+              <Button
+                type="button"
+                disabled={!activityDraft.trim() || isSaving}
+                onClick={onSubmit}
+              >
+                {isSaving ? "Adding..." : "Add activity"}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
+        <ul className="grid gap-(--space-3)">
+          {rows.length > 0 ? (
+            rows.map((entry) => (
+              <li
+                key={entry.id}
+                className="rounded-(--radius-md) border border-[var(--color-line)] bg-[var(--color-surface)] p-(--space-5)"
+              >
+                <div className="flex flex-wrap items-center gap-(--space-3)">
+                  <span className="text-[length:var(--text-sm)] font-medium text-[var(--color-ink)]">
+                    {correspondenceTypeLabel(entry.type)}
+                  </span>
+                  <span className="font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                    {formatDate(toDateOnlyString(entry.occurredAt))}
+                  </span>
+                  {entry.createdByName ? (
+                    <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                      {entry.createdByName}
+                    </span>
+                  ) : null}
+                </div>
+                {entry.title ? (
+                  <p className="mt-(--space-3) text-[length:var(--text-sm)] font-medium">
+                    {entry.title}
+                  </p>
+                ) : null}
+                <p className="mt-(--space-2) whitespace-pre-wrap text-[length:var(--text-sm)] leading-[var(--leading-md)] text-[var(--color-ink)]">
+                  {entry.body}
+                </p>
+                {entry.attendees.length > 0 ? (
+                  <p className="mt-(--space-3) text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                    {entry.attendees.map((attendee) => attendee.contactName).join(", ")}
+                  </p>
+                ) : null}
+              </li>
+            ))
+          ) : (
+            <EmptyState as="li" density="compact">
+              {contacts.length > 0
+                ? "No activity yet."
+                : "No activity or contacts yet."}
+            </EmptyState>
+          )}
+        </ul>
+      </div>
+    </CardSection>
+  );
+}
+
 function CustomerAddressInput({
   id,
   target,
@@ -1759,6 +2237,13 @@ function formatProjectDateRange(project: CustomerProjectRow) {
   const start = project.startDate ? formatDate(project.startDate) : "No start";
   const target = project.targetEndDate ? formatDate(project.targetEndDate) : "No target";
   return `${start} -> ${target}`;
+}
+
+function correspondenceTypeLabel(type: CustomerCorrespondenceType) {
+  return (
+    correspondenceTypeOptions.find((option) => option.value === type)?.label ??
+    type
+  );
 }
 
 function reportCustomerSaveError(error: unknown) {
