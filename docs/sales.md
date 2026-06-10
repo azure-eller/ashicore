@@ -43,8 +43,9 @@ Sales v1 does not include:
 The customer surface mirrors HubSpot's engagement model without becoming a CRM:
 
 - the **customer** is the account; its email/phone are the organization's main
-  channel (used for documents and accounting sync), not a person's; the
-  free-text field is labeled **Description** (a property, not a note)
+  channel (used for documents and accounting sync), not a person's. There is
+  **no notes field anywhere** — anything written down is an activity entry
+  (the old customer/contact notes columns were migrated into the stream)
 - **contacts** are people; person-level email/phone/roles live there, and
   `is_primary` marks the default person to reach
 - **`customer_activities`** is the single engagement stream: `note`, `call`,
