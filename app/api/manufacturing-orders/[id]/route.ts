@@ -7,7 +7,9 @@ import {
   patchManufacturingOrderSchema,
   updateManufacturingOrderSchema,
 } from "@/lib/schemas/manufacturing-orders";
-import { deleteManufacturingOrder, getManufacturingOrder, patchManufacturingOrder, updateManufacturingOrder } from "@/lib/manufacturing/queries";
+import { deleteManufacturingOrder } from "@/lib/manufacturing/queries/order-delete";
+import { patchManufacturingOrder, updateManufacturingOrder } from "@/lib/manufacturing/queries/order-write";
+import { getManufacturingOrder } from "@/lib/manufacturing/queries/orders-read";
 
 
 export const GET = apiHandler(async (_request: Request, ctx: unknown) => {

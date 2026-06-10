@@ -1,8 +1,5 @@
 import { redirect } from "next/navigation";
-import {
-  getManufacturingOrder,
-  getManufacturingProductTemplates,
-} from "@/lib/manufacturing/queries";
+import { getManufacturingOrder, getManufacturingProductTemplates } from "@/lib/manufacturing/queries/orders-read";
 import { ManufacturingOrderCard } from "./manufacturing-order-card";
 
 export async function ManufacturingOrderCardShell({ orderId }: { orderId: string }) {

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleReadAccess } from "@/lib/dal/auth";
-import { getManufacturingExecutionDetail } from "@/lib/manufacturing/queries";
+import { getManufacturingExecutionDetail } from "@/lib/manufacturing/queries/execution-read";
 
 export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleReadAccess("manufacturing", request.headers);

@@ -93,12 +93,10 @@ import {
   type LotPickPlanEntry,
 } from "@/lib/inventory/lot-pick-plan";
 import { getItemDisplayNamesByIdInTx } from "@/lib/inventory/item-display";
-import {
-  completeManufacturingOrder,
-  deleteManufacturingOrdersInTx,
-  ManufacturingError,
-  recordManufacturingOutput,
-} from "@/lib/manufacturing/queries";
+import { completeManufacturingOrder } from "@/lib/manufacturing/queries/completion";
+import { ManufacturingError } from "@/lib/manufacturing/queries/errors";
+import { deleteManufacturingOrdersInTx } from "@/lib/manufacturing/queries/order-delete";
+import { recordManufacturingOutput } from "@/lib/manufacturing/queries/output";
 import type {
   InsertCustomer,
   PatchCustomer,

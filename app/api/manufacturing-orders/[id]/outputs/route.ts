@@ -5,10 +5,8 @@ import { jsonError } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
 import { recordManufacturingOutputSchema } from "@/lib/schemas/manufacturing-orders";
-import {
-  ManufacturingError,
-  recordManufacturingOutput,
-} from "@/lib/manufacturing/queries";
+import { ManufacturingError } from "@/lib/manufacturing/queries/errors";
+import { recordManufacturingOutput } from "@/lib/manufacturing/queries/output";
 
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("manufacturing", request.headers);

@@ -5,10 +5,8 @@ import { jsonError } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
 import { completeManufacturingOrderSchema } from "@/lib/schemas/manufacturing-orders";
-import {
-  completeManufacturingOrder,
-  ManufacturingError,
-} from "@/lib/manufacturing/queries";
+import { completeManufacturingOrder } from "@/lib/manufacturing/queries/completion";
+import { ManufacturingError } from "@/lib/manufacturing/queries/errors";
 
 
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {

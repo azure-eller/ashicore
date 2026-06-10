@@ -3,7 +3,7 @@ import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";
 import { parseOptionalJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { pickManufacturingIngredientSchema } from "@/lib/schemas/manufacturing-orders";
-import { pickManufacturingIngredient } from "@/lib/manufacturing/queries";
+import { pickManufacturingIngredient } from "@/lib/manufacturing/queries/picking";
 
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("manufacturing", request.headers);

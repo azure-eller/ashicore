@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getManufacturingProductTemplates } from "@/lib/manufacturing/queries";
+import { getManufacturingProductTemplates } from "@/lib/manufacturing/queries/orders-read";
 import { apiHandler } from "@/lib/api/handler";
 import { assertModuleReadAccess } from "@/lib/dal/auth";
 

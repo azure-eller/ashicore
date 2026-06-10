@@ -1,7 +1,7 @@
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import { jsonNotFound, jsonCreated } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
-import { duplicateManufacturingOrder } from "@/lib/manufacturing/queries";
+import { duplicateManufacturingOrder } from "@/lib/manufacturing/queries/order-write";
 
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("manufacturing", request.headers);

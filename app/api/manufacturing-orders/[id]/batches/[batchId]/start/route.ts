@@ -3,7 +3,7 @@ import { apiHandler } from "@/lib/api/handler";
 import { parseOptionalJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { startManufacturingBatchSchema } from "@/lib/schemas/manufacturing-orders";
-import { startManufacturingBatch } from "@/lib/manufacturing/queries";
+import { startManufacturingBatch } from "@/lib/manufacturing/queries/batches";
 
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("manufacturing", request.headers);

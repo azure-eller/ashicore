@@ -1,5 +1,5 @@
 import { requireModuleAccess } from "@/lib/dal/auth";
-import { getManufacturingProductTemplates } from "@/lib/manufacturing/queries";
+import { getManufacturingProductTemplates } from "@/lib/manufacturing/queries/orders-read";
 import { ManufacturingOrderCard } from "../orders/[id]/manufacturing-order-card";
 
 /**

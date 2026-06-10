@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getItems } from "@/lib/inventory/queries/items-list";
 import { getInventoryLedger } from "@/app/(dashboard)/inventory/ledger/queries";
 import { getStocktakes } from "@/lib/dal/stocktakes";
-import { getManufacturingOrders } from "@/lib/manufacturing/queries";
+import { getManufacturingOrders } from "@/lib/manufacturing/queries/orders-read";
 import { getPurchaseOrders } from "@/lib/purchasing/queries/orders-read";
 import { getSuppliers } from "@/lib/purchasing/queries/suppliers";
 import {

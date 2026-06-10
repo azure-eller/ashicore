@@ -59,7 +59,7 @@ Page component
 | API routes | `app/api/` |
 | DAL queries (inventory) | `lib/inventory/queries/` (topic modules) |
 | DAL queries (sales) | `lib/sales/queries.ts` |
-| DAL queries (manufacturing) | `lib/manufacturing/queries.ts` |
+| DAL queries (manufacturing) | `lib/manufacturing/queries/` (topic modules) |
 | DAL queries (purchasing) | `lib/purchasing/queries/` (topic modules) |
 | DAL queries (stocktakes) | `app/(dashboard)/inventory/stocktakes/queries.ts` |
 | DAL auth wrapper | `lib/dal/auth.ts` |
