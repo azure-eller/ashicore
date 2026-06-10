@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -30,10 +30,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { AttachmentListItem } from "@/components/attachment-list";
 import { AddressBookFields } from "@/components/address-book-fields";
 import { EmptyState } from "@/components/empty-state";
-import { FileDropzone } from "@/components/file-dropzone";
 import {
   Combobox,
   ComboboxContent,
@@ -69,9 +67,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  StatusBadge,
-  type StatusBadgeConfig,
-} from "@/components/status-badge";
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
 import {
   MutableLines,
@@ -98,13 +98,6 @@ import {
 import { CommitInput } from "@/components/card-page/commit-input";
 import { NotesField } from "@/components/card-page/notes-field";
 import { ListFrameItem } from "@/components/list-frame";
-import { SurfacePanel } from "@/components/surface-panel";
-import {
-  FramedTable,
-  FramedTableCell,
-  FramedTableRow,
-  TableFrame,
-} from "@/components/table-frame";
 import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
 import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
 import {
@@ -116,21 +109,15 @@ import {
   createCustomer,
   createCustomerContact,
   createCustomerActivity,
+  createCustomerProject,
   deleteCustomerActivity,
   patchCustomerActivity,
-  createCustomerProjectNote,
-  createCustomerProject,
   deleteCustomer,
   deleteCustomerContact,
-  deleteCustomerProjectFile,
-  deleteCustomerProjectNote,
-  deleteCustomerProject,
   getCustomerCard,
   patchCustomer,
-  uploadCustomerProjectFile,
   updateAddressEntry,
   updateCustomerContact,
-  updateCustomerProject,
 } from "@/lib/api/clients/customers";
 import { makeUniqueAddressLabel } from "@/lib/address-label";
 import { useDraftSaveEngine } from "@/lib/hooks/use-draft-save-engine";
@@ -165,7 +152,6 @@ import type {
   CustomerContactRow,
   CustomerDetailData,
   CustomerLinkedSalesOrderRow,
-  CustomerProjectFileRow,
   CustomerProjectRow,
 } from "@/lib/sales/types";
 import { SalesOrderStatusBadge } from "./status-badge";
@@ -179,14 +165,12 @@ type CustomerCardProps = {
 };
 
 type ContactGridRow = CustomerContactRow & { isNew?: boolean };
-type ProjectGridRow = CustomerProjectRow & { isNew?: boolean };
 type OpenOrderGridRow = CustomerLinkedSalesOrderRow;
 type CustomerDraftOp =
   | { type: "patch"; patch: PatchCustomer }
   | { type: "upsertContact"; row: ContactGridRow }
   | { type: "deleteContact"; contactId: string }
-  | { type: "upsertProject"; row: ProjectGridRow }
-  | { type: "deleteProject"; projectId: string };
+;
 type AddressTarget = "billing" | "shipping";
 type CustomerAddressFields = {
   line1: string | null;
@@ -251,28 +235,11 @@ const contactRoleOptions: Array<{ value: CustomerContactRole; label: string }> =
   { value: "field", label: "On site" },
 ];
 
-const activityTypeOptions: Array<{
-  value: CustomerActivityType;
-  label: string;
-}> = [
-  { value: "note", label: "Note" },
-  { value: "call", label: "Call" },
-  { value: "email", label: "Email" },
-  { value: "meeting", label: "Meeting" },
-  { value: "task", label: "Task" },
-];
-
 const noActivityProjectValue = "__no_activity_project__";
+const allProjectsFilterValue = "__all_projects__";
+const newProjectSentinel = "__new_project__";
 
-const projectStatusMeta: Record<
-  ProjectGridRow["status"],
-  StatusBadgeConfig<ProjectGridRow["status"]>[ProjectGridRow["status"]]
-> = {
-  planning: { label: "Planning", tone: "neutral" },
-  active: { label: "In Progress", tone: "warning" },
-  hold: { label: "On Hold", tone: "warning" },
-  done: { label: "Done", tone: "success" },
-};
+
 export function CustomerCard({
   initialCustomerId,
   initialCustomer,
@@ -643,39 +610,11 @@ export function CustomerCard({
           }}
         />
 
-        <ProjectsSection
-          customerId={currentCustomerId}
-          rows={display.projects}
-          readOnly={readOnly || isDraft}
-          error={engine.error}
-          onSave={(row, options) => {
-            if (readOnly || isDraft) return;
-            engine.applyLocalOp(
-              { type: "upsertProject", row },
-              Number.POSITIVE_INFINITY,
-            );
-            void engine
-              .flush()
-              .then(() => options?.onSuccess?.())
-              .catch(reportCustomerSaveError);
-          }}
-          onDelete={(projectId, options) => {
-            if (readOnly || isDraft) return;
-            engine.applyLocalOp(
-              { type: "deleteProject", projectId },
-              Number.POSITIVE_INFINITY,
-            );
-            void engine
-              .flush()
-              .then(() => options?.onSuccess?.())
-              .catch(reportCustomerSaveError);
-          }}
-        />
-
         <ActivitySection
           customerId={currentCustomerId}
           rows={display.activities}
           projects={display.projects}
+          contacts={display.contacts}
           readOnly={readOnly || isDraft}
         />
 
@@ -1079,569 +1018,6 @@ function ContactDetailSheet({
   );
 }
 
-function ProjectsSection({
-  customerId,
-  rows: sourceRows,
-  readOnly,
-  error,
-  onSave,
-  onDelete,
-}: {
-  customerId: string | null;
-  rows: CustomerProjectRow[];
-  readOnly: boolean;
-  error: string | null;
-  onSave: (row: ProjectGridRow, options?: { onSuccess?: () => void }) => void;
-  onDelete: (projectId: string, options?: { onSuccess?: () => void }) => void;
-}) {
-  const [activeProject, setActiveProject] = useState<CustomerProjectRow | null>(null);
-  const [creatingProject, setCreatingProject] = useState(false);
-
-  return (
-    <CardSection
-      title="Projects"
-      count={`· ${sourceRows.length}`}
-      aria-label={`Projects ${sourceRows.length}`}
-    >
-      <div className="grid gap-(--space-4)">
-        {sourceRows.length > 0 ? (
-          sourceRows.map((project) => (
-            <SurfacePanel
-              as="button"
-              key={project.id}
-              type="button"
-              interactive
-              className="grid p-(--space-5) text-left"
-              onClick={() => setActiveProject(project)}
-            >
-              <span className="flex min-w-0 items-center justify-between gap-(--space-4)">
-                <span className="truncate text-[length:var(--text-sm)] font-medium">
-                  {project.name}
-                </span>
-                <StatusBadge status={project.status} config={projectStatusMeta} />
-              </span>
-              <span className="mt-(--space-2) text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-                {formatProjectDateRange(project)} · {project.orderCount} order{project.orderCount === 1 ? "" : "s"} · {formatPrice(project.orderValue) ?? "$0.00"} · {project.files.length} attachment{project.files.length === 1 ? "" : "s"}
-              </span>
-            </SurfacePanel>
-          ))
-        ) : (
-          <EmptyState>No projects yet.</EmptyState>
-        )}
-      </div>
-
-      {!readOnly ? (
-        <button
-          type="button"
-          className={styles.addRow}
-          onClick={() => setCreatingProject(true)}
-          disabled={!customerId}
-        >
-          + Add project
-        </button>
-      ) : null}
-
-      {activeProject ? (
-        <CustomerProjectDialog
-          key={activeProject.id}
-          customerId={customerId}
-          project={activeProject}
-          open
-          readOnly={readOnly}
-          saveError={error}
-          onSave={onSave}
-          onDelete={onDelete}
-          onClose={() => setActiveProject(null)}
-        />
-      ) : null}
-      {creatingProject ? (
-        <CustomerProjectDialog
-          key="new-project"
-          customerId={customerId}
-          project={null}
-          open
-          readOnly={readOnly}
-          saveError={error}
-          onSave={onSave}
-          onDelete={onDelete}
-          onClose={() => setCreatingProject(false)}
-        />
-      ) : null}
-    </CardSection>
-  );
-}
-
-function CustomerProjectDialog({
-  customerId,
-  project,
-  open,
-  readOnly,
-  saveError,
-  onSave,
-  onDelete,
-  onClose,
-}: {
-  customerId: string | null;
-  project: CustomerProjectRow | null;
-  open: boolean;
-  readOnly: boolean;
-  saveError: string | null;
-  onSave: (row: ProjectGridRow, options?: { onSuccess?: () => void }) => void;
-  onDelete: (projectId: string, options?: { onSuccess?: () => void }) => void;
-  onClose: () => void;
-}) {
-  const queryClient = useQueryClient();
-  const [draft, setDraft] = useState<ProjectGridRow>(() =>
-    project ? { ...project } : newProjectRow()
-  );
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [noteDraft, setNoteDraft] = useState("");
-
-  const fileUploadMutation = useMutation({
-    mutationKey: cardSaveMutationKey("customer", customerId ?? "__draft__", "project-file"),
-    mutationFn: ({ projectId, file }: { projectId: string; file: File }) =>
-      uploadCustomerProjectFile(customerId as string, projectId, file),
-    onSuccess: async (file) => {
-      setDraft((current) => ({ ...current, files: [...(current.files ?? []), file] }));
-      if (customerId) {
-        await queryClient.invalidateQueries({ queryKey: ["customer-card", customerId] });
-      }
-    },
-  });
-  const fileDeleteMutation = useMutation({
-    mutationKey: cardSaveMutationKey("customer", customerId ?? "__draft__", "project-file-delete"),
-    mutationFn: (file: CustomerProjectFileRow) =>
-      deleteCustomerProjectFile(customerId as string, draft.id, file.id),
-    onSuccess: async (_result, file) => {
-      setDraft((current) => ({
-        ...current,
-        files: (current.files ?? []).filter((candidate) => candidate.id !== file.id),
-      }));
-      if (customerId) {
-        await queryClient.invalidateQueries({ queryKey: ["customer-card", customerId] });
-      }
-    },
-  });
-  const noteCreateMutation = useMutation({
-    mutationKey: cardSaveMutationKey("customer", customerId ?? "__draft__", "project-note-create"),
-    mutationFn: ({ projectId, body }: { projectId: string; body: string }) =>
-      createCustomerProjectNote(customerId as string, projectId, { body }),
-    onSuccess: async (note) => {
-      setDraft((current) => ({
-        ...current,
-        notes: [note, ...(current.notes ?? [])],
-      }));
-      setNoteDraft("");
-      if (customerId) {
-        await queryClient.invalidateQueries({ queryKey: ["customer-card", customerId] });
-      }
-    },
-  });
-  const noteDeleteMutation = useMutation({
-    mutationKey: cardSaveMutationKey("customer", customerId ?? "__draft__", "project-note-delete"),
-    mutationFn: (noteId: string) =>
-      deleteCustomerProjectNote(customerId as string, draft.id, noteId),
-    onSuccess: async (_result, noteId) => {
-      setDraft((current) => ({
-        ...current,
-        notes: (current.notes ?? []).filter((note) => note.id !== noteId),
-      }));
-      if (customerId) {
-        await queryClient.invalidateQueries({ queryKey: ["customer-card", customerId] });
-      }
-    },
-  });
-
-  const linkedOrders = draft.salesOrders ?? [];
-  const files = draft.files ?? [];
-  const notes = draft.notes ?? [];
-  const canUploadFiles = Boolean(customerId && !draft.isNew && !readOnly);
-  const canAddNotes = Boolean(customerId && !draft.isNew && !readOnly);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  function uploadFirstFile(filesToUpload: FileList | null) {
-    const file = filesToUpload?.[0];
-    if (!file || !customerId) return;
-    fileUploadMutation.mutate({ projectId: draft.id, file });
-  }
-
-  function submitNote() {
-    const body = noteDraft.trim();
-    if (!body || !canAddNotes) return;
-    noteCreateMutation.mutate({ projectId: draft.id, body });
-  }
-
-  return (
-    <Sheet
-      open={open}
-      onOpenChange={(nextOpen) => {
-        if (!nextOpen) {
-          setConfirmDelete(false);
-          onClose();
-        }
-      }}
-    >
-      <SheetContent
-        side="right"
-        className="gap-0 overflow-hidden p-0 data-[side=right]:w-[min(560px,94vw)] data-[side=right]:sm:max-w-[min(560px,94vw)]"
-      >
-        <SheetHeader>
-          <SheetTitle>{project ? "Project" : "Add project"}</SheetTitle>
-          <SheetDescription className="sr-only">
-            Track project context, notes, files, and linked sales orders.
-          </SheetDescription>
-        </SheetHeader>
-        <div className="grid min-h-0 flex-1 gap-(--space-8) overflow-y-auto p-(--space-8)">
-          {project ? (
-            <div
-              className={styles.summaryGrid}
-              style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}
-            >
-              <div className={styles.summaryTile}>
-                <p className={styles.eyebrow}>Orders</p>
-                <span className={styles.val}>{project.orderCount}</span>
-              </div>
-              <div className={styles.summaryTile}>
-                <p className={styles.eyebrow}>Open value</p>
-                <span className={styles.val}>
-                  {formatPrice(project.orderValue) ?? "$0.00"}
-                </span>
-              </div>
-              <div className={styles.summaryTile}>
-                <p className={styles.eyebrow}>Created</p>
-                <span className={styles.val}>
-                  {formatDate(toDateOnlyString(project.createdAt))}
-                </span>
-              </div>
-            </div>
-          ) : null}
-
-          <CardFormRow columns="three">
-            <CardTextField
-              label="Project name"
-              value={draft.name}
-              required
-              disabled={readOnly}
-              controlStyle="dialog"
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, name: event.target.value }))
-              }
-            />
-            <CardSelectField
-              label="Status"
-              value={draft.status}
-              disabled={readOnly}
-              controlStyle="dialog"
-              onValueChange={(status) =>
-                setDraft((current) => ({ ...current, status: status as ProjectGridRow["status"] }))
-              }
-              options={[
-                { value: "planning", label: "Planning" },
-                { value: "active", label: "In Progress" },
-                { value: "hold", label: "On Hold" },
-                { value: "done", label: "Done" },
-              ]}
-            />
-          </CardFormRow>
-
-          <CardFormRow columns="three">
-            <CardField label="Start date" controlStyle="dialog">
-              <DatePicker
-                value={draft.startDate ?? ""}
-                disabled={readOnly}
-                placeholder="Start date"
-                onChange={(value) =>
-                  setDraft((current) => ({
-                    ...current,
-                    startDate: value || null,
-                  }))
-                }
-              />
-            </CardField>
-            <CardField label="Target date" controlStyle="dialog">
-              <DatePicker
-                value={draft.targetEndDate ?? ""}
-                disabled={readOnly}
-                placeholder="Target date"
-                onChange={(value) =>
-                  setDraft((current) => ({
-                    ...current,
-                    targetEndDate: value || null,
-                  }))
-                }
-              />
-            </CardField>
-          </CardFormRow>
-
-          <CardField
-            label="Summary"
-            htmlFor="customer-project-summary"
-            controlStyle="dialog"
-          >
-            <Textarea
-              id="customer-project-summary"
-              value={draft.summary ?? ""}
-              disabled={readOnly}
-              rows={5}
-              className="text-[length:var(--text-md)] leading-[var(--leading-md)]"
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  summary: event.target.value || null,
-                }))
-              }
-            />
-          </CardField>
-
-          <div className="grid gap-(--space-4)">
-            <h3 className={styles.sectionHeading}>Notes</h3>
-            <ul className="grid gap-(--space-3)">
-              {notes.length > 0 ? (
-                notes.map((note) => (
-                  <li
-                    key={note.id}
-                    className="rounded-(--radius-md) border border-[var(--color-line)] bg-[var(--color-surface)] p-(--space-5)"
-                  >
-                    <div className="flex items-start justify-between gap-(--space-4)">
-                      <div className="min-w-0">
-                        <p className="text-[length:var(--text-sm)] leading-[var(--leading-md)] text-[var(--color-ink)]">
-                          {note.body}
-                        </p>
-                        <p className="mt-(--space-2) font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-                          {note.createdByName || "Team member"} · {formatDate(toDateOnlyString(note.createdAt))}
-                        </p>
-                      </div>
-                      {!readOnly ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => noteDeleteMutation.mutate(note.id)}
-                          disabled={noteDeleteMutation.isPending}
-                        >
-                          Delete
-                        </Button>
-                      ) : null}
-                    </div>
-                  </li>
-                ))
-              ) : (
-                <EmptyState as="li" density="compact">
-                  {draft.isNew
-                    ? "Save the project before adding notes."
-                    : "No notes yet."}
-                </EmptyState>
-              )}
-            </ul>
-            {!readOnly ? (
-              <div className="grid gap-(--space-3)">
-                <Textarea
-                  value={noteDraft}
-                  disabled={!canAddNotes || noteCreateMutation.isPending}
-                  rows={3}
-                  placeholder={
-                    draft.isNew
-                      ? "Save the project before adding notes."
-                      : "Add a project note..."
-                  }
-                  className="text-[length:var(--text-md)] leading-[var(--leading-md)]"
-                  onChange={(event) => setNoteDraft(event.target.value)}
-                />
-                <div className="flex items-center justify-end gap-(--space-4)">
-                  {noteCreateMutation.error ? (
-                    <FieldError>
-                      {(noteCreateMutation.error as Error).message}
-                    </FieldError>
-                  ) : null}
-                  {noteDeleteMutation.error ? (
-                    <FieldError>
-                      {(noteDeleteMutation.error as Error).message}
-                    </FieldError>
-                  ) : null}
-                  <Button
-                    type="button"
-                    disabled={
-                      !canAddNotes ||
-                      !noteDraft.trim() ||
-                      noteCreateMutation.isPending
-                    }
-                    onClick={submitNote}
-                  >
-                    {noteCreateMutation.isPending ? "Adding..." : "Add note"}
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="grid gap-(--space-4)">
-            <h3 className={styles.sectionHeading}>Linked sales orders</h3>
-            <TableFrame>
-              <FramedTable>
-                <tbody>
-                  {linkedOrders.length > 0 ? (
-                    linkedOrders.map((order) => (
-                      <FramedTableRow key={order.id}>
-                        <FramedTableCell className="p-(--space-4)">
-                          <Link href={`/sales/order/${order.id}`} className="font-mono font-medium text-[var(--color-accent-ink)]">
-                            {order.orderNumber}
-                          </Link>
-                        </FramedTableCell>
-                        <FramedTableCell className="p-(--space-4)">
-                          {formatDate(order.shipDate ?? order.orderDate)}
-                        </FramedTableCell>
-                        <FramedTableCell className="p-(--space-4)">
-                          <SalesOrderStatusBadge status={order.status} />
-                        </FramedTableCell>
-                        <FramedTableCell align="right" numeric className="p-(--space-4)">
-                          {formatPrice(order.totalAmount) ?? "$0.00"}
-                        </FramedTableCell>
-                      </FramedTableRow>
-                    ))
-                  ) : (
-                    <tr>
-                      <FramedTableCell
-                        colSpan={4}
-                        align="center"
-                        muted
-                        className="p-(--space-8)"
-                      >
-                        No linked sales orders.
-                      </FramedTableCell>
-                    </tr>
-                  )}
-                </tbody>
-              </FramedTable>
-            </TableFrame>
-          </div>
-
-          <div className="grid gap-(--space-4)">
-            <div className="grid gap-(--space-4)">
-              <h3 className={styles.sectionHeading}>Attachments</h3>
-              <input
-                ref={fileInputRef}
-                type="file"
-                className="sr-only"
-                disabled={!canUploadFiles || fileUploadMutation.isPending}
-                onChange={(event) => {
-                  uploadFirstFile(event.target.files);
-                  event.target.value = "";
-                }}
-              />
-              <FileDropzone
-                label={fileUploadMutation.isPending ? "Uploading..." : "Upload attachment"}
-                disabled={!canUploadFiles || fileUploadMutation.isPending}
-                onBrowse={() => fileInputRef.current?.click()}
-                onFiles={uploadFirstFile}
-              />
-            </div>
-            <ul className="grid gap-(--space-2)">
-              {draft.isNew ? (
-                <EmptyState as="li" density="compact">
-                  Save the project before adding attachments.
-                </EmptyState>
-              ) : files.length > 0 ? (
-                files.map((file) => (
-                  <AttachmentListItem
-                    as="li"
-                    key={file.id}
-                    filename={file.filename}
-                    sizeBytes={file.sizeBytes}
-                    href={`/api/customers/${customerId}/projects/${draft.id}/files/${file.id}`}
-                    layout="inline"
-                    actions={!readOnly ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => fileDeleteMutation.mutate(file)}
-                        disabled={fileDeleteMutation.isPending}
-                      >
-                        Delete
-                      </Button>
-                    ) : null}
-                  />
-                ))
-              ) : (
-                <EmptyState as="li" density="compact">No attachments yet.</EmptyState>
-              )}
-            </ul>
-            {fileUploadMutation.error ? (
-              <FieldError>{(fileUploadMutation.error as Error).message}</FieldError>
-            ) : null}
-            {fileDeleteMutation.error ? (
-              <FieldError>{(fileDeleteMutation.error as Error).message}</FieldError>
-            ) : null}
-          </div>
-        </div>
-
-        <SheetFooter className="flex-row items-center justify-end gap-(--space-4)">
-          {project && !readOnly ? (
-            <Button
-              type="button"
-              variant="destructive"
-              className="mr-auto"
-              onClick={() => setConfirmDelete(true)}
-            >
-              Delete project
-            </Button>
-          ) : null}
-          <Button type="button" variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          {!readOnly ? (
-            <Button
-              type="button"
-              disabled={!draft.name.trim()}
-              onClick={() => {
-                onSave(draft, {
-                  onSuccess: () => onClose(),
-                });
-              }}
-            >
-              {project ? "Save changes" : "Add project"}
-            </Button>
-          ) : null}
-          {saveError ? <FieldError>{saveError}</FieldError> : null}
-        </SheetFooter>
-      </SheetContent>
-
-      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete project?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This project will be removed from the customer workspace.
-              {saveError ? (
-                <span className="mt-(--space-2) block text-[var(--status-danger-ink)]">
-                  {saveError}
-                </span>
-              ) : null}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="danger"
-              onClick={(event) => {
-                event.preventDefault();
-                onDelete(draft.id, {
-                  onSuccess: () => {
-                    setConfirmDelete(false);
-                    onClose();
-                  },
-                });
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </Sheet>
-  );
-}
-
 function OpenOrdersSection({
   customerId,
   rows: sourceRows,
@@ -1724,13 +1100,15 @@ const activityTimelineIcons: Record<CustomerActivityType, IconSvgElement> = {
 
 function ActivitySection({
   customerId,
-  rows,
+  rows: allRows,
   projects,
+  contacts,
   readOnly,
 }: {
   customerId: string | null;
   rows: CustomerActivityRow[];
   projects: CustomerProjectRow[];
+  contacts: CustomerContactRow[];
   readOnly: boolean;
 }) {
   const queryClient = useQueryClient();
@@ -1738,7 +1116,14 @@ function ActivitySection({
   const [body, setBody] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [projectId, setProjectId] = useState(noActivityProjectValue);
+  const [attendeeIds, setAttendeeIds] = useState<string[]>([]);
+  const [filterProjectId, setFilterProjectId] = useState(allProjectsFilterValue);
+  const [newProjectName, setNewProjectName] = useState<string | null>(null);
 
+  const rows =
+    filterProjectId === allProjectsFilterValue
+      ? allRows
+      : allRows.filter((row) => row.customerProjectId === filterProjectId);
   const isTask = type === "task";
   const openTasks = rows
     .filter((row) => row.type === "task" && row.status === "open")
@@ -1779,11 +1164,12 @@ function ActivitySection({
         dueDate: isTask && dueDate ? dueDate : null,
         customerProjectId:
           projectId === noActivityProjectValue ? null : projectId,
-        attendeeContactIds: [],
+        attendeeContactIds: attendeeIds,
       }),
     onSuccess: async () => {
       setBody("");
       setDueDate("");
+      setAttendeeIds([]);
       await invalidate();
     },
   });
@@ -1815,12 +1201,63 @@ function ActivitySection({
     onSuccess: invalidate,
   });
 
+  const newProjectMutation = useMutation({
+    mutationKey: cardSaveMutationKey(
+      "customer",
+      customerId ?? "__draft__",
+      "activity-new-project"
+    ),
+    mutationFn: (name: string) =>
+      createCustomerProject(customerId as string, {
+        name,
+        status: "planning",
+        startDate: null,
+        targetEndDate: null,
+        summary: null,
+      }),
+    onSuccess: async (project) => {
+      setNewProjectName(null);
+      if (project) setProjectId(project.id);
+      await invalidate();
+    },
+  });
+
   const pending = patchMutation.isPending || deleteMutation.isPending;
   const error =
-    createMutation.error ?? patchMutation.error ?? deleteMutation.error;
+    createMutation.error ??
+    patchMutation.error ??
+    deleteMutation.error ??
+    newProjectMutation.error;
 
   return (
-    <CardSection title="Activity" count={`· ${rows.length}`}>
+    <CardSection
+      title="Activity"
+      count={`· ${rows.length}`}
+      actions={
+        projects.length > 0 ? (
+          <Select value={filterProjectId} onValueChange={setFilterProjectId}>
+            <SelectTrigger aria-label="Filter by project" size="sm">
+              <SelectValue>
+                {filterProjectId === allProjectsFilterValue
+                  ? "Project · All"
+                  : projects.find((project) => project.id === filterProjectId)
+                      ?.name ?? "Project · All"}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={allProjectsFilterValue}>
+                Project · All
+              </SelectItem>
+              {projects.map((project) => (
+                <SelectItem key={project.id} value={project.id}>
+                  {project.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null
+      }
+    >
       <div className="grid gap-(--space-5)">
         {!readOnly ? (
           <div className="grid gap-0 rounded-(--radius-md) border border-[var(--color-line)]">
@@ -1850,22 +1287,64 @@ function ActivitySection({
               onChange={(event) => setBody(event.target.value)}
             />
             <div className="flex flex-wrap items-center gap-(--space-3) border-t border-[var(--color-line)] bg-[var(--color-surface-2)] p-(--space-3)">
-              {projects.length > 0 ? (
-                <Select value={projectId} onValueChange={setProjectId}>
-                  <SelectTrigger aria-label="Project" size="sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={noActivityProjectValue}>
-                      No project
+              <Select
+                value={projectId}
+                onValueChange={(value) => {
+                  if (value === newProjectSentinel) {
+                    setNewProjectName("");
+                    return;
+                  }
+                  setProjectId(value);
+                }}
+              >
+                <SelectTrigger aria-label="Project" size="sm">
+                  <SelectValue>
+                    {projectId === noActivityProjectValue
+                      ? "No project"
+                      : projects.find((project) => project.id === projectId)
+                          ?.name ?? "No project"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={noActivityProjectValue}>
+                    No project
+                  </SelectItem>
+                  {projects.map((project) => (
+                    <SelectItem key={project.id} value={project.id}>
+                      {project.name}
                     </SelectItem>
-                    {projects.map((project) => (
-                      <SelectItem key={project.id} value={project.id}>
-                        {project.name}
-                      </SelectItem>
+                  ))}
+                  <SelectItem value={newProjectSentinel}>
+                    New project…
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              {contacts.length > 0 ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button type="button" variant="outline" size="sm">
+                      @ Contacts
+                      {attendeeIds.length > 0 ? ` · ${attendeeIds.length}` : ""}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    {contacts.map((contact) => (
+                      <DropdownMenuCheckboxItem
+                        key={contact.id}
+                        checked={attendeeIds.includes(contact.id)}
+                        onCheckedChange={(checked) =>
+                          setAttendeeIds((current) =>
+                            checked === true
+                              ? [...new Set([...current, contact.id])]
+                              : current.filter((id) => id !== contact.id)
+                          )
+                        }
+                      >
+                        {contact.name}
+                      </DropdownMenuCheckboxItem>
                     ))}
-                  </SelectContent>
-                </Select>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               ) : null}
               {isTask ? (
                 <div className="w-52">
@@ -1927,8 +1406,13 @@ function ActivitySection({
                     <span className="min-w-0 flex-1 truncate text-[length:var(--text-sm)]">
                       {task.title}
                     </span>
-                    {task.projectName ? (
-                      <ActivityProjectChip name={task.projectName} />
+                    {task.projectName && task.customerProjectId ? (
+                      <ActivityProjectChip
+                        name={task.projectName}
+                        onSelect={() =>
+                          setFilterProjectId(task.customerProjectId as string)
+                        }
+                      />
                     ) : null}
                     <span
                       className={cn(
@@ -2019,8 +1503,15 @@ function ActivitySection({
                           <span className="font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                             {formatDate(toDateOnlyString(timelineDate(entry)))}
                           </span>
-                          {entry.projectName ? (
-                            <ActivityProjectChip name={entry.projectName} />
+                          {entry.projectName && entry.customerProjectId ? (
+                            <ActivityProjectChip
+                              name={entry.projectName}
+                              onSelect={() =>
+                                setFilterProjectId(
+                                  entry.customerProjectId as string
+                                )
+                              }
+                            />
                           ) : null}
                         </div>
                         {entry.title ? (
@@ -2051,15 +1542,60 @@ function ActivitySection({
           <EmptyState density="compact">No activity yet.</EmptyState>
         ) : null}
       </div>
+
+      <Dialog
+        open={newProjectName !== null}
+        onOpenChange={(open) => {
+          if (!open) setNewProjectName(null);
+        }}
+      >
+        <DialogContent size="sm">
+          <DialogHeader>
+            <DialogTitle>New project</DialogTitle>
+          </DialogHeader>
+          <CardTextField
+            label="Project name"
+            value={newProjectName ?? ""}
+            controlStyle="dialog"
+            onChange={(event) => setNewProjectName(event.target.value)}
+          />
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setNewProjectName(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={!newProjectName?.trim() || newProjectMutation.isPending}
+              onClick={() => newProjectMutation.mutate(newProjectName as string)}
+            >
+              {newProjectMutation.isPending ? "Creating..." : "Create project"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </CardSection>
   );
 }
 
-function ActivityProjectChip({ name }: { name: string }) {
+function ActivityProjectChip({
+  name,
+  onSelect,
+}: {
+  name: string;
+  onSelect?: () => void;
+}) {
   return (
-    <span className="whitespace-nowrap rounded-full border border-[var(--color-line)] bg-[var(--color-surface-2)] px-(--space-3) py-(--space-1) text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+    <button
+      type="button"
+      className="max-w-56 truncate whitespace-nowrap rounded-full border border-[var(--color-line)] bg-[var(--color-surface-2)] px-(--space-3) py-(--space-1) text-[length:var(--text-xs)] text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]"
+      onClick={onSelect}
+    >
       {name}
-    </span>
+    </button>
   );
 }
 
@@ -2255,16 +1791,6 @@ function contactPayload(row: ContactGridRow) {
   };
 }
 
-function projectPayload(row: ProjectGridRow) {
-  return {
-    name: row.name.trim(),
-    status: row.status,
-    startDate: row.startDate || null,
-    targetEndDate: row.targetEndDate || null,
-    summary: row.summary || null,
-  };
-}
-
 function newContactRow(): ContactGridRow {
   const now = new Date();
   return {
@@ -2277,26 +1803,6 @@ function newContactRow(): ContactGridRow {
     addressEntryId: null,
     roles: [],
     notes: null,
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-
-function newProjectRow(): ProjectGridRow {
-  const now = new Date();
-  return {
-    id: `new-${crypto.randomUUID()}`,
-    isNew: true,
-    name: "",
-    status: "planning",
-    startDate: null,
-    targetEndDate: null,
-    summary: null,
-    notes: [],
-    files: [],
-    salesOrders: [],
-    orderCount: 0,
-    orderValue: "0",
     createdAt: now,
     updatedAt: now,
   };
@@ -2354,20 +1860,9 @@ function applyCustomerDraftOp(
     const contacts = upsertById(customer.contacts, op.row);
     return { ...customer, contacts, updatedAt: new Date() };
   }
-  if (op.type === "deleteContact") {
-    return {
-      ...customer,
-      contacts: customer.contacts.filter((contact) => contact.id !== op.contactId),
-      updatedAt: new Date(),
-    };
-  }
-  if (op.type === "upsertProject") {
-    const projects = upsertById(customer.projects, op.row);
-    return { ...customer, projects, updatedAt: new Date() };
-  }
   return {
     ...customer,
-    projects: customer.projects.filter((project) => project.id !== op.projectId),
+    contacts: customer.contacts.filter((contact) => contact.id !== op.contactId),
     updatedAt: new Date(),
   };
 }
@@ -2398,17 +1893,6 @@ async function saveCustomerOps(
       changed = true;
     } else if (op.type === "deleteContact") {
       await deleteCustomerContact(customerId, op.contactId);
-      changed = true;
-    } else if (op.type === "upsertProject") {
-      if (!op.row.name.trim()) continue;
-      if (op.row.isNew) {
-        await createCustomerProject(customerId, projectPayload(op.row));
-      } else {
-        await updateCustomerProject(customerId, op.row.id, projectPayload(op.row));
-      }
-      changed = true;
-    } else if (op.type === "deleteProject") {
-      await deleteCustomerProject(customerId, op.projectId);
       changed = true;
     }
   }
@@ -2482,22 +1966,6 @@ function upsertById<TRow extends { id: string }>(rows: TRow[], next: TRow) {
 
 function replaceRow<TRow extends { id: string }>(rows: TRow[], next: TRow) {
   return rows.map((row) => (row.id === next.id ? next : row));
-}
-
-function formatProjectDateRange(project: CustomerProjectRow) {
-  const start = project.startDate ? formatDate(project.startDate) : "No start";
-  const target = project.targetEndDate ? formatDate(project.targetEndDate) : "No target";
-  return `${start} -> ${target}`;
-}
-
-function activityTypeLabel(type: CustomerActivityType) {
-  return (
-    activityTypeOptions.find((option) => option.value === type)?.label ?? type
-  );
-}
-
-function reportCustomerSaveError(error: unknown) {
-  console.error("Customer save failed:", error);
 }
 
 export function addressEntryLabel(address: AddressEntry) {

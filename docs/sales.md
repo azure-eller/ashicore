@@ -14,7 +14,7 @@ Sales v1 includes:
 
 - customer CRUD
 - account state and priority for landed-customer management
-- customer contacts, activity log, and tasks on the customer card
+- customer contacts, unified activity stream (notes/calls/emails/meetings/tasks), and project tags on the customer card
 - customer-category and selected-item pricing schedules with quantity breaks
 - customer projects/jobs as optional sales-order context
 - multi-line sales orders

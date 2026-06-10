@@ -94,26 +94,6 @@ export type CustomerActivityRow = {
   updatedAt: Date;
 };
 
-export type CustomerProjectFileRow = {
-  id: string;
-  filename: string;
-  contentType: string;
-  sizeBytes: number;
-  uploadedByUserId: string;
-  uploadedByName: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-};
-
-export type CustomerProjectNoteRow = {
-  id: string;
-  body: string;
-  createdByUserId: string;
-  createdByName: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-};
-
 export type CustomerProjectRow = {
   id: string;
   name: string;
@@ -121,8 +101,6 @@ export type CustomerProjectRow = {
   startDate: string | null;
   targetEndDate: string | null;
   summary: string | null;
-  notes: CustomerProjectNoteRow[];
-  files: CustomerProjectFileRow[];
   salesOrders: CustomerLinkedSalesOrderRow[];
   orderCount: number;
   orderValue: string;

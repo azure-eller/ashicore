@@ -1,8 +1,7 @@
-import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { test, expect, filterList } from "../fixtures";
 import {
   customerActivities,
-  customerProjectNotes,
   inventoryDemandSummary,
   inventoryEvents,
   inventoryItemBalances,
@@ -134,10 +133,11 @@ test.describe("sales fulfillment operating story", () => {
     await expect(row).toContainText(customer.name);
   });
 
-  test("persists customer project notes from the customer card sheet", async ({ db, page }) => {
+  test("tags activities to a project and filters the stream by chip", async ({ db, page }) => {
     const run = Date.now();
     const projectName = `Sales Story Project ${run}`;
-    const noteBody = `Confirm delivery gate access ${run}`;
+    const taggedBody = `Confirm delivery gate access ${run}`;
+    const untaggedBody = `General check-in ${run}`;
 
     const projectResponse = await testFetch(`/api/customers/${customerId}/projects`, {
       method: "POST",
@@ -146,81 +146,67 @@ test.describe("sales fulfillment operating story", () => {
         status: "active",
         startDate: "2026-06-01",
         targetEndDate: "2026-06-30",
-        summary: "Sales story project notes",
+        summary: "Sales story project",
       }),
     });
     expect(projectResponse.status).toBe(201);
     const project = (await projectResponse.json()) as { id: string };
 
+    const untagged = await testFetch(`/api/customers/${customerId}/activities`, {
+      method: "POST",
+      body: JSON.stringify({
+        type: "note",
+        title: null,
+        body: untaggedBody,
+        dueDate: null,
+        customerProjectId: null,
+        attendeeContactIds: [],
+      }),
+    });
+    expect(untagged.status).toBe(201);
+
     await page.goto(`/sales/customers/${customerId}`);
     await page.waitForLoadState("networkidle");
-    const projectButton = page.getByRole("button", { name: new RegExp(projectName) });
-    await expect(projectButton).toBeVisible();
-    const sheet = page.getByRole("dialog", { name: "Project" });
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      await projectButton.click();
-      try {
-        await expect(sheet).toBeVisible({ timeout: 2_000 });
-        break;
-      } catch {
-        if (attempt === 2) throw new Error("Project sheet did not open");
-      }
-    }
-    await expect(sheet).toBeVisible();
 
-    await sheet.getByPlaceholder("Add a project note...").fill(noteBody);
-    const createNoteResponsePromise = page.waitForResponse(
+    const createResponsePromise = page.waitForResponse(
       (response) =>
-        response.url().includes(`/api/customers/${customerId}/projects/${project.id}/notes`) &&
+        response.url().includes(`/api/customers/${customerId}/activities`) &&
         response.request().method() === "POST"
     );
-    await sheet.getByRole("button", { name: "Add note" }).click();
-    const createNoteResponse = await createNoteResponsePromise;
-    expect(createNoteResponse.status(), await createNoteResponse.text()).toBe(201);
-    await expect(sheet.locator("li", { hasText: noteBody })).toBeVisible();
+    await expect(async () => {
+      await page.getByRole("combobox", { name: "Project" }).click();
+      await expect(
+        page.getByRole("option", { name: projectName })
+      ).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 30_000 });
+    await page.getByRole("option", { name: projectName }).click();
+    await page.getByLabel("Activity notes").fill(taggedBody);
+    await page.getByRole("button", { name: "Add note" }).click();
+    const createResponse = await createResponsePromise;
+    expect(createResponse.status(), await createResponse.text()).toBe(201);
 
-    const [createdNote] = await db
-      .select()
-      .from(customerProjectNotes)
+    const [tagged] = await db
+      .select({
+        customerProjectId: customerActivities.customerProjectId,
+        body: customerActivities.body,
+      })
+      .from(customerActivities)
       .where(
         and(
-          eq(customerProjectNotes.customerId, customerId),
-          eq(customerProjectNotes.projectId, project.id),
-          eq(customerProjectNotes.body, noteBody),
-          isNull(customerProjectNotes.deletedAt)
+          eq(customerActivities.customerId, customerId),
+          eq(customerActivities.body, taggedBody)
         )
       );
-    expect(createdNote).toBeTruthy();
+    expect(tagged.customerProjectId).toBe(project.id);
 
-    await page.reload();
-    await page.getByRole("button", { name: new RegExp(projectName) }).click();
-    const reloadedSheet = page.getByRole("dialog", { name: "Project" });
-    await expect(reloadedSheet.locator("li", { hasText: noteBody })).toBeVisible();
+    await expect(page.getByText(untaggedBody)).toBeVisible();
+    await page.getByRole("button", { name: projectName }).first().click();
+    await expect(page.getByText(taggedBody)).toBeVisible();
+    await expect(page.getByText(untaggedBody)).toBeHidden();
 
-    const deleteNoteResponsePromise = page.waitForResponse(
-      (response) =>
-        response.url().includes(
-          `/api/customers/${customerId}/projects/${project.id}/notes/${createdNote.id}`
-        ) && response.request().method() === "DELETE"
-    );
-    await reloadedSheet
-      .locator("li", { hasText: noteBody })
-      .getByRole("button", { name: "Delete" })
-      .click();
-    const deleteNoteResponse = await deleteNoteResponsePromise;
-    expect(deleteNoteResponse.status(), await deleteNoteResponse.text()).toBe(200);
-    await expect(reloadedSheet.locator("li", { hasText: noteBody })).toBeHidden();
-
-    const [deletedNote] = await db
-      .select({ id: customerProjectNotes.id, deletedAt: customerProjectNotes.deletedAt })
-      .from(customerProjectNotes)
-      .where(
-        and(
-          eq(customerProjectNotes.id, createdNote.id),
-          isNotNull(customerProjectNotes.deletedAt)
-        )
-      );
-    expect(deletedNote?.deletedAt).toBeTruthy();
+    await page.getByRole("combobox", { name: "Filter by project" }).click();
+    await page.getByRole("option", { name: "Project · All" }).click();
+    await expect(page.getByText(untaggedBody)).toBeVisible();
   });
 
   test("logs a customer task, works the due queue, and completes it", async ({ db, page }) => {

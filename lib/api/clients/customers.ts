@@ -2,8 +2,6 @@ import type {
   CustomerActivityRow,
   CustomerContactRow,
   CustomerDetailData,
-  CustomerProjectFileRow,
-  CustomerProjectNoteRow,
   CustomerProjectRow,
 } from "@/lib/sales/types";
 import type { AddressEntry } from "@/lib/dal/addresses";
@@ -14,7 +12,6 @@ import type {
   CustomerActivityPatch,
   CustomerContactInput,
   CustomerProjectInput,
-  CustomerProjectNoteInput,
 } from "@/lib/schemas/customer-crm";
 import type { InsertCustomer, PatchCustomer } from "@/lib/schemas/customers";
 
@@ -191,63 +188,6 @@ export async function deleteCustomerProject(customerId: string, projectId: strin
     `/api/customers/${customerId}/projects/${projectId}`,
     { method: "DELETE" },
     "Failed to delete project."
-  );
-}
-
-export async function createCustomerProjectNote(
-  customerId: string,
-  projectId: string,
-  input: CustomerProjectNoteInput
-) {
-  return json<CustomerProjectNoteRow>(
-    `/api/customers/${customerId}/projects/${projectId}/notes`,
-    {
-      method: "POST",
-      headers: jsonHeaders,
-      body: input,
-    },
-    "Failed to add project note."
-  );
-}
-
-export async function deleteCustomerProjectNote(
-  customerId: string,
-  projectId: string,
-  noteId: string
-) {
-  return json<{ success: boolean }>(
-    `/api/customers/${customerId}/projects/${projectId}/notes/${noteId}`,
-    { method: "DELETE" },
-    "Failed to delete project note."
-  );
-}
-
-export async function uploadCustomerProjectFile(
-  customerId: string,
-  projectId: string,
-  file: File
-) {
-  const formData = new FormData();
-  formData.append("file", file);
-  return json<CustomerProjectFileRow>(
-    `/api/customers/${customerId}/projects/${projectId}/files`,
-    {
-      method: "POST",
-      body: formData,
-    },
-    "Failed to upload file."
-  );
-}
-
-export async function deleteCustomerProjectFile(
-  customerId: string,
-  projectId: string,
-  fileId: string
-) {
-  return json<{ success: boolean }>(
-    `/api/customers/${customerId}/projects/${projectId}/files/${fileId}`,
-    { method: "DELETE" },
-    "Failed to delete file."
   );
 }
 
