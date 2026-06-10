@@ -1,8 +1,8 @@
 import "server-only";
 
 import { z } from "zod";
-import { getSalesOrders } from "@/app/(dashboard)/sales/queries";
-import type { SalesOrderListRow } from "@/app/(dashboard)/sales/types";
+import { getSalesOrders } from "@/lib/sales/queries";
+import type { SalesOrderListRow } from "@/lib/sales/types";
 import { buildAgentTool } from "@/lib/agent/core";
 import { AuthorizationError, hasModuleAccess } from "@/lib/authz";
 import { formatCurrency } from "@/lib/format";
