@@ -1,8 +1,6 @@
 import { requireModuleWriteAccess } from "@/lib/dal/auth";
-import {
-  getSalesOrderCustomerOptions,
-  getSalesOrderItemOptions,
-} from "@/lib/sales/queries";
+import { getSalesOrderCustomerOptions } from "@/lib/sales/queries/customers-read";
+import { getSalesOrderItemOptions } from "@/lib/sales/queries/orders-read";
 import { OrderCard } from "@/app/(dashboard)/sales/orders/[id]/order-card";
 import { getAddressEntries } from "@/lib/dal/addresses";
 import { getTaxSettings } from "@/lib/dal/tax-settings";

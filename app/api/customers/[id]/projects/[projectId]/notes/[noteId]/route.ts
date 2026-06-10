@@ -1,7 +1,7 @@
 import { apiHandler } from "@/lib/api/handler";
 import { jsonNotFound, jsonSuccess } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
-import { deleteCustomerProjectNote } from "@/lib/sales/queries";
+import { deleteCustomerProjectNote } from "@/lib/sales/queries/crm";
 
 type ProjectNoteRouteContext = {
   params: Promise<{ id: string; projectId: string; noteId: string }>;

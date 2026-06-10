@@ -1,10 +1,7 @@
 import { redirect } from "next/navigation";
 import { PricingScheduleForm } from "@/app/(dashboard)/sales/pricing-schedule-form";
-import {
-  getCustomerCategoryOptions,
-  getPricingScheduleItemOptions,
-  getPricingSchedule,
-} from "@/lib/sales/queries";
+import { getCustomerCategoryOptions } from "@/lib/sales/queries/customer-categories";
+import { getPricingScheduleItemOptions, getPricingSchedule } from "@/lib/sales/queries/pricing";
 
 export default async function EditPricingSchedulePage({
   params,

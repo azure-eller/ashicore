@@ -5,7 +5,9 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { insertSalesOrderSchema } from "@/lib/schemas/sales-orders";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
-import { createSalesOrder, deleteSalesOrders, getSalesOrders } from "@/lib/sales/queries";
+import { getSalesOrders } from "@/lib/sales/queries/orders-read";
+import { createSalesOrder } from "@/lib/sales/queries/order-write";
+import { deleteSalesOrders } from "@/lib/sales/queries/order-delete";
 
 
 export const GET = apiHandler(async (request) => {

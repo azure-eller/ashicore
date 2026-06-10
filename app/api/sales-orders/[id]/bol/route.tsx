@@ -2,7 +2,7 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import { assertModuleReadAccess } from "@/lib/dal/auth";
-import { getSalesOrderForBol } from "@/lib/sales/queries";
+import { getSalesOrderForBol } from "@/lib/sales/queries/orders-read";
 import { BillOfLadingDocument } from "@/lib/pdf/bol-document";
 
 export const GET = apiHandler(async (request: Request, ctx: unknown) => {

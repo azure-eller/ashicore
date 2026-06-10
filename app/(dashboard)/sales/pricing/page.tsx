@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { getPricingSchedules } from "@/lib/sales/queries";
+import { getPricingSchedules } from "@/lib/sales/queries/pricing";
 import { PricingSchedulesTable } from "@/app/(dashboard)/sales/pricing-schedules-table";
 import DataTableLoading from "../data-table-loading";
 

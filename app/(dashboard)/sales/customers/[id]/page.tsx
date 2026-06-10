@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getAddressEntries } from "@/lib/dal/addresses";
 import { requireModuleReadAccess } from "@/lib/dal/auth";
 import { CustomerCard } from "@/app/(dashboard)/sales/customer-card";
-import { getCustomerDetail } from "@/lib/sales/queries";
+import { getCustomerDetail } from "@/lib/sales/queries/customers-read";
 
 export default async function CustomerDetailPage({
   params,

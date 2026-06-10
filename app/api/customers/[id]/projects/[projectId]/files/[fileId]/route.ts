@@ -10,11 +10,7 @@ import {
 } from "@/lib/blob-storage";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { customerProjectFileRenameSchema } from "@/lib/schemas/customer-crm";
-import {
-  deleteCustomerProjectFile,
-  getCustomerProjectFileForDownload,
-  renameCustomerProjectFile,
-} from "@/lib/sales/queries";
+import { deleteCustomerProjectFile, getCustomerProjectFileForDownload, renameCustomerProjectFile } from "@/lib/sales/queries/crm";
 
 type ProjectFileRouteContext = {
   params: Promise<{ id: string; projectId: string; fileId: string }>;

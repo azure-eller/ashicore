@@ -7,10 +7,7 @@ import {
   uploadPrivateFile,
 } from "@/lib/blob-storage";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
-import {
-  createCustomerProjectFile,
-  getCustomerProjectFileUploadTarget,
-} from "@/lib/sales/queries";
+import { createCustomerProjectFile, getCustomerProjectFileUploadTarget } from "@/lib/sales/queries/crm";
 
 type ProjectFilesRouteContext = {
   params: Promise<{ id: string; projectId: string }>;

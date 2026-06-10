@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { OrdersTable } from "@/app/(dashboard)/sales/orders-table";
-import { getSalesOrders } from "@/lib/sales/queries";
+import { getSalesOrders } from "@/lib/sales/queries/orders-read";
 import OrdersTableLoading from "../orders-table-loading";
 
 export default function OrdersPage() {

@@ -4,7 +4,7 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonSuccess } from "@/lib/api/responses";
 import { assertModuleAccess } from "@/lib/dal/auth";
 import { updatePricingScheduleSchema } from "@/lib/schemas/pricing-schedules";
-import { deletePricingSchedule, updatePricingSchedule } from "@/lib/sales/queries";
+import { deletePricingSchedule, updatePricingSchedule } from "@/lib/sales/queries/pricing";
 
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleAccess("sales", "admin", request.headers);
