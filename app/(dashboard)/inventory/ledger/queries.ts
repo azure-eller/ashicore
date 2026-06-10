@@ -58,7 +58,7 @@ import {
   type AdjustmentReason,
 } from "@/lib/inventory/adjustment-reasons";
 import type { InventoryLedgerFilters } from "@/lib/schemas/inventory-ledger";
-import { itemDetailHref, type ItemType } from "../types";
+import { itemDetailHref, type ItemType } from "@/lib/inventory/types";
 import type {
   InventoryLedgerActorOption,
   InventoryLedgerItemOption,

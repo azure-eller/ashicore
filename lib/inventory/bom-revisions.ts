@@ -5,8 +5,8 @@ import { z } from "zod";
 import { items } from "@/lib/db/schema";
 import { withAuthedOrgContext, getAuthedMemberContext } from "@/lib/dal/auth";
 import { isPositiveNumberString } from "@/lib/schemas/shared";
-import { createBomRevisionInTx } from "@/app/(dashboard)/inventory/queries/internal";
-import type { BomInputRow } from "@/app/(dashboard)/inventory/queries/bom-write";
+import { createBomRevisionInTx } from "@/lib/inventory/queries/internal";
+import type { BomInputRow } from "@/lib/inventory/queries/bom-write";
 import { getCurrentBomOperationCostsInTx } from "@/lib/bom/operation-costs";
 
 const bomRowSchema = z.object({

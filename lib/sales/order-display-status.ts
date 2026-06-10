@@ -1,7 +1,7 @@
 import type {
   SalesOrderDetail,
   SalesOrderListRow,
-} from "@/app/(dashboard)/sales/types";
+} from "@/lib/sales/types";
 import {
   getSalesItemsDisplayState,
   type FulfillmentDisplayState,

@@ -6,7 +6,7 @@ import type {
   DuplicateCombinationWarning,
   ItemType,
   VariantOptionValueDisplay,
-} from "@/app/(dashboard)/inventory/types";
+} from "@/lib/inventory/types";
 import type { BomComponentConstraint } from "@/lib/bom/constraints";
 
 export class EndpointNotReadyError extends Error {

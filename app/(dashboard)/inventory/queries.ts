@@ -1,33 +1,33 @@
 import "server-only";
 
-export { InventoryError } from "./queries/internal";
-export { getItems } from "./queries/items-list";
-export { getItem } from "./queries/item-detail";
+export { InventoryError } from "@/lib/inventory/queries/internal";
+export { getItems } from "@/lib/inventory/queries/items-list";
+export { getItem } from "@/lib/inventory/queries/item-detail";
 export {
   getLots,
   applyLotDispositionAction,
   getStockMovements,
-} from "./queries/item-lots";
+} from "@/lib/inventory/queries/item-lots";
 export {
   getItemUsageHistory,
   type ItemHistoryMode,
   type ItemUsageHistory,
   type ItemUsageHistoryBucket,
-} from "./queries/item-history";
+} from "@/lib/inventory/queries/item-history";
 export {
   createItemWithLot,
   updateItem,
   deleteItem,
   deleteItems,
   overrideMaterialCurrentStockUnitCost,
-} from "./queries/item-write";
+} from "@/lib/inventory/queries/item-write";
 export {
   getUnitDefinitions,
   getCategories,
   createUnitDefinition,
   updateUnitDefinition,
   deleteUnitDefinition,
-} from "./queries/units";
+} from "@/lib/inventory/queries/units";
 export {
   getBomComponents,
   getBomRevisionHistory,
@@ -35,10 +35,10 @@ export {
   getUsedInParents,
   getAvailableComponents,
   getBomOperationCosts,
-} from "./queries/bom-read";
+} from "@/lib/inventory/queries/bom-read";
 export {
   copyCurrentBomToVariants,
   copyCurrentOperationsToVariants,
   hasLockedBomCopyTarget,
   setBomLock,
-} from "./queries/internal";
+} from "@/lib/inventory/queries/internal";

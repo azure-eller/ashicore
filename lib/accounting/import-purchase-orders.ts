@@ -49,7 +49,7 @@ import type {
 import {
   upsertImportedAccountingPurchaseOrderInTx,
   type ImportedAccountingPurchaseOrder,
-} from "@/app/(dashboard)/purchasing/queries";
+} from "@/lib/purchasing/queries";
 
 const DEFAULT_SINCE_DATE = "2024-01-01";
 

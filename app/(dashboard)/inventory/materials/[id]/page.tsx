@@ -4,7 +4,7 @@ import {
   getUnitDefinitions,
   getUsedInParents,
 } from "@/app/(dashboard)/inventory/queries";
-import { getSuppliers } from "@/app/(dashboard)/purchasing/queries";
+import { getSuppliers } from "@/lib/purchasing/queries";
 import { requireModuleReadAccess } from "@/lib/dal/auth";
 import { hasModuleAccess } from "@/lib/authz";
 import { getItemCard, ItemCardError } from "@/lib/inventory/item-cards";

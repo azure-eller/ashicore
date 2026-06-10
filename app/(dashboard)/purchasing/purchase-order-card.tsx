@@ -100,7 +100,7 @@ import type {
   PurchaseOrderMaterialOption,
   PurchaseOrderTaxRateOption,
   SupplierOption,
-} from "./types";
+} from "@/lib/purchasing/types";
 import { SupplierSelect } from "./supplier-select";
 import {
   PurchaseBillDialog,

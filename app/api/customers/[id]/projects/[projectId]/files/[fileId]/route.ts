@@ -14,7 +14,7 @@ import {
   deleteCustomerProjectFile,
   getCustomerProjectFileForDownload,
   renameCustomerProjectFile,
-} from "@/app/(dashboard)/sales/queries";
+} from "@/lib/sales/queries";
 
 type ProjectFileRouteContext = {
   params: Promise<{ id: string; projectId: string; fileId: string }>;

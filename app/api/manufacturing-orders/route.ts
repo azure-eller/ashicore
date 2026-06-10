@@ -5,7 +5,7 @@ import { jsonError, jsonNotFound, jsonCreated } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
 import { insertManufacturingOrderSchema } from "@/lib/schemas/manufacturing-orders";
-import { createManufacturingOrder, deleteManufacturingOrders, getManufacturingOrder, getManufacturingOrders } from "@/app/(dashboard)/manufacturing/queries";
+import { createManufacturingOrder, deleteManufacturingOrders, getManufacturingOrder, getManufacturingOrders } from "@/lib/manufacturing/queries";
 
 export const GET = apiHandler(async (request) => {
   await assertModuleReadAccess("manufacturing", request.headers);

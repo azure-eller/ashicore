@@ -1,4 +1,4 @@
-import type { SupplierRow } from "@/app/(dashboard)/purchasing/types";
+import type { SupplierRow } from "@/lib/purchasing/types";
 import { ApiClientError, createApiJsonRequester } from "@/lib/client/api";
 import type { InsertSupplier, PatchSupplier, UpdateSupplier } from "@/lib/schemas/suppliers";
 

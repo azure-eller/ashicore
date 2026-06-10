@@ -11,7 +11,7 @@ import { DomainError } from "@/lib/errors/domain-error";
 import {
   createPurchaseOrderAttachment,
   getPurchaseOrderFileUploadTarget,
-} from "@/app/(dashboard)/purchasing/queries";
+} from "@/lib/purchasing/queries";
 import {
   canUseLocalAttachmentStorage,
   deleteLocalAttachment,

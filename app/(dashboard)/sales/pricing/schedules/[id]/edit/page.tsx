@@ -4,7 +4,7 @@ import {
   getCustomerCategoryOptions,
   getPricingScheduleItemOptions,
   getPricingSchedule,
-} from "@/app/(dashboard)/sales/queries";
+} from "@/lib/sales/queries";
 
 export default async function EditPricingSchedulePage({
   params,

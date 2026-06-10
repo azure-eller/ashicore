@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
 import { assertModuleReadAccess } from "@/lib/dal/auth";
-import { getManufacturingExecutionQueue } from "@/app/(dashboard)/manufacturing/queries";
+import { getManufacturingExecutionQueue } from "@/lib/manufacturing/queries";
 
 export const GET = apiHandler(async (request: Request) => {
   await assertModuleReadAccess("manufacturing", request.headers);

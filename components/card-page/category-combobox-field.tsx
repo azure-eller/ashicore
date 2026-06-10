@@ -13,7 +13,7 @@ import {
   ComboboxList,
 } from "@/components/ui/combobox";
 import { fetchItemCategories } from "@/lib/api/clients/item-cards";
-import type { ItemType } from "@/app/(dashboard)/inventory/types";
+import type { ItemType } from "@/lib/inventory/types";
 import styles from "./card-page.module.css";
 
 type CategoryComboboxFieldProps = {

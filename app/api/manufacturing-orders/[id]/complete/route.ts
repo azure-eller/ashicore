@@ -8,7 +8,7 @@ import { completeManufacturingOrderSchema } from "@/lib/schemas/manufacturing-or
 import {
   completeManufacturingOrder,
   ManufacturingError,
-} from "@/app/(dashboard)/manufacturing/queries";
+} from "@/lib/manufacturing/queries";
 
 
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {

@@ -7,7 +7,7 @@ import {
   getPurchaseOrder,
   receivePurchaseOrder,
   submitPurchaseOrder,
-} from "@/app/(dashboard)/purchasing/queries";
+} from "@/lib/purchasing/queries";
 import { PURCHASE_ORDER_STATUSES } from "@/lib/schemas/purchase-orders";
 
 const statusSchema = z.object({

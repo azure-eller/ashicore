@@ -8,7 +8,7 @@ import { recordManufacturingOutputSchema } from "@/lib/schemas/manufacturing-ord
 import {
   ManufacturingError,
   recordManufacturingOutput,
-} from "@/app/(dashboard)/manufacturing/queries";
+} from "@/lib/manufacturing/queries";
 
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("manufacturing", request.headers);

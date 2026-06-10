@@ -4,7 +4,7 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonNotFound, jsonCreated } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { createManufacturingOrdersFromSalesOrderSchema } from "@/lib/schemas/manufacturing-orders";
-import { createManufacturingOrdersFromSalesOrder, getManufacturingSalesOrderPreview } from "@/app/(dashboard)/manufacturing/queries";
+import { createManufacturingOrdersFromSalesOrder, getManufacturingSalesOrderPreview } from "@/lib/manufacturing/queries";
 
 type RouteContext = { params: Promise<{ id: string }> };
 

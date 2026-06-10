@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { SupplierCard } from "@/app/(dashboard)/purchasing/supplier-card";
-import { getSupplier } from "@/app/(dashboard)/purchasing/queries";
+import { getSupplier } from "@/lib/purchasing/queries";
 import { getAddressEntries } from "@/lib/dal/addresses";
 import { requireModuleReadAccess } from "@/lib/dal/auth";
 

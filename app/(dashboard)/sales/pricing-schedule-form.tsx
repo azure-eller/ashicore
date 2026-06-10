@@ -36,7 +36,7 @@ import type {
   CustomerCategoryOption,
   PricingScheduleItemOption,
   PricingScheduleEditData,
-} from "./types";
+} from "@/lib/sales/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/empty-state";

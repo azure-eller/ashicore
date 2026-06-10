@@ -22,9 +22,9 @@ import {
 } from "@/lib/tooltip-copy";
 import { formatQuantity } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { calcProjectedStock, calcStock, getReplenishmentStatus } from "./types";
-import type { ItemRow, ItemType } from "./types";
-import { ITEM_TYPE_SEGMENTS } from "./types";
+import { calcProjectedStock, calcStock, getReplenishmentStatus } from "@/lib/inventory/types";
+import type { ItemRow, ItemType } from "@/lib/inventory/types";
+import { ITEM_TYPE_SEGMENTS } from "@/lib/inventory/types";
 
 type InventoryAttention = {
   label: string;

@@ -98,7 +98,7 @@ import {
   deleteManufacturingOrdersInTx,
   ManufacturingError,
   recordManufacturingOutput,
-} from "@/app/(dashboard)/manufacturing/queries";
+} from "@/lib/manufacturing/queries";
 import type {
   InsertCustomer,
   PatchCustomer,

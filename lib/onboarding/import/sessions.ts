@@ -20,15 +20,15 @@ import {
   updateItemCardVariantInTx,
 } from "@/lib/inventory/item-cards";
 import { seedOpeningBalanceInTx } from "@/lib/inventory/kernel/operations/inventory";
-import { createBomRevisionInTx } from "@/app/(dashboard)/inventory/queries/internal";
+import { createBomRevisionInTx } from "@/lib/inventory/queries/internal";
 import {
   createSupplierInTx,
   patchSupplierInTx,
-} from "@/app/(dashboard)/purchasing/queries";
+} from "@/lib/purchasing/queries";
 import {
   createCustomerInTx,
   patchCustomerInTx,
-} from "@/app/(dashboard)/sales/queries";
+} from "@/lib/sales/queries";
 import { supplierDefaultValues } from "@/lib/schemas/suppliers";
 import { customerDefaultValues } from "@/lib/schemas/customers";
 import type { PrivateFileUpload } from "@/lib/blob-storage";

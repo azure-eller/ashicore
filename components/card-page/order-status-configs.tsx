@@ -53,9 +53,9 @@ import type {
   SalesOrderDetailLine,
   SalesOrderListLine,
   SalesOrderListRow,
-} from "@/app/(dashboard)/sales/types";
-import type { ManufacturingPickProgressStatus } from "@/app/(dashboard)/manufacturing/types";
-import type { PurchaseOrderDetailLine } from "@/app/(dashboard)/purchasing/types";
+} from "@/lib/sales/types";
+import type { ManufacturingPickProgressStatus } from "@/lib/manufacturing/types";
+import type { PurchaseOrderDetailLine } from "@/lib/purchasing/types";
 import type { ManufacturingOrderStatus } from "@/lib/schemas/manufacturing-orders";
 import type { PurchaseOrderStatus } from "@/lib/schemas/purchase-orders";
 

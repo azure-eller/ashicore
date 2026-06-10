@@ -10,7 +10,7 @@ import type {
 import type {
   NegativeStockWarningPayload,
   SalesOrderDetail,
-} from "@/app/(dashboard)/sales/types";
+} from "@/lib/sales/types";
 
 export class SalesOrderApiError extends ApiClientError {
   constructor(

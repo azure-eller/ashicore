@@ -23,7 +23,7 @@ import { VariantConfigurationDialog } from "@/components/card-page/variant-confi
 import { MaterialGeneralInfoTab } from "./tabs/general-info";
 import { MaterialUsedInBomsTab } from "./tabs/used-in-boms";
 import { MaterialSupplyDetailsTab } from "./tabs/supply-details";
-import type { SupplierOption } from "@/app/(dashboard)/purchasing/types";
+import type { SupplierOption } from "@/lib/purchasing/types";
 import { useItemCardDraftController } from "@/components/card-page/use-item-card-draft-controller";
 
 export type MaterialCardProps = {

@@ -7,7 +7,7 @@ import type {
   InventoryLedgerSourceType,
 } from "@/lib/inventory/ledger";
 import type { InventoryLedgerFilters } from "@/lib/schemas/inventory-ledger";
-import type { ItemType } from "../types";
+import type { ItemType } from "@/lib/inventory/types";
 
 export type InventoryLedgerActorOption = {
   id: string;

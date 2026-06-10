@@ -1,6 +1,6 @@
 "use client";
 
-import type { SupplierOption } from "./types";
+import type { SupplierOption } from "@/lib/purchasing/types";
 import { EntityCombobox } from "@/components/entity-combobox";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import styles from "@/components/card-page/card-page.module.css";

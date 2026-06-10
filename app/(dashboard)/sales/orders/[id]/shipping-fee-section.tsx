@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { CardSection } from "@/components/card-page/card-page";
 import { cn } from "@/lib/utils";
 import { formatPrice } from "@/lib/format";
-import type { SalesOrderDetail } from "@/app/(dashboard)/sales/types";
+import type { SalesOrderDetail } from "@/lib/sales/types";
 import type { SalesOrderDraftController } from "./use-sales-order-draft-controller";
 import cardStyles from "@/components/card-page/card-page.module.css";
 

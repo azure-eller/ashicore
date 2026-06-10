@@ -8,7 +8,7 @@ import { displaySalesOrderNotes } from "@/lib/sales/import-notes";
 import type {
   SalesOrderDetail,
   SalesOrderItemOption,
-} from "@/app/(dashboard)/sales/types";
+} from "@/lib/sales/types";
 import type { SalesOrderDraftController } from "./use-sales-order-draft-controller";
 import styles from "./order-card.module.css";
 

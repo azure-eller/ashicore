@@ -59,11 +59,11 @@ import {
   consolidateUntrackedFamilyLotsInTx,
   convertUntrackedFamilyLotsToTrackedInTx,
 } from "@/lib/inventory/untracked-lot-consolidation";
-import { createBomRevisionInTx } from "@/app/(dashboard)/inventory/queries/internal";
+import { createBomRevisionInTx } from "@/lib/inventory/queries/internal";
 import type {
   BomInputRow,
   BomOperationCostInputRow,
-} from "@/app/(dashboard)/inventory/queries/bom-write";
+} from "@/lib/inventory/queries/bom-write";
 import { getMinimumLotAgeDays } from "@/lib/bom/constraints";
 import {
   getCurrentBomComponentsInTx,
@@ -74,7 +74,7 @@ import type {
   DuplicateCombinationWarning,
   ItemType,
   VariantOptionValueDisplay,
-} from "@/app/(dashboard)/inventory/types";
+} from "@/lib/inventory/types";
 
 export class ItemCardError extends DomainError {
   constructor(message: string, status = 400) {

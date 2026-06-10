@@ -5,7 +5,7 @@ import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import {
   getPurchaseOrder,
   submitPurchaseOrder,
-} from "@/app/(dashboard)/purchasing/queries";
+} from "@/lib/purchasing/queries";
 import { sendPurchaseOrderEmail } from "@/lib/purchasing/send-purchase-order-email";
 import { sendPurchaseOrderEmailSchema } from "@/lib/schemas/purchase-orders";
 

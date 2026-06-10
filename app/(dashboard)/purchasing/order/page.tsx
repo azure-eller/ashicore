@@ -6,7 +6,7 @@ import { getTaxSettings } from "@/lib/dal/tax-settings";
 import {
   getPurchaseOrderMaterialOptions,
   getSuppliers,
-} from "@/app/(dashboard)/purchasing/queries";
+} from "@/lib/purchasing/queries";
 import { searchParamValues, type SearchParamRecord } from "@/lib/routing/search-params";
 
 export default async function PurchaseOrderDraftPage({

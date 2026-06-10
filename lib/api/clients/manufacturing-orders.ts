@@ -11,7 +11,7 @@ import type {
   ManufacturingOrderDetail,
   ManufacturingReleaseWarningPayload,
   ManufacturingSalesLineOption,
-} from "@/app/(dashboard)/manufacturing/types";
+} from "@/lib/manufacturing/types";
 
 export class ManufacturingOrderApiError extends ApiClientError {
   constructor(

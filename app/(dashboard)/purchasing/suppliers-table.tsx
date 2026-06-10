@@ -6,7 +6,7 @@ import { DateTimeText } from "@/components/date-time-text";
 import { ERPDataGridList } from "@/components/erp-data-grid-list";
 import type { ColDef } from "@/components/erp-data-grid";
 import { SUPPLIER_CODE_TOOLTIP } from "@/lib/tooltip-copy";
-import type { SupplierRow } from "./types";
+import type { SupplierRow } from "@/lib/purchasing/types";
 
 const columns: ColDef<SupplierRow>[] = [
   {

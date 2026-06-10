@@ -7,7 +7,7 @@ import {
   patchSalesOrderHeaderSchema,
   updateSalesOrderSchema,
 } from "@/lib/schemas/sales-orders";
-import { deleteSalesOrder, getSalesOrder, patchSalesOrderHeader, updateSalesOrder } from "@/app/(dashboard)/sales/queries";
+import { deleteSalesOrder, getSalesOrder, patchSalesOrderHeader, updateSalesOrder } from "@/lib/sales/queries";
 import { getActiveAccountingProvider } from "@/lib/dal/accounting";
 
 

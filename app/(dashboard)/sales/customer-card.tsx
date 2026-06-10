@@ -142,7 +142,7 @@ import type {
   CustomerLinkedSalesOrderRow,
   CustomerProjectFileRow,
   CustomerProjectRow,
-} from "./types";
+} from "@/lib/sales/types";
 import { SalesOrderStatusBadge } from "./status-badge";
 import styles from "@/components/card-page/card-page.module.css";
 

@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { CustomersTable } from "@/app/(dashboard)/sales/customers-table";
-import { getCustomers } from "@/app/(dashboard)/sales/queries";
+import { getCustomers } from "@/lib/sales/queries";
 import DataTableLoading from "../data-table-loading";
 
 export default function CustomersPage() {

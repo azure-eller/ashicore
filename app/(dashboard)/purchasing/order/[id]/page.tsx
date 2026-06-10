@@ -4,7 +4,7 @@ import {
   getEditablePurchaseOrder,
   getPurchaseOrderMaterialOptions,
   getSuppliers,
-} from "@/app/(dashboard)/purchasing/queries";
+} from "@/lib/purchasing/queries";
 import { getAddressEntries } from "@/lib/dal/addresses";
 import { requireModuleReadAccess } from "@/lib/dal/auth";
 import { getActiveAccountingProvider } from "@/lib/dal/accounting";

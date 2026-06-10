@@ -3,13 +3,13 @@ import { z } from "zod";
 import { getItems } from "@/app/(dashboard)/inventory/queries";
 import { getInventoryLedger } from "@/app/(dashboard)/inventory/ledger/queries";
 import { getStocktakes } from "@/lib/dal/stocktakes";
-import { getManufacturingOrders } from "@/app/(dashboard)/manufacturing/queries";
-import { getPurchaseOrders, getSuppliers } from "@/app/(dashboard)/purchasing/queries";
+import { getManufacturingOrders } from "@/lib/manufacturing/queries";
+import { getPurchaseOrders, getSuppliers } from "@/lib/purchasing/queries";
 import {
   getCustomers,
   getPricingSchedules,
   getSalesOrders,
-} from "@/app/(dashboard)/sales/queries";
+} from "@/lib/sales/queries";
 import { apiHandler } from "@/lib/api/handler";
 import { assertModuleReadAccess } from "@/lib/dal/auth";
 import type { ModuleKey } from "@/lib/authz";

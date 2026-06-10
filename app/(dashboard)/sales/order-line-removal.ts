@@ -1,4 +1,4 @@
-import type { SalesOrderDetail } from "./types";
+import type { SalesOrderDetail } from "@/lib/sales/types";
 
 export function buildSalesOrderLineRemovalPayload(
   order: SalesOrderDetail,

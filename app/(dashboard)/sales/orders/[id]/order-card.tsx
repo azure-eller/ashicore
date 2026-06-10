@@ -15,7 +15,7 @@ import type {
   SalesOrderDetailLine,
   SalesOrderItemOption,
   SalesOrderTaxRateOption,
-} from "@/app/(dashboard)/sales/types";
+} from "@/lib/sales/types";
 import {
   formatPercent,
   formatPrice,

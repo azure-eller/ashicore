@@ -3,7 +3,7 @@ import {
   type StatusBadgeConfig,
 } from "@/components/status-badge";
 import { PICK_PROGRESS_TOOLTIP } from "@/lib/tooltip-copy";
-import type { ManufacturingPickProgressStatus } from "./types";
+import type { ManufacturingPickProgressStatus } from "@/lib/manufacturing/types";
 
 const pickProgressStatusConfig = {
   not_started: {

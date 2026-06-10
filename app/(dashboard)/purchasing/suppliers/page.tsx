@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { SuppliersTable } from "@/app/(dashboard)/purchasing/suppliers-table";
-import { getSuppliers } from "@/app/(dashboard)/purchasing/queries";
+import { getSuppliers } from "@/lib/purchasing/queries";
 import DataTableLoading from "../data-table-loading";
 
 export default function SuppliersPage() {

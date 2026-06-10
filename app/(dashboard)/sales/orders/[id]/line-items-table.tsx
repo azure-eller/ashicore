@@ -44,7 +44,7 @@ import type {
   SalesOrderDetail,
   SalesOrderDetailLine,
   SalesOrderItemOption,
-} from "@/app/(dashboard)/sales/types";
+} from "@/lib/sales/types";
 import { makeDraftLine } from "./order-draft";
 import type { SalesOrderDraftController } from "./use-sales-order-draft-controller";
 

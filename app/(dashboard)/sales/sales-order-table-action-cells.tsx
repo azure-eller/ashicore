@@ -23,7 +23,7 @@ import {
   CreateManufacturingOrdersDialog,
   defaultManufacturingPlannedDate,
 } from "./create-manufacturing-orders-dialog";
-import type { SalesLinkedManufacturingOrder, SalesOrderListRow } from "./types";
+import type { SalesLinkedManufacturingOrder, SalesOrderListRow } from "@/lib/sales/types";
 
 export function StatusDetailCell({
   label,

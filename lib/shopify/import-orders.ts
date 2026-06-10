@@ -14,7 +14,7 @@ import {
   createCustomerInTx,
   createSalesOrder,
   SalesError,
-} from "@/app/(dashboard)/sales/queries";
+} from "@/lib/sales/queries";
 import {
   getExternalRecordByExternalIdInTx,
   upsertExternalRecordInTx,

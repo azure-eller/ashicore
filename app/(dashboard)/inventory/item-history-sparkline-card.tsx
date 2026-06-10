@@ -17,7 +17,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { apiJson } from "@/lib/client/api";
 import { formatDate, formatQuantityWithUnitText } from "@/lib/format";
-import type { ItemType } from "./types";
+import type { ItemType } from "@/lib/inventory/types";
 
 type ItemHistoryMode = "usage" | "production";
 

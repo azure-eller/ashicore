@@ -1,4 +1,4 @@
-import type { ManufacturingPickProgressStatus } from "@/app/(dashboard)/manufacturing/types";
+import type { ManufacturingPickProgressStatus } from "@/lib/manufacturing/types";
 import type { ManufacturingOrderStatus } from "@/lib/schemas/manufacturing-orders";
 
 export const PRODUCTION_STATUSES = [

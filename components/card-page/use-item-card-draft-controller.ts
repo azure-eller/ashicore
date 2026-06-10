@@ -21,7 +21,7 @@ import {
   type QueuedDraftOp,
 } from "@/lib/hooks/use-draft-save-engine";
 import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
-import type { ItemType } from "@/app/(dashboard)/inventory/types";
+import type { ItemType } from "@/lib/inventory/types";
 
 export type ItemCardDraftOp =
   | { type: "patchFamily"; patch: UpdateItemCardInput }

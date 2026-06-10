@@ -4,7 +4,7 @@ import {
   getSalesOrder,
   getSalesOrderCustomerOptions,
   getSalesOrderItemOptions,
-} from "@/app/(dashboard)/sales/queries";
+} from "@/lib/sales/queries";
 import { hasModuleAccess } from "@/lib/authz";
 import { requireModuleReadAccess } from "@/lib/dal/auth";
 import { getAddressEntries } from "@/lib/dal/addresses";

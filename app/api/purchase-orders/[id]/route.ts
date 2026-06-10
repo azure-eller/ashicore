@@ -8,7 +8,7 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonError, jsonNotFound, jsonSuccess } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { updatePurchaseOrderSchema } from "@/lib/schemas/purchase-orders";
-import { deletePurchaseOrder, getPurchaseOrder, updatePurchaseOrder } from "@/app/(dashboard)/purchasing/queries";
+import { deletePurchaseOrder, getPurchaseOrder, updatePurchaseOrder } from "@/lib/purchasing/queries";
 import { getActiveAccountingProvider } from "@/lib/dal/accounting";
 
 

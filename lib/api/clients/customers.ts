@@ -4,7 +4,7 @@ import type {
   CustomerProjectFileRow,
   CustomerProjectNoteRow,
   CustomerProjectRow,
-} from "@/app/(dashboard)/sales/types";
+} from "@/lib/sales/types";
 import type { AddressEntry } from "@/lib/dal/addresses";
 import { ApiClientError, createApiJsonRequester } from "@/lib/client/api";
 import type { CreateAddressEntry, UpdateAddressEntry } from "@/lib/schemas/addresses";

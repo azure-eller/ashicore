@@ -4,7 +4,7 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { patchManufacturingOrderIngredientSchema } from "@/lib/schemas/manufacturing-orders";
-import { patchManufacturingOrderIngredient } from "@/app/(dashboard)/manufacturing/queries";
+import { patchManufacturingOrderIngredient } from "@/lib/manufacturing/queries";
 
 type IngredientRouteContext = {
   params: Promise<{ id: string; ingredientId: string }>;

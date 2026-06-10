@@ -46,7 +46,7 @@ import type {
   CustomerOption,
   SalesAddressOption,
   SalesOrderDetail,
-} from "@/app/(dashboard)/sales/types";
+} from "@/lib/sales/types";
 import type { PatchSalesOrderHeader } from "@/lib/schemas/sales-orders";
 import type { SalesOrderDraftController } from "./use-sales-order-draft-controller";
 import cardStyles from "@/components/card-page/card-page.module.css";

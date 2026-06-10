@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { OrdersTable } from "@/app/(dashboard)/purchasing/orders-table";
-import { getPurchaseOrders } from "@/app/(dashboard)/purchasing/queries";
+import { getPurchaseOrders } from "@/lib/purchasing/queries";
 import { captureAppError } from "@/lib/observability/sentry";
 import { requireModuleReadAccess } from "@/lib/dal/auth";
 import OrdersTableLoading from "../orders-table-loading";

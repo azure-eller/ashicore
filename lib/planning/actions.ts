@@ -12,8 +12,8 @@ import type { Tx } from "@/lib/db/with-org-context";
 import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import { DomainError } from "@/lib/errors/domain-error";
 import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
-import { createManufacturingOrderInTx } from "@/app/(dashboard)/manufacturing/queries";
-import { createPurchaseOrderInTx } from "@/app/(dashboard)/purchasing/queries";
+import { createManufacturingOrderInTx } from "@/lib/manufacturing/queries";
+import { createPurchaseOrderInTx } from "@/lib/purchasing/queries";
 import type {
   CreatePlanningPurchaseOrderDrafts,
   CreatePlanningManufacturingOrderDraft,

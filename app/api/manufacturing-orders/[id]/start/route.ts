@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api/handler";
 import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
-import { getManufacturingOrder, startManufacturingOrderWork } from "@/app/(dashboard)/manufacturing/queries";
+import { getManufacturingOrder, startManufacturingOrderWork } from "@/lib/manufacturing/queries";
 
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("manufacturing", request.headers);

@@ -10,7 +10,7 @@ import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import {
   createCustomerProjectFile,
   getCustomerProjectFileUploadTarget,
-} from "@/app/(dashboard)/sales/queries";
+} from "@/lib/sales/queries";
 
 type ProjectFilesRouteContext = {
   params: Promise<{ id: string; projectId: string }>;

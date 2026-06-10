@@ -48,7 +48,7 @@ import {
 } from "@/components/ui/tooltip";
 import { apiJson } from "@/lib/client/api";
 import { formatQuantity, parseQuantity } from "@/lib/format";
-import type { ItemRow } from "@/app/(dashboard)/inventory/types";
+import type { ItemRow } from "@/lib/inventory/types";
 import type {
   DemandQueueCoverageSegment,
   DemandQueueSupplySource,
@@ -61,7 +61,7 @@ import {
   type AllocatorPreference,
   type AllocatorProduct,
 } from "./sales-order-allocator";
-import type { SalesOrderListLine, SalesOrderListRow } from "./types";
+import type { SalesOrderListLine, SalesOrderListRow } from "@/lib/sales/types";
 import { usePersistentViewState } from "@/lib/client/use-persistent-view-state";
 import styles from "./sales-allocation-table.module.css";
 

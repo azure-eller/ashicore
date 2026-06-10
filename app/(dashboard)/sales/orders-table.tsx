@@ -73,7 +73,7 @@ import {
   CreateManufacturingOrdersDialog,
   defaultManufacturingPlannedDate,
 } from "./create-manufacturing-orders-dialog";
-import type { SalesOrderListRow } from "./types";
+import type { SalesOrderListRow } from "@/lib/sales/types";
 
 const OPEN_SALES_STATUSES = ["open"] as const;
 const DONE_SALES_STATUSES = ["done"] as const;

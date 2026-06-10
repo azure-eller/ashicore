@@ -64,7 +64,7 @@ import {
   isManufacturingStatusDisabled,
   manufacturingOrderStatusConfig,
 } from "@/components/card-page/order-status-configs";
-import type { ManufacturingOrderListRow } from "./types";
+import type { ManufacturingOrderListRow } from "@/lib/manufacturing/types";
 
 const OPEN_MANUFACTURING_STATUSES = ["open"] as const;
 const DONE_MANUFACTURING_STATUSES = ["done"] as const;

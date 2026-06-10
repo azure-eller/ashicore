@@ -30,7 +30,7 @@ import {
 import type {
   ManufacturingOrderDetail,
   ManufacturingReleaseWarningPayload,
-} from "@/app/(dashboard)/manufacturing/types";
+} from "@/lib/manufacturing/types";
 import { formatQuantity } from "@/lib/format";
 
 export type CompletionMode = "complete" | "output";

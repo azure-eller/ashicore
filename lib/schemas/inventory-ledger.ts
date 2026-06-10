@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ITEM_TYPES } from "@/app/(dashboard)/inventory/types";
+import { ITEM_TYPES } from "@/lib/inventory/types";
 import { INVENTORY_EVENT_TYPES } from "@/lib/db/schema";
 import {
   INVENTORY_LEDGER_EVENT_CLASSES,

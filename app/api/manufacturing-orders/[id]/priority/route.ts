@@ -4,7 +4,7 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { updateManufacturingOrderPrioritySchema } from "@/lib/schemas/manufacturing-orders";
-import { updateManufacturingOrderPriority } from "@/app/(dashboard)/manufacturing/queries";
+import { updateManufacturingOrderPriority } from "@/lib/manufacturing/queries";
 
 export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("manufacturing", request.headers);

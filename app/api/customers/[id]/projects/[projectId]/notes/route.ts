@@ -3,7 +3,7 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonCreated, jsonNotFound } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { customerProjectNoteSchema } from "@/lib/schemas/customer-crm";
-import { createCustomerProjectNote } from "@/app/(dashboard)/sales/queries";
+import { createCustomerProjectNote } from "@/lib/sales/queries";
 
 type ProjectNotesRouteContext = {
   params: Promise<{ id: string; projectId: string }>;

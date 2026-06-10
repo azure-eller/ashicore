@@ -4,7 +4,7 @@ import { jsonError } from "@/lib/api/responses";
 import { assertModuleReadAccess } from "@/lib/dal/auth";
 import { requestSearchParams } from "@/lib/routing/search-params";
 import { getItemFamilyCategories } from "@/lib/inventory/item-cards";
-import { ITEM_TYPES, type ItemType } from "@/app/(dashboard)/inventory/types";
+import { ITEM_TYPES, type ItemType } from "@/lib/inventory/types";
 
 export const GET = apiHandler(async (request) => {
   await assertModuleReadAccess("inventory", request.headers);

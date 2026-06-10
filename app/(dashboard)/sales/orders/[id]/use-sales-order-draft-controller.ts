@@ -19,7 +19,7 @@ import type { PatchSalesOrderHeader } from "@/lib/schemas/sales-orders";
 import type {
   SalesOrderDetail,
   SalesOrderDetailLine,
-} from "@/app/(dashboard)/sales/types";
+} from "@/lib/sales/types";
 import {
   calculateDiscountPercentString,
   calculateSalesLineAmounts,

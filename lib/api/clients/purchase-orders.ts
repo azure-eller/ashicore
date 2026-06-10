@@ -1,6 +1,6 @@
 import { apiJson } from "@/lib/client/api";
 import type { PurchaseOrderStatus } from "@/lib/schemas/purchase-orders";
-import type { PurchaseOrderDetail } from "@/app/(dashboard)/purchasing/types";
+import type { PurchaseOrderDetail } from "@/lib/purchasing/types";
 
 export async function getPurchaseOrderDetail(
   orderId: string,

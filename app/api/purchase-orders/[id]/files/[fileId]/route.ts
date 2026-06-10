@@ -10,7 +10,7 @@ import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth"
 import {
   deletePurchaseOrderAttachment,
   getPurchaseOrderAttachmentForDownload,
-} from "@/app/(dashboard)/purchasing/queries";
+} from "@/lib/purchasing/queries";
 import {
   deleteLocalAttachment,
   isLocalAttachmentUrl,

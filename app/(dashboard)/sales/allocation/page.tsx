@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { getSalesOrders } from "@/app/(dashboard)/sales/queries";
+import { getSalesOrders } from "@/lib/sales/queries";
 import { getItems } from "@/app/(dashboard)/inventory/queries";
 import {
   SalesAllocationTable,

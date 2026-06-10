@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon } from "@hugeicons/core-free-icons";
 import { apiJson } from "@/lib/client/api";
-import type { ManufacturingSalesOrderPreview } from "@/app/(dashboard)/manufacturing/types";
+import type { ManufacturingSalesOrderPreview } from "@/lib/manufacturing/types";
 import { EmptyState } from "@/components/empty-state";
 import {
   FramedTable,
@@ -31,7 +31,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import type { SalesOrderDetail } from "./types";
+import type { SalesOrderDetail } from "@/lib/sales/types";
 import { cn } from "@/lib/utils";
 
 type Props = {

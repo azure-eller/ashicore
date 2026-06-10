@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ERPDataGridList } from "@/components/erp-data-grid-list";
 import { appendSearchParams } from "@/lib/routing/search-params";
 import { getColumns } from "./columns";
-import type { ItemRow, ItemType } from "./types";
+import type { ItemRow, ItemType } from "@/lib/inventory/types";
 
 interface DataTableProps {
   initialData: ItemRow[];

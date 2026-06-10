@@ -19,7 +19,7 @@ import type { PatchManufacturingOrder } from "@/lib/schemas/manufacturing-orders
 import type {
   ManufacturingOrderDetail,
   ManufacturingOrderIngredientDetail,
-} from "@/app/(dashboard)/manufacturing/types";
+} from "@/lib/manufacturing/types";
 import type { ManufacturingProductOption } from "./manufacturing-order-card";
 
 export type ManufacturingOrderDraftHeaderPatch = PatchManufacturingOrder & {

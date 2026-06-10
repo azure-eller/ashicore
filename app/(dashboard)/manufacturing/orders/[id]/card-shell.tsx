@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import {
   getManufacturingOrder,
   getManufacturingProductTemplates,
-} from "@/app/(dashboard)/manufacturing/queries";
+} from "@/lib/manufacturing/queries";
 import { ManufacturingOrderCard } from "./manufacturing-order-card";
 
 export async function ManufacturingOrderCardShell({ orderId }: { orderId: string }) {

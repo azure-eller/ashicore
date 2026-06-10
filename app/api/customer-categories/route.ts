@@ -5,7 +5,7 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleAccess, assertModuleReadAccess } from "@/lib/dal/auth";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
 import { insertCustomerCategorySchema } from "@/lib/schemas/customer-categories";
-import { createCustomerCategory, deleteCustomerCategories, getCustomerCategories } from "@/app/(dashboard)/sales/queries";
+import { createCustomerCategory, deleteCustomerCategories, getCustomerCategories } from "@/lib/sales/queries";
 
 export const GET = apiHandler(async (request) => {
   await assertModuleReadAccess("sales", request.headers);

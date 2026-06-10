@@ -3,7 +3,7 @@ import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/
 import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { createPurchaseBillSchema } from "@/lib/schemas/purchase-orders";
-import { createPurchaseBillAccountingSync } from "@/app/(dashboard)/purchasing/queries";
+import { createPurchaseBillAccountingSync } from "@/lib/purchasing/queries";
 import { XeroError } from "@/lib/xero/errors";
 import { QuickBooksError } from "@/lib/accounting/providers/quickbooks/client";
 

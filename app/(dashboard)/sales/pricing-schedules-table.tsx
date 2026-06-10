@@ -10,7 +10,7 @@ import {
   PRICING_ITEM_CATEGORY_TOOLTIP,
   PRICING_SCOPE_TOOLTIP,
 } from "@/lib/tooltip-copy";
-import type { PricingScheduleRow } from "./types";
+import type { PricingScheduleRow } from "@/lib/sales/types";
 
 const columns: ColDef<PricingScheduleRow>[] = [
   {

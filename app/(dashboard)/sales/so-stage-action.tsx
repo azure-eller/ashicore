@@ -1,6 +1,6 @@
 "use client";
 
-import type { SalesOrderListRow } from "./types";
+import type { SalesOrderListRow } from "@/lib/sales/types";
 import { CreateManufacturingOrdersDialog } from "./create-manufacturing-orders-dialog";
 
 type Props = {

@@ -64,7 +64,7 @@ import type {
   ManufacturingOrderDetail,
   ManufacturingOrderIngredientDetail,
   ManufacturingOrderOperationCostDetail,
-} from "@/app/(dashboard)/manufacturing/types";
+} from "@/lib/manufacturing/types";
 import styles from "@/components/card-page/card-page.module.css";
 import {
   useManufacturingOrderDraftController,

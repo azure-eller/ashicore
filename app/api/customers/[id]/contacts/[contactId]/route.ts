@@ -7,7 +7,7 @@ import { customerContactSchema } from "@/lib/schemas/customer-crm";
 import {
   deleteCustomerContact,
   updateCustomerContact,
-} from "@/app/(dashboard)/sales/queries";
+} from "@/lib/sales/queries";
 
 type ContactRouteContext = {
   params: Promise<{ id: string; contactId: string }>;

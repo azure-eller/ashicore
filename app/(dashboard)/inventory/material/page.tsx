@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { requireModuleAccess } from "@/lib/dal/auth";
 import { hasModuleAccess } from "@/lib/authz";
 import { getUnitDefinitions } from "@/app/(dashboard)/inventory/queries";
-import { getSuppliers } from "@/app/(dashboard)/purchasing/queries";
+import { getSuppliers } from "@/lib/purchasing/queries";
 import type { ItemCardDto } from "@/lib/api/clients/item-cards";
 import { MaterialCard } from "../materials/[id]/material-card";
 

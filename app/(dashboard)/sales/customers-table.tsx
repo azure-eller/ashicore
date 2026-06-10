@@ -5,7 +5,7 @@ import type { ICellRendererParams } from "ag-grid-community";
 import { ERPDataGridList } from "@/components/erp-data-grid-list";
 import type { ColDef } from "@/components/erp-data-grid";
 import { CUSTOMER_PRICING_TOOLTIP } from "@/lib/tooltip-copy";
-import type { CustomerRow } from "./types";
+import type { CustomerRow } from "@/lib/sales/types";
 
 const columns: ColDef<CustomerRow>[] = [
   {

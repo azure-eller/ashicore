@@ -79,7 +79,7 @@ import {
   PAYMENT_TERMS_TOOLTIP,
   SUPPLIER_CODE_TOOLTIP,
 } from "@/lib/tooltip-copy";
-import type { SupplierRow } from "./types";
+import type { SupplierRow } from "@/lib/purchasing/types";
 import styles from "@/components/card-page/card-page.module.css";
 
 type SupplierCardProps = {

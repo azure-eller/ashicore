@@ -8,7 +8,7 @@ import { customerProjectSchema } from "@/lib/schemas/customer-crm";
 import {
   deleteCustomerProject,
   updateCustomerProject,
-} from "@/app/(dashboard)/sales/queries";
+} from "@/lib/sales/queries";
 
 type ProjectRouteContext = {
   params: Promise<{ id: string; projectId: string }>;

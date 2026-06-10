@@ -22,7 +22,7 @@ import {
   type XeroAccountOption,
 } from "./purchase-order-workflow-dialogs";
 import { groupPurchaseOrderByResolvedSupplier } from "@/lib/purchasing/resolved-supplier-groups";
-import type { PurchaseOrderDetail, PurchaseOrderListRow } from "./types";
+import type { PurchaseOrderDetail, PurchaseOrderListRow } from "@/lib/purchasing/types";
 
 const ACCOUNTING_NOT_CONNECTED_MESSAGE =
   "Connect accounting software before creating supplier bills.";

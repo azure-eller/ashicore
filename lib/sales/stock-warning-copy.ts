@@ -1,5 +1,5 @@
 import { formatQuantity } from "@/lib/format";
-import type { NegativeStockWarningPayload } from "@/app/(dashboard)/sales/types";
+import type { NegativeStockWarningPayload } from "@/lib/sales/types";
 
 export function stockWarningTitle(warning: NegativeStockWarningPayload) {
   if (warning.reason === "queue_conflict") {

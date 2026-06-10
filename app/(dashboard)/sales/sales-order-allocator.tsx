@@ -15,7 +15,7 @@ import type {
   DemandQueueSupplySource,
 } from "@/lib/inventory/allocation/demand-queue";
 import type { SalesOrdersAllocatorPreference } from "@/lib/view-preferences";
-import type { SalesOrderListLine } from "./types";
+import type { SalesOrderListLine } from "@/lib/sales/types";
 import styles from "./sales-order-allocator.module.css";
 
 export const SALES_ORDERS_ALLOCATOR_VIEW_KEY = "sales.orders.allocator";

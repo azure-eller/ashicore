@@ -3,7 +3,7 @@ import { apiHandler } from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleReadAccess } from "@/lib/dal/auth";
 import { resolveSalesLinePricingSchema } from "@/lib/schemas/pricing-schedules";
-import { resolveSalesLinePricing } from "@/app/(dashboard)/sales/queries";
+import { resolveSalesLinePricing } from "@/lib/sales/queries";
 
 export const POST = apiHandler(async (request) => {
   await assertModuleReadAccess("sales", request.headers);

@@ -30,7 +30,7 @@ import {
   isPositiveNumberString,
 } from "@/lib/schemas/shared";
 import { derivePurchaseToStockFactor } from "@/lib/units-of-measure";
-import type { SupplierOption } from "@/app/(dashboard)/purchasing/types";
+import type { SupplierOption } from "@/lib/purchasing/types";
 import styles from "@/components/card-page/card-page.module.css";
 
 export type MaterialSupplyDetailsTabProps = {

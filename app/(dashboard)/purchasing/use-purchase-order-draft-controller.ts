@@ -14,7 +14,7 @@ import {
 import type {
   PurchaseOrderDetail,
   PurchaseOrderEditData,
-} from "./types";
+} from "@/lib/purchasing/types";
 
 export type PurchaseOrderFormValues = z.input<typeof insertPurchaseOrderSchema>;
 
