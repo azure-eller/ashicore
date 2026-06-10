@@ -166,7 +166,7 @@ function filterCustomersForView(
 }
 
 function isFollowUpDue(row: CustomerRow, today: string) {
-  return Boolean(row.nextAction && row.nextActionDueDate && row.nextActionDueDate <= today);
+  return Boolean(row.nextActionDueDate && row.nextActionDueDate <= today);
 }
 
 function formatPrimaryContact(row: CustomerRow | null | undefined) {
