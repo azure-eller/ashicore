@@ -1,0 +1,3 @@
+ALTER TABLE "sales"."customers" ADD COLUMN IF NOT EXISTS "next_action" text;--> statement-breakpoint
+ALTER TABLE "sales"."customers" ADD COLUMN IF NOT EXISTS "next_action_due_date" date;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "sales_customers_next_action_due_date_idx" ON "sales"."customers" USING btree ("organization_id","next_action_due_date") WHERE deleted_at IS NULL AND next_action_due_date IS NOT NULL;

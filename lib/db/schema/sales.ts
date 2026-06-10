@@ -83,6 +83,8 @@ export const customers = salesSchema
       shipPostcode: varchar("ship_postcode", { length: 30 }),
       shipCountry: varchar("ship_country", { length: 120 }),
       notes: text("notes"),
+      nextAction: text("next_action"),
+      nextActionDueDate: date("next_action_due_date", { mode: "string" }),
       deletedAt: timestamp("deleted_at", { withTimezone: true }),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
       updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -96,6 +98,9 @@ export const customers = salesSchema
       index("sales_customers_customer_category_id_idx").on(table.customerCategoryId),
       index("sales_customers_account_state_idx").on(table.accountState),
       index("sales_customers_account_priority_idx").on(table.accountPriority),
+      index("sales_customers_next_action_due_date_idx")
+        .on(table.organizationId, table.nextActionDueDate)
+        .where(sql`deleted_at IS NULL AND next_action_due_date IS NOT NULL`),
       check(
         "sales_customers_account_state_check",
         sql`${table.accountState} IN ('active', 'growth', 'at_risk', 'former')`

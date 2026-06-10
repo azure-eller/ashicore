@@ -607,6 +607,25 @@ export function CustomerCard({
                 })
               }
             />
+            <CardField label="Next action" htmlFor="customer-next-action">
+              <CommitInput
+                id="customer-next-action"
+                label="Next action"
+                value={display.nextAction ?? ""}
+                disabled={readOnly}
+                onCommit={(nextAction) => commitCustomerPatch({ nextAction })}
+              />
+            </CardField>
+            <CardField label="Due date">
+              <DatePicker
+                value={display.nextActionDueDate ?? ""}
+                disabled={readOnly}
+                placeholder="Due date"
+                onChange={(nextActionDueDate) =>
+                  commitCustomerPatch({ nextActionDueDate: nextActionDueDate || null })
+                }
+              />
+            </CardField>
             <CardField label="Shipping address" htmlFor="customer-shipping-address">
               <CustomerAddressInput
                 id="customer-shipping-address"
@@ -2065,6 +2084,9 @@ function makeDraftCustomer(draft: InsertCustomer): CustomerDetailData {
     openOrderCount: 0,
     openOrderValue: "0",
     latestOrderDate: null,
+    primaryContactName: null,
+    primaryContactEmail: null,
+    primaryContactPhone: null,
     xeroContactId: null,
     deletedAt: null,
     createdAt: now,
@@ -2186,6 +2208,8 @@ function customerToInsertInput(customer: CustomerDetailData): InsertCustomer {
     shipPostcode: customer.shipPostcode,
     shipCountry: customer.shipCountry,
     notes: customer.notes,
+    nextAction: customer.nextAction,
+    nextActionDueDate: customer.nextActionDueDate,
   });
 }
 
@@ -2210,6 +2234,8 @@ function customerEditableSnapshot(customer: CustomerDetailData): PatchCustomer {
     shipPostcode: customer.shipPostcode,
     shipCountry: customer.shipCountry,
     notes: customer.notes,
+    nextAction: customer.nextAction,
+    nextActionDueDate: customer.nextActionDueDate,
   };
 }
 
