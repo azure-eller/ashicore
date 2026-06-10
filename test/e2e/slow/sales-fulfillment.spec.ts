@@ -1,8 +1,8 @@
 import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { test, expect } from "../fixtures";
 import {
+  customerActivities,
   customerProjectNotes,
-  customerTasks,
   inventoryDemandSummary,
   inventoryEvents,
   inventoryItemBalances,
@@ -230,9 +230,16 @@ test.describe("sales fulfillment operating story", () => {
     yesterday.setUTCDate(yesterday.getUTCDate() - 1);
     const dueDate = yesterday.toISOString().slice(0, 10);
 
-    const taskResponse = await testFetch(`/api/customers/${customerId}/tasks`, {
+    const taskResponse = await testFetch(`/api/customers/${customerId}/activities`, {
       method: "POST",
-      body: JSON.stringify({ title: taskTitle, dueDate }),
+      body: JSON.stringify({
+        type: "task",
+        title: taskTitle,
+        body: null,
+        dueDate,
+        customerProjectId: null,
+        attendeeContactIds: [],
+      }),
     });
     expect(taskResponse.status).toBe(201);
     const task = (await taskResponse.json()) as { id: string };
@@ -245,9 +252,10 @@ test.describe("sales fulfillment operating story", () => {
     await expect(queueRow).toContainText(taskTitle);
 
     await page.goto(`/sales/customers/${customerId}`);
+    await page.waitForLoadState("networkidle");
     const completeResponsePromise = page.waitForResponse(
       (response) =>
-        response.url().includes(`/api/customers/${customerId}/tasks/${task.id}`) &&
+        response.url().includes(`/api/customers/${customerId}/activities/${task.id}`) &&
         response.request().method() === "PATCH"
     );
     await page
@@ -255,15 +263,17 @@ test.describe("sales fulfillment operating story", () => {
       .click();
     const completeResponse = await completeResponsePromise;
     expect(completeResponse.status(), await completeResponse.text()).toBe(200);
-    await expect(page.getByRole("button", { name: "Done · 1" })).toBeVisible();
+    await expect(
+      page.getByRole("checkbox", { name: `Reopen "${taskTitle}"` })
+    ).toBeVisible();
 
     const [completed] = await db
       .select({
-        status: customerTasks.status,
-        completedAt: customerTasks.completedAt,
+        status: customerActivities.status,
+        completedAt: customerActivities.completedAt,
       })
-      .from(customerTasks)
-      .where(eq(customerTasks.id, task.id));
+      .from(customerActivities)
+      .where(eq(customerActivities.id, task.id));
     expect(completed.status).toBe("done");
     expect(completed.completedAt).toBeTruthy();
   });

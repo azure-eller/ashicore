@@ -40,19 +40,23 @@ Sales v1 does not include:
 
 ## Customer CRM model
 
-The customer surface mirrors a CRM's object model without becoming one:
+The customer surface mirrors HubSpot's engagement model without becoming a CRM:
 
 - the **customer** is the account; its email/phone are the organization's main
-  channel (used for documents and accounting sync), not a person's
+  channel (used for documents and accounting sync), not a person's; the
+  free-text field is labeled **Description** (a property, not a note)
 - **contacts** are people; person-level email/phone/roles live there, and
   `is_primary` marks the default person to reach
-- **`customer_correspondence`** is the single activity stream (note/call/email/
-  meeting); **`customer_tasks`** is the single to-do stream (`open`/`done`,
-  `completedAt` set exactly when done, hard delete)
-- **streams are singular; scoping is an association.** A narrower context
-  (project, order) gets an optional FK column on the existing stream table —
-  never its own parallel notes/tasks/activity table. Record pages render the
-  stream filtered to their scope; the customer page shows everything.
+- **`customer_activities`** is the single engagement stream: `note`, `call`,
+  `email`, `meeting`, and `task`. A task is the only forward-pointing type —
+  task-only columns (`due_date`, `status` `open`/`done`, `completed_at` set
+  exactly when done) are enforced by CHECK constraints. Soft delete throughout.
+  Open tasks render as "Upcoming" above the timeline; completed tasks live in
+  the timeline and can be reopened.
+- **the stream is singular; scoping is an association.** A narrower context
+  (project, order) gets an optional FK column on `customer_activities` — never
+  its own parallel notes/tasks/activity table. `customer_project_id` exists
+  today; record pages render the stream filtered to their scope.
 - the customers list "Due" view is the task queue: customers whose soonest open
   task has `due_date <= today` (org timezone); tasks without a due date stay
   out of the queue
