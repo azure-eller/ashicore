@@ -1,5 +1,5 @@
 import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
-import { test, expect } from "../fixtures";
+import { test, expect, filterList } from "../fixtures";
 import {
   customerActivities,
   customerProjectNotes,
@@ -248,8 +248,9 @@ test.describe("sales fulfillment operating story", () => {
     await page
       .getByRole("radio", { name: "Show customers with a task due today or overdue" })
       .click();
-    const queueRow = page.locator(".ag-row", { hasText: "Sales Story Customer" });
-    await expect(queueRow).toContainText(taskTitle);
+    await filterList(page, "Search customers", taskTitle);
+    const queueRow = page.locator(".ag-row", { hasText: taskTitle });
+    await expect(queueRow).toBeVisible();
 
     await page.goto(`/sales/customers/${customerId}`);
     await page.waitForLoadState("networkidle");

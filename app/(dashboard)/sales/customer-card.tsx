@@ -9,7 +9,16 @@ import type { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ICellRendererParams, ValueSetterParams } from "ag-grid-community";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Delete02Icon, StarIcon } from "@hugeicons/core-free-icons";
+import {
+  Call02Icon,
+  Delete02Icon,
+  Mail01Icon,
+  StarIcon,
+  StickyNote02Icon,
+  Tick02Icon,
+  UserMultiple02Icon,
+} from "@hugeicons/core-free-icons";
+import type { IconSvgElement } from "@hugeicons/react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -51,8 +60,14 @@ import {
 } from "@/components/ui/sheet";
 import { FieldError } from "@/components/ui/field";
 import { DatePicker } from "@/components/ui/date-picker";
-import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   StatusBadge,
   type StatusBadgeConfig,
@@ -527,7 +542,7 @@ export function CustomerCard({
                 }}
               />
             </CardField>
-            <CardField label="Email" htmlFor="customer-email">
+            <CardField label="Main email" htmlFor="customer-email">
               <CommitInput
                 id="customer-email"
                 label="Email"
@@ -537,7 +552,7 @@ export function CustomerCard({
                 onCommit={(email) => commitCustomerPatch({ email })}
               />
             </CardField>
-            <CardField label="Phone" htmlFor="customer-phone">
+            <CardField label="Main phone" htmlFor="customer-phone">
               <CommitInput
                 id="customer-phone"
                 label="Phone"
@@ -1688,6 +1703,25 @@ function OpenOrdersSection({
   );
 }
 
+const activityComposerMeta: Record<
+  CustomerActivityType,
+  { label: string; submitLabel: string; placeholder: string }
+> = {
+  note: { label: "Note", submitLabel: "Add note", placeholder: "Add a customer note..." },
+  call: { label: "Call", submitLabel: "Log call", placeholder: "What was discussed?" },
+  email: { label: "Email", submitLabel: "Log email", placeholder: "What was discussed?" },
+  meeting: { label: "Meeting", submitLabel: "Log meeting", placeholder: "What was discussed?" },
+  task: { label: "Task", submitLabel: "Create task", placeholder: "What needs to happen next?" },
+};
+
+const activityTimelineIcons: Record<CustomerActivityType, IconSvgElement> = {
+  note: StickyNote02Icon,
+  call: Call02Icon,
+  email: Mail01Icon,
+  meeting: UserMultiple02Icon,
+  task: Tick02Icon,
+};
+
 function ActivitySection({
   customerId,
   rows,
@@ -1701,7 +1735,6 @@ function ActivitySection({
 }) {
   const queryClient = useQueryClient();
   const [type, setType] = useState<CustomerActivityType>("note");
-  const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [projectId, setProjectId] = useState(noActivityProjectValue);
@@ -1719,10 +1752,9 @@ function ActivitySection({
     });
   const timeline = rows
     .filter((row) => !(row.type === "task" && row.status === "open"))
-    .sort(
-      (a, b) =>
-        timelineDate(b).getTime() - timelineDate(a).getTime()
-    );
+    .sort((a, b) => timelineDate(b).getTime() - timelineDate(a).getTime());
+  const timelineMonths = groupTimelineByMonth(timeline);
+  const today = toDateOnlyString(new Date()) ?? "";
 
   const invalidate = async () => {
     if (customerId) {
@@ -1742,15 +1774,14 @@ function ActivitySection({
       createCustomerActivity(customerId as string, {
         type,
         occurredAt: undefined,
-        title: isTask ? title.trim() : null,
-        body: body.trim() ? body.trim() : null,
+        title: isTask ? body.trim().replace(/\s+/g, " ") : null,
+        body: isTask ? null : body.trim() || null,
         dueDate: isTask && dueDate ? dueDate : null,
         customerProjectId:
           projectId === noActivityProjectValue ? null : projectId,
         attendeeContactIds: [],
       }),
     onSuccess: async () => {
-      setTitle("");
       setBody("");
       setDueDate("");
       await invalidate();
@@ -1787,197 +1818,265 @@ function ActivitySection({
   const pending = patchMutation.isPending || deleteMutation.isPending;
   const error =
     createMutation.error ?? patchMutation.error ?? deleteMutation.error;
-  const canSubmit = isTask ? Boolean(title.trim()) : Boolean(body.trim());
-  const projectOptions = [
-    { value: noActivityProjectValue, label: "No project" },
-    ...projects.map((project) => ({ value: project.id, label: project.name })),
-  ];
 
   return (
     <CardSection title="Activity" count={`· ${rows.length}`}>
-      <div className="grid gap-(--space-4)">
+      <div className="grid gap-(--space-5)">
         {!readOnly ? (
-          <div className="grid gap-(--space-3)">
-            <CardSelectField
-              label="Type"
-              value={type}
-              options={activityTypeOptions}
-              controlStyle="dialog"
-              onValueChange={(value) => setType(value as CustomerActivityType)}
-            />
-            {projects.length > 0 ? (
-              <CardSelectField
-                label="Project"
-                value={projectId}
-                options={projectOptions}
-                controlStyle="dialog"
-                onValueChange={setProjectId}
-              />
-            ) : null}
-            {isTask ? (
-              <div className="flex flex-wrap items-center gap-(--space-3)">
-                <Input
-                  aria-label="Task title"
-                  placeholder="What needs to happen?"
-                  value={title}
-                  disabled={createMutation.isPending}
-                  className="min-w-48 flex-1"
-                  onChange={(event) => setTitle(event.target.value)}
-                />
-                <DatePicker
-                  value={dueDate}
-                  placeholder="Due date"
-                  disabled={createMutation.isPending}
-                  onChange={(value) => setDueDate(value ?? "")}
-                />
-              </div>
-            ) : null}
+          <div className="grid gap-0 rounded-(--radius-md) border border-[var(--color-line)]">
+            <div className="flex flex-wrap items-center gap-(--space-2) p-(--space-4) pb-0">
+              {(Object.keys(activityComposerMeta) as CustomerActivityType[]).map(
+                (option) => (
+                  <Button
+                    key={option}
+                    type="button"
+                    size="sm"
+                    variant={type === option ? "default" : "outline"}
+                    aria-pressed={type === option}
+                    onClick={() => setType(option)}
+                  >
+                    {activityComposerMeta[option].label}
+                  </Button>
+                )
+              )}
+            </div>
             <Textarea
               value={body}
-              rows={isTask ? 2 : 4}
+              rows={3}
               disabled={createMutation.isPending}
-              placeholder={isTask ? "Notes (optional)..." : "Add a customer note..."}
-              className="text-[length:var(--text-md)] leading-[var(--leading-md)]"
+              aria-label={isTask ? "Task title" : "Activity notes"}
+              placeholder={activityComposerMeta[type].placeholder}
+              className="border-0 shadow-none focus-visible:ring-0 text-[length:var(--text-md)] leading-[var(--leading-md)]"
               onChange={(event) => setBody(event.target.value)}
             />
-            <div className="flex items-center justify-end gap-(--space-4)">
-              {error ? <FieldError>{error.message}</FieldError> : null}
-              <Button
-                type="button"
-                disabled={!canSubmit || createMutation.isPending}
-                onClick={() => {
-                  if (!customerId || readOnly) return;
-                  createMutation.mutate();
-                }}
-              >
-                {createMutation.isPending
-                  ? "Adding..."
-                  : isTask
-                    ? "Add task"
-                    : "Add activity"}
-              </Button>
+            <div className="flex flex-wrap items-center gap-(--space-3) border-t border-[var(--color-line)] bg-[var(--color-surface-2)] p-(--space-3)">
+              {projects.length > 0 ? (
+                <Select value={projectId} onValueChange={setProjectId}>
+                  <SelectTrigger aria-label="Project" size="sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={noActivityProjectValue}>
+                      No project
+                    </SelectItem>
+                    {projects.map((project) => (
+                      <SelectItem key={project.id} value={project.id}>
+                        {project.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : null}
+              {isTask ? (
+                <div className="w-52">
+                  <DatePicker
+                    value={dueDate}
+                    placeholder="Due date"
+                    disabled={createMutation.isPending}
+                    onChange={(value) => setDueDate(value ?? "")}
+                  />
+                </div>
+              ) : null}
+              <div className="ml-auto flex items-center gap-(--space-4)">
+                {error ? <FieldError>{error.message}</FieldError> : null}
+                <Button
+                  type="button"
+                  disabled={!body.trim() || createMutation.isPending}
+                  onClick={() => {
+                    if (!customerId || readOnly) return;
+                    createMutation.mutate();
+                  }}
+                >
+                  {createMutation.isPending
+                    ? "Adding..."
+                    : activityComposerMeta[type].submitLabel}
+                </Button>
+              </div>
             </div>
           </div>
         ) : null}
 
-        {openTasks.length > 0 ? (
+        {!readOnly || openTasks.length > 0 ? (
           <div className="grid gap-(--space-2)">
-            <h3 className={styles.sectionHeading}>Upcoming</h3>
+            <h3 className={styles.sectionHeading}>
+              Upcoming · {openTasks.length}
+            </h3>
+            {openTasks.length === 0 ? (
+              <p className="rounded-(--radius-md) border border-dashed border-[var(--color-line)] px-(--space-4) py-(--space-3) text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
+                Nothing scheduled — create a task above.
+              </p>
+            ) : null}
             <ul className="grid gap-(--space-2)">
-              {openTasks.map((task) => (
-                <li
-                  key={task.id}
-                  className="flex items-center gap-(--space-3) rounded-(--radius-md) border border-[var(--color-line)] bg-[var(--color-surface)] px-(--space-4) py-(--space-3)"
-                >
-                  <Checkbox
-                    aria-label={`Complete "${task.title}"`}
-                    checked={false}
-                    disabled={readOnly || pending}
-                    onCheckedChange={() =>
-                      patchMutation.mutate({ activityId: task.id, status: "done" })
-                    }
-                  />
-                  <span className="min-w-0 flex-1 truncate text-[length:var(--text-sm)]">
-                    {task.title}
-                  </span>
-                  {task.projectName ? (
-                    <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-                      {task.projectName}
+              {openTasks.map((task) => {
+                return (
+                  <li
+                    key={task.id}
+                    className="flex items-center gap-(--space-3) py-(--space-2)"
+                  >
+                    <Checkbox
+                      aria-label={`Complete "${task.title}"`}
+                      checked={false}
+                      disabled={readOnly || pending}
+                      onCheckedChange={() =>
+                        patchMutation.mutate({
+                          activityId: task.id,
+                          status: "done",
+                        })
+                      }
+                    />
+                    <span className="min-w-0 flex-1 truncate text-[length:var(--text-sm)]">
+                      {task.title}
                     </span>
-                  ) : null}
-                  {task.dueDate ? (
-                    <span className="font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-                      {formatDate(task.dueDate)}
-                    </span>
-                  ) : null}
-                  {!readOnly ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Delete "${task.title}"`}
-                      disabled={pending}
-                      onClick={() => deleteMutation.mutate(task.id)}
+                    {task.projectName ? (
+                      <ActivityProjectChip name={task.projectName} />
+                    ) : null}
+                    <span
+                      className={cn(
+                        "whitespace-nowrap rounded-full border px-(--space-4) py-(--space-1) text-[length:var(--text-xs)]",
+                        !task.dueDate &&
+                          "border-dashed border-[var(--color-line)] text-[var(--color-ink-faint)]",
+                        task.dueDate && task.dueDate < today
+                          ? "border-transparent bg-[var(--color-danger-soft)] text-[var(--color-danger)]"
+                          : task.dueDate === today
+                            ? "border-transparent bg-[var(--color-warning-soft)] text-[var(--color-ink)]"
+                            : task.dueDate
+                              ? "border-[var(--color-line)] text-[var(--color-ink-faint)]"
+                              : undefined
+                      )}
                     >
-                      <HugeiconsIcon icon={Delete02Icon} />
-                    </Button>
-                  ) : null}
-                </li>
-              ))}
+                      {task.dueDate
+                        ? `Due ${formatDate(task.dueDate)}${
+                            task.dueDate < today
+                              ? " · Overdue"
+                              : task.dueDate === today
+                                ? " · Today"
+                                : ""
+                          }`
+                        : "No due date"}
+                    </span>
+                    {!readOnly ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Delete "${task.title}"`}
+                        disabled={pending}
+                        onClick={() => deleteMutation.mutate(task.id)}
+                      >
+                        <HugeiconsIcon icon={Delete02Icon} />
+                      </Button>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         ) : null}
 
-        <ul className="grid gap-(--space-3)">
-          {timeline.length > 0 ? (
-            timeline.map((entry) => (
-              <li
-                key={entry.id}
-                className="rounded-(--radius-md) border border-[var(--color-line)] bg-[var(--color-surface)] p-(--space-5)"
-              >
-                <div className="flex flex-wrap items-center gap-(--space-3)">
-                  {entry.type === "task" ? (
-                    <Checkbox
-                      aria-label={`Reopen "${entry.title}"`}
-                      checked
-                      disabled={readOnly || pending}
-                      onCheckedChange={() =>
-                        patchMutation.mutate({
-                          activityId: entry.id,
-                          status: "open",
-                        })
-                      }
-                    />
-                  ) : null}
-                  <span className="text-[length:var(--text-sm)] font-medium text-[var(--color-ink)]">
-                    {activityTypeLabel(entry.type)}
-                  </span>
-                  <span className="font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-                    {formatDate(toDateOnlyString(timelineDate(entry)))}
-                  </span>
-                  {entry.projectName ? (
-                    <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-                      {entry.projectName}
-                    </span>
-                  ) : null}
-                  {entry.createdByName ? (
-                    <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-                      {entry.createdByName}
-                    </span>
-                  ) : null}
+        {timelineMonths.length > 0 ? (
+          <div className="grid gap-(--space-5)">
+            {timelineMonths.map((month) => (
+              <div key={month.label} className="grid gap-(--space-3)">
+                <div className="flex items-center gap-(--space-4)">
+                  <h3 className={styles.sectionHeading}>{month.label}</h3>
+                  <div className="h-px flex-1 bg-[var(--color-line)]" />
                 </div>
-                {entry.title ? (
-                  <p
-                    className={cn(
-                      "mt-(--space-3) text-[length:var(--text-sm)] font-medium",
-                      entry.type === "task" &&
-                        "text-[var(--color-ink-faint)] line-through"
-                    )}
-                  >
-                    {entry.title}
-                  </p>
-                ) : null}
-                {entry.body ? (
-                  <p className="mt-(--space-2) whitespace-pre-wrap text-[length:var(--text-sm)] leading-[var(--leading-md)] text-[var(--color-ink)]">
-                    {entry.body}
-                  </p>
-                ) : null}
-                {entry.attendees.length > 0 ? (
-                  <p className="mt-(--space-3) text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-                    {entry.attendees.map((attendee) => attendee.contactName).join(", ")}
-                  </p>
-                ) : null}
-              </li>
-            ))
-          ) : (
-            <EmptyState as="li" density="compact">
-              No activity yet.
-            </EmptyState>
-          )}
-        </ul>
+                <ul className="grid gap-(--space-4)">
+                  {month.entries.map((entry) => (
+                    <li key={entry.id} className="flex gap-(--space-4)">
+                      {entry.type === "task" ? (
+                        <Checkbox
+                          aria-label={`Reopen "${entry.title}"`}
+                          checked
+                          disabled={readOnly || pending}
+                          className="mt-(--space-1)"
+                          onCheckedChange={() =>
+                            patchMutation.mutate({
+                              activityId: entry.id,
+                              status: "open",
+                            })
+                          }
+                        />
+                      ) : (
+                        <span className="mt-(--space-1) flex size-(--space-9) shrink-0 items-center justify-center rounded-full border border-[var(--color-line)] text-[var(--color-ink-faint)]">
+                          <HugeiconsIcon
+                            icon={activityTimelineIcons[entry.type]}
+                            className="size-(--space-6)"
+                          />
+                        </span>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-(--space-3)">
+                          <span className="text-[length:var(--text-xs)] font-medium uppercase tracking-wide text-[var(--color-ink-faint)]">
+                            {activityComposerMeta[entry.type].label}
+                            {entry.type === "task" ? " · Done" : ""}
+                          </span>
+                          {entry.createdByName ? (
+                            <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                              {entry.createdByName}
+                            </span>
+                          ) : null}
+                          <span className="font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                            {formatDate(toDateOnlyString(timelineDate(entry)))}
+                          </span>
+                          {entry.projectName ? (
+                            <ActivityProjectChip name={entry.projectName} />
+                          ) : null}
+                        </div>
+                        {entry.title ? (
+                          <p className="mt-(--space-2) text-[length:var(--text-sm)]">
+                            {entry.title}
+                          </p>
+                        ) : null}
+                        {entry.body ? (
+                          <p className="mt-(--space-2) whitespace-pre-wrap text-[length:var(--text-sm)] leading-[var(--leading-md)] text-[var(--color-ink)]">
+                            {entry.body}
+                          </p>
+                        ) : null}
+                        {entry.attendees.length > 0 ? (
+                          <p className="mt-(--space-2) text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                            {entry.attendees
+                              .map((attendee) => attendee.contactName)
+                              .join(", ")}
+                          </p>
+                        ) : null}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        ) : openTasks.length === 0 ? (
+          <EmptyState density="compact">No activity yet.</EmptyState>
+        ) : null}
       </div>
     </CardSection>
   );
+}
+
+function ActivityProjectChip({ name }: { name: string }) {
+  return (
+    <span className="whitespace-nowrap rounded-full border border-[var(--color-line)] bg-[var(--color-surface-2)] px-(--space-3) py-(--space-1) text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+      {name}
+    </span>
+  );
+}
+
+function groupTimelineByMonth(entries: CustomerActivityRow[]) {
+  const months: Array<{ label: string; entries: CustomerActivityRow[] }> = [];
+  for (const entry of entries) {
+    const label = timelineDate(entry)
+      .toLocaleDateString(undefined, { month: "long", year: "numeric" })
+      .toUpperCase();
+    const current = months[months.length - 1];
+    if (current && current.label === label) {
+      current.entries.push(entry);
+    } else {
+      months.push({ label, entries: [entry] });
+    }
+  }
+  return months;
 }
 
 function timelineDate(entry: CustomerActivityRow) {
