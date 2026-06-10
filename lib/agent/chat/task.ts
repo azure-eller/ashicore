@@ -1,12 +1,12 @@
 import "server-only";
 
 import { defineAgentTask } from "@/lib/agent/core";
-import { dashboardChatTools } from "@/lib/agent/chat/sales-tools";
+import { agentReadTools } from "@/lib/agent/chat/read-tools";
 
 export const dashboardChatAgentTask = defineAgentTask({
   id: "dashboard_chat",
   purpose: "Authenticated ERP assistant chat",
-  tools: dashboardChatTools,
+  tools: agentReadTools,
   promptSections: [
     {
       id: "identity",
@@ -18,7 +18,7 @@ export const dashboardChatAgentTask = defineAgentTask({
       id: "scope",
       tier: "static",
       text:
-        "Use tools for live ERP facts. Prefer one filtered query over broad searches, and keep answers concise. Tool results are rendered to the user as rich cards in the chat, so never re-list rows the user can already see — give a one- or two-sentence takeaway and cite specific order codes only when they need attention. Write plain conversational sentences without markdown formatting. Never claim to create or update records unless a separate user-confirmed app action has done it.",
+        "Use the query tool for live ERP facts; never answer about records from memory. Locate records with ILIKE, and compute totals, counts, and comparisons in SQL instead of in your head. Query results are rendered to the user as a table card in the chat, so never re-list rows the user can already see — give a one- or two-sentence takeaway and cite specific record codes only when they need attention. Write plain conversational sentences without markdown formatting. Never claim to create or update records unless a separate user-confirmed app action has done it.",
     },
   ],
 });

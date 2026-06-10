@@ -75,14 +75,20 @@ async function ensureDatabase(client: Client, databaseName: string, ownerName: s
   }
 }
 
-function writeWorktreeEnv(envPath: string, ownerUrl: string, appUrl: string) {
+function writeWorktreeEnv(
+  envPath: string,
+  ownerUrl: string,
+  appUrl: string,
+  agentUrl: string
+) {
   const existingContent = existsSync(envPath) ? readFileSync(envPath, "utf8") : "";
   const baseContent =
     existingContent.length > 0 ? existingContent : WORKTREE_ENV_HEADER;
   const withOwnerUrl = upsertEnvValue(baseContent, "DATABASE_URL", ownerUrl);
   const withAppUrl = upsertEnvValue(withOwnerUrl, "DATABASE_URL_APP", appUrl);
+  const withAgentUrl = upsertEnvValue(withAppUrl, "DATABASE_URL_AGENT", agentUrl);
   const withMfaDisabled = upsertEnvValue(
-    withAppUrl,
+    withAgentUrl,
     "AUTH_MFA_DISABLED",
     "1"
   );
@@ -94,9 +100,14 @@ async function main() {
   const adminUrl = process.env.LOCAL_DB_ADMIN_URL ?? DEFAULT_ADMIN_URL;
   const appUser = process.env.LOCAL_DB_APP_USER ?? DEFAULT_APP_USER;
   const appPassword = process.env.LOCAL_DB_APP_PASSWORD ?? DEFAULT_APP_PASSWORD;
+  // Read-only agent role: its own login so session_user can't escalate. The
+  // 0154 migration grants it SELECT on the agent_query.* views only.
+  const agentUser = "erp_agent_ro";
+  const agentPassword = process.env.LOCAL_DB_AGENT_PASSWORD ?? DEFAULT_APP_PASSWORD;
   const databaseName = deriveDatabaseName(worktreeRoot);
   const ownerUrl = replaceDatabaseName(adminUrl, databaseName);
   const appUrl = buildAppUrl(ownerUrl, appUser, appPassword);
+  const agentUrl = buildAppUrl(ownerUrl, agentUser, agentPassword);
   const envPath = resolve(worktreeRoot, ".env.local");
   const composeDir = resolveComposeDir(
     worktreeRoot,
@@ -111,15 +122,19 @@ async function main() {
     const ownerName = new URL(adminUrl).username || "postgres";
 
     await ensureAppRole(adminClient, appUser, appPassword);
+    await ensureAppRole(adminClient, agentUser, agentPassword);
     await ensureDatabase(adminClient, databaseName, ownerName);
     await adminClient.query(
       `GRANT CONNECT ON DATABASE ${quoteIdentifier(databaseName)} TO ${quoteIdentifier(appUser)}`
+    );
+    await adminClient.query(
+      `GRANT CONNECT ON DATABASE ${quoteIdentifier(databaseName)} TO ${quoteIdentifier(agentUser)}`
     );
   } finally {
     await adminClient.end();
   }
 
-  writeWorktreeEnv(envPath, ownerUrl, appUrl);
+  writeWorktreeEnv(envPath, ownerUrl, appUrl, agentUrl);
 
   execFileSync("pnpm", ["drizzle-kit", "migrate"], {
     cwd: worktreeRoot,
@@ -128,6 +143,7 @@ async function main() {
       ...process.env,
       DATABASE_URL: ownerUrl,
       DATABASE_URL_APP: appUrl,
+      DATABASE_URL_AGENT: agentUrl,
     },
   });
 
