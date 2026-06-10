@@ -204,8 +204,7 @@ test.describe("sales fulfillment operating story", () => {
     await expect(page.getByText(taggedBody)).toBeVisible();
     await expect(page.getByText(untaggedBody)).toBeHidden();
 
-    await page.getByRole("combobox", { name: "Filter by project" }).click();
-    await page.getByRole("option", { name: "Project · All" }).click();
+    await page.getByRole("button", { name: "Clear filter" }).click();
     await expect(page.getByText(untaggedBody)).toBeVisible();
   });
 
