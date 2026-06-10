@@ -83,8 +83,6 @@ export const customers = salesSchema
       shipPostcode: varchar("ship_postcode", { length: 30 }),
       shipCountry: varchar("ship_country", { length: 120 }),
       notes: text("notes"),
-      nextAction: text("next_action"),
-      nextActionDueDate: date("next_action_due_date", { mode: "string" }),
       deletedAt: timestamp("deleted_at", { withTimezone: true }),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
       updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -98,9 +96,6 @@ export const customers = salesSchema
       index("sales_customers_customer_category_id_idx").on(table.customerCategoryId),
       index("sales_customers_account_state_idx").on(table.accountState),
       index("sales_customers_account_priority_idx").on(table.accountPriority),
-      index("sales_customers_next_action_due_date_idx")
-        .on(table.organizationId, table.nextActionDueDate)
-        .where(sql`deleted_at IS NULL AND next_action_due_date IS NOT NULL`),
       check(
         "sales_customers_account_state_check",
         sql`${table.accountState} IN ('active', 'growth', 'at_risk', 'former')`
@@ -151,79 +146,6 @@ export const customerContacts = salesSchema
         .on(table.organizationId, table.customerId)
         .where(sql`deleted_at IS NULL`),
       pgPolicy("sales_customer_contacts_org_isolation", {
-        for: "all",
-        to: "public",
-        using: sql`organization_id = current_setting('app.current_org_id', true)`,
-        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
-      }),
-    ]
-  )
-  .enableRLS();
-
-export const customerCorrespondence = salesSchema
-  .table(
-    "customer_correspondence",
-    {
-      id: uuid("id").primaryKey().defaultRandom(),
-      organizationId: text("organization_id").notNull(),
-      customerId: uuid("customer_id")
-        .notNull()
-        .references(() => customers.id),
-      type: varchar("type", { length: 20 }).notNull(),
-      occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
-      title: varchar("title", { length: 255 }),
-      body: text("body").notNull(),
-      createdByUserId: text("created_by_user_id").notNull(),
-      createdByName: varchar("created_by_name", { length: 255 }),
-      deletedAt: timestamp("deleted_at", { withTimezone: true }),
-      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-    },
-    (table) => [
-      index("sales_customer_correspondence_org_id_idx").on(table.organizationId),
-      index("sales_customer_correspondence_customer_id_idx").on(table.customerId),
-      index("sales_customer_correspondence_occurred_at_idx").on(table.occurredAt),
-      check(
-        "sales_customer_correspondence_type_check",
-        sql`${table.type} IN ('note', 'call', 'email', 'meeting')`
-      ),
-      pgPolicy("sales_customer_correspondence_org_isolation", {
-        for: "all",
-        to: "public",
-        using: sql`organization_id = current_setting('app.current_org_id', true)`,
-        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
-      }),
-    ]
-  )
-  .enableRLS();
-
-export const customerCorrespondenceAttendees = salesSchema
-  .table(
-    "customer_correspondence_attendees",
-    {
-      id: uuid("id").primaryKey().defaultRandom(),
-      organizationId: text("organization_id").notNull(),
-      customerId: uuid("customer_id")
-        .notNull()
-        .references(() => customers.id),
-      correspondenceId: uuid("correspondence_id")
-        .notNull()
-        .references(() => customerCorrespondence.id, { onDelete: "cascade" }),
-      contactId: uuid("contact_id").references(() => customerContacts.id),
-      contactName: varchar("contact_name", { length: 255 }).notNull(),
-      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    },
-    (table) => [
-      index("sales_customer_correspondence_attendees_org_id_idx").on(
-        table.organizationId
-      ),
-      index("sales_customer_correspondence_attendees_correspondence_id_idx").on(
-        table.correspondenceId
-      ),
-      index("sales_customer_correspondence_attendees_contact_id_idx").on(
-        table.contactId
-      ),
-      pgPolicy("sales_customer_correspondence_attendees_org_isolation", {
         for: "all",
         to: "public",
         using: sql`organization_id = current_setting('app.current_org_id', true)`,
@@ -339,6 +261,93 @@ export const customerProjectFiles = salesSchema
         table.storageKey
       ),
       pgPolicy("sales_customer_project_files_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`organization_id = current_setting('app.current_org_id', true)`,
+        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const customerActivities = salesSchema
+  .table(
+    "customer_activities",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      organizationId: text("organization_id").notNull(),
+      customerId: uuid("customer_id")
+        .notNull()
+        .references(() => customers.id),
+      customerProjectId: uuid("customer_project_id").references(
+        () => customerProjects.id
+      ),
+      type: varchar("type", { length: 20 }).notNull(),
+      occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+      title: varchar("title", { length: 255 }),
+      body: text("body"),
+      dueDate: date("due_date", { mode: "string" }),
+      status: varchar("status", { length: 10 }),
+      completedAt: timestamp("completed_at", { withTimezone: true }),
+      createdByUserId: text("created_by_user_id").notNull(),
+      createdByName: varchar("created_by_name", { length: 255 }),
+      deletedAt: timestamp("deleted_at", { withTimezone: true }),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+      index("sales_customer_activities_org_id_idx").on(table.organizationId),
+      index("sales_customer_activities_customer_id_idx").on(table.customerId),
+      index("sales_customer_activities_occurred_at_idx").on(table.occurredAt),
+      check(
+        "sales_customer_activities_type_check",
+        sql`${table.type} IN ('note', 'call', 'email', 'meeting', 'task')`
+      ),
+      check(
+        "sales_customer_activities_task_fields_check",
+        sql`(${table.type} = 'task' AND ${table.status} IN ('open', 'done') AND ${table.title} IS NOT NULL) OR (${table.type} <> 'task' AND ${table.status} IS NULL AND ${table.dueDate} IS NULL AND ${table.completedAt} IS NULL AND ${table.body} IS NOT NULL)`
+      ),
+      check(
+        "sales_customer_activities_completed_at_check",
+        sql`${table.type} <> 'task' OR ((${table.status} = 'done') = (${table.completedAt} IS NOT NULL))`
+      ),
+      pgPolicy("sales_customer_activities_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`organization_id = current_setting('app.current_org_id', true)`,
+        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const customerActivityAttendees = salesSchema
+  .table(
+    "customer_activity_attendees",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      organizationId: text("organization_id").notNull(),
+      customerId: uuid("customer_id")
+        .notNull()
+        .references(() => customers.id),
+      activityId: uuid("activity_id")
+        .notNull()
+        .references(() => customerActivities.id, { onDelete: "cascade" }),
+      contactId: uuid("contact_id").references(() => customerContacts.id),
+      contactName: varchar("contact_name", { length: 255 }).notNull(),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+      index("sales_customer_activity_attendees_org_id_idx").on(
+        table.organizationId
+      ),
+      index("sales_customer_activity_attendees_activity_id_idx").on(
+        table.activityId
+      ),
+      index("sales_customer_activity_attendees_contact_id_idx").on(
+        table.contactId
+      ),
+      pgPolicy("sales_customer_activity_attendees_org_isolation", {
         for: "all",
         to: "public",
         using: sql`organization_id = current_setting('app.current_org_id', true)`,

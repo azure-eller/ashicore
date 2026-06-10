@@ -2,6 +2,7 @@ import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { test, expect } from "../fixtures";
 import {
   customerProjectNotes,
+  customerTasks,
   inventoryDemandSummary,
   inventoryEvents,
   inventoryItemBalances,
@@ -220,6 +221,51 @@ test.describe("sales fulfillment operating story", () => {
         )
       );
     expect(deletedNote?.deletedAt).toBeTruthy();
+  });
+
+  test("logs a customer task, works the due queue, and completes it", async ({ db, page }) => {
+    const run = Date.now();
+    const taskTitle = `Chase order confirmation ${run}`;
+    const yesterday = new Date();
+    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+    const dueDate = yesterday.toISOString().slice(0, 10);
+
+    const taskResponse = await testFetch(`/api/customers/${customerId}/tasks`, {
+      method: "POST",
+      body: JSON.stringify({ title: taskTitle, dueDate }),
+    });
+    expect(taskResponse.status).toBe(201);
+    const task = (await taskResponse.json()) as { id: string };
+
+    await page.goto("/sales/customers");
+    await page
+      .getByRole("radio", { name: "Show customers with a task due today or overdue" })
+      .click();
+    const queueRow = page.locator(".ag-row", { hasText: "Sales Story Customer" });
+    await expect(queueRow).toContainText(taskTitle);
+
+    await page.goto(`/sales/customers/${customerId}`);
+    const completeResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes(`/api/customers/${customerId}/tasks/${task.id}`) &&
+        response.request().method() === "PATCH"
+    );
+    await page
+      .getByRole("checkbox", { name: `Complete "${taskTitle}"` })
+      .click();
+    const completeResponse = await completeResponsePromise;
+    expect(completeResponse.status(), await completeResponse.text()).toBe(200);
+    await expect(page.getByRole("button", { name: "Done · 1" })).toBeVisible();
+
+    const [completed] = await db
+      .select({
+        status: customerTasks.status,
+        completedAt: customerTasks.completedAt,
+      })
+      .from(customerTasks)
+      .where(eq(customerTasks.id, task.id));
+    expect(completed.status).toBe("done");
+    expect(completed.completedAt).toBeTruthy();
   });
 
   test("partial shipping keeps the order open and consumes only shipped stock", async ({ db, page }) => {

@@ -4,9 +4,10 @@ import type {
   CustomerAccountState as CustomerState,
 } from "@/lib/schemas/customers";
 import type {
+  CUSTOMER_ACTIVITY_TYPES,
   CUSTOMER_CONTACT_ROLE_KEYS,
-  CUSTOMER_CORRESPONDENCE_TYPES,
   CUSTOMER_PROJECT_STATUSES,
+  CUSTOMER_TASK_STATUSES,
 } from "@/lib/schemas/customer-crm";
 import type { DemandQueueCoverageSegment } from "@/lib/inventory/allocation/demand-queue";
 import type { LotPickPlanEntry } from "@/lib/inventory/lot-pick-plan";
@@ -42,16 +43,15 @@ export type CustomerRow = {
   shipCountry: string | null;
   xeroContactId: string | null;
   notes: string | null;
-  nextAction: string | null;
-  nextActionDueDate: string | null;
+  nextTaskTitle: string | null;
+  nextTaskDueDate: string | null;
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 };
 
 export type CustomerContactRole = (typeof CUSTOMER_CONTACT_ROLE_KEYS)[number];
-export type CustomerCorrespondenceType =
-  (typeof CUSTOMER_CORRESPONDENCE_TYPES)[number];
+export type CustomerActivityType = (typeof CUSTOMER_ACTIVITY_TYPES)[number];
 export type CustomerProjectStatus =
   (typeof CUSTOMER_PROJECT_STATUSES)[number];
 
@@ -68,21 +68,28 @@ export type CustomerContactRow = {
   updatedAt: Date;
 };
 
-export type CustomerCorrespondenceAttendeeRow = {
+export type CustomerActivityAttendeeRow = {
   id: string;
   contactId: string | null;
   contactName: string;
 };
 
-export type CustomerCorrespondenceRow = {
+export type CustomerTaskStatus = (typeof CUSTOMER_TASK_STATUSES)[number];
+
+export type CustomerActivityRow = {
   id: string;
-  type: CustomerCorrespondenceType;
+  type: CustomerActivityType;
   occurredAt: Date;
   title: string | null;
-  body: string;
+  body: string | null;
+  dueDate: string | null;
+  status: CustomerTaskStatus | null;
+  completedAt: Date | null;
+  customerProjectId: string | null;
+  projectName: string | null;
   createdByUserId: string;
   createdByName: string | null;
-  attendees: CustomerCorrespondenceAttendeeRow[];
+  attendees: CustomerActivityAttendeeRow[];
   createdAt: Date;
   updatedAt: Date;
 };
@@ -125,7 +132,7 @@ export type CustomerProjectRow = {
 
 export type CustomerDetailData = CustomerRow & {
   contacts: CustomerContactRow[];
-  correspondence: CustomerCorrespondenceRow[];
+  activities: CustomerActivityRow[];
   projects: CustomerProjectRow[];
   salesOrders: CustomerLinkedSalesOrderRow[];
 };

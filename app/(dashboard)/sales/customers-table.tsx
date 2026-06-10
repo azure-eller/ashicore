@@ -35,19 +35,19 @@ const columns: ColDef<CustomerRow>[] = [
     valueFormatter: ({ value }) => value ?? "Uncategorized",
   },
   {
-    field: "nextActionDueDate",
+    field: "nextTaskDueDate",
     headerName: "Due",
     width: 130,
     valueFormatter: ({ value }) => (value ? formatDate(value) : "—"),
   },
   {
-    field: "nextAction",
-    headerName: "Next action",
+    field: "nextTaskTitle",
+    headerName: "Next task",
     width: 280,
     minWidth: 180,
     flex: 1,
     valueFormatter: ({ value }) => value ?? "—",
-    tooltipValueGetter: ({ data }) => data?.nextAction ?? "",
+    tooltipValueGetter: ({ data }) => data?.nextTaskTitle ?? "",
   },
   {
     field: "primaryContactName",
@@ -80,7 +80,7 @@ const columns: ColDef<CustomerRow>[] = [
   },
   {
     field: "notes",
-    headerName: "Comment",
+    headerName: "Description",
     width: 280,
     minWidth: 180,
     flex: 1,
@@ -102,7 +102,7 @@ export function CustomersTable({
     [initialData, today, view]
   );
   const dueCount = useMemo(
-    () => initialData.filter((row) => isFollowUpDue(row, today)).length,
+    () => initialData.filter((row) => hasDueTask(row, today)).length,
     [initialData, today]
   );
 
@@ -123,7 +123,7 @@ export function CustomersTable({
       toolbarContent={
         <SegmentedCountFilter
           value={view}
-          ariaLabel="Customer follow-up view"
+          ariaLabel="Customer task view"
           options={[
             {
               value: "all",
@@ -135,7 +135,7 @@ export function CustomersTable({
               value: "due",
               label: "Due",
               count: dueCount,
-              ariaLabel: "Show customers with follow-up due today or overdue",
+              ariaLabel: "Show customers with a task due today or overdue",
             },
           ]}
           onValueChange={(value) => setView(value || "all")}
@@ -160,13 +160,13 @@ function filterCustomersForView(
   today: string
 ) {
   if (view === "due") {
-    return rows.filter((row) => isFollowUpDue(row, today));
+    return rows.filter((row) => hasDueTask(row, today));
   }
   return rows;
 }
 
-function isFollowUpDue(row: CustomerRow, today: string) {
-  return Boolean(row.nextActionDueDate && row.nextActionDueDate <= today);
+function hasDueTask(row: CustomerRow, today: string) {
+  return Boolean(row.nextTaskDueDate && row.nextTaskDueDate <= today);
 }
 
 function formatPrimaryContact(row: CustomerRow | null | undefined) {

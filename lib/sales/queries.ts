@@ -14,8 +14,8 @@ import {
 import {
   customerCategories,
   customerContacts,
-  customerCorrespondence,
-  customerCorrespondenceAttendees,
+  customerActivities,
+  customerActivityAttendees,
   customerProjectFiles,
   customerProjectNotes,
   customerProjects,
@@ -103,8 +103,9 @@ import type {
   UpdateCustomer,
 } from "@/lib/schemas/customers";
 import type {
+  CustomerActivityInput,
+  CustomerActivityPatch,
   CustomerContactInput,
-  CustomerCorrespondenceInput,
   CustomerProjectFileRenameInput,
   CustomerProjectInput,
   CustomerProjectNoteInput,
@@ -128,9 +129,9 @@ import type {
   UpdateSalesOrder,
 } from "@/lib/schemas/sales-orders";
 import type {
+  CustomerActivityRow,
   CustomerContactRole,
   CustomerContactRow,
-  CustomerCorrespondenceRow,
   CustomerCategoryOption,
   CustomerCategoryRow,
   CustomerDetailData,
@@ -3543,8 +3544,26 @@ const customerRowSelect = {
     LIMIT 1
   )`,
   notes: customers.notes,
-  nextAction: customers.nextAction,
-  nextActionDueDate: customers.nextActionDueDate,
+  nextTaskTitle: sql<string | null>`(
+    SELECT ca.title
+    FROM ${customerActivities} ca
+    WHERE ca.customer_id = ${customers.id}
+      AND ca.type = 'task'
+      AND ca.status = 'open'
+      AND ca.deleted_at IS NULL
+    ORDER BY ca.due_date ASC NULLS LAST, ca.created_at ASC, ca.id ASC
+    LIMIT 1
+  )`.as("nextTaskTitle"),
+  nextTaskDueDate: sql<string | null>`(
+    SELECT ca.due_date
+    FROM ${customerActivities} ca
+    WHERE ca.customer_id = ${customers.id}
+      AND ca.type = 'task'
+      AND ca.status = 'open'
+      AND ca.deleted_at IS NULL
+    ORDER BY ca.due_date ASC NULLS LAST, ca.created_at ASC, ca.id ASC
+    LIMIT 1
+  )`.as("nextTaskDueDate"),
   deletedAt: customers.deletedAt,
   createdAt: customers.createdAt,
   updatedAt: customers.updatedAt,
@@ -3843,30 +3862,39 @@ async function getCustomerContactsInTx(
   return rows.map(mapCustomerContactRow);
 }
 
-async function getCustomerCorrespondenceInTx(
+async function getCustomerActivitiesInTx(
   tx: Tx,
   customerId: string
-): Promise<CustomerCorrespondenceRow[]> {
+): Promise<CustomerActivityRow[]> {
   const rows = await tx
     .select({
-      id: customerCorrespondence.id,
-      type: customerCorrespondence.type,
-      occurredAt: customerCorrespondence.occurredAt,
-      title: customerCorrespondence.title,
-      body: customerCorrespondence.body,
-      createdByUserId: customerCorrespondence.createdByUserId,
-      createdByName: customerCorrespondence.createdByName,
-      createdAt: customerCorrespondence.createdAt,
-      updatedAt: customerCorrespondence.updatedAt,
+      id: customerActivities.id,
+      type: customerActivities.type,
+      occurredAt: customerActivities.occurredAt,
+      title: customerActivities.title,
+      body: customerActivities.body,
+      dueDate: customerActivities.dueDate,
+      status: customerActivities.status,
+      completedAt: customerActivities.completedAt,
+      customerProjectId: customerActivities.customerProjectId,
+      projectName: customerProjects.name,
+      createdByUserId: customerActivities.createdByUserId,
+      createdByName: customerActivities.createdByName,
+      createdAt: customerActivities.createdAt,
+      updatedAt: customerActivities.updatedAt,
     })
-    .from(customerCorrespondence)
+    .from(customerActivities)
+    .leftJoin(
+      customerProjects,
+      eq(customerActivities.customerProjectId, customerProjects.id)
+    )
     .where(
       and(
-        eq(customerCorrespondence.customerId, customerId),
-        isNull(customerCorrespondence.deletedAt)
+        eq(customerActivities.customerId, customerId),
+        isNull(customerActivities.deletedAt)
       )
     )
-    .orderBy(desc(customerCorrespondence.occurredAt), desc(customerCorrespondence.createdAt));
+    .orderBy(desc(customerActivities.occurredAt), desc(customerActivities.createdAt));
 
   const ids = rows.map((row) => row.id);
   const attendeeRows =
@@ -3874,35 +3902,31 @@ async function getCustomerCorrespondenceInTx(
       ? []
       : await tx
           .select({
-            id: customerCorrespondenceAttendees.id,
-            correspondenceId: customerCorrespondenceAttendees.correspondenceId,
-            contactId: customerCorrespondenceAttendees.contactId,
-            contactName: customerCorrespondenceAttendees.contactName,
+            id: customerActivityAttendees.id,
+            activityId: customerActivityAttendees.activityId,
+            contactId: customerActivityAttendees.contactId,
+            contactName: customerActivityAttendees.contactName,
           })
-          .from(customerCorrespondenceAttendees)
-          .where(
-            inArray(customerCorrespondenceAttendees.correspondenceId, ids)
-          )
-          .orderBy(asc(customerCorrespondenceAttendees.contactName));
+          .from(customerActivityAttendees)
+          .where(inArray(customerActivityAttendees.activityId, ids))
+          .orderBy(asc(customerActivityAttendees.contactName));
 
-  const attendeesByCorrespondence = new Map<
-    string,
-    CustomerCorrespondenceRow["attendees"]
-  >();
+  const attendeesByActivity = new Map<string, CustomerActivityRow["attendees"]>();
   for (const attendee of attendeeRows) {
-    const list = attendeesByCorrespondence.get(attendee.correspondenceId) ?? [];
+    const list = attendeesByActivity.get(attendee.activityId) ?? [];
     list.push({
       id: attendee.id,
       contactId: attendee.contactId,
       contactName: attendee.contactName,
     });
-    attendeesByCorrespondence.set(attendee.correspondenceId, list);
+    attendeesByActivity.set(attendee.activityId, list);
   }
 
   return rows.map((row) => ({
     ...row,
-    type: row.type as CustomerCorrespondenceRow["type"],
-    attendees: attendeesByCorrespondence.get(row.id) ?? [],
+    type: row.type as CustomerActivityRow["type"],
+    status: row.status as CustomerActivityRow["status"],
+    attendees: attendeesByActivity.get(row.id) ?? [],
   }));
 }
 
@@ -4026,7 +4050,7 @@ export async function getCustomerDetail(
     if (!customer) return null;
 
     const contacts = await getCustomerContactsInTx(tx, id);
-    const correspondence = await getCustomerCorrespondenceInTx(tx, id);
+    const activities = await getCustomerActivitiesInTx(tx, id);
     const projects = await getCustomerProjectsInTx(tx, id);
     const salesOrderRows = await getCustomerSalesOrdersInTx(tx, id);
     const salesOrdersByProjectId = new Map<
@@ -4044,7 +4068,7 @@ export async function getCustomerDetail(
     return {
       ...customer,
       contacts,
-      correspondence,
+      activities,
       projects: projects.map((project) => ({
         ...project,
         salesOrders: salesOrdersByProjectId.get(project.id) ?? [],
@@ -4145,14 +4169,30 @@ export async function deleteCustomerContact(customerId: string, contactId: strin
   });
 }
 
-export async function createCustomerCorrespondence(
+export async function createCustomerActivity(
   customerId: string,
-  data: CustomerCorrespondenceInput,
+  data: CustomerActivityInput,
   actor: { userId: string; name: string }
-): Promise<CustomerCorrespondenceRow | null> {
+): Promise<CustomerActivityRow | null> {
   return withAuthedOrgContext(async (tx, orgId) => {
     const customer = await ensureActiveCustomerInTx(tx, customerId);
     if (!customer) return null;
+
+    if (data.customerProjectId) {
+      const [project] = await tx
+        .select({ id: customerProjects.id })
+        .from(customerProjects)
+        .where(
+          and(
+            eq(customerProjects.id, data.customerProjectId),
+            eq(customerProjects.customerId, customerId),
+            isNull(customerProjects.deletedAt)
+          )
+        );
+      if (!project) {
+        throw new SalesError("Project not found for this customer.", 400);
+      }
+    }
 
     const uniqueAttendeeIds = [...new Set(data.attendeeContactIds)];
     const attendeeContacts =
@@ -4173,58 +4213,125 @@ export async function createCustomerCorrespondence(
       throw new SalesError("One or more tagged contacts were not found.", 400);
     }
 
+    const isTask = data.type === "task";
     const now = new Date();
     const [entry] = await tx
-      .insert(customerCorrespondence)
+      .insert(customerActivities)
       .values({
         organizationId: orgId,
         customerId,
+        customerProjectId: data.customerProjectId ?? null,
         type: data.type,
         occurredAt: data.occurredAt ?? now,
         title: data.title,
         body: data.body,
+        dueDate: isTask ? data.dueDate : null,
+        status: isTask ? "open" : null,
         createdByUserId: actor.userId,
         createdByName: actor.name || null,
       })
-      .returning({
-        id: customerCorrespondence.id,
-        type: customerCorrespondence.type,
-        occurredAt: customerCorrespondence.occurredAt,
-        title: customerCorrespondence.title,
-        body: customerCorrespondence.body,
-        createdByUserId: customerCorrespondence.createdByUserId,
-        createdByName: customerCorrespondence.createdByName,
-        createdAt: customerCorrespondence.createdAt,
-        updatedAt: customerCorrespondence.updatedAt,
-      });
+      .returning({ id: customerActivities.id });
 
     if (!entry) return null;
 
-    const attendees =
-      attendeeContacts.length === 0
-        ? []
-        : await tx
-            .insert(customerCorrespondenceAttendees)
-            .values(
-              attendeeContacts.map((contact) => ({
-                organizationId: orgId,
-                customerId,
-                correspondenceId: entry.id,
-                contactId: contact.id,
-                contactName: contact.name,
-              }))
-            )
-            .returning({
-              id: customerCorrespondenceAttendees.id,
-              contactId: customerCorrespondenceAttendees.contactId,
-              contactName: customerCorrespondenceAttendees.contactName,
-            });
+    if (attendeeContacts.length > 0) {
+      await tx.insert(customerActivityAttendees).values(
+        attendeeContacts.map((contact) => ({
+          organizationId: orgId,
+          customerId,
+          activityId: entry.id,
+          contactId: contact.id,
+          contactName: contact.name,
+        }))
+      );
+    }
 
-    return {
-      ...entry,
-      type: entry.type as CustomerCorrespondenceRow["type"],
-      attendees,
-    };
+    const [activity] = await getCustomerActivityByIdInTx(tx, customerId, entry.id);
+    return activity ?? null;
+  });
+}
+
+async function getCustomerActivityByIdInTx(
+  tx: Tx,
+  customerId: string,
+  activityId: string
+): Promise<CustomerActivityRow[]> {
+  const all = await getCustomerActivitiesInTx(tx, customerId);
+  return all.filter((row) => row.id === activityId);
+}
+
+export async function patchCustomerActivity(
+  customerId: string,
+  activityId: string,
+  data: CustomerActivityPatch
+): Promise<CustomerActivityRow | null> {
+  return withAuthedOrgContext(async (tx) => {
+    const customer = await ensureActiveCustomerInTx(tx, customerId);
+    if (!customer) return null;
+
+    const [existing] = await tx
+      .select({ id: customerActivities.id, type: customerActivities.type })
+      .from(customerActivities)
+      .where(
+        and(
+          eq(customerActivities.id, activityId),
+          eq(customerActivities.customerId, customerId),
+          isNull(customerActivities.deletedAt)
+        )
+      );
+    if (!existing) return null;
+
+    if (
+      existing.type !== "task" &&
+      (data.status !== undefined || data.dueDate !== undefined)
+    ) {
+      throw new SalesError("Only tasks have a status or due date.", 400);
+    }
+
+    const [updated] = await tx
+      .update(customerActivities)
+      .set({
+        ...(data.title !== undefined ? { title: data.title } : {}),
+        ...(data.body !== undefined ? { body: data.body } : {}),
+        ...(data.dueDate !== undefined ? { dueDate: data.dueDate } : {}),
+        ...(data.status !== undefined
+          ? {
+              status: data.status,
+              completedAt: data.status === "done" ? new Date() : null,
+            }
+          : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(customerActivities.id, existing.id))
+      .returning({ id: customerActivities.id });
+
+    if (!updated) return null;
+    const [activity] = await getCustomerActivityByIdInTx(tx, customerId, updated.id);
+    return activity ?? null;
+  });
+}
+
+export async function deleteCustomerActivity(
+  customerId: string,
+  activityId: string
+): Promise<boolean> {
+  return withAuthedOrgContext(async (tx) => {
+    const customer = await ensureActiveCustomerInTx(tx, customerId);
+    if (!customer) return false;
+
+    const deleted = await tx
+      .update(customerActivities)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(customerActivities.id, activityId),
+          eq(customerActivities.customerId, customerId),
+          isNull(customerActivities.deletedAt)
+        )
+      )
+      .returning({ id: customerActivities.id });
+
+    return deleted.length > 0;
   });
 }
 
@@ -4767,12 +4874,12 @@ async function softDeleteCustomerCrmArtifactsInTx(tx: Tx, customerIds: string[])
     );
 
   await tx
-    .update(customerCorrespondence)
+    .update(customerActivities)
     .set({ deletedAt: now, updatedAt: now })
     .where(
       and(
-        inArray(customerCorrespondence.customerId, customerIds),
-        isNull(customerCorrespondence.deletedAt)
+        inArray(customerActivities.customerId, customerIds),
+        isNull(customerActivities.deletedAt)
       )
     );
 

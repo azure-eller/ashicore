@@ -2,7 +2,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { DEFAULT_COUNTRY } from "@/lib/address-options";
 import { customers } from "@/lib/db/schema";
-import { isValidIsoDate, nullableString, nullableStringStrict } from "./shared";
+import { nullableString, nullableStringStrict } from "./shared";
 
 export const CUSTOMER_ACCOUNT_STATES = [
   "active",
@@ -25,15 +25,6 @@ const customerCategoryIdSchema = nullableString.refine(
   (value) => value == null || z.string().uuid().safeParse(value).success,
   "Invalid customer category"
 );
-const nullableIsoDateSchema = nullableString.refine(
-  (value) => value == null || isValidIsoDate(value),
-  "Date must be a real date in YYYY-MM-DD format"
-);
-const nullableIsoDateStrictSchema = nullableStringStrict.refine(
-  (value) => value == null || isValidIsoDate(value),
-  "Date must be a real date in YYYY-MM-DD format"
-);
-
 const baseCustomerSchema = createInsertSchema(customers, {
   name: z.string().trim().min(1, "Name is required"),
   customerCategoryId: customerCategoryIdSchema,
@@ -54,8 +45,6 @@ const baseCustomerSchema = createInsertSchema(customers, {
   shipPostcode: nullableString,
   shipCountry: nullableString,
   notes: nullableString,
-  nextAction: nullableString,
-  nextActionDueDate: nullableIsoDateSchema,
 }).omit({
   id: true,
   organizationId: true,
@@ -91,8 +80,6 @@ export const patchCustomerSchema = z
     shipPostcode: nullableStringStrict.optional(),
     shipCountry: nullableStringStrict.optional(),
     notes: nullableStringStrict.optional(),
-    nextAction: nullableStringStrict.optional(),
-    nextActionDueDate: nullableIsoDateStrictSchema.optional(),
   })
   .refine(
   (value) => Object.keys(value).length > 0,
@@ -120,6 +107,4 @@ export const customerDefaultValues: InsertCustomer = {
   shipPostcode: null,
   shipCountry: DEFAULT_COUNTRY,
   notes: null,
-  nextAction: null,
-  nextActionDueDate: null,
 };

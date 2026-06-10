@@ -14,6 +14,7 @@ Sales v1 includes:
 
 - customer CRUD
 - account state and priority for landed-customer management
+- customer contacts, activity log, and tasks on the customer card
 - customer-category and selected-item pricing schedules with quantity breaks
 - customer projects/jobs as optional sales-order context
 - multi-line sales orders
@@ -36,6 +37,27 @@ Sales v1 does not include:
 - landed cost
 - Xero freight invoice lines
 - AP matching or GL postings
+
+## Customer CRM model
+
+The customer surface mirrors a CRM's object model without becoming one:
+
+- the **customer** is the account; its email/phone are the organization's main
+  channel (used for documents and accounting sync), not a person's
+- **contacts** are people; person-level email/phone/roles live there, and
+  `is_primary` marks the default person to reach
+- **`customer_correspondence`** is the single activity stream (note/call/email/
+  meeting); **`customer_tasks`** is the single to-do stream (`open`/`done`,
+  `completedAt` set exactly when done, hard delete)
+- **streams are singular; scoping is an association.** A narrower context
+  (project, order) gets an optional FK column on the existing stream table —
+  never its own parallel notes/tasks/activity table. Record pages render the
+  stream filtered to their scope; the customer page shows everything.
+- the customers list "Due" view is the task queue: customers whose soonest open
+  task has `due_date <= today` (org timezone); tasks without a due date stay
+  out of the queue
+- no leads, deals, pipelines, or sales-status fields — quotes (future) take the
+  deal role; field additions require a view that acts on them
 
 ## Detail page UI
 

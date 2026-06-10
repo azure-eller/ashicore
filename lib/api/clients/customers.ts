@@ -1,6 +1,6 @@
 import type {
+  CustomerActivityRow,
   CustomerContactRow,
-  CustomerCorrespondenceRow,
   CustomerDetailData,
   CustomerProjectFileRow,
   CustomerProjectNoteRow,
@@ -10,7 +10,8 @@ import type { AddressEntry } from "@/lib/dal/addresses";
 import { ApiClientError, createApiJsonRequester } from "@/lib/client/api";
 import type { CreateAddressEntry, UpdateAddressEntry } from "@/lib/schemas/addresses";
 import type {
-  CustomerCorrespondenceInput,
+  CustomerActivityInput,
+  CustomerActivityPatch,
   CustomerContactInput,
   CustomerProjectInput,
   CustomerProjectNoteInput,
@@ -112,18 +113,45 @@ export async function deleteCustomerContact(customerId: string, contactId: strin
   );
 }
 
-export async function createCustomerCorrespondence(
+export async function createCustomerActivity(
   customerId: string,
-  input: CustomerCorrespondenceInput
+  input: CustomerActivityInput
 ) {
-  return json<CustomerCorrespondenceRow>(
-    `/api/customers/${customerId}/correspondence`,
+  return json<CustomerActivityRow>(
+    `/api/customers/${customerId}/activities`,
     {
       method: "POST",
       headers: jsonHeaders,
       body: input,
     },
     "Failed to add activity."
+  );
+}
+
+export async function patchCustomerActivity(
+  customerId: string,
+  activityId: string,
+  input: CustomerActivityPatch
+) {
+  return json<CustomerActivityRow>(
+    `/api/customers/${customerId}/activities/${activityId}`,
+    {
+      method: "PATCH",
+      headers: jsonHeaders,
+      body: input,
+    },
+    "Failed to update activity."
+  );
+}
+
+export async function deleteCustomerActivity(
+  customerId: string,
+  activityId: string
+) {
+  return json<{ success: boolean }>(
+    `/api/customers/${customerId}/activities/${activityId}`,
+    { method: "DELETE" },
+    "Failed to remove activity."
   );
 }
 

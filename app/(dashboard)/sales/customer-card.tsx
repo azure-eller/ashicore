@@ -9,7 +9,7 @@ import type { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ICellRendererParams, ValueSetterParams } from "ag-grid-community";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { StarIcon } from "@hugeicons/core-free-icons";
+import { Delete02Icon, StarIcon } from "@hugeicons/core-free-icons";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -51,6 +51,8 @@ import {
 } from "@/components/ui/sheet";
 import { FieldError } from "@/components/ui/field";
 import { DatePicker } from "@/components/ui/date-picker";
+import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   StatusBadge,
   type StatusBadgeConfig,
@@ -98,7 +100,9 @@ import {
   createAddressEntry,
   createCustomer,
   createCustomerContact,
-  createCustomerCorrespondence,
+  createCustomerActivity,
+  deleteCustomerActivity,
+  patchCustomerActivity,
   createCustomerProjectNote,
   createCustomerProject,
   deleteCustomer,
@@ -139,9 +143,9 @@ import {
   type PatchCustomer,
 } from "@/lib/schemas/customers";
 import type {
+  CustomerActivityRow,
+  CustomerActivityType,
   CustomerCategoryOption,
-  CustomerCorrespondenceRow,
-  CustomerCorrespondenceType,
   CustomerContactRole,
   CustomerContactRow,
   CustomerDetailData,
@@ -232,15 +236,18 @@ const contactRoleOptions: Array<{ value: CustomerContactRole; label: string }> =
   { value: "field", label: "On site" },
 ];
 
-const correspondenceTypeOptions: Array<{
-  value: CustomerCorrespondenceType;
+const activityTypeOptions: Array<{
+  value: CustomerActivityType;
   label: string;
 }> = [
   { value: "note", label: "Note" },
   { value: "call", label: "Call" },
   { value: "email", label: "Email" },
   { value: "meeting", label: "Meeting" },
+  { value: "task", label: "Task" },
 ];
+
+const noActivityProjectValue = "__no_activity_project__";
 
 const projectStatusMeta: Record<
   ProjectGridRow["status"],
@@ -262,9 +269,6 @@ export function CustomerCard({
   const [addressBook, setAddressBook] = useState(addresses);
   const [addressDialogState, setAddressDialogState] =
     useState<AddressDialogState | null>(null);
-  const [activityType, setActivityType] =
-    useState<CustomerCorrespondenceType>("note");
-  const [activityDraft, setActivityDraft] = useState("");
   const engine = useDraftSaveEngine<
     CustomerDetailData,
     CustomerDraftOp,
@@ -370,36 +374,6 @@ export function CustomerCard({
       applyCustomerAddress(addressDialogState.target, option);
       setAddressDialogState(null);
       addressForm.reset(emptyAddressDialogValues);
-    },
-  });
-
-  const activityMutation = useMutation({
-    mutationKey: cardSaveMutationKey(
-      "customer",
-      currentCustomerId ?? "__draft__",
-      "activity"
-    ),
-    mutationFn: ({
-      type,
-      body,
-    }: {
-      type: CustomerCorrespondenceType;
-      body: string;
-    }) =>
-      createCustomerCorrespondence(currentCustomerId as string, {
-        type,
-        occurredAt: undefined,
-        title: null,
-        body,
-        attendeeContactIds: [],
-      }),
-    onSuccess: async () => {
-      setActivityDraft("");
-      if (currentCustomerId) {
-        await queryClient.invalidateQueries({
-          queryKey: ["customer-card", currentCustomerId],
-        });
-      }
     },
   });
 
@@ -607,25 +581,6 @@ export function CustomerCard({
                 })
               }
             />
-            <CardField label="Next action" htmlFor="customer-next-action">
-              <CommitInput
-                id="customer-next-action"
-                label="Next action"
-                value={display.nextAction ?? ""}
-                disabled={readOnly}
-                onCommit={(nextAction) => commitCustomerPatch({ nextAction })}
-              />
-            </CardField>
-            <CardField label="Due date">
-              <DatePicker
-                value={display.nextActionDueDate ?? ""}
-                disabled={readOnly}
-                placeholder="Due date"
-                onChange={(nextActionDueDate) =>
-                  commitCustomerPatch({ nextActionDueDate: nextActionDueDate || null })
-                }
-              />
-            </CardField>
             <CardField label="Shipping address" htmlFor="customer-shipping-address">
               <CustomerAddressInput
                 id="customer-shipping-address"
@@ -703,19 +658,10 @@ export function CustomerCard({
         />
 
         <ActivitySection
-          rows={display.correspondence}
+          customerId={currentCustomerId}
+          rows={display.activities}
+          projects={display.projects}
           readOnly={readOnly || isDraft}
-          activityType={activityType}
-          activityDraft={activityDraft}
-          isSaving={activityMutation.isPending}
-          error={activityMutation.error}
-          onTypeChange={setActivityType}
-          onDraftChange={setActivityDraft}
-          onSubmit={() => {
-            const body = activityDraft.trim();
-            if (!body || readOnly || isDraft) return;
-            activityMutation.mutate({ type: activityType, body });
-          }}
         />
 
         <OpenOrdersSection
@@ -723,7 +669,7 @@ export function CustomerCard({
           rows={openOrders}
         />
 
-        <CardSection title="Notes">
+        <CardSection title="Description">
           <NotesField
             hideLabel
             value={display.notes ?? ""}
@@ -1743,82 +1689,257 @@ function OpenOrdersSection({
 }
 
 function ActivitySection({
-  rows: sourceRows,
+  customerId,
+  rows,
+  projects,
   readOnly,
-  activityType,
-  activityDraft,
-  isSaving,
-  error,
-  onTypeChange,
-  onDraftChange,
-  onSubmit,
 }: {
-  rows: CustomerCorrespondenceRow[];
+  customerId: string | null;
+  rows: CustomerActivityRow[];
+  projects: CustomerProjectRow[];
   readOnly: boolean;
-  activityType: CustomerCorrespondenceType;
-  activityDraft: string;
-  isSaving: boolean;
-  error: Error | null;
-  onTypeChange: (type: CustomerCorrespondenceType) => void;
-  onDraftChange: (draft: string) => void;
-  onSubmit: () => void;
 }) {
-  const rows = sourceRows
-    .slice()
+  const queryClient = useQueryClient();
+  const [type, setType] = useState<CustomerActivityType>("note");
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [projectId, setProjectId] = useState(noActivityProjectValue);
+
+  const isTask = type === "task";
+  const openTasks = rows
+    .filter((row) => row.type === "task" && row.status === "open")
+    .sort((a, b) => {
+      if (a.dueDate !== b.dueDate) {
+        if (a.dueDate == null) return 1;
+        if (b.dueDate == null) return -1;
+        return a.dueDate < b.dueDate ? -1 : 1;
+      }
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+  const timeline = rows
+    .filter((row) => !(row.type === "task" && row.status === "open"))
     .sort(
       (a, b) =>
-        new Date(b.occurredAt).getTime() - new Date(a.occurredAt).getTime()
+        timelineDate(b).getTime() - timelineDate(a).getTime()
     );
 
+  const invalidate = async () => {
+    if (customerId) {
+      await queryClient.invalidateQueries({
+        queryKey: ["customer-card", customerId],
+      });
+    }
+  };
+
+  const createMutation = useMutation({
+    mutationKey: cardSaveMutationKey(
+      "customer",
+      customerId ?? "__draft__",
+      "activity-create"
+    ),
+    mutationFn: () =>
+      createCustomerActivity(customerId as string, {
+        type,
+        occurredAt: undefined,
+        title: isTask ? title.trim() : null,
+        body: body.trim() ? body.trim() : null,
+        dueDate: isTask && dueDate ? dueDate : null,
+        customerProjectId:
+          projectId === noActivityProjectValue ? null : projectId,
+        attendeeContactIds: [],
+      }),
+    onSuccess: async () => {
+      setTitle("");
+      setBody("");
+      setDueDate("");
+      await invalidate();
+    },
+  });
+
+  const patchMutation = useMutation({
+    mutationKey: cardSaveMutationKey(
+      "customer",
+      customerId ?? "__draft__",
+      "activity-patch"
+    ),
+    mutationFn: ({
+      activityId,
+      status,
+    }: {
+      activityId: string;
+      status: "open" | "done";
+    }) => patchCustomerActivity(customerId as string, activityId, { status }),
+    onSuccess: invalidate,
+  });
+
+  const deleteMutation = useMutation({
+    mutationKey: cardSaveMutationKey(
+      "customer",
+      customerId ?? "__draft__",
+      "activity-delete"
+    ),
+    mutationFn: (activityId: string) =>
+      deleteCustomerActivity(customerId as string, activityId),
+    onSuccess: invalidate,
+  });
+
+  const pending = patchMutation.isPending || deleteMutation.isPending;
+  const error =
+    createMutation.error ?? patchMutation.error ?? deleteMutation.error;
+  const canSubmit = isTask ? Boolean(title.trim()) : Boolean(body.trim());
+  const projectOptions = [
+    { value: noActivityProjectValue, label: "No project" },
+    ...projects.map((project) => ({ value: project.id, label: project.name })),
+  ];
+
   return (
-    <CardSection title="Activity" count={`· ${sourceRows.length}`}>
+    <CardSection title="Activity" count={`· ${rows.length}`}>
       <div className="grid gap-(--space-4)">
         {!readOnly ? (
           <div className="grid gap-(--space-3)">
             <CardSelectField
               label="Type"
-              value={activityType}
-              options={correspondenceTypeOptions}
+              value={type}
+              options={activityTypeOptions}
               controlStyle="dialog"
-              onValueChange={(value) =>
-                onTypeChange(value as CustomerCorrespondenceType)
-              }
+              onValueChange={(value) => setType(value as CustomerActivityType)}
             />
+            {projects.length > 0 ? (
+              <CardSelectField
+                label="Project"
+                value={projectId}
+                options={projectOptions}
+                controlStyle="dialog"
+                onValueChange={setProjectId}
+              />
+            ) : null}
+            {isTask ? (
+              <div className="flex flex-wrap items-center gap-(--space-3)">
+                <Input
+                  aria-label="Task title"
+                  placeholder="What needs to happen?"
+                  value={title}
+                  disabled={createMutation.isPending}
+                  className="min-w-48 flex-1"
+                  onChange={(event) => setTitle(event.target.value)}
+                />
+                <DatePicker
+                  value={dueDate}
+                  placeholder="Due date"
+                  disabled={createMutation.isPending}
+                  onChange={(value) => setDueDate(value ?? "")}
+                />
+              </div>
+            ) : null}
             <Textarea
-              value={activityDraft}
-              rows={4}
-              disabled={isSaving}
-              placeholder="Add a customer note..."
+              value={body}
+              rows={isTask ? 2 : 4}
+              disabled={createMutation.isPending}
+              placeholder={isTask ? "Notes (optional)..." : "Add a customer note..."}
               className="text-[length:var(--text-md)] leading-[var(--leading-md)]"
-              onChange={(event) => onDraftChange(event.target.value)}
+              onChange={(event) => setBody(event.target.value)}
             />
             <div className="flex items-center justify-end gap-(--space-4)">
               {error ? <FieldError>{error.message}</FieldError> : null}
               <Button
                 type="button"
-                disabled={!activityDraft.trim() || isSaving}
-                onClick={onSubmit}
+                disabled={!canSubmit || createMutation.isPending}
+                onClick={() => {
+                  if (!customerId || readOnly) return;
+                  createMutation.mutate();
+                }}
               >
-                {isSaving ? "Adding..." : "Add activity"}
+                {createMutation.isPending
+                  ? "Adding..."
+                  : isTask
+                    ? "Add task"
+                    : "Add activity"}
               </Button>
             </div>
           </div>
         ) : null}
 
+        {openTasks.length > 0 ? (
+          <div className="grid gap-(--space-2)">
+            <h3 className={styles.sectionHeading}>Upcoming</h3>
+            <ul className="grid gap-(--space-2)">
+              {openTasks.map((task) => (
+                <li
+                  key={task.id}
+                  className="flex items-center gap-(--space-3) rounded-(--radius-md) border border-[var(--color-line)] bg-[var(--color-surface)] px-(--space-4) py-(--space-3)"
+                >
+                  <Checkbox
+                    aria-label={`Complete "${task.title}"`}
+                    checked={false}
+                    disabled={readOnly || pending}
+                    onCheckedChange={() =>
+                      patchMutation.mutate({ activityId: task.id, status: "done" })
+                    }
+                  />
+                  <span className="min-w-0 flex-1 truncate text-[length:var(--text-sm)]">
+                    {task.title}
+                  </span>
+                  {task.projectName ? (
+                    <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                      {task.projectName}
+                    </span>
+                  ) : null}
+                  {task.dueDate ? (
+                    <span className="font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                      {formatDate(task.dueDate)}
+                    </span>
+                  ) : null}
+                  {!readOnly ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Delete "${task.title}"`}
+                      disabled={pending}
+                      onClick={() => deleteMutation.mutate(task.id)}
+                    >
+                      <HugeiconsIcon icon={Delete02Icon} />
+                    </Button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
         <ul className="grid gap-(--space-3)">
-          {rows.length > 0 ? (
-            rows.map((entry) => (
+          {timeline.length > 0 ? (
+            timeline.map((entry) => (
               <li
                 key={entry.id}
                 className="rounded-(--radius-md) border border-[var(--color-line)] bg-[var(--color-surface)] p-(--space-5)"
               >
                 <div className="flex flex-wrap items-center gap-(--space-3)">
+                  {entry.type === "task" ? (
+                    <Checkbox
+                      aria-label={`Reopen "${entry.title}"`}
+                      checked
+                      disabled={readOnly || pending}
+                      onCheckedChange={() =>
+                        patchMutation.mutate({
+                          activityId: entry.id,
+                          status: "open",
+                        })
+                      }
+                    />
+                  ) : null}
                   <span className="text-[length:var(--text-sm)] font-medium text-[var(--color-ink)]">
-                    {correspondenceTypeLabel(entry.type)}
+                    {activityTypeLabel(entry.type)}
                   </span>
                   <span className="font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-                    {formatDate(toDateOnlyString(entry.occurredAt))}
+                    {formatDate(toDateOnlyString(timelineDate(entry)))}
                   </span>
+                  {entry.projectName ? (
+                    <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                      {entry.projectName}
+                    </span>
+                  ) : null}
                   {entry.createdByName ? (
                     <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                       {entry.createdByName}
@@ -1826,13 +1947,21 @@ function ActivitySection({
                   ) : null}
                 </div>
                 {entry.title ? (
-                  <p className="mt-(--space-3) text-[length:var(--text-sm)] font-medium">
+                  <p
+                    className={cn(
+                      "mt-(--space-3) text-[length:var(--text-sm)] font-medium",
+                      entry.type === "task" &&
+                        "text-[var(--color-ink-faint)] line-through"
+                    )}
+                  >
                     {entry.title}
                   </p>
                 ) : null}
-                <p className="mt-(--space-2) whitespace-pre-wrap text-[length:var(--text-sm)] leading-[var(--leading-md)] text-[var(--color-ink)]">
-                  {entry.body}
-                </p>
+                {entry.body ? (
+                  <p className="mt-(--space-2) whitespace-pre-wrap text-[length:var(--text-sm)] leading-[var(--leading-md)] text-[var(--color-ink)]">
+                    {entry.body}
+                  </p>
+                ) : null}
                 {entry.attendees.length > 0 ? (
                   <p className="mt-(--space-3) text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                     {entry.attendees.map((attendee) => attendee.contactName).join(", ")}
@@ -1849,6 +1978,10 @@ function ActivitySection({
       </div>
     </CardSection>
   );
+}
+
+function timelineDate(entry: CustomerActivityRow) {
+  return new Date(entry.completedAt ?? entry.occurredAt);
 }
 
 function CustomerAddressInput({
@@ -2082,12 +2215,14 @@ function makeDraftCustomer(draft: InsertCustomer): CustomerDetailData {
     primaryContactName: null,
     primaryContactEmail: null,
     primaryContactPhone: null,
+    nextTaskTitle: null,
+    nextTaskDueDate: null,
     xeroContactId: null,
     deletedAt: null,
     createdAt: now,
     updatedAt: now,
     contacts: [],
-    correspondence: [],
+    activities: [],
     projects: [],
     salesOrders: [],
   };
@@ -2203,8 +2338,6 @@ function customerToInsertInput(customer: CustomerDetailData): InsertCustomer {
     shipPostcode: customer.shipPostcode,
     shipCountry: customer.shipCountry,
     notes: customer.notes,
-    nextAction: customer.nextAction,
-    nextActionDueDate: customer.nextActionDueDate,
   });
 }
 
@@ -2229,8 +2362,6 @@ function customerEditableSnapshot(customer: CustomerDetailData): PatchCustomer {
     shipPostcode: customer.shipPostcode,
     shipCountry: customer.shipCountry,
     notes: customer.notes,
-    nextAction: customer.nextAction,
-    nextActionDueDate: customer.nextActionDueDate,
   };
 }
 
@@ -2260,10 +2391,9 @@ function formatProjectDateRange(project: CustomerProjectRow) {
   return `${start} -> ${target}`;
 }
 
-function correspondenceTypeLabel(type: CustomerCorrespondenceType) {
+function activityTypeLabel(type: CustomerActivityType) {
   return (
-    correspondenceTypeOptions.find((option) => option.value === type)?.label ??
-    type
+    activityTypeOptions.find((option) => option.value === type)?.label ?? type
   );
 }
 

@@ -1,6 +1,6 @@
 {
-  "id": "2818ea99-54e9-411c-8050-8f9f0eb7332d",
-  "prevId": "ca03d897-127e-421e-8940-e0a919e765d7",
+  "id": "7fc47645-cd11-4228-8ec0-06b4829c7117",
+  "prevId": "2818ea99-54e9-411c-8050-8f9f0eb7332d",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4853,6 +4853,375 @@
       "policies": {
         "address_entries_org_isolation": {
           "name": "address_entries_org_isolation",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "public"
+          ],
+          "using": "organization_id = current_setting('app.current_org_id', true)",
+          "withCheck": "organization_id = current_setting('app.current_org_id', true)"
+        }
+      },
+      "checkConstraints": {},
+      "isRLSEnabled": true
+    },
+    "sales.customer_activities": {
+      "name": "customer_activities",
+      "schema": "sales",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "customer_id": {
+          "name": "customer_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "customer_project_id": {
+          "name": "customer_project_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "type": {
+          "name": "type",
+          "type": "varchar(20)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "title": {
+          "name": "title",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "body": {
+          "name": "body",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "due_date": {
+          "name": "due_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by_user_id": {
+          "name": "created_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by_name": {
+          "name": "created_by_name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "sales_customer_activities_org_id_idx": {
+          "name": "sales_customer_activities_org_id_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "sales_customer_activities_customer_id_idx": {
+          "name": "sales_customer_activities_customer_id_idx",
+          "columns": [
+            {
+              "expression": "customer_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "sales_customer_activities_occurred_at_idx": {
+          "name": "sales_customer_activities_occurred_at_idx",
+          "columns": [
+            {
+              "expression": "occurred_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "customer_activities_customer_id_customers_id_fk": {
+          "name": "customer_activities_customer_id_customers_id_fk",
+          "tableFrom": "customer_activities",
+          "tableTo": "customers",
+          "schemaTo": "sales",
+          "columnsFrom": [
+            "customer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "customer_activities_customer_project_id_customer_projects_id_fk": {
+          "name": "customer_activities_customer_project_id_customer_projects_id_fk",
+          "tableFrom": "customer_activities",
+          "tableTo": "customer_projects",
+          "schemaTo": "sales",
+          "columnsFrom": [
+            "customer_project_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "sales_customer_activities_org_isolation": {
+          "name": "sales_customer_activities_org_isolation",
+          "as": "PERMISSIVE",
+          "for": "ALL",
+          "to": [
+            "public"
+          ],
+          "using": "organization_id = current_setting('app.current_org_id', true)",
+          "withCheck": "organization_id = current_setting('app.current_org_id', true)"
+        }
+      },
+      "checkConstraints": {
+        "sales_customer_activities_type_check": {
+          "name": "sales_customer_activities_type_check",
+          "value": "\"sales\".\"customer_activities\".\"type\" IN ('note', 'call', 'email', 'meeting', 'task')"
+        },
+        "sales_customer_activities_task_fields_check": {
+          "name": "sales_customer_activities_task_fields_check",
+          "value": "(\"sales\".\"customer_activities\".\"type\" = 'task' AND \"sales\".\"customer_activities\".\"status\" IN ('open', 'done') AND \"sales\".\"customer_activities\".\"title\" IS NOT NULL) OR (\"sales\".\"customer_activities\".\"type\" <> 'task' AND \"sales\".\"customer_activities\".\"status\" IS NULL AND \"sales\".\"customer_activities\".\"due_date\" IS NULL AND \"sales\".\"customer_activities\".\"completed_at\" IS NULL AND \"sales\".\"customer_activities\".\"body\" IS NOT NULL)"
+        },
+        "sales_customer_activities_completed_at_check": {
+          "name": "sales_customer_activities_completed_at_check",
+          "value": "\"sales\".\"customer_activities\".\"type\" <> 'task' OR ((\"sales\".\"customer_activities\".\"status\" = 'done') = (\"sales\".\"customer_activities\".\"completed_at\" IS NOT NULL))"
+        }
+      },
+      "isRLSEnabled": true
+    },
+    "sales.customer_activity_attendees": {
+      "name": "customer_activity_attendees",
+      "schema": "sales",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "customer_id": {
+          "name": "customer_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "activity_id": {
+          "name": "activity_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "contact_id": {
+          "name": "contact_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "contact_name": {
+          "name": "contact_name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "sales_customer_activity_attendees_org_id_idx": {
+          "name": "sales_customer_activity_attendees_org_id_idx",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "sales_customer_activity_attendees_activity_id_idx": {
+          "name": "sales_customer_activity_attendees_activity_id_idx",
+          "columns": [
+            {
+              "expression": "activity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "sales_customer_activity_attendees_contact_id_idx": {
+          "name": "sales_customer_activity_attendees_contact_id_idx",
+          "columns": [
+            {
+              "expression": "contact_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "customer_activity_attendees_customer_id_customers_id_fk": {
+          "name": "customer_activity_attendees_customer_id_customers_id_fk",
+          "tableFrom": "customer_activity_attendees",
+          "tableTo": "customers",
+          "schemaTo": "sales",
+          "columnsFrom": [
+            "customer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "customer_activity_attendees_activity_id_customer_activities_id_fk": {
+          "name": "customer_activity_attendees_activity_id_customer_activities_id_fk",
+          "tableFrom": "customer_activity_attendees",
+          "tableTo": "customer_activities",
+          "schemaTo": "sales",
+          "columnsFrom": [
+            "activity_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "customer_activity_attendees_contact_id_customer_contacts_id_fk": {
+          "name": "customer_activity_attendees_contact_id_customer_contacts_id_fk",
+          "tableFrom": "customer_activity_attendees",
+          "tableTo": "customer_contacts",
+          "schemaTo": "sales",
+          "columnsFrom": [
+            "contact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {
+        "sales_customer_activity_attendees_org_isolation": {
+          "name": "sales_customer_activity_attendees_org_isolation",
           "as": "PERMISSIVE",
           "for": "ALL",
           "to": [
