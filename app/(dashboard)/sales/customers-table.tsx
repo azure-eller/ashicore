@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { ICellRendererParams } from "ag-grid-community";
 import { ERPDataGridList } from "@/components/erp-data-grid-list";
 import type { ColDef } from "@/components/erp-data-grid";
-import { CUSTOMER_PRICING_TOOLTIP } from "@/lib/tooltip-copy";
+import { CUSTOMER_CATEGORY_TOOLTIP } from "@/lib/tooltip-copy";
 import type { CustomerRow } from "@/lib/sales/types";
 
 const columns: ColDef<CustomerRow>[] = [
@@ -23,10 +23,10 @@ const columns: ColDef<CustomerRow>[] = [
   },
   {
     field: "customerCategoryName",
-    headerName: "Pricing",
-    headerTooltip: CUSTOMER_PRICING_TOOLTIP,
+    headerName: "Category",
+    headerTooltip: CUSTOMER_CATEGORY_TOOLTIP,
     width: 170,
-    valueFormatter: ({ value }) => value ?? "Everyone",
+    valueFormatter: ({ value }) => value ?? "Uncategorized",
   },
   {
     field: "email",

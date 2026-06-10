@@ -1,5 +1,6 @@
 import type {
   CustomerContactRow,
+  CustomerCorrespondenceRow,
   CustomerDetailData,
   CustomerProjectFileRow,
   CustomerProjectNoteRow,
@@ -9,6 +10,7 @@ import type { AddressEntry } from "@/lib/dal/addresses";
 import { ApiClientError, createApiJsonRequester } from "@/lib/client/api";
 import type { CreateAddressEntry, UpdateAddressEntry } from "@/lib/schemas/addresses";
 import type {
+  CustomerCorrespondenceInput,
   CustomerContactInput,
   CustomerProjectInput,
   CustomerProjectNoteInput,
@@ -107,6 +109,21 @@ export async function deleteCustomerContact(customerId: string, contactId: strin
     `/api/customers/${customerId}/contacts/${contactId}`,
     { method: "DELETE" },
     "Failed to remove contact."
+  );
+}
+
+export async function createCustomerCorrespondence(
+  customerId: string,
+  input: CustomerCorrespondenceInput
+) {
+  return json<CustomerCorrespondenceRow>(
+    `/api/customers/${customerId}/correspondence`,
+    {
+      method: "POST",
+      headers: jsonHeaders,
+      body: input,
+    },
+    "Failed to add activity."
   );
 }
 
