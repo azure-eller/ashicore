@@ -42,7 +42,6 @@ export type CustomerRow = {
   shipPostcode: string | null;
   shipCountry: string | null;
   xeroContactId: string | null;
-  notes: string | null;
   nextTaskTitle: string | null;
   nextTaskDueDate: string | null;
   deletedAt: Date | null;
@@ -63,7 +62,6 @@ export type CustomerContactRow = {
   phone: string | null;
   addressEntryId: string | null;
   roles: CustomerContactRole[];
-  notes: string | null;
   createdAt: Date;
   updatedAt: Date;
 };

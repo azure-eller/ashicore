@@ -111,7 +111,6 @@ export type ExistingCustomer = {
   name: string;
   address: string | null;
   phone: string | null;
-  notes: string | null;
   deletedAt: Date | null;
 };
 
@@ -131,7 +130,6 @@ export type CustomerSeed = {
   name: string;
   address: string | null;
   phone: string | null;
-  notes?: string | null;
 };
 
 export type SupplierSeed = {
@@ -157,7 +155,6 @@ export type CustomerPlan = {
   action: "create" | "reactivate" | "update" | "unchanged";
   nextAddress: string | null;
   nextPhone: string | null;
-  nextNotes: string | null;
 };
 
 export type PreparedSalesImportLine = {
@@ -315,7 +312,6 @@ export type SalesImportConfig = {
   orderSeeds: OrderSeed[];
   productAliasToSeedKey: Record<string, string>;
   requestedDateBySourceRow?: Record<number, string>;
-  customerNotesDefault: string;
   customerMode?: "sync" | "existing-only";
   customerAliases?: Record<string, string>;
   customerAliasesBySourceRow?: Record<number, string>;

@@ -428,18 +428,10 @@ export async function evaluateSalesImportInTx(
     customerAliasByKey,
     customerAliasBySourceRow
   );
-  const provisionalCustomerPlans = buildCustomerPlans(
-    provisionalCustomerSeedsByKey,
-    existingCustomersByKey,
-    config.customerNotesDefault
-  );
+  const provisionalCustomerPlans = buildCustomerPlans(provisionalCustomerSeedsByKey, existingCustomersByKey);
   const customerPlans =
     customerMode === "sync"
-      ? buildCustomerPlans(
-          customerSeedsByKey,
-          existingCustomersByKey,
-          config.customerNotesDefault
-        )
+      ? buildCustomerPlans(customerSeedsByKey, existingCustomersByKey)
       : provisionalCustomerPlans;
 
   const orders: EvaluatedSalesImportOrder[] = [];

@@ -509,7 +509,6 @@ export async function createCustomer(data: {
   customerCategoryId?: string | null;
   email?: string | null;
   phone?: string | null;
-  notes?: string | null;
 } & CustomerAddressInput) {
   const res = await testFetch("/api/customers", {
     method: "POST",
@@ -519,7 +518,6 @@ export async function createCustomer(data: {
       email: data.email ?? null,
       phone: data.phone ?? null,
       ...customerAddressPayload(data),
-      notes: data.notes ?? null,
     }),
   });
   const body = await res.json().catch(() => null);
@@ -531,7 +529,6 @@ export async function updateCustomer(id: string, data: {
   customerCategoryId?: string | null;
   email?: string | null;
   phone?: string | null;
-  notes?: string | null;
 } & CustomerAddressInput) {
   const res = await testFetch(`/api/customers/${id}`, {
     method: "PUT",
@@ -541,7 +538,6 @@ export async function updateCustomer(id: string, data: {
       email: data.email ?? null,
       phone: data.phone ?? null,
       ...customerAddressPayload(data),
-      notes: data.notes ?? null,
     }),
   });
   const body = await res.json().catch(() => null);

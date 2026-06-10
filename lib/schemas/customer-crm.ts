@@ -44,7 +44,6 @@ export const customerContactSchema = z.object({
     "Invalid address"
   ),
   roles: z.array(customerContactRoleSchema).default([]),
-  notes: nullableString,
 });
 
 export type CustomerContactInput = z.infer<typeof customerContactSchema>;

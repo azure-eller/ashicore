@@ -3294,7 +3294,6 @@ export async function createPricingSchedule(data: InsertPricingSchedule) {
           data.itemScope === "variant" ? data.itemVariantOptionCode : null,
         itemVariantValueCode:
           data.itemScope === "variant" ? data.itemVariantValueCode : null,
-        notes: data.notes,
       })
       .returning({ id: pricingSchedules.id });
 
@@ -3374,7 +3373,6 @@ export async function updatePricingSchedule(
           data.itemScope === "variant" ? data.itemVariantOptionCode : null,
         itemVariantValueCode:
           data.itemScope === "variant" ? data.itemVariantValueCode : null,
-        notes: data.notes,
         updatedAt: new Date(),
       })
       .where(eq(pricingSchedules.id, id));
@@ -3537,7 +3535,6 @@ const customerRowSelect = {
       AND ${integrationExternalRecords.localRecordId} = ${customers.id}
     LIMIT 1
   )`,
-  notes: customers.notes,
   nextTaskTitle: sql<string | null>`(
     SELECT ca.title
     FROM ${customerActivities} ca
@@ -3780,7 +3777,6 @@ const customerContactSelect = {
   receivesInvoices: customerContacts.receivesInvoices,
   receivesBillingCc: customerContacts.receivesBillingCc,
   isOnSite: customerContacts.isOnSite,
-  notes: customerContacts.notes,
   createdAt: customerContacts.createdAt,
   updatedAt: customerContacts.updatedAt,
 } as const;
@@ -3798,7 +3794,6 @@ function mapCustomerContactRow(
     receivesInvoices: boolean;
     receivesBillingCc: boolean;
     isOnSite: boolean;
-    notes: string | null;
     createdAt: Date;
     updatedAt: Date;
   }
@@ -3811,7 +3806,6 @@ function mapCustomerContactRow(
     phone: row.phone,
     addressEntryId: row.addressEntryId,
     roles: buildCustomerContactRoles(row),
-    notes: row.notes,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -4018,7 +4012,6 @@ export async function createCustomerContact(
         phone: data.phone,
         addressEntryId: data.addressEntryId,
         ...buildCustomerContactRoleColumns(data.roles),
-        notes: data.notes,
       })
       .returning(customerContactSelect);
 
@@ -4045,7 +4038,6 @@ export async function updateCustomerContact(
         phone: data.phone,
         addressEntryId: data.addressEntryId,
         ...buildCustomerContactRoleColumns(data.roles),
-        notes: data.notes,
         updatedAt: new Date(),
       })
       .where(

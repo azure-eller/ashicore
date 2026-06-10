@@ -82,7 +82,6 @@ import {
   underlineControlClass,
 } from "@/components/card-page/form-cell";
 import { CommitInput } from "@/components/card-page/commit-input";
-import { NotesField } from "@/components/card-page/notes-field";
 import { ListFrameItem } from "@/components/list-frame";
 import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
 import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
@@ -615,19 +614,6 @@ export function CustomerCard({
           rows={openOrders}
         />
 
-        <CardSection title="Description">
-          <NotesField
-            hideLabel
-            value={display.notes ?? ""}
-            disabled={readOnly}
-            readOnlyValue={readOnly}
-            commitUnchangedValue={isDraft}
-            onDraftChange={(notes) => {
-              if (isDraft) engine.applyLocalOp({ type: "patch", patch: { notes } }, Number.POSITIVE_INFINITY);
-            }}
-            onCommit={(notes) => commitCustomerPatch({ notes })}
-          />
-        </CardSection>
       </CardPageBody>
 
       {deleteConfirm.dialog}
@@ -745,31 +731,25 @@ function ContactsSection({
           );
         },
       },
-      textColumn("name", "Name", !readOnly),
       {
-        colId: "stream",
-        kind: "display",
-        headerName: "",
-        width: 110,
-        minWidth: 110,
+        ...textColumn<ContactGridRow>("name", "Name", !readOnly),
         cellRenderer: (params: ICellRendererParams<ContactGridRow>) => {
           const row = params.data;
-          if (!row || row.isNew || !row.name.trim()) return null;
+          if (!row) return null;
+          if (row.isNew || !row.name.trim()) return row.name ?? "";
           return (
-            <Button
+            <button
               type="button"
-              variant="ghost"
-              size="sm"
+              className="font-medium text-[var(--color-ink)] hover:underline"
               aria-label={`View activity for "${row.name}"`}
               onClick={() => onOpenStream({ id: row.id, name: row.name })}
             >
-              Activity
-            </Button>
+              {row.name}
+            </button>
           );
         },
       },
       textColumn("title", "Role", !readOnly),
-      textColumn("notes", "Notes", !readOnly, 1.4),
       textColumn("email", "Email", !readOnly),
       textColumn("phone", "Phone", !readOnly),
     ],
@@ -1718,7 +1698,6 @@ function contactPayload(row: ContactGridRow) {
     phone: row.phone || null,
     addressEntryId: row.addressEntryId || null,
     roles: row.roles,
-    notes: row.notes || null,
   };
 }
 
@@ -1733,7 +1712,6 @@ function newContactRow(): ContactGridRow {
     phone: null,
     addressEntryId: null,
     roles: [],
-    notes: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -1851,7 +1829,6 @@ function customerToInsertInput(customer: CustomerDetailData): InsertCustomer {
     shipRegion: customer.shipRegion,
     shipPostcode: customer.shipPostcode,
     shipCountry: customer.shipCountry,
-    notes: customer.notes,
   });
 }
 
@@ -1875,7 +1852,6 @@ function customerEditableSnapshot(customer: CustomerDetailData): PatchCustomer {
     shipRegion: customer.shipRegion,
     shipPostcode: customer.shipPostcode,
     shipCountry: customer.shipCountry,
-    notes: customer.notes,
   };
 }
 

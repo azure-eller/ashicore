@@ -78,15 +78,6 @@ const columns: ColDef<CustomerRow>[] = [
     valueFormatter: ({ value }) => value ?? "—",
     tooltipValueGetter: ({ data }) => data?.xeroContactId ?? "",
   },
-  {
-    field: "notes",
-    headerName: "Description",
-    width: 280,
-    minWidth: 180,
-    flex: 1,
-    valueFormatter: ({ value }) => value ?? "—",
-    tooltipValueGetter: ({ data }) => data?.notes ?? "",
-  },
 ];
 
 export function CustomersTable({
