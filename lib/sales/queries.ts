@@ -3497,6 +3497,33 @@ const customerRowSelect = {
   )`.as("latestOrderDate"),
   email: customers.email,
   phone: customers.phone,
+  primaryContactName: sql<string | null>`(
+    SELECT cc.name
+    FROM ${customerContacts} cc
+    WHERE cc.customer_id = ${customers.id}
+      AND cc.deleted_at IS NULL
+      AND cc.is_primary = true
+    ORDER BY cc.created_at ASC, cc.name ASC
+    LIMIT 1
+  )`.as("primaryContactName"),
+  primaryContactEmail: sql<string | null>`(
+    SELECT cc.email
+    FROM ${customerContacts} cc
+    WHERE cc.customer_id = ${customers.id}
+      AND cc.deleted_at IS NULL
+      AND cc.is_primary = true
+    ORDER BY cc.created_at ASC, cc.name ASC
+    LIMIT 1
+  )`.as("primaryContactEmail"),
+  primaryContactPhone: sql<string | null>`(
+    SELECT cc.phone
+    FROM ${customerContacts} cc
+    WHERE cc.customer_id = ${customers.id}
+      AND cc.deleted_at IS NULL
+      AND cc.is_primary = true
+    ORDER BY cc.created_at ASC, cc.name ASC
+    LIMIT 1
+  )`.as("primaryContactPhone"),
   billingLine1: customers.billingLine1,
   billingLine2: customers.billingLine2,
   billingCity: customers.billingCity,
@@ -3518,6 +3545,8 @@ const customerRowSelect = {
     LIMIT 1
   )`,
   notes: customers.notes,
+  nextAction: customers.nextAction,
+  nextActionDueDate: customers.nextActionDueDate,
   deletedAt: customers.deletedAt,
   createdAt: customers.createdAt,
   updatedAt: customers.updatedAt,

@@ -25,6 +25,9 @@ export type CustomerRow = {
   latestOrderDate: string | null;
   email: string | null;
   phone: string | null;
+  primaryContactName: string | null;
+  primaryContactEmail: string | null;
+  primaryContactPhone: string | null;
   billingLine1: string | null;
   billingLine2: string | null;
   billingCity: string | null;
@@ -39,6 +42,8 @@ export type CustomerRow = {
   shipCountry: string | null;
   xeroContactId: string | null;
   notes: string | null;
+  nextAction: string | null;
+  nextActionDueDate: string | null;
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;

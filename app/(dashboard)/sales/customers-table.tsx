@@ -1,11 +1,17 @@
 "use client";
 
 import Link from "next/link";
+import { useMemo, useState } from "react";
 import type { ICellRendererParams } from "ag-grid-community";
 import { ERPDataGridList } from "@/components/erp-data-grid-list";
 import type { ColDef } from "@/components/erp-data-grid";
+import { SegmentedCountFilter } from "@/components/segmented-count-filter";
+import { apiJson } from "@/lib/client/api";
+import { formatDate } from "@/lib/format";
 import { CUSTOMER_CATEGORY_TOOLTIP } from "@/lib/tooltip-copy";
 import type { CustomerRow } from "@/lib/sales/types";
+
+type CustomerView = "all" | "due";
 
 const columns: ColDef<CustomerRow>[] = [
   {
@@ -27,6 +33,29 @@ const columns: ColDef<CustomerRow>[] = [
     headerTooltip: CUSTOMER_CATEGORY_TOOLTIP,
     width: 170,
     valueFormatter: ({ value }) => value ?? "Uncategorized",
+  },
+  {
+    field: "nextActionDueDate",
+    headerName: "Due",
+    width: 130,
+    valueFormatter: ({ value }) => (value ? formatDate(value) : "—"),
+  },
+  {
+    field: "nextAction",
+    headerName: "Next action",
+    width: 280,
+    minWidth: 180,
+    flex: 1,
+    valueFormatter: ({ value }) => value ?? "—",
+    tooltipValueGetter: ({ data }) => data?.nextAction ?? "",
+  },
+  {
+    field: "primaryContactName",
+    headerName: "Primary contact",
+    width: 220,
+    minWidth: 160,
+    valueFormatter: ({ data }) => formatPrimaryContact(data),
+    tooltipValueGetter: ({ data }) => formatPrimaryContact(data),
   },
   {
     field: "email",
@@ -60,18 +89,58 @@ const columns: ColDef<CustomerRow>[] = [
   },
 ];
 
-export function CustomersTable({ initialData }: { initialData: CustomerRow[] }) {
+export function CustomersTable({
+  initialData,
+  today,
+}: {
+  initialData: CustomerRow[];
+  today: string;
+}) {
+  const [view, setView] = useState<CustomerView>("all");
+  const filteredRows = useMemo(
+    () => filterCustomersForView(initialData, view, today),
+    [initialData, today, view]
+  );
+  const dueCount = useMemo(
+    () => initialData.filter((row) => isFollowUpDue(row, today)).length,
+    [initialData, today]
+  );
+
   return (
     <ERPDataGridList
-      rows={initialData}
+      rows={filteredRows}
       columns={columns}
-      queryKey={["customers"]}
-      queryEndpoint="/api/customers"
+      queryKey={["customers", view]}
+      queryFn={async () => {
+        const rows = await apiJson<CustomerRow[]>("/api/customers");
+        return filterCustomersForView(rows, view, today);
+      }}
       queryErrorMessage="Failed to fetch customers"
       searchAriaLabel="Search customers"
       addHref="/sales/customer"
       addAriaLabel="New Customer"
       emptyMessage="No customers yet."
+      toolbarContent={
+        <SegmentedCountFilter
+          value={view}
+          ariaLabel="Customer follow-up view"
+          options={[
+            {
+              value: "all",
+              label: "All",
+              count: initialData.length,
+              ariaLabel: "Show all customers",
+            },
+            {
+              value: "due",
+              label: "Due",
+              count: dueCount,
+              ariaLabel: "Show customers with follow-up due today or overdue",
+            },
+          ]}
+          onValueChange={(value) => setView(value || "all")}
+        />
+      }
       deleteAction={{
         endpoint: "/api/customers",
         invalidateQueryKeys: [["customers"]],
@@ -83,4 +152,28 @@ export function CustomersTable({ initialData }: { initialData: CustomerRow[] }) 
       }}
     />
   );
+}
+
+function filterCustomersForView(
+  rows: CustomerRow[],
+  view: CustomerView,
+  today: string
+) {
+  if (view === "due") {
+    return rows.filter((row) => isFollowUpDue(row, today));
+  }
+  return rows;
+}
+
+function isFollowUpDue(row: CustomerRow, today: string) {
+  return Boolean(row.nextAction && row.nextActionDueDate && row.nextActionDueDate <= today);
+}
+
+function formatPrimaryContact(row: CustomerRow | null | undefined) {
+  if (!row?.primaryContactName) return "—";
+
+  const contactDetails = [row.primaryContactEmail, row.primaryContactPhone]
+    .filter(Boolean)
+    .join(" · ");
+  return contactDetails ? `${row.primaryContactName} · ${contactDetails}` : row.primaryContactName;
 }
