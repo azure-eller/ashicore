@@ -704,7 +704,6 @@ export function CustomerCard({
 
         <ActivitySection
           rows={display.correspondence}
-          contacts={display.contacts}
           readOnly={readOnly || isDraft}
           activityType={activityType}
           activityDraft={activityDraft}
@@ -1745,7 +1744,6 @@ function OpenOrdersSection({
 
 function ActivitySection({
   rows: sourceRows,
-  contacts,
   readOnly,
   activityType,
   activityDraft,
@@ -1756,7 +1754,6 @@ function ActivitySection({
   onSubmit,
 }: {
   rows: CustomerCorrespondenceRow[];
-  contacts: CustomerContactRow[];
   readOnly: boolean;
   activityType: CustomerCorrespondenceType;
   activityDraft: string;
@@ -1845,9 +1842,7 @@ function ActivitySection({
             ))
           ) : (
             <EmptyState as="li" density="compact">
-              {contacts.length > 0
-                ? "No activity yet."
-                : "No activity or contacts yet."}
+              No activity yet.
             </EmptyState>
           )}
         </ul>
