@@ -19,7 +19,7 @@ const QUERY_DESCRIPTION = `Run one read-only SQL SELECT (Postgres) to answer any
 All data is in the agent_query schema (the only tables you can read):
 - agent_query.sales_orders(id, order_number, customer_id, customer_name, status 'open'|'done', priority_rank, order_date, ship_date, requested_date, due_date, is_late, shipped_at, subtotal_amount, tax_amount, total_amount, notes, created_at, updated_at)
 - agent_query.sales_order_lines(id, sales_order_id, item_id, item_name, item_sku, unit_name, quantity, shipped_quantity, cancelled_quantity, unit_price, discount_percent)
-- agent_query.customers(id, name, account_state, account_priority, email, phone, notes, created_at)
+- agent_query.customers(id, name, account_state, account_priority, email, phone, created_at)
 - agent_query.items_stock(id, name, sku, item_type 'product'|'material', category, sellable, safety_stock, unit_name, on_hand_qty, demand_qty, available_qty, expected_qty, created_at) — canonical inventory quantities
 - agent_query.purchase_orders(id, order_number, supplier_id, supplier_name, status 'draft'|'ordered'|'partial'|'received', expected_date, total_amount, received_at, notes, created_at)
 - agent_query.purchase_order_lines(id, purchase_order_id, item_id, quantity_ordered, quantity_received, unit_cost)
