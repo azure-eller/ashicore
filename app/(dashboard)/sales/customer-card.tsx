@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -11,24 +11,17 @@ import type { ICellRendererParams, ValueSetterParams } from "ag-grid-community";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Call02Icon,
+  Cancel01Icon,
   Delete02Icon,
+  Folder01Icon,
   Mail01Icon,
   StarIcon,
   StickyNote02Icon,
   Tick02Icon,
+  UserIcon,
   UserMultiple02Icon,
 } from "@hugeicons/core-free-icons";
 import type { IconSvgElement } from "@hugeicons/react";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { AddressBookFields } from "@/components/address-book-fields";
 import { EmptyState } from "@/components/empty-state";
@@ -66,12 +59,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
 import {
   MutableLines,
@@ -86,7 +73,6 @@ import {
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import {
   CardField,
-  CardCheckboxField,
   CardSelectField,
   CardTextField,
 } from "@/components/card-page/card-field";
@@ -227,17 +213,13 @@ const accountPriorityOptions = [
   { value: "low", label: "Low" },
 ];
 
-const contactRoleOptions: Array<{ value: CustomerContactRole; label: string }> = [
-  { value: "primary", label: "Primary" },
-  { value: "shipping", label: "Shipping" },
-  { value: "invoicing", label: "Invoices" },
-  { value: "billing", label: "Billing CC" },
-  { value: "field", label: "On site" },
-];
-
 const noActivityProjectValue = "__no_activity_project__";
-const allProjectsFilterValue = "__all_projects__";
 const newProjectSentinel = "__new_project__";
+
+type ActivityStreamFilter =
+  | { kind: "project"; id: string; name: string }
+  | { kind: "contact"; id: string; name: string }
+  | null;
 
 
 export function CustomerCard({
@@ -249,6 +231,12 @@ export function CustomerCard({
   const router = useRouter();
   const queryClient = useQueryClient();
   const [addressBook, setAddressBook] = useState(addresses);
+  const [activityFilter, setActivityFilter] = useState<ActivityStreamFilter>(null);
+  const activityAnchorRef = useRef<HTMLDivElement | null>(null);
+  const openContactStream = useCallback((contact: { id: string; name: string }) => {
+    setActivityFilter({ kind: "contact", id: contact.id, name: contact.name });
+    activityAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
   const [addressDialogState, setAddressDialogState] =
     useState<AddressDialogState | null>(null);
   const engine = useDraftSaveEngine<
@@ -311,7 +299,6 @@ export function CustomerCard({
           ...serverCustomer,
           ...customerEditableSnapshot(engine.draft),
           contacts: engine.draft.contacts,
-          projects: engine.draft.projects,
         }
       : engine.draft;
   const readOnly = Boolean(display.deletedAt);
@@ -599,6 +586,7 @@ export function CustomerCard({
 
         <ContactsSection
           rows={display.contacts}
+          onOpenStream={openContactStream}
           readOnly={readOnly || isDraft}
           onSave={(row) => {
             if (readOnly || isDraft) return;
@@ -610,13 +598,17 @@ export function CustomerCard({
           }}
         />
 
-        <ActivitySection
-          customerId={currentCustomerId}
-          rows={display.activities}
-          projects={display.projects}
-          contacts={display.contacts}
-          readOnly={readOnly || isDraft}
-        />
+        <div ref={activityAnchorRef}>
+          <ActivitySection
+            customerId={currentCustomerId}
+            rows={display.activities}
+            projects={display.projects}
+            contacts={display.contacts}
+            filter={activityFilter}
+            onFilterChange={setActivityFilter}
+            readOnly={readOnly || isDraft}
+          />
+        </div>
 
         <OpenOrdersSection
           customerId={currentCustomerId}
@@ -699,17 +691,18 @@ export function CustomerCard({
 
 function ContactsSection({
   rows: sourceRows,
+  onOpenStream,
   readOnly,
   onSave,
   onDelete,
 }: {
   rows: CustomerContactRow[];
   readOnly: boolean;
+  onOpenStream: (contact: { id: string; name: string }) => void;
   onSave: (row: ContactGridRow) => void;
   onDelete: (contactId: string) => void;
 }) {
   const [rows, setRows] = useSyncedRows<ContactGridRow>(sourceRows);
-  const [activeContact, setActiveContact] = useState<ContactGridRow | null>(null);
 
   const columns = useMemo<LineField<ContactGridRow>[]>(
     () => [
@@ -754,22 +747,23 @@ function ContactsSection({
       },
       textColumn("name", "Name", !readOnly),
       {
-        colId: "details",
+        colId: "stream",
         kind: "display",
         headerName: "",
         width: 110,
         minWidth: 110,
         cellRenderer: (params: ICellRendererParams<ContactGridRow>) => {
           const row = params.data;
-          if (!row) return null;
+          if (!row || row.isNew || !row.name.trim()) return null;
           return (
             <Button
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => setActiveContact(row)}
+              aria-label={`View activity for "${row.name}"`}
+              onClick={() => onOpenStream({ id: row.id, name: row.name })}
             >
-              Details
+              Activity
             </Button>
           );
         },
@@ -779,7 +773,7 @@ function ContactsSection({
       textColumn("email", "Email", !readOnly),
       textColumn("phone", "Phone", !readOnly),
     ],
-    [onSave, readOnly, setRows]
+    [onOpenStream, onSave, readOnly, setRows]
   );
 
   const onRowsChange = useCallback(
@@ -811,210 +805,7 @@ function ContactsSection({
         readOnly={readOnly}
         emptyMessage="No contacts yet."
       />
-      {activeContact ? (
-        <ContactDetailSheet
-          key={activeContact.id}
-          contact={activeContact}
-          open
-          readOnly={readOnly}
-          onClose={() => setActiveContact(null)}
-          onSave={(contact) => {
-            setRows((current) => replaceRow(current, contact));
-            if (contact.name.trim()) onSave(contact);
-            setActiveContact(null);
-          }}
-          onDelete={(contactId) => {
-            setRows((current) => current.filter((row) => row.id !== contactId));
-            if (!activeContact.isNew) onDelete(contactId);
-            setActiveContact(null);
-          }}
-        />
-      ) : null}
     </CardSection>
-  );
-}
-
-function ContactDetailSheet({
-  contact,
-  open,
-  readOnly,
-  onClose,
-  onSave,
-  onDelete,
-}: {
-  contact: ContactGridRow;
-  open: boolean;
-  readOnly: boolean;
-  onClose: () => void;
-  onSave: (contact: ContactGridRow) => void;
-  onDelete: (contactId: string) => void;
-}) {
-  const [draft, setDraft] = useState<ContactGridRow>(() => ({ ...contact }));
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const toggleRole = (role: CustomerContactRole, checked: boolean) => {
-    setDraft((current) => ({
-      ...current,
-      roles: checked
-        ? [...new Set([...current.roles, role])]
-        : current.roles.filter((currentRole) => currentRole !== role),
-    }));
-  };
-
-  return (
-    <Sheet
-      open={open}
-      onOpenChange={(nextOpen) => {
-        if (!nextOpen) {
-          setConfirmDelete(false);
-          onClose();
-        }
-      }}
-    >
-      <SheetContent
-        side="right"
-        className="gap-0 overflow-hidden p-0 data-[side=right]:w-[min(520px,94vw)] data-[side=right]:sm:max-w-[min(520px,94vw)]"
-      >
-        <SheetHeader>
-          <SheetTitle>Contact</SheetTitle>
-          <SheetDescription className="sr-only">
-            Edit this customer&apos;s contact details, roles, and notes.
-          </SheetDescription>
-        </SheetHeader>
-        <div className="grid min-h-0 flex-1 gap-(--space-8) overflow-y-auto p-(--space-8)">
-          <CardFormRow columns="two">
-            <CardTextField
-              label="Name"
-              value={draft.name}
-              required
-              disabled={readOnly}
-              controlStyle="dialog"
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, name: event.target.value }))
-              }
-            />
-            <CardTextField
-              label="Role"
-              value={draft.title}
-              disabled={readOnly}
-              controlStyle="dialog"
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  title: event.target.value || null,
-                }))
-              }
-            />
-            <CardTextField
-              label="Email"
-              value={draft.email}
-              type="email"
-              disabled={readOnly}
-              controlStyle="dialog"
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  email: event.target.value || null,
-                }))
-              }
-            />
-            <CardTextField
-              label="Phone"
-              value={draft.phone}
-              disabled={readOnly}
-              controlStyle="dialog"
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  phone: event.target.value || null,
-                }))
-              }
-            />
-          </CardFormRow>
-
-          <div className="grid gap-(--space-3)">
-            <h3 className={styles.sectionHeading}>Roles</h3>
-            <div className="grid gap-(--space-3) sm:grid-cols-2">
-              {contactRoleOptions.map((role) => (
-                <CardCheckboxField
-                  key={role.value}
-                  label={role.label}
-                  checked={draft.roles.includes(role.value)}
-                  disabled={readOnly}
-                  controlStyle="dialog"
-                  onCheckedChange={(checked) =>
-                    toggleRole(role.value, checked === true)
-                  }
-                />
-              ))}
-            </div>
-          </div>
-
-          <CardField label="Notes" htmlFor="customer-contact-notes" controlStyle="dialog">
-            <Textarea
-              id="customer-contact-notes"
-              value={draft.notes ?? ""}
-              disabled={readOnly}
-              rows={8}
-              className="text-[length:var(--text-md)] leading-[var(--leading-md)]"
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  notes: event.target.value || null,
-                }))
-              }
-            />
-          </CardField>
-        </div>
-
-        <SheetFooter className="flex-row items-center justify-end gap-(--space-4)">
-          {!readOnly ? (
-            <Button
-              type="button"
-              variant="destructive"
-              className="mr-auto"
-              onClick={() => setConfirmDelete(true)}
-            >
-              Delete contact
-            </Button>
-          ) : null}
-          <Button type="button" variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          {!readOnly ? (
-            <Button
-              type="button"
-              disabled={!draft.name.trim()}
-              onClick={() => onSave(draft)}
-            >
-              Save contact
-            </Button>
-          ) : null}
-        </SheetFooter>
-      </SheetContent>
-
-      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete contact?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This contact will be removed from the customer.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="danger"
-              onClick={(event) => {
-                event.preventDefault();
-                onDelete(contact.id);
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </Sheet>
   );
 }
 
@@ -1103,12 +894,16 @@ function ActivitySection({
   rows: allRows,
   projects,
   contacts,
+  filter,
+  onFilterChange,
   readOnly,
 }: {
   customerId: string | null;
   rows: CustomerActivityRow[];
   projects: CustomerProjectRow[];
   contacts: CustomerContactRow[];
+  filter: ActivityStreamFilter;
+  onFilterChange: (filter: ActivityStreamFilter) => void;
   readOnly: boolean;
 }) {
   const queryClient = useQueryClient();
@@ -1116,14 +911,27 @@ function ActivitySection({
   const [body, setBody] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [projectId, setProjectId] = useState(noActivityProjectValue);
-  const [attendeeIds, setAttendeeIds] = useState<string[]>([]);
-  const [filterProjectId, setFilterProjectId] = useState(allProjectsFilterValue);
-  const [newProjectName, setNewProjectName] = useState<string | null>(null);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [newProjectStatus, setNewProjectStatus] = useState<"planning" | "active">("planning");
+  const [newProjectTargetDate, setNewProjectTargetDate] = useState("");
 
-  const rows =
-    filterProjectId === allProjectsFilterValue
-      ? allRows
-      : allRows.filter((row) => row.customerProjectId === filterProjectId);
+  const rows = !filter
+    ? allRows
+    : filter.kind === "project"
+      ? allRows.filter((row) => row.customerProjectId === filter.id)
+      : allRows.filter((row) =>
+          row.attendees.some((attendee) => attendee.contactId === filter.id)
+        );
+  const mentionMatches =
+    mentionQuery === null
+      ? []
+      : contacts.filter(
+          (contact) =>
+            contact.name.trim() &&
+            contact.name.toLowerCase().startsWith(mentionQuery.toLowerCase())
+        );
   const isTask = type === "task";
   const openTasks = rows
     .filter((row) => row.type === "task" && row.status === "open")
@@ -1164,12 +972,17 @@ function ActivitySection({
         dueDate: isTask && dueDate ? dueDate : null,
         customerProjectId:
           projectId === noActivityProjectValue ? null : projectId,
-        attendeeContactIds: attendeeIds,
+        attendeeContactIds: contacts
+          .filter(
+            (contact) =>
+              contact.name.trim() && body.includes(`@${contact.name}`)
+          )
+          .map((contact) => contact.id),
       }),
     onSuccess: async () => {
       setBody("");
       setDueDate("");
-      setAttendeeIds([]);
+      setMentionQuery(null);
       await invalidate();
     },
   });
@@ -1207,16 +1020,19 @@ function ActivitySection({
       customerId ?? "__draft__",
       "activity-new-project"
     ),
-    mutationFn: (name: string) =>
+    mutationFn: () =>
       createCustomerProject(customerId as string, {
-        name,
-        status: "planning",
+        name: newProjectName.trim(),
+        status: newProjectStatus,
         startDate: null,
-        targetEndDate: null,
+        targetEndDate: newProjectTargetDate || null,
         summary: null,
       }),
     onSuccess: async (project) => {
-      setNewProjectName(null);
+      setNewProjectOpen(false);
+      setNewProjectName("");
+      setNewProjectStatus("planning");
+      setNewProjectTargetDate("");
       if (project) setProjectId(project.id);
       await invalidate();
     },
@@ -1230,34 +1046,7 @@ function ActivitySection({
     newProjectMutation.error;
 
   return (
-    <CardSection
-      title="Activity"
-      count={`· ${rows.length}`}
-      actions={
-        projects.length > 0 ? (
-          <Select value={filterProjectId} onValueChange={setFilterProjectId}>
-            <SelectTrigger aria-label="Filter by project" size="sm">
-              <SelectValue>
-                {filterProjectId === allProjectsFilterValue
-                  ? "Project · All"
-                  : projects.find((project) => project.id === filterProjectId)
-                      ?.name ?? "Project · All"}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={allProjectsFilterValue}>
-                Project · All
-              </SelectItem>
-              {projects.map((project) => (
-                <SelectItem key={project.id} value={project.id}>
-                  {project.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : null
-      }
-    >
+    <CardSection title="Activity" count={`· ${rows.length}`}>
       <div className="grid gap-(--space-5)">
         {!readOnly ? (
           <div className="grid gap-0 rounded-(--radius-md) border border-[var(--color-line)]">
@@ -1277,21 +1066,55 @@ function ActivitySection({
                 )
               )}
             </div>
-            <Textarea
-              value={body}
-              rows={3}
-              disabled={createMutation.isPending}
-              aria-label={isTask ? "Task title" : "Activity notes"}
-              placeholder={activityComposerMeta[type].placeholder}
-              className="border-0 shadow-none focus-visible:ring-0 text-[length:var(--text-md)] leading-[var(--leading-md)]"
-              onChange={(event) => setBody(event.target.value)}
-            />
+            <div className="relative">
+              <Textarea
+                value={body}
+                rows={3}
+                disabled={createMutation.isPending}
+                aria-label={isTask ? "Task title" : "Activity notes"}
+                placeholder={activityComposerMeta[type].placeholder}
+                className="border-0 shadow-none focus-visible:ring-0 text-[length:var(--text-md)] leading-[var(--leading-md)]"
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setBody(value);
+                  const caret = event.target.selectionStart ?? value.length;
+                  const match = value.slice(0, caret).match(/@([A-Za-z]*)$/);
+                  setMentionQuery(match ? match[1] : null);
+                }}
+              />
+              {mentionMatches.length > 0 ? (
+                <div className="absolute top-full left-(--space-4) z-10 mt-(--space-1) grid min-w-56 rounded-(--radius-md) border border-[var(--color-line)] bg-[var(--color-surface)] py-(--space-2) shadow-md">
+                  {mentionMatches.slice(0, 6).map((contact) => (
+                    <button
+                      key={contact.id}
+                      type="button"
+                      className="flex items-center gap-(--space-3) px-(--space-4) py-(--space-2) text-left text-[length:var(--text-sm)] hover:bg-[var(--color-surface-2)]"
+                      onClick={() => {
+                        setBody((current) => {
+                          const match = current.match(/@[A-Za-z]*$/);
+                          const base = match
+                            ? current.slice(0, match.index)
+                            : current;
+                          return `${base}@${contact.name} `;
+                        });
+                        setMentionQuery(null);
+                      }}
+                    >
+                      <span className="flex size-(--space-9) items-center justify-center rounded-full border border-[var(--color-line)] text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                        {contactInitials(contact.name)}
+                      </span>
+                      {contact.name}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
             <div className="flex flex-wrap items-center gap-(--space-3) border-t border-[var(--color-line)] bg-[var(--color-surface-2)] p-(--space-3)">
               <Select
                 value={projectId}
                 onValueChange={(value) => {
                   if (value === newProjectSentinel) {
-                    setNewProjectName("");
+                    setNewProjectOpen(true);
                     return;
                   }
                   setProjectId(value);
@@ -1319,32 +1142,23 @@ function ActivitySection({
                   </SelectItem>
                 </SelectContent>
               </Select>
-              {contacts.length > 0 ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button type="button" variant="outline" size="sm">
-                      @ Contacts
-                      {attendeeIds.length > 0 ? ` · ${attendeeIds.length}` : ""}
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start">
-                    {contacts.map((contact) => (
-                      <DropdownMenuCheckboxItem
-                        key={contact.id}
-                        checked={attendeeIds.includes(contact.id)}
-                        onCheckedChange={(checked) =>
-                          setAttendeeIds((current) =>
-                            checked === true
-                              ? [...new Set([...current, contact.id])]
-                              : current.filter((id) => id !== contact.id)
-                          )
-                        }
-                      >
-                        {contact.name}
-                      </DropdownMenuCheckboxItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+              {filter ? (
+                <span className="flex items-center gap-(--space-2) rounded-full border border-[var(--color-line)] bg-[var(--color-surface-2)] px-(--space-3) py-(--space-1) font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                  <HugeiconsIcon
+                    icon={filter.kind === "project" ? Folder01Icon : UserIcon}
+                    className="size-(--space-5)"
+                  />
+                  {filter.name}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="Clear filter"
+                    onClick={() => onFilterChange(null)}
+                  >
+                    <HugeiconsIcon icon={Cancel01Icon} />
+                  </Button>
+                </span>
               ) : null}
               {isTask ? (
                 <div className="w-52">
@@ -1404,13 +1218,17 @@ function ActivitySection({
                       }
                     />
                     <span className="min-w-0 flex-1 truncate text-[length:var(--text-sm)]">
-                      {task.title}
+                      {renderWithMentions(task.title ?? "", task.attendees, onFilterChange)}
                     </span>
                     {task.projectName && task.customerProjectId ? (
                       <ActivityProjectChip
                         name={task.projectName}
                         onSelect={() =>
-                          setFilterProjectId(task.customerProjectId as string)
+                          onFilterChange({
+                            kind: "project",
+                            id: task.customerProjectId as string,
+                            name: task.projectName as string,
+                          })
                         }
                       />
                     ) : null}
@@ -1507,28 +1325,47 @@ function ActivitySection({
                             <ActivityProjectChip
                               name={entry.projectName}
                               onSelect={() =>
-                                setFilterProjectId(
-                                  entry.customerProjectId as string
-                                )
+                                onFilterChange({
+                                  kind: "project",
+                                  id: entry.customerProjectId as string,
+                                  name: entry.projectName as string,
+                                })
                               }
                             />
                           ) : null}
                         </div>
                         {entry.title ? (
                           <p className="mt-(--space-2) text-[length:var(--text-sm)]">
-                            {entry.title}
+                            {renderWithMentions(entry.title, entry.attendees, onFilterChange)}
                           </p>
                         ) : null}
                         {entry.body ? (
                           <p className="mt-(--space-2) whitespace-pre-wrap text-[length:var(--text-sm)] leading-[var(--leading-md)] text-[var(--color-ink)]">
-                            {entry.body}
+                            {renderWithMentions(entry.body, entry.attendees, onFilterChange)}
                           </p>
                         ) : null}
-                        {entry.attendees.length > 0 ? (
-                          <p className="mt-(--space-2) text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                        {entry.attendees.some(
+                          (attendee) =>
+                            !`${entry.title ?? ""} ${entry.body ?? ""}`.includes(
+                              `@${attendee.contactName}`
+                            )
+                        ) ? (
+                          <p className="mt-(--space-2) flex flex-wrap gap-(--space-3) text-[length:var(--text-xs)]">
                             {entry.attendees
-                              .map((attendee) => attendee.contactName)
-                              .join(", ")}
+                              .filter(
+                                (attendee) =>
+                                  !`${entry.title ?? ""} ${entry.body ?? ""}`.includes(
+                                    `@${attendee.contactName}`
+                                  )
+                              )
+                              .map((attendee) => (
+                                <MentionToken
+                                  key={attendee.id}
+                                  name={attendee.contactName}
+                                  contactId={attendee.contactId}
+                                  onFilterChange={onFilterChange}
+                                />
+                              ))}
                           </p>
                         ) : null}
                       </div>
@@ -1543,42 +1380,136 @@ function ActivitySection({
         ) : null}
       </div>
 
-      <Dialog
-        open={newProjectName !== null}
-        onOpenChange={(open) => {
-          if (!open) setNewProjectName(null);
-        }}
-      >
-        <DialogContent size="sm">
-          <DialogHeader>
-            <DialogTitle>New project</DialogTitle>
-          </DialogHeader>
-          <CardTextField
-            label="Project name"
-            value={newProjectName ?? ""}
-            controlStyle="dialog"
-            onChange={(event) => setNewProjectName(event.target.value)}
-          />
-          <DialogFooter>
+      <Sheet open={newProjectOpen} onOpenChange={setNewProjectOpen}>
+        <SheetContent
+          side="right"
+          className="gap-0 overflow-hidden p-0 data-[side=right]:w-[min(420px,94vw)] data-[side=right]:sm:max-w-[min(420px,94vw)]"
+        >
+          <SheetHeader>
+            <SheetTitle>New project</SheetTitle>
+            <SheetDescription className="sr-only">
+              Create a project to tag activities and orders with.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="grid min-h-0 flex-1 content-start gap-(--space-6) overflow-y-auto p-(--space-8)">
+            <CardTextField
+              label="Project name"
+              value={newProjectName}
+              autoFocus
+              controlStyle="dialog"
+              onChange={(event) => setNewProjectName(event.target.value)}
+            />
+            <div className="grid gap-(--space-3)">
+              <h3 className={styles.sectionHeading}>Status</h3>
+              <div className="flex gap-(--space-2)">
+                {(["planning", "active"] as const).map((status) => (
+                  <Button
+                    key={status}
+                    type="button"
+                    size="sm"
+                    variant={newProjectStatus === status ? "default" : "outline"}
+                    aria-pressed={newProjectStatus === status}
+                    onClick={() => setNewProjectStatus(status)}
+                  >
+                    {status === "planning" ? "Planning" : "Active"}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div className="grid gap-(--space-3)">
+              <h3 className={styles.sectionHeading}>Target date</h3>
+              <DatePicker
+                value={newProjectTargetDate}
+                placeholder="Target date"
+                onChange={(value) => setNewProjectTargetDate(value ?? "")}
+              />
+            </div>
+          </div>
+          <SheetFooter className="flex-row items-center justify-end gap-(--space-4)">
             <Button
               type="button"
               variant="outline"
-              onClick={() => setNewProjectName(null)}
+              onClick={() => setNewProjectOpen(false)}
             >
               Cancel
             </Button>
             <Button
               type="button"
-              disabled={!newProjectName?.trim() || newProjectMutation.isPending}
-              onClick={() => newProjectMutation.mutate(newProjectName as string)}
+              disabled={!newProjectName.trim() || newProjectMutation.isPending}
+              onClick={() => newProjectMutation.mutate()}
             >
               {newProjectMutation.isPending ? "Creating..." : "Create project"}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
     </CardSection>
   );
+}
+
+function contactInitials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+function MentionToken({
+  name,
+  contactId,
+  onFilterChange,
+}: {
+  name: string;
+  contactId: string | null;
+  onFilterChange: (filter: ActivityStreamFilter) => void;
+}) {
+  if (!contactId) {
+    return <span className="text-[var(--color-ink-faint)]">@{name}</span>;
+  }
+  return (
+    <button
+      type="button"
+      className="font-medium text-[var(--color-ink)] hover:underline"
+      onClick={() => onFilterChange({ kind: "contact", id: contactId, name })}
+    >
+      @{name}
+    </button>
+  );
+}
+
+function renderWithMentions(
+  text: string,
+  attendees: CustomerActivityRow["attendees"],
+  onFilterChange: (filter: ActivityStreamFilter) => void
+) {
+  const named = attendees.filter((attendee) => attendee.contactName.trim());
+  if (named.length === 0 || !text.includes("@")) return text;
+
+  const pattern = new RegExp(
+    `@(${named
+      .map((attendee) =>
+        attendee.contactName.replace(/[.*+?^$()|[\]{}\\]/g, "\\$&")
+      )
+      .join("|")})`,
+    "g"
+  );
+  const parts = text.split(pattern);
+  return parts.map((part, index) => {
+    const attendee = named.find((candidate) => candidate.contactName === part);
+    if (index % 2 === 1 && attendee) {
+      return (
+        <MentionToken
+          key={`${attendee.id}-${index}`}
+          name={attendee.contactName}
+          contactId={attendee.contactId}
+          onFilterChange={onFilterChange}
+        />
+      );
+    }
+    return part;
+  });
 }
 
 function ActivityProjectChip({
