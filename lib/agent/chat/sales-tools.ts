@@ -1,7 +1,7 @@
 import "server-only";
 
 import { z } from "zod";
-import { getSalesOrders } from "@/lib/sales/queries";
+import { getSalesOrders } from "@/lib/sales/queries/orders-read";
 import type { SalesOrderListRow } from "@/lib/sales/types";
 import { buildAgentTool } from "@/lib/agent/core";
 import { AuthorizationError, hasModuleAccess } from "@/lib/authz";

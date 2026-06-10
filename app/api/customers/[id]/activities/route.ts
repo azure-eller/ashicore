@@ -3,7 +3,7 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonNotFound, jsonCreated } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { customerActivitySchema } from "@/lib/schemas/customer-crm";
-import { createCustomerActivity } from "@/lib/sales/queries";
+import { createCustomerActivity } from "@/lib/sales/queries/crm";
 
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   const authContext = await assertModuleWriteAccess("sales", request.headers);

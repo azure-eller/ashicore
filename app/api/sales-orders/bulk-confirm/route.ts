@@ -3,7 +3,7 @@ import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { bulkConfirmSalesOrdersSchema } from "@/lib/schemas/sales-orders";
-import { bulkConfirmSalesOrders } from "@/lib/sales/queries";
+import { bulkConfirmSalesOrders } from "@/lib/sales/queries/order-write";
 
 export const POST = apiHandler(async (request) => {
   await assertModuleWriteAccess("sales", request.headers);

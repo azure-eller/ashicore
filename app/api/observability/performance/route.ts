@@ -6,11 +6,9 @@ import { getStocktakes } from "@/lib/dal/stocktakes";
 import { getManufacturingOrders } from "@/lib/manufacturing/queries/orders-read";
 import { getPurchaseOrders } from "@/lib/purchasing/queries/orders-read";
 import { getSuppliers } from "@/lib/purchasing/queries/suppliers";
-import {
-  getCustomers,
-  getPricingSchedules,
-  getSalesOrders,
-} from "@/lib/sales/queries";
+import { getPricingSchedules } from "@/lib/sales/queries/pricing";
+import { getCustomers } from "@/lib/sales/queries/customers-read";
+import { getSalesOrders } from "@/lib/sales/queries/orders-read";
 import { apiHandler } from "@/lib/api/handler";
 import { assertModuleReadAccess } from "@/lib/dal/auth";
 import type { ModuleKey } from "@/lib/authz";

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
-import { retryXeroPushForSalesOrder } from "@/lib/sales/queries";
+import { retryXeroPushForSalesOrder } from "@/lib/sales/queries/accounting";
 import { XeroError } from "@/lib/xero/errors";
 import {
   accountingAuditErrorMetadata,

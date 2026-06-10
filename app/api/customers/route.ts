@@ -6,7 +6,8 @@ import { deletePrivateBlobsIfConfigured } from "@/lib/blob-storage";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { insertCustomerSchema } from "@/lib/schemas/customers";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
-import { createCustomer, deleteCustomers, getCustomers } from "@/lib/sales/queries";
+import { getCustomers } from "@/lib/sales/queries/customers-read";
+import { createCustomer, deleteCustomers } from "@/lib/sales/queries/customers-write";
 
 
 export const GET = apiHandler(async (request) => {

@@ -4,7 +4,7 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonSuccess } from "@/lib/api/responses";
 import { assertModuleAccess } from "@/lib/dal/auth";
 import { updateCustomerCategorySchema } from "@/lib/schemas/customer-categories";
-import { deleteCustomerCategory, updateCustomerCategory } from "@/lib/sales/queries";
+import { deleteCustomerCategory, updateCustomerCategory } from "@/lib/sales/queries/customer-categories";
 
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleAccess("sales", "admin", request.headers);

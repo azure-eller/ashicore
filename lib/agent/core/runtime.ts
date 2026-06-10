@@ -18,6 +18,15 @@ export type AgentRuntimeMessage =
       content: string;
       toolCalls?: AgentToolCall[];
       finalOutput?: unknown;
+      /**
+       * Raw provider output items for lossless replay (real item ids, encrypted
+       * reasoning, compaction items). When present, providers replay these
+       * verbatim instead of re-synthesizing input items. Scope: a single run's
+       * tool loop — these are not serialized through the chat UI stream, so a
+       * follow-up request rebuilds history from text (synthesized assistant
+       * messages). Cross-request reasoning persistence is a tracked follow-up.
+       */
+      providerItems?: unknown[];
     }
   | {
       role: "tool";
@@ -42,6 +51,8 @@ export type AgentModelTurnRequest = {
   systemPrompt: string;
   messages: AgentRuntimeMessage[];
   tools: AgentTool[];
+  /** Stable conversation identifier used to improve provider prompt-cache hits. */
+  cacheKey?: string;
   /** Optional structured-output schema for the model's final answer (mirrors Codex `Prompt.output_schema`). */
   outputSchema?: z.ZodType<unknown>;
   /** Whether the provider may run tool calls from this turn in parallel (mirrors Codex `Prompt.parallel_tool_calls`). */
@@ -61,7 +72,14 @@ export type AgentStreamEvent =
   /** A tool call item has started assembling (mirrors Codex `OutputItemAdded`); its input is still streaming. */
   | { type: "tool_call_started"; toolCallId: string; toolName: string }
   | { type: "tool_call"; toolCall: AgentToolCall }
-  | { type: "completed"; stopReason: AgentStopReason; finalOutput?: unknown; usage?: AgentTokenUsage }
+  | {
+      type: "completed";
+      stopReason: AgentStopReason;
+      finalOutput?: unknown;
+      usage?: AgentTokenUsage;
+      /** Raw provider output items from this turn, for lossless history replay. */
+      items?: unknown[];
+    }
   | { type: "failed"; error: string };
 
 export type AgentModelProvider = {
@@ -172,6 +190,8 @@ export type AgentRuntimeOptions = {
     artifacts?: AgentToolContext["artifacts"];
   };
   maxTurns?: number;
+  /** Stable conversation identifier used to improve provider prompt-cache hits. */
+  cacheKey?: string;
   /** Structured-output schema enforced on the model's final answer and surfaced as `run_completed.output`. */
   outputSchema?: z.ZodType<unknown>;
   /** Allow parallel tool dispatch within a turn. Defaults to true. */
@@ -221,6 +241,26 @@ function validationFeedback(errors: string[]) {
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Agent provider stream failed.";
+}
+
+// Mirrors Codex's retry shape: 200ms * 2^(attempt-1) with +/-10% jitter.
+const MAX_TURN_ATTEMPTS = 4;
+const RETRY_BASE_DELAY_MS = 200;
+
+function retryDelayMs(attempt: number) {
+  return RETRY_BASE_DELAY_MS * 2 ** (attempt - 1) * (0.9 + Math.random() * 0.2);
+}
+
+function sleep(ms: number, signal: AbortSignal) {
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(done, ms);
+    function done() {
+      signal.removeEventListener("abort", done);
+      clearTimeout(timer);
+      resolve();
+    }
+    signal.addEventListener("abort", done, { once: true });
+  });
 }
 
 function toolsByName(tools: AgentTool[]) {
@@ -331,67 +371,98 @@ export async function* runAgentTask(
       let stopReason: AgentStopReason = "completed";
       let finalOutput: unknown;
       let usage: AgentTokenUsage | undefined;
+      let providerItems: unknown[] | undefined;
       let streamError: string | null = null;
 
-      try {
-        for await (const event of options.provider.streamTurn({
-          runId: context.runId,
-          taskId: context.taskId,
-          purpose: context.purpose,
-          systemPrompt: context.systemPrompt,
-          messages: [...messages],
-          tools: context.tools,
-          outputSchema: options.outputSchema,
-          parallelToolCalls,
-          abortSignal: streamAbort.signal,
-        })) {
-          switch (event.type) {
-            case "text_delta":
-              content += event.delta;
-              yield {
-                type: "model_text_delta",
-                runId: context.runId,
-                taskId: context.taskId,
-                turn,
-                delta: event.delta,
-              };
-              break;
-            case "reasoning_delta":
-              yield {
-                type: "model_reasoning_delta",
-                runId: context.runId,
-                taskId: context.taskId,
-                turn,
-                delta: event.delta,
-              };
-              break;
-            case "tool_call_started":
-              yield {
-                type: "tool_call_started",
-                runId: context.runId,
-                taskId: context.taskId,
-                turn,
-                toolCallId: event.toolCallId,
-                toolName: event.toolName,
-              };
-              break;
-            case "tool_call":
-              toolCalls.push(event.toolCall);
-              break;
-            case "completed":
-              stopReason = event.stopReason;
-              finalOutput = event.finalOutput;
-              usage = event.usage;
-              break;
-            case "failed":
-              streamError = event.error;
-              break;
-            case "created":
-              break;
+      for (let attempt = 1; attempt <= MAX_TURN_ATTEMPTS; attempt += 1) {
+        // Only pristine failures retry: once any delta or tool call reached the
+        // consumer, retrying would duplicate visible output. Reset every
+        // accumulator so a retried attempt never inherits the failed one's
+        // partial content, tool calls, or items.
+        let forwarded = false;
+        streamError = null;
+        content = "";
+        toolCalls.length = 0;
+        stopReason = "completed";
+        finalOutput = undefined;
+        usage = undefined;
+        providerItems = undefined;
+
+        try {
+          for await (const event of options.provider.streamTurn({
+            runId: context.runId,
+            taskId: context.taskId,
+            purpose: context.purpose,
+            systemPrompt: context.systemPrompt,
+            messages: [...messages],
+            tools: context.tools,
+            cacheKey: options.cacheKey,
+            outputSchema: options.outputSchema,
+            parallelToolCalls,
+            abortSignal: streamAbort.signal,
+          })) {
+            switch (event.type) {
+              case "text_delta":
+                forwarded = true;
+                content += event.delta;
+                yield {
+                  type: "model_text_delta",
+                  runId: context.runId,
+                  taskId: context.taskId,
+                  turn,
+                  delta: event.delta,
+                };
+                break;
+              case "reasoning_delta":
+                forwarded = true;
+                yield {
+                  type: "model_reasoning_delta",
+                  runId: context.runId,
+                  taskId: context.taskId,
+                  turn,
+                  delta: event.delta,
+                };
+                break;
+              case "tool_call_started":
+                forwarded = true;
+                yield {
+                  type: "tool_call_started",
+                  runId: context.runId,
+                  taskId: context.taskId,
+                  turn,
+                  toolCallId: event.toolCallId,
+                  toolName: event.toolName,
+                };
+                break;
+              case "tool_call":
+                toolCalls.push(event.toolCall);
+                break;
+              case "completed":
+                stopReason = event.stopReason;
+                finalOutput = event.finalOutput;
+                usage = event.usage;
+                providerItems = event.items;
+                break;
+              case "failed":
+                streamError = event.error;
+                break;
+              case "created":
+                break;
+            }
           }
+        } catch (error) {
+          streamError = streamAbort.signal.aborted ? "Agent run aborted." : errorMessage(error);
         }
-      } catch (error) {
-        streamError = streamAbort.signal.aborted ? "Agent run aborted." : errorMessage(error);
+
+        if (!streamError) break;
+        const retryable =
+          !forwarded &&
+          toolCalls.length === 0 &&
+          !streamAbort.signal.aborted &&
+          attempt < MAX_TURN_ATTEMPTS;
+        if (!retryable) break;
+        await sleep(retryDelayMs(attempt), streamAbort.signal);
+        if (streamAbort.signal.aborted) break;
       }
 
       const message: Extract<AgentRuntimeMessage, { role: "assistant" }> = {
@@ -399,7 +470,26 @@ export async function* runAgentTask(
         content,
         toolCalls,
         finalOutput,
+        providerItems,
       };
+      const producedTurn =
+        content.length > 0 || toolCalls.length > 0 || providerItems != null;
+
+      // A pristine failure (every retry died before any output) produced no
+      // turn — skip the empty assistant message so consumers don't see a ghost
+      // turn before run_failed. A partial-stream failure kept real content, so
+      // preserve that turn first.
+      if (streamError && !producedTurn) {
+        yield {
+          type: "run_failed",
+          runId: context.runId,
+          taskId: context.taskId,
+          error: streamError,
+          messages,
+        };
+        return;
+      }
+
       messages.push(message);
       yield {
         type: "model_message",

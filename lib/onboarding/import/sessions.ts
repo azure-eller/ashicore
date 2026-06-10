@@ -22,10 +22,7 @@ import {
 import { seedOpeningBalanceInTx } from "@/lib/inventory/kernel/operations/inventory";
 import { createBomRevisionInTx } from "@/lib/inventory/queries/bom-write";
 import { createSupplierInTx, patchSupplierInTx } from "@/lib/purchasing/queries/suppliers";
-import {
-  createCustomerInTx,
-  patchCustomerInTx,
-} from "@/lib/sales/queries";
+import { createCustomerInTx, patchCustomerInTx } from "@/lib/sales/queries/customers-write";
 import { supplierDefaultValues } from "@/lib/schemas/suppliers";
 import { customerDefaultValues } from "@/lib/schemas/customers";
 import type { PrivateFileUpload } from "@/lib/blob-storage";

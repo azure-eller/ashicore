@@ -4,7 +4,7 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { patchSalesOrderLineSchema } from "@/lib/schemas/sales-orders";
-import { patchSalesOrderLine } from "@/lib/sales/queries";
+import { patchSalesOrderLine } from "@/lib/sales/queries/order-write";
 
 export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("sales", request.headers);

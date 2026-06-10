@@ -1,10 +1,7 @@
 import { redirect } from "next/navigation";
 import { OrderCard } from "../../orders/[id]/order-card";
-import {
-  getSalesOrder,
-  getSalesOrderCustomerOptions,
-  getSalesOrderItemOptions,
-} from "@/lib/sales/queries";
+import { getSalesOrderCustomerOptions } from "@/lib/sales/queries/customers-read";
+import { getSalesOrder, getSalesOrderItemOptions } from "@/lib/sales/queries/orders-read";
 import { hasModuleAccess } from "@/lib/authz";
 import { requireModuleReadAccess } from "@/lib/dal/auth";
 import { getAddressEntries } from "@/lib/dal/addresses";

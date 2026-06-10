@@ -4,10 +4,7 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonNotFound, jsonSuccess } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { customerContactSchema } from "@/lib/schemas/customer-crm";
-import {
-  deleteCustomerContact,
-  updateCustomerContact,
-} from "@/lib/sales/queries";
+import { deleteCustomerContact, updateCustomerContact } from "@/lib/sales/queries/crm";
 
 type ContactRouteContext = {
   params: Promise<{ id: string; contactId: string }>;

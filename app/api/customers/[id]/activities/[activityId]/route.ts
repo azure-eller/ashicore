@@ -7,7 +7,7 @@ import { customerActivityPatchSchema } from "@/lib/schemas/customer-crm";
 import {
   deleteCustomerActivity,
   patchCustomerActivity,
-} from "@/lib/sales/queries";
+} from "@/lib/sales/queries/crm";
 
 type ActivityRouteContext = {
   params: Promise<{ id: string; activityId: string }>;

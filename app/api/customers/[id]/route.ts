@@ -5,7 +5,8 @@ import { jsonNotFound, jsonSuccess } from "@/lib/api/responses";
 import { deletePrivateBlobsIfConfigured } from "@/lib/blob-storage";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { patchCustomerSchema, updateCustomerSchema } from "@/lib/schemas/customers";
-import { deleteCustomer, getCustomerDetail, patchCustomer, updateCustomer } from "@/lib/sales/queries";
+import { getCustomerDetail } from "@/lib/sales/queries/customers-read";
+import { deleteCustomer, patchCustomer, updateCustomer } from "@/lib/sales/queries/customers-write";
 
 export const GET = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleReadAccess("sales", request.headers);

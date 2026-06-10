@@ -131,6 +131,7 @@ export function createDashboardChatResponse(args: {
   organizationName: string;
   member: AgentToolMemberContext;
   pageContext?: string;
+  chatId?: string;
   abortSignal: AbortSignal;
   now?: Date;
 }) {
@@ -170,6 +171,7 @@ export function createDashboardChatResponse(args: {
           .filter(Boolean)
           .join("\n\n"),
         history: prepared.history,
+        cacheKey: args.chatId,
         run: {
           runId: randomUUID(),
           now: (args.now ?? new Date()).toISOString(),

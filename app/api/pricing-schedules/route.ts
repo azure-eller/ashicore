@@ -5,7 +5,7 @@ import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleAccess } from "@/lib/dal/auth";
 import { insertPricingScheduleSchema } from "@/lib/schemas/pricing-schedules";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
-import { createPricingSchedule, deletePricingSchedules, getPricingSchedules } from "@/lib/sales/queries";
+import { createPricingSchedule, deletePricingSchedules, getPricingSchedules } from "@/lib/sales/queries/pricing";
 
 export const GET = apiHandler(async (request) => {
   await assertModuleAccess("sales", "admin", request.headers);

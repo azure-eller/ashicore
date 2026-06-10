@@ -1,7 +1,7 @@
 import { requireModuleWriteAccess } from "@/lib/dal/auth";
 import { getAddressEntries } from "@/lib/dal/addresses";
 import { CustomerCard } from "@/app/(dashboard)/sales/customer-card";
-import { getCustomerCategoryOptions } from "@/lib/sales/queries";
+import { getCustomerCategoryOptions } from "@/lib/sales/queries/customer-categories";
 
 export default async function CustomerDraftPage() {
   await requireModuleWriteAccess("sales");

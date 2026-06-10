@@ -10,11 +10,9 @@ import {
   items,
 } from "@/lib/db/schema";
 import { normalizeMoney, normalizeQuantityNumber } from "@/lib/format";
-import {
-  createCustomerInTx,
-  createSalesOrder,
-  SalesError,
-} from "@/lib/sales/queries";
+import { SalesError } from "@/lib/sales/queries/errors";
+import { createCustomerInTx } from "@/lib/sales/queries/customers-write";
+import { createSalesOrder } from "@/lib/sales/queries/order-write";
 import {
   getExternalRecordByExternalIdInTx,
   upsertExternalRecordInTx,

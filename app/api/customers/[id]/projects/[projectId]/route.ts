@@ -5,10 +5,7 @@ import { jsonNotFound, jsonSuccess } from "@/lib/api/responses";
 import { deletePrivateBlobsIfConfigured } from "@/lib/blob-storage";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { customerProjectSchema } from "@/lib/schemas/customer-crm";
-import {
-  deleteCustomerProject,
-  updateCustomerProject,
-} from "@/lib/sales/queries";
+import { deleteCustomerProject, updateCustomerProject } from "@/lib/sales/queries/crm";
 
 type ProjectRouteContext = {
   params: Promise<{ id: string; projectId: string }>;
