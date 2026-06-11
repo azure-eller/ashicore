@@ -1,23 +1,17 @@
 import "server-only";
 
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
-  bomRevisionComponents,
-  bomRevisions,
   inventoryLotBalances,
-  items,
   manufacturingOrderIngredients,
   manufacturingOrders,
   purchaseOrderLines,
   purchaseOrders,
-  unitDefinitions,
 } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
-import {
-  calculateIngredientPlannedQuantity,
-  normalizeRecipeBasis,
-} from "@/lib/manufacturing/consumption";
+import { calculateIngredientPlannedQuantity } from "@/lib/manufacturing/consumption";
+import { getCurrentBomsByProductIdInTx } from "@/lib/bom/current-boms";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
 import { parseQuantity, roundQuantity } from "@/lib/format";
 import { compareDocumentNumbers } from "@/lib/document-number-format";
@@ -700,71 +694,28 @@ async function getBomIngredientNeedsInTx(
   }
 
   const productIds = [...new Set(activeLines.map((line) => line.itemId))];
-  const revisions = await tx
-    .select({
-      id: bomRevisions.id,
-      productId: bomRevisions.productId,
-      outputQuantity: trimScale(bomRevisions.outputQuantity).as("outputQuantity"),
-      recipeBasis: bomRevisions.recipeBasis,
-    })
-    .from(bomRevisions)
-    .where(
-      and(
-        inArray(bomRevisions.productId, productIds),
-        eq(bomRevisions.isCurrent, true)
-      )
-    );
-
-  if (revisions.length === 0) {
-    return [];
-  }
-
-  const revisionByProductId = new Map(
-    revisions.map((revision) => [revision.productId, revision])
-  );
-  const components = await tx
-    .select({
-      bomRevisionId: bomRevisionComponents.bomRevisionId,
-      componentId: bomRevisionComponents.componentId,
-      componentName: items.name,
-      componentSku: items.sku,
-      unitName: unitDefinitions.name,
-      quantity: trimScale(bomRevisionComponents.quantity).as("quantity"),
-    })
-    .from(bomRevisionComponents)
-    .innerJoin(items, eq(bomRevisionComponents.componentId, items.id))
-    .leftJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
-    .where(inArray(bomRevisionComponents.bomRevisionId, revisions.map((row) => row.id)))
-    .orderBy(asc(bomRevisionComponents.sortOrder));
-
-  const componentsByRevisionId = new Map<string, typeof components>();
-  for (const component of components) {
-    componentsByRevisionId.set(component.bomRevisionId, [
-      ...(componentsByRevisionId.get(component.bomRevisionId) ?? []),
-      component,
-    ]);
-  }
+  const bomByProductId = await getCurrentBomsByProductIdInTx(tx, productIds);
 
   const needs: IngredientNeed[] = [];
   for (const line of activeLines) {
-    const revision = revisionByProductId.get(line.itemId);
-    if (!revision) continue;
+    const bom = bomByProductId.get(line.itemId);
+    if (!bom) continue;
 
     const outputQuantity = parseQuantity(line.quantity);
-    const recipeBasis = normalizeRecipeBasis(revision.recipeBasis);
-    const recipeOutputQuantity = parseQuantity(revision.outputQuantity);
+    const recipeBasis = bom.recipeBasis;
+    const recipeOutputQuantity = parseQuantity(bom.outputQuantity);
     const numberOfBatches =
       recipeBasis === "batch" && recipeOutputQuantity > 0
         ? Math.ceil(outputQuantity / recipeOutputQuantity)
         : null;
 
-    for (const component of componentsByRevisionId.get(revision.id) ?? []) {
+    for (const component of bom.components) {
       needs.push({
         salesOrderId: line.salesOrderId,
         itemId: component.componentId,
         itemName: component.componentName,
         itemSku: component.componentSku,
-        unitName: component.unitName ?? "unit",
+        unitName: component.unitName,
         quantity: parseQuantity(
           calculateIngredientPlannedQuantity({
             recipeBasis,
