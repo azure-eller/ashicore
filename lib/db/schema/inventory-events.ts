@@ -30,6 +30,8 @@ export const INVENTORY_EVENT_TYPES = [
   "manufacturing_variance_loss",
   "quality_scrap",
   "unpick_restock",
+  "transfer_out",
+  "transfer_in",
   "quality_disposition_change",
   "demand_increase",
   "demand_release",
@@ -114,7 +116,7 @@ export const inventoryEvents = inventorySchema
         .where(sql`${table.idempotencyKey} IS NOT NULL`),
       check(
         "inventory_events_event_type_check",
-        sql`event_type IN ('opening_balance', 'purchase_receipt', 'manufacturing_output', 'manual_adjustment_increase', 'stocktake_gain', 'manufacturing_variance_gain', 'manual_adjustment_decrease', 'stocktake_loss', 'sales_consumption', 'manufacturing_ingredient_consumption', 'manufacturing_variance_loss', 'quality_scrap', 'unpick_restock', 'quality_disposition_change', 'demand_increase', 'demand_release', 'expected_increase', 'expected_release', 'cost_basis_change', 'landed_cost_revaluation', 'stocktake_verification')`
+        sql`event_type IN ('opening_balance', 'purchase_receipt', 'manufacturing_output', 'manual_adjustment_increase', 'stocktake_gain', 'manufacturing_variance_gain', 'manual_adjustment_decrease', 'stocktake_loss', 'sales_consumption', 'manufacturing_ingredient_consumption', 'manufacturing_variance_loss', 'quality_scrap', 'unpick_restock', 'transfer_out', 'transfer_in', 'quality_disposition_change', 'demand_increase', 'demand_release', 'expected_increase', 'expected_release', 'cost_basis_change', 'landed_cost_revaluation', 'stocktake_verification')`
       ),
       check(
         "inventory_events_quantity_check",
@@ -125,11 +127,11 @@ export const inventoryEvents = inventorySchema
       ),
       check(
         "inventory_events_lot_required_check",
-        sql`event_type NOT IN ('opening_balance', 'purchase_receipt', 'manufacturing_output', 'manual_adjustment_increase', 'stocktake_gain', 'manufacturing_variance_gain', 'manual_adjustment_decrease', 'stocktake_loss', 'sales_consumption', 'manufacturing_ingredient_consumption', 'manufacturing_variance_loss', 'quality_scrap', 'unpick_restock', 'quality_disposition_change') OR lot_id IS NOT NULL`
+        sql`event_type NOT IN ('opening_balance', 'purchase_receipt', 'manufacturing_output', 'manual_adjustment_increase', 'stocktake_gain', 'manufacturing_variance_gain', 'manual_adjustment_decrease', 'stocktake_loss', 'sales_consumption', 'manufacturing_ingredient_consumption', 'manufacturing_variance_loss', 'quality_scrap', 'unpick_restock', 'transfer_out', 'transfer_in', 'quality_disposition_change') OR lot_id IS NOT NULL`
       ),
       check(
         "inventory_events_cost_required_check",
-        sql`event_type NOT IN ('opening_balance', 'purchase_receipt', 'manufacturing_output', 'manual_adjustment_increase', 'stocktake_gain', 'manufacturing_variance_gain', 'manual_adjustment_decrease', 'stocktake_loss', 'sales_consumption', 'manufacturing_ingredient_consumption', 'manufacturing_variance_loss', 'quality_scrap', 'unpick_restock', 'quality_disposition_change') OR (unit_cost IS NOT NULL AND extended_cost IS NOT NULL AND extended_cost = ROUND(quantity * unit_cost, 6))`
+        sql`event_type NOT IN ('opening_balance', 'purchase_receipt', 'manufacturing_output', 'manual_adjustment_increase', 'stocktake_gain', 'manufacturing_variance_gain', 'manual_adjustment_decrease', 'stocktake_loss', 'sales_consumption', 'manufacturing_ingredient_consumption', 'manufacturing_variance_loss', 'quality_scrap', 'unpick_restock', 'transfer_out', 'transfer_in', 'quality_disposition_change') OR (unit_cost IS NOT NULL AND extended_cost IS NOT NULL AND extended_cost = ROUND(quantity * unit_cost, 6))`
       ),
       check(
         "inventory_events_non_stock_cost_blank_check",
