@@ -702,7 +702,9 @@ export function StocktakeDetail({
         editable: (params) =>
           canEditCounts &&
           (params.data
-            ? isLotDisplayRow(params.data) || params.data.lots.length === 0
+            ? isLotDisplayRow(params.data) ||
+              (params.data.lots.length === 0 &&
+                (!lotTrackingLocked || params.data.lotTrackingMode !== "tracked"))
             : false),
         cellEditor: "agTextCellEditor",
         cellClass: "text-right",

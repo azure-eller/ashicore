@@ -50,12 +50,15 @@ Existing examples (all `lot_tracking`):
 | Disposition to `blocked`/`rejected`, scrap | `release` back to `available` |
 | Recording a NEW stocktake found lot | Re-counting/deleting existing found lots |
 | New lot via stock adjustment | Adjusting existing lots |
+| New lot from a positive aggregate count at stocktake completion | Zero/negative aggregate counts; untracked items |
 | Non-FIFO ingredient `lotStrategy` | Reverting to `fifo`; execution always picks FIFO |
 
 A gate that locks an exit (e.g. gating `release`) traps customer data behind a
 paywall — treat that as a bug. Watch for sibling write paths that reach the
 same state: the stocktake found-lot gate also required gating new-lot creation
-via stock adjustments/reconciliations, or it was a bypass.
+via stock adjustments/reconciliations AND stocktake completion (a positive
+aggregate count on a tracked item with no lot lines makes the kernel generate
+a lot) — each unguarded door was a bypass.
 
 Downgrade data semantics: toggling never deletes, migrates, or rewrites data.
 Kernel data (lots, dispositions, ledger history) stays visible always because
@@ -135,7 +138,7 @@ with the enforcement vars set on the dev server (see step 3). Without them
 
 | Plugin | Status | Gates |
 | --- | --- | --- |
-| `lot_tracking` | shipped (ERP-192) | disposition to non-available, new found lots, new lots via adjustment/reconciliation, non-FIFO lotStrategy |
+| `lot_tracking` | shipped (ERP-192) | disposition to non-available, new found lots, new lots via adjustment/reconciliation/stocktake completion, non-FIFO lotStrategy |
 | `batch_production` | ERP-193 | batch-mode MO creation (planned); `outputDisposition` belongs here |
 | `crm` | ERP-195 | activity create/edit; customer records stay free (planned) |
 | `wholesale_pricing` | partial (ERP-189) | `createPricingSchedule`; **`updatePricingSchedule` and price-resolution computation still ungated, no UI hiding** — close in ERP-195/196 |

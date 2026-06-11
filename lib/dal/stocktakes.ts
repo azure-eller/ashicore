@@ -1239,6 +1239,7 @@ export async function completeStocktake(
     const liveLineById = new Map(liveLines.map((line) => [line.id, line]));
     const countedLines: CountedStocktakeCompletionLine[] = [];
     const staleItems: StocktakeStaleWarningPayload["items"] = [];
+    let createsUnnumberedTrackedLot = false;
     const lotRollupsByStocktakeItemId = new Map<
       string,
       Array<{ expectedQty: string; countedQty: string }>
@@ -1325,6 +1326,12 @@ export async function completeStocktake(
       }
 
       const currentQty = liveLine?.expectedQty ?? "0";
+      if (
+        line.lotTrackingMode === "tracked" &&
+        Number(line.countedQty) > Number(currentQty)
+      ) {
+        createsUnnumberedTrackedLot = true;
+      }
       if (Number(currentQty) !== Number(line.expectedQty)) {
         staleItems.push({
           lineId: line.id,
@@ -1351,6 +1358,15 @@ export async function completeStocktake(
 
     if (countedLines.length === 0) {
       throw new StocktakeError("Enter at least one count before completing.", 400);
+    }
+
+    // A positive aggregate count on a tracked item with no lot lines makes the
+    // kernel generate a new lot on completion — same boundary as new-lot
+    // creation via adjustment.
+    if (createsUnnumberedTrackedLot) {
+      await assertFeatureAccessInTx(tx, orgId, "lot_tracking", {
+        route: "POST /api/stocktakes/[id]/complete",
+      });
     }
 
     if (!confirmStale && staleItems.length > 0) {
