@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { DashboardModuleShell } from "@/components/dashboard-shell";
 import { canManageTeam, hasModuleAccess } from "@/lib/authz";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
-import { getSettingsSections } from "./sections";
+import { getSettingsGroups } from "./sections";
 import { SettingsNav } from "./settings-nav";
 
 export const metadata: Metadata = {
@@ -31,7 +31,7 @@ export default async function SettingsLayout({
     hasModuleAccess(context.assignedRoles, "purchasing", "operate");
   const showAddresses = showTaxes;
   const showUnits = hasModuleAccess(context.assignedRoles, "inventory", "admin");
-  const sections = getSettingsSections({
+  const groups = getSettingsGroups({
     showTeam,
     showAgentAccess: showTeam,
     showIntegrations: canManageSalesXero || canManagePurchasingXero,
@@ -43,8 +43,10 @@ export default async function SettingsLayout({
 
   return (
     <DashboardModuleShell>
-      <SettingsNav sections={sections} />
-      <div className="min-w-0">{children}</div>
+      <div className="mx-auto grid w-full max-w-6xl gap-(--space-8) lg:grid-cols-[218px_minmax(0,1fr)] lg:gap-(--space-16)">
+        <SettingsNav groups={groups} />
+        <div className="min-w-0">{children}</div>
+      </div>
     </DashboardModuleShell>
   );
 }

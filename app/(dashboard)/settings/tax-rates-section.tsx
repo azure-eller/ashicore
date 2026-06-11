@@ -7,6 +7,7 @@ import {
   type EditableLineDataGridChange,
   type LineField,
 } from "@/components/editable-lines";
+import { AutosaveStatus } from "@/components/autosave-status";
 import { Field, FieldLabel } from "@/components/ui/field";
 import {
   Select,
@@ -15,8 +16,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  SettingsBlock,
+  SettingsCard,
+  SettingsPageHeader,
+} from "@/components/settings-panel";
 import { apiJson } from "@/lib/client/api";
-import { SettingsPanel, SettingsPanelHeader } from "@/components/settings-panel";
 
 type TaxRateRow = {
   id: string;
@@ -56,7 +61,7 @@ export function TaxRatesSection({ initialData }: { initialData: TaxRatesSectionD
         field: "ratePercent",
         kind: "number",
         headerName: "Rate",
-        width: 170,
+        width: 110,
         rightAligned: true,
         editable: true,
         getSuffix: () => "%",
@@ -65,7 +70,7 @@ export function TaxRatesSection({ initialData }: { initialData: TaxRatesSectionD
       {
         field: "name",
         kind: "text",
-        headerName: "Tax name",
+        headerName: "Name",
         flex: 1,
         minWidth: 240,
         editable: true,
@@ -107,78 +112,87 @@ export function TaxRatesSection({ initialData }: { initialData: TaxRatesSectionD
   }, [defaultPurchaseTaxRateId, defaultSalesTaxRateId, rates, saveTaxSettings]);
 
   const options = rates.filter((rate) => rate.name.trim().length > 0);
-  const saveStatus = mutation.isPending
-    ? "Saving…"
+  const saveState = mutation.isPending
+    ? "saving"
     : mutation.isError
-      ? "Changes not saved"
-      : "All changes saved";
+      ? "error"
+      : "idle";
 
   return (
-    <SettingsPanel id="tax-rates">
-      <SettingsPanelHeader
+    <div className="flex flex-col gap-(--space-8)">
+      <SettingsPageHeader
         title="Tax rates"
-        meta="Applied to sales and purchase order items to calculate tax totals."
-        action={
-          <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-            {saveStatus}
-          </span>
-        }
+        sub="Applied to sales and purchase order lines to calculate tax totals."
       />
 
-      <div className="grid gap-(--space-12) p-(--space-8) lg:grid-cols-[minmax(0,1fr)_minmax(15rem,20rem)]">
-        <MutableLines<TaxRateRow>
-          rows={rates}
-          fields={fields}
-          getRowId={(row) => row.id}
-          createRow={() => ({
-            id: crypto.randomUUID(),
-            ratePercent: "0",
-            name: "",
-          })}
-          onRowsChange={(
-            nextRows: TaxRateRow[],
-            change: EditableLineDataGridChange<TaxRateRow>,
-          ) => {
-            setRates(nextRows);
-            if (change.type === "row_deleted" && change.row) {
-              if (change.row.id === defaultSalesTaxRateId) {
-                setDefaultSalesTaxRateId(null);
-              }
-              if (change.row.id === defaultPurchaseTaxRateId) {
-                setDefaultPurchaseTaxRateId(null);
-              }
-            }
-          }}
-          addLabel="Add row"
-          initializeBlankRow={false}
-          emptyMessage="No tax rates yet."
-        />
+      <SettingsCard>
+        <SettingsBlock
+          title="Rates"
+          count={rates.length}
+          actions={<AutosaveStatus state={saveState} />}
+        >
+          <div className="max-w-xl">
+            <MutableLines<TaxRateRow>
+              rows={rates}
+              fields={fields}
+              getRowId={(row) => row.id}
+              createRow={() => ({
+                id: crypto.randomUUID(),
+                ratePercent: "0",
+                name: "",
+              })}
+              onRowsChange={(
+                nextRows: TaxRateRow[],
+                change: EditableLineDataGridChange<TaxRateRow>,
+              ) => {
+                setRates(nextRows);
+                if (change.type === "row_deleted" && change.row) {
+                  if (change.row.id === defaultSalesTaxRateId) {
+                    setDefaultSalesTaxRateId(null);
+                  }
+                  if (change.row.id === defaultPurchaseTaxRateId) {
+                    setDefaultPurchaseTaxRateId(null);
+                  }
+                }
+              }}
+              addLabel="Add rate"
+              initializeBlankRow={false}
+              emptyMessage="No tax rates yet."
+            />
+          </div>
+        </SettingsBlock>
 
-        <div className="flex flex-col gap-(--space-8)">
-          <DefaultTaxSelect
-            label="Default tax on sales orders"
-            value={defaultSalesTaxRateId}
-            rates={options}
-            onChange={setDefaultSalesTaxRateId}
-          />
-          <DefaultTaxSelect
-            label="Default tax on purchase orders"
-            value={defaultPurchaseTaxRateId}
-            rates={options}
-            onChange={setDefaultPurchaseTaxRateId}
-          />
-        </div>
-      </div>
-    </SettingsPanel>
+        <SettingsBlock title="Defaults">
+          <div className="grid max-w-2xl gap-(--space-8) sm:grid-cols-2">
+            <DefaultTaxSelect
+              id="default-sales-tax"
+              label="New sales orders"
+              value={defaultSalesTaxRateId}
+              rates={options}
+              onChange={setDefaultSalesTaxRateId}
+            />
+            <DefaultTaxSelect
+              id="default-purchase-tax"
+              label="New purchase orders"
+              value={defaultPurchaseTaxRateId}
+              rates={options}
+              onChange={setDefaultPurchaseTaxRateId}
+            />
+          </div>
+        </SettingsBlock>
+      </SettingsCard>
+    </div>
   );
 }
 
 function DefaultTaxSelect({
+  id,
   label,
   value,
   rates,
   onChange,
 }: {
+  id: string;
   label: string;
   value: string | null;
   rates: TaxRateRow[];
@@ -186,18 +200,15 @@ function DefaultTaxSelect({
 }) {
   return (
     <Field>
-      <FieldLabel>{label}</FieldLabel>
-      <Select
-        value={value ?? ""}
-        onValueChange={(next) => onChange(next)}
-      >
-        <SelectTrigger className="w-full">
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <Select value={value ?? ""} onValueChange={(next) => onChange(next)}>
+        <SelectTrigger id={id} className="w-full">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
           {rates.map((rate) => (
             <SelectItem key={rate.id} value={rate.id}>
-              {rate.ratePercent}% - {rate.name}
+              {rate.ratePercent}% · {rate.name}
             </SelectItem>
           ))}
         </SelectContent>

@@ -79,7 +79,7 @@ import {
   AccountingPurchaseOrderImportButton,
   XeroImportSection,
 } from "./integrations/xero-import-section";
-import { SettingsPanel, SettingsPanelHeader } from "@/components/settings-panel";
+import { SettingsCard, SettingsPageHeader } from "@/components/settings-panel";
 import { queryKeys } from "@/lib/client/query-keys";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -578,8 +578,8 @@ function AccountingProviderCard({
   children?: ReactNode;
 }) {
   return (
-    <SurfacePanel className="overflow-hidden p-0 shadow-none">
-      <div className="flex flex-col gap-(--space-8) p-(--space-10) sm:flex-row sm:items-center sm:justify-between">
+    <ListFrameItem>
+      <div className="flex flex-col gap-(--space-8) p-(--space-10) sm:flex-row sm:items-center sm:justify-between sm:px-(--space-12)">
         <div className="flex min-w-0 items-center gap-(--space-6)">
           {icon}
           <div className="min-w-0">
@@ -592,9 +592,7 @@ function AccountingProviderCard({
                   <span className="size-(--space-3) bg-current" />
                   Connected
                 </Badge>
-              ) : (
-                <Badge variant="secondary">Not connected</Badge>
-              )}
+              ) : null}
             </div>
             <p className="mt-(--space-2) truncate text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-[var(--color-ink-faint)]">
               {summary}
@@ -606,7 +604,7 @@ function AccountingProviderCard({
         ) : null}
       </div>
       {children}
-    </SurfacePanel>
+    </ListFrameItem>
   );
 }
 
@@ -738,7 +736,7 @@ function XeroRow({
               </DropdownMenu>
             </>
           ) : canManageConnection ? (
-            <Button size="sm" onClick={() => setOpenDialog("connect")}>
+            <Button size="sm" variant="outline" onClick={() => setOpenDialog("connect")}>
               Connect
             </Button>
           ) : null
@@ -934,7 +932,7 @@ function QuickBooksRow({
             </Button>
             </>
           ) : !isConnected && canManageConnection ? (
-            <Button size="sm" asChild>
+            <Button size="sm" variant="outline" asChild>
               <a href="/api/quickbooks/connect">Connect</a>
             </Button>
           ) : null}
@@ -1178,7 +1176,7 @@ function ShopifyRow({
             </Button>
           ) : null}
           {canManageConnection ? (
-            <Button size="sm" onClick={() => setOpen(true)}>
+            <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
               {isConnected ? "Update" : "Connect"}
             </Button>
           ) : null}
@@ -1968,9 +1966,12 @@ export function IntegrationsSection({
   timeZone: string;
 }) {
   return (
-    <SettingsPanel id="integrations">
-      <SettingsPanelHeader title="Integrations" />
-      <div className="flex flex-col gap-(--space-8) p-(--space-8)">
+    <div className="flex flex-col gap-(--space-8)">
+      <SettingsPageHeader
+        title="Integrations"
+        sub="Connect accounting and storefront tools. One accounting provider at a time."
+      />
+      <SettingsCard>
         <XeroRow
           connection={connection}
           error={error}
@@ -1994,7 +1995,7 @@ export function IntegrationsSection({
           connection={shopifyConnection}
           canManageConnection={canManageSalesXero}
         />
-      </div>
-    </SettingsPanel>
+      </SettingsCard>
+    </div>
   );
 }

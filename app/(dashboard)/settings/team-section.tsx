@@ -1,33 +1,45 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import type { ICellRendererParams } from "ag-grid-community";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Controller, useForm } from "react-hook-form";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, PencilEdit02Icon, RefreshIcon } from "@hugeicons/core-free-icons";
+import {
+  Add01Icon,
+  ArrowDown01Icon,
+  MoreHorizontalIcon,
+} from "@hugeicons/core-free-icons";
 import {
   formatAccessLevelLabel,
   formatAccessPresetLabel,
-  formatRoleLabel,
   formatModuleLabel,
   getAccessPresetKeys,
   getAccessPresetModuleAccess,
   type AccessPresetKey,
-  type DerivedAccessPresetKey,
   MODULE_KEYS,
   type ModuleAccessLevel,
 } from "@/lib/authz";
 import { ApiJsonError, apiJson } from "@/lib/client/api";
-import { DateTimeText } from "@/components/date-time-text";
-import { ERPDataGrid, type ColDef } from "@/components/erp-data-grid";
 import { ListFrame, ListFrameItem } from "@/components/list-frame";
 import {
-  ConfiguredBadge,
-  type ConfiguredBadgeConfig,
-} from "@/components/configured-badge";
+  FramedTable,
+  FramedTableBody,
+  FramedTableCell,
+  FramedTableEmptyRow,
+  FramedTableHead,
+  FramedTableHeaderCell,
+  FramedTableRow,
+  TableFrame,
+} from "@/components/table-frame";
+import {
+  SettingsBlock,
+  SettingsCard,
+  SettingsPageHeader,
+} from "@/components/settings-panel";
 import { createTeamInvitationSchema, moduleAccessSchema } from "@/lib/schemas/team";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -36,6 +48,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -46,9 +64,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { TeamRoleBadge } from "./team-role-badge";
 import type { PendingInviteRow, TeamMemberRow, TeamPageData } from "./types";
-import { SettingsPanel, SettingsPanelHeader } from "@/components/settings-panel";
 import { queryKeys } from "@/lib/client/query-keys";
 
 type InviteFormValues = {
@@ -61,77 +77,123 @@ type UpdateMemberPayload = {
   moduleAccess: TeamMemberRow["moduleAccess"];
 };
 
-type TeamGridRow =
-  | {
-      id: string;
-      kind: "member";
-      name: string;
-      email: string;
-      accessLabel: string;
-      roleLabel: string;
-      statusLabel: string;
-      member: TeamMemberRow;
-      invite: null;
-    }
-  | {
-      id: string;
-      kind: "invite";
-      name: string;
-      email: string;
-      accessLabel: string;
-      roleLabel: string;
-      statusLabel: string;
-      member: null;
-      invite: PendingInviteRow;
-    };
-
 const FULL_ACCESS_OPTIONS: ModuleAccessLevel[] = ["none", "read", "operate", "admin"];
 const ACCESS_PRESET_KEYS = getAccessPresetKeys();
 
-const accessPresetBadgeConfig = Object.fromEntries(
-  ACCESS_PRESET_KEYS.map((presetKey) => [
-    presetKey,
-    {
-      label: formatAccessPresetLabel(presetKey),
-      variant: presetKey === "admin" ? undefined : "outline",
-    },
-  ]),
-) as ConfiguredBadgeConfig<AccessPresetKey>;
+function memberInitials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
 
-const derivedAccessPresetBadgeConfig = {
-  ...accessPresetBadgeConfig,
-  custom: { label: formatAccessPresetLabel("custom"), variant: "secondary" },
-} satisfies ConfiguredBadgeConfig<DerivedAccessPresetKey>;
-
-const teamStatusBadgeConfig = {
-  active: { label: "Active", variant: "outline" },
-  current: { label: "You", variant: "secondary" },
-  pending: { label: "Pending", variant: "secondary" },
-} satisfies ConfiguredBadgeConfig<"active" | "current" | "pending">;
-
-function AccessPresetBadge({ presetKey }: { presetKey: DerivedAccessPresetKey }) {
+function MemberCell({
+  name,
+  email,
+  isCurrentUser,
+  invited,
+}: {
+  name: string | null;
+  email: string;
+  isCurrentUser?: boolean;
+  invited?: boolean;
+}) {
   return (
-    <ConfiguredBadge value={presetKey} config={derivedAccessPresetBadgeConfig} />
+    <div className="flex min-w-0 items-center gap-(--space-5)">
+      <Avatar
+        className={
+          invited
+            ? "size-(--space-16) border border-dashed border-[var(--color-line)]"
+            : "size-(--space-16) border border-[var(--color-line)]"
+        }
+      >
+        <AvatarFallback
+          className={
+            invited
+              ? "bg-[var(--color-bg)] text-[var(--color-ink-faint)]"
+              : "bg-[var(--color-accent-soft)] font-mono text-[length:var(--text-3xs)] font-semibold text-[var(--color-ink-soft)]"
+          }
+        >
+          {name ? memberInitials(name) : ""}
+        </AvatarFallback>
+      </Avatar>
+      <div className="min-w-0">
+        <div className="flex items-center gap-(--space-3)">
+          {name ? (
+            <span className="truncate font-semibold text-[var(--color-ink)]">
+              {name}
+            </span>
+          ) : (
+            <span className="text-[var(--color-ink-faint)]">Invitation pending</span>
+          )}
+          {isCurrentUser ? (
+            <span className="shrink-0 font-mono text-[length:var(--text-3xs)] font-semibold tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)] uppercase">
+              · You
+            </span>
+          ) : null}
+        </div>
+        <div className="truncate font-mono text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-[var(--color-ink-faint)]">
+          {email}
+        </div>
+      </div>
+    </div>
   );
 }
 
-function TeamStatusBadge({ row }: { row: TeamGridRow }) {
-  if (row.kind === "invite") {
-    return (
-      <div className="flex min-w-0 items-center gap-(--space-3)">
-        <ConfiguredBadge value="pending" config={teamStatusBadgeConfig} />
-        <span className="truncate text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-          expires <DateTimeText value={row.invite.expiresAt} />
-        </span>
-      </div>
-    );
+function AccessCell({
+  member,
+  canGrantTeamManagement,
+  disabled,
+  onSelectPreset,
+  onCustomize,
+}: {
+  member: TeamMemberRow;
+  canGrantTeamManagement: boolean;
+  disabled: boolean;
+  onSelectPreset: (presetKey: AccessPresetKey) => void;
+  onCustomize: () => void;
+}) {
+  if (member.role === "owner") {
+    return <Badge variant="warning">Owner</Badge>;
   }
 
-  if (row.member.isCurrentUser) {
-    return <ConfiguredBadge value="current" config={teamStatusBadgeConfig} />;
+  const label = formatAccessPresetLabel(member.presetKey ?? "custom");
+
+  if (!member.canManage || member.isCurrentUser) {
+    return <Badge variant="outline">{label}</Badge>;
   }
 
-  return <ConfiguredBadge value="active" config={teamStatusBadgeConfig} />;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={disabled}
+          className="rounded-full font-mono text-[length:var(--text-2xs)] font-semibold tracking-[var(--tracking-caps)] uppercase"
+        >
+          {label}
+          <HugeiconsIcon icon={ArrowDown01Icon} data-icon="inline-end" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        {ACCESS_PRESET_KEYS.filter(
+          (presetKey) => canGrantTeamManagement || presetKey !== "admin"
+        ).map((presetKey) => (
+          <DropdownMenuItem
+            key={presetKey}
+            onSelect={() => onSelectPreset(presetKey)}
+          >
+            {formatAccessPresetLabel(presetKey)}
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuItem onSelect={onCustomize}>Custom…</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }
 
 function InviteMemberDialog({
@@ -200,9 +262,9 @@ function InviteMemberDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline">
+        <Button>
+          <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
           Invite member
-          <HugeiconsIcon icon={Add01Icon} data-icon="inline-end" />
         </Button>
       </DialogTrigger>
       <DialogContent size="2xl">
@@ -257,12 +319,9 @@ function InviteMemberDialog({
                           }`}
                           aria-pressed={selected}
                         >
-                          <div className="flex items-center justify-between gap-(--space-6)">
-                            <span className="font-medium">
-                              {formatAccessPresetLabel(presetKey)}
-                            </span>
-                            <AccessPresetBadge presetKey={presetKey} />
-                          </div>
+                          <span className="font-medium">
+                            {formatAccessPresetLabel(presetKey)}
+                          </span>
                         </button>
                       );
                     })}
@@ -300,7 +359,6 @@ function CustomizeAccessDialog({
   open,
   onOpenChange,
   onSave,
-  onRemove,
   pending,
 }: {
   canGrantTeamManagement: boolean;
@@ -308,7 +366,6 @@ function CustomizeAccessDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (member: TeamMemberRow, moduleAccess: TeamMemberRow["moduleAccess"]) => void;
-  onRemove: (member: TeamMemberRow) => void;
   pending: boolean;
 }) {
   const [moduleAccess, setModuleAccess] = useState<TeamMemberRow["moduleAccess"]>(
@@ -400,27 +457,17 @@ function CustomizeAccessDialog({
           </ListFrame>
         </div>
 
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex justify-end gap-3">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
           <Button
             type="button"
-            variant="destructive"
             disabled={pending}
-            onClick={() => onRemove(member)}
+            onClick={() => onSave(member, moduleAccessSchema.parse(moduleAccess))}
           >
-            Remove member
+            {pending ? "Saving..." : "Save access"}
           </Button>
-          <div className="flex justify-end gap-3">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              disabled={pending}
-              onClick={() => onSave(member, moduleAccessSchema.parse(moduleAccess))}
-            >
-              {pending ? "Saving..." : "Save access"}
-            </Button>
-          </div>
         </div>
       </DialogContent>
     </Dialog>
@@ -503,209 +550,182 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
     updateMemberMutation.isPending ||
     removeMemberMutation.isPending;
 
-  const updateMember = (member: TeamMemberRow, moduleAccess: TeamMemberRow["moduleAccess"]) => {
-    updateMemberMutation.mutate({
-      memberId: member.id,
-      moduleAccess,
-    });
+  const memberCount = data.members.length;
+  const query = searchValue.trim().toLowerCase();
+  const matches = (name: string | null, email: string) =>
+    !query ||
+    (name ?? "").toLowerCase().includes(query) ||
+    email.toLowerCase().includes(query);
+
+  const members = data.members.filter((row) => matches(row.name, row.email));
+  const invites = data.pendingInvites.filter((row) => matches(null, row.email));
+
+  const memberOverflow = (member: TeamMemberRow) => {
+    if (!member.canManage || member.isCurrentUser || member.role === "owner") {
+      return null;
+    }
+
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            disabled={mutationPending}
+            aria-label={`Actions for ${member.email}`}
+          >
+            <HugeiconsIcon icon={MoreHorizontalIcon} strokeWidth={2} />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem
+            className="text-[var(--status-danger-ink)] focus:text-[var(--status-danger-ink)]"
+            onSelect={() => removeMemberMutation.mutate(member.id)}
+          >
+            Remove member
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
   };
 
-  const memberCount = data.members.length;
-  const pendingCount = data.pendingInvites.length;
-  const rows = useMemo<TeamGridRow[]>(
-    () => [
-      ...data.members.map((member) => ({
-        id: `member-${member.id}`,
-        kind: "member" as const,
-        name: member.name,
-        email: member.email,
-        accessLabel: member.presetKey
-          ? formatAccessPresetLabel(member.presetKey)
-          : "",
-        roleLabel: formatRoleLabel(member.role),
-        statusLabel: member.isCurrentUser ? "You" : "Active",
-        member,
-        invite: null,
-      })),
-      ...data.pendingInvites.map((invite) => ({
-        id: `invite-${invite.id}`,
-        kind: "invite" as const,
-        name: "Pending invite",
-        email: invite.email,
-        accessLabel: formatAccessPresetLabel(invite.presetKey),
-        roleLabel: "",
-        statusLabel: "Pending",
-        member: null,
-        invite,
-      })),
-    ],
-    [data.members, data.pendingInvites]
+  const inviteOverflow = (invite: PendingInviteRow) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          disabled={mutationPending}
+          aria-label={`Actions for ${invite.email}`}
+        >
+          <HugeiconsIcon icon={MoreHorizontalIcon} strokeWidth={2} />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onSelect={() => resendMutation.mutate(invite.id)}>
+          Resend invite
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="text-[var(--status-danger-ink)] focus:text-[var(--status-danger-ink)]"
+          onSelect={() => cancelInviteMutation.mutate(invite.id)}
+        >
+          Revoke invite
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
-  const columns = useMemo<ColDef<TeamGridRow>[]>(
-    () => [
-      {
-        field: "name",
-        headerName: "Name",
-        minWidth: 180,
-        flex: 1,
-        cellRenderer: ({ data: row }: ICellRendererParams<TeamGridRow>) => {
-          if (!row) return null;
-
-          return row.kind === "member" ? (
-            <span className="min-w-0 truncate font-medium text-[var(--color-ink)]">
-              {row.name}
-              {row.member.isCurrentUser ? (
-                <span className="ml-(--space-2) text-[length:var(--text-xs)] font-normal text-[var(--color-ink-faint)]">
-                  (You)
-                </span>
-              ) : null}
-            </span>
-          ) : (
-            <span className="text-[var(--color-ink-faint)]">Pending invite</span>
-          );
-        },
-      },
-      {
-        field: "email",
-        headerName: "Email",
-        minWidth: 230,
-        flex: 1.35,
-      },
-      {
-        field: "accessLabel",
-        headerName: "Access",
-        width: 150,
-        minWidth: 130,
-        cellRenderer: ({ data: row }: ICellRendererParams<TeamGridRow>) =>
-          row?.kind === "member" && row.member.presetKey ? (
-            <AccessPresetBadge presetKey={row.member.presetKey} />
-          ) : row?.kind === "invite" ? (
-            <AccessPresetBadge presetKey={row.invite.presetKey} />
-          ) : (
-            "—"
-          ),
-      },
-      {
-        field: "roleLabel",
-        headerName: "Role",
-        width: 120,
-        minWidth: 100,
-        cellRenderer: ({ data: row }: ICellRendererParams<TeamGridRow>) =>
-          row?.kind === "member" ? (
-            <TeamRoleBadge role={row.member.role} />
-          ) : (
-            <span className="text-[var(--color-ink-faint)]">—</span>
-          ),
-      },
-      {
-        field: "statusLabel",
-        headerName: "Status",
-        width: 220,
-        minWidth: 180,
-        cellRenderer: ({ data: row }: ICellRendererParams<TeamGridRow>) =>
-          row ? <TeamStatusBadge row={row} /> : null,
-      },
-      {
-        colId: "actions",
-        headerName: "",
-        width: 176,
-        minWidth: 150,
-        maxWidth: 210,
-        sortable: false,
-        resizable: false,
-        cellRenderer: ({ data: row }: ICellRendererParams<TeamGridRow>) => {
-          if (!row) return null;
-
-          if (row.kind === "invite") {
-            return (
-              <div className="flex h-full items-center justify-end gap-(--space-3)">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon-sm"
-                  disabled={mutationPending}
-                  onClick={() => resendMutation.mutate(row.invite.id)}
-                  aria-label={`Resend invite to ${row.email}`}
-                >
-                  <HugeiconsIcon icon={RefreshIcon} />
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={mutationPending}
-                  onClick={() => cancelInviteMutation.mutate(row.invite.id)}
-                >
-                  Cancel
-                </Button>
-              </div>
-            );
-          }
-
-          const manageable = row.member.canManage && !row.member.isCurrentUser;
-
-          return manageable ? (
-            <div className="flex h-full items-center justify-end">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                disabled={mutationPending}
-                onClick={() => setCustomizingMember(row.member)}
-                className="bg-transparent text-[var(--color-ink-faint)] transition-colors hover:bg-[var(--color-surface-alt)] hover:text-[var(--color-ink)]"
-                aria-label={`Edit ${row.member.name}`}
-              >
-                <HugeiconsIcon icon={PencilEdit02Icon} />
-              </Button>
-            </div>
-          ) : null;
-        },
-        getQuickFilterText: () => "",
-      },
-    ],
-    [
-      cancelInviteMutation,
-      mutationPending,
-      resendMutation,
-      setCustomizingMember,
-    ]
-  );
-  const gridHeight = Math.max(160, Math.min(680, 40 + rows.length * 34));
 
   return (
-    <>
-      <SettingsPanel id="team">
-        <SettingsPanelHeader
-          title="Team"
-          meta={`${memberCount} ${memberCount === 1 ? "member" : "members"}${pendingCount > 0 ? ` · ${pendingCount} pending` : ""}`}
-          action={
-            <InviteMemberDialog
-              canGrantTeamManagement={data.canGrantTeamManagement}
-              onSuccess={refreshData}
+    <div className="flex flex-col gap-(--space-8)">
+      <SettingsPageHeader
+        title="Team"
+        sub={`${memberCount} ${memberCount === 1 ? "member" : "members"} · access controls what each person can see and do.`}
+        action={
+          <InviteMemberDialog
+            canGrantTeamManagement={data.canGrantTeamManagement}
+            onSuccess={refreshData}
+          />
+        }
+      />
+
+      <SettingsCard>
+        <SettingsBlock
+          actions={
+            <Input
+              type="search"
+              value={searchValue}
+              onChange={(event) => setSearchValue(event.target.value)}
+              placeholder="Search members…"
+              aria-label="Search members"
+              className="h-(--height-input-sm) w-56 rounded-full"
             />
           }
-        />
+        >
+          {actionError ? (
+            <div className="mb-(--space-6)">
+              <FieldError>{actionError}</FieldError>
+            </div>
+          ) : null}
 
-        {actionError ? (
-          <div className="px-(--space-12) py-(--space-6)">
-            <FieldError>{actionError}</FieldError>
-          </div>
-        ) : null}
-
-        <div className="p-(--space-8)">
-          <ERPDataGrid
-            rows={rows}
-            columns={columns}
-            height={gridHeight}
-            rowHeight={34}
-            headerHeight={32}
-            emptyMessage="No team members found."
-            searchValue={searchValue}
-            onSearchChange={setSearchValue}
-            searchAriaLabel="Search team"
-          />
-        </div>
-      </SettingsPanel>
+          <TableFrame>
+            <FramedTable>
+              <FramedTableHead>
+                <tr>
+                  <FramedTableHeaderCell>Member</FramedTableHeaderCell>
+                  <FramedTableHeaderCell className="w-44">
+                    Access
+                  </FramedTableHeaderCell>
+                  <FramedTableHeaderCell className="w-32">
+                    Status
+                  </FramedTableHeaderCell>
+                  <FramedTableHeaderCell className="w-12" />
+                </tr>
+              </FramedTableHead>
+              <FramedTableBody>
+                {members.map((member) => (
+                  <FramedTableRow key={member.id}>
+                    <FramedTableCell>
+                      <MemberCell
+                        name={member.name}
+                        email={member.email}
+                        isCurrentUser={member.isCurrentUser}
+                      />
+                    </FramedTableCell>
+                    <FramedTableCell>
+                      <AccessCell
+                        member={member}
+                        canGrantTeamManagement={data.canGrantTeamManagement}
+                        disabled={mutationPending}
+                        onSelectPreset={(presetKey) =>
+                          updateMemberMutation.mutate({
+                            memberId: member.id,
+                            moduleAccess: getAccessPresetModuleAccess(presetKey),
+                          })
+                        }
+                        onCustomize={() => setCustomizingMember(member)}
+                      />
+                    </FramedTableCell>
+                    <FramedTableCell>
+                      <Badge variant="success">
+                        <span className="size-(--space-3) bg-current" />
+                        Active
+                      </Badge>
+                    </FramedTableCell>
+                    <FramedTableCell align="right">
+                      {memberOverflow(member)}
+                    </FramedTableCell>
+                  </FramedTableRow>
+                ))}
+                {invites.map((invite) => (
+                  <FramedTableRow key={invite.id}>
+                    <FramedTableCell>
+                      <MemberCell name={null} email={invite.email} invited />
+                    </FramedTableCell>
+                    <FramedTableCell>
+                      <Badge variant="outline">
+                        {formatAccessPresetLabel(invite.presetKey)}
+                      </Badge>
+                    </FramedTableCell>
+                    <FramedTableCell>
+                      <Badge>Invited</Badge>
+                    </FramedTableCell>
+                    <FramedTableCell align="right">
+                      {inviteOverflow(invite)}
+                    </FramedTableCell>
+                  </FramedTableRow>
+                ))}
+                {members.length === 0 && invites.length === 0 ? (
+                  <FramedTableEmptyRow colSpan={4} height="compact">
+                    {query ? `No members match “${searchValue}”.` : "No team members found."}
+                  </FramedTableEmptyRow>
+                ) : null}
+              </FramedTableBody>
+            </FramedTable>
+          </TableFrame>
+        </SettingsBlock>
+      </SettingsCard>
 
       {customizingMember ? (
         <CustomizeAccessDialog
@@ -718,11 +738,12 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
               setCustomizingMember(null);
             }
           }}
-          onSave={updateMember}
-          onRemove={(member) => removeMemberMutation.mutate(member.id)}
+          onSave={(member, moduleAccess) =>
+            updateMemberMutation.mutate({ memberId: member.id, moduleAccess })
+          }
           pending={mutationPending}
         />
       ) : null}
-    </>
+    </div>
   );
 }

@@ -3,32 +3,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Alert02Icon, CreditCardIcon, RefreshIcon } from "@hugeicons/core-free-icons";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { apiJson } from "@/lib/client/api";
-import { BILLING_PLUGIN_LABELS, FREE_SKU_LIMIT } from "@/lib/billing/types";
-import type { BillingPageData } from "./types";
+import { FieldError } from "@/components/ui/field";
 import {
-  SettingsKeyValueRow,
-  SettingsPanel,
-  SettingsPanelHeader,
-  SettingsPanelSection,
-  SettingsRows,
+  SettingsBlock,
+  SettingsCard,
+  SettingsFootnote,
+  SettingsPageHeader,
+  SettingsQuietRow,
 } from "@/components/settings-panel";
+import { apiJson } from "@/lib/client/api";
+import { FREE_SKU_LIMIT } from "@/lib/billing/types";
+import type { BillingPageData } from "./types";
 
 type BillingActionResponse = {
   url?: string;
 };
-
-function formatPlan(plan: BillingPageData["plan"]) {
-  return plan === "core" ? "Core" : "Free";
-}
-
-function formatStatus(data: BillingPageData) {
-  if (data.cancelAtPeriodEnd) return "Ends at period end";
-  if (data.status === "past_due") return "Payment past due";
-  if (data.status === "canceled") return "Canceled";
-  return "Active";
-}
 
 function formatDate(value: string | null) {
   if (!value) return null;
@@ -39,10 +30,22 @@ function formatDate(value: string | null) {
   }).format(new Date(value));
 }
 
-function usageText(data: BillingPageData) {
-  return data.skuLimit == null
-    ? `${data.skuCount} SKUs`
-    : `${data.skuCount} / ${data.skuLimit} SKUs`;
+function PlanStatusBadge({ data }: { data: BillingPageData }) {
+  if (data.cancelAtPeriodEnd) {
+    return <Badge variant="warning">Ends at period end</Badge>;
+  }
+  if (data.status === "past_due") {
+    return <Badge variant="destructive">Payment past due</Badge>;
+  }
+  if (data.status === "canceled") {
+    return <Badge variant="secondary">Canceled</Badge>;
+  }
+  return (
+    <Badge variant="success">
+      <span className="size-(--space-3) bg-current" />
+      Active
+    </Badge>
+  );
 }
 
 export function BillingSection({
@@ -61,6 +64,7 @@ export function BillingSection({
   );
   const autoCheckoutStarted = useRef(false);
   const periodEnd = formatDate(initialData.currentPeriodEnd);
+  const isCore = initialData.plan === "core";
 
   const runBillingAction = useCallback(
     async (action: "checkout" | "portal" | "resync") => {
@@ -117,35 +121,45 @@ export function BillingSection({
     void runBillingAction("checkout");
   }, [autoCheckout, checkoutSuccess, initialData.plan, runBillingAction]);
 
-  const primaryAction =
-    initialData.plan === "free" ? (
-      <Button
-        onClick={() => void runBillingAction("checkout")}
-        disabled={!initialData.checkoutConfigured || isPending != null}
-      >
-        <HugeiconsIcon icon={CreditCardIcon} data-icon="inline-start" />
-        Upgrade to Core
-      </Button>
-    ) : (
-      <Button
-        onClick={() => void runBillingAction("portal")}
-        disabled={!initialData.billingConfigured || isPending != null}
-      >
-        <HugeiconsIcon icon={CreditCardIcon} data-icon="inline-start" />
-        Manage subscription
-      </Button>
-    );
+  const skuUsage =
+    initialData.skuLimit == null
+      ? `Unlimited SKUs · ${initialData.skuCount} in use`
+      : `${initialData.skuCount} / ${initialData.skuLimit} SKUs in use`;
+  const renewal = initialData.cancelAtPeriodEnd
+    ? `ends ${periodEnd ?? "at period end"}`
+    : periodEnd
+      ? `renews ${periodEnd}`
+      : "renews monthly";
 
   return (
-    <SettingsPanel id="billing">
-      <SettingsPanelHeader
+    <div className="flex flex-col gap-(--space-8)">
+      <SettingsPageHeader
         title="Billing"
-        meta="Manage Ashicore subscription and SKU entitlement."
-        action={primaryAction}
+        sub="Your Ashicore subscription. Invoices and payment methods are managed in Stripe."
+        action={
+          initialData.plan === "free" ? (
+            <Button
+              onClick={() => void runBillingAction("checkout")}
+              disabled={!initialData.checkoutConfigured || isPending != null}
+            >
+              <HugeiconsIcon icon={CreditCardIcon} data-icon="inline-start" />
+              Upgrade to Core
+            </Button>
+          ) : (
+            <Button
+              onClick={() => void runBillingAction("portal")}
+              disabled={!initialData.billingConfigured || isPending != null}
+            >
+              <HugeiconsIcon icon={CreditCardIcon} data-icon="inline-start" />
+              Manage subscription
+            </Button>
+          )
+        }
       />
-      <SettingsRows>
+
+      <SettingsCard>
         {isProcessing ? (
-          <SettingsPanelSection>
+          <SettingsBlock>
             <div className="flex items-start gap-(--space-4) text-[length:var(--text-sm)]">
               <HugeiconsIcon
                 icon={RefreshIcon}
@@ -159,11 +173,11 @@ export function BillingSection({
                 </div>
               </div>
             </div>
-          </SettingsPanelSection>
+          </SettingsBlock>
         ) : null}
 
         {initialData.cancelAtPeriodEnd ? (
-          <SettingsPanelSection>
+          <SettingsBlock>
             <div className="flex items-start gap-(--space-4) text-[length:var(--text-sm)]">
               <HugeiconsIcon
                 icon={Alert02Icon}
@@ -179,11 +193,11 @@ export function BillingSection({
                 </div>
               </div>
             </div>
-          </SettingsPanelSection>
+          </SettingsBlock>
         ) : null}
 
         {initialData.status === "past_due" ? (
-          <SettingsPanelSection>
+          <SettingsBlock>
             <div className="flex items-start gap-(--space-4) text-[length:var(--text-sm)]">
               <HugeiconsIcon
                 icon={Alert02Icon}
@@ -197,58 +211,66 @@ export function BillingSection({
                 </div>
               </div>
             </div>
-          </SettingsPanelSection>
+          </SettingsBlock>
         ) : null}
 
         {error ? (
-          <SettingsPanelSection>
-            <div className="text-[length:var(--text-sm)] text-[var(--status-danger-ink)]">{error}</div>
-          </SettingsPanelSection>
+          <SettingsBlock>
+            <FieldError>{error}</FieldError>
+          </SettingsBlock>
         ) : null}
 
-        <SettingsKeyValueRow label="Plan" value={formatPlan(initialData.plan)} />
-        <SettingsKeyValueRow
-          label="Plugins"
-          value={
-            initialData.entitlements.length > 0
-              ? initialData.entitlements
-                  .map((plugin) => BILLING_PLUGIN_LABELS[plugin])
-                  .join(", ")
-              : "No plugins yet"
-          }
-        />
-        <SettingsKeyValueRow label="Status" value={formatStatus(initialData)} />
-        <SettingsKeyValueRow label="SKU usage" value={usageText(initialData)} />
-        <SettingsKeyValueRow
-          label={initialData.cancelAtPeriodEnd ? "Core ends" : "Renews"}
-          value={periodEnd ?? "Not scheduled"}
-        />
-        <SettingsKeyValueRow
-          label="Core"
-          value="$199 / month"
-          supportingText="Unlimited SKUs."
-        />
-        <SettingsKeyValueRow
-          label="Advantage"
-          value="Contact sales"
-          supportingText="Enterprise plan. No self-serve billing flow in v1."
-        />
-        <SettingsKeyValueRow
-          label="Sync"
-          value="Refresh Stripe state"
-          action={
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => void runBillingAction("resync")}
-              disabled={!initialData.billingConfigured || isPending != null}
-            >
-              <HugeiconsIcon icon={RefreshIcon} data-icon="inline-start" />
-              Resync
-            </Button>
-          }
-        />
-      </SettingsRows>
-    </SettingsPanel>
+        <SettingsBlock>
+          <div className="flex min-w-0 flex-col gap-(--space-3)">
+            <div className="flex items-center gap-(--space-5)">
+              <span className="text-[length:var(--text-xl)] leading-[var(--leading-xl)] font-semibold tracking-[var(--tracking-tight)] text-[var(--color-ink)]">
+                {isCore ? "Core" : "Free"}
+              </span>
+              <PlanStatusBadge data={initialData} />
+            </div>
+            {isCore ? (
+              <span className="font-mono text-[length:var(--text-xs)] text-[var(--color-ink-soft)]">
+                <span className="text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
+                  $199
+                </span>{" "}
+                / month
+              </span>
+            ) : null}
+            <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+              {isCore ? `${skuUsage} · ${renewal}` : skuUsage}
+            </span>
+          </div>
+        </SettingsBlock>
+
+        <SettingsBlock>
+          <SettingsQuietRow
+            title="Advantage"
+            sub="Multi-site operations, custom roles and onboarding support. No self-serve upgrade yet — talk to us."
+            action={
+              <Button variant="outline" size="sm" asChild>
+                <a href="mailto:support@ashicore.app?subject=Ashicore%20Advantage">
+                  Contact sales
+                </a>
+              </Button>
+            }
+          />
+        </SettingsBlock>
+      </SettingsCard>
+
+      <SettingsFootnote>
+        Plan out of date?{" "}
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          className="h-auto p-0 text-[length:var(--text-xs)]"
+          onClick={() => void runBillingAction("resync")}
+          disabled={!initialData.billingConfigured || isPending != null}
+        >
+          <HugeiconsIcon icon={RefreshIcon} data-icon="inline-start" />
+          Resync with Stripe
+        </Button>
+      </SettingsFootnote>
+    </div>
   );
 }

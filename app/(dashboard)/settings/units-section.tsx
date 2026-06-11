@@ -9,7 +9,12 @@ import {
   type LineField,
 } from "@/components/editable-lines";
 import { FieldError } from "@/components/ui/field";
-import { SettingsPanel, SettingsPanelHeader } from "@/components/settings-panel";
+import { Input } from "@/components/ui/input";
+import {
+  SettingsBlock,
+  SettingsCard,
+  SettingsPageHeader,
+} from "@/components/settings-panel";
 import { apiJson } from "@/lib/client/api";
 import { formatCompactUnitLabel } from "@/lib/format";
 import { getUomOptions } from "@/lib/units-of-measure";
@@ -31,6 +36,7 @@ type UnitPayload = {
 export function UnitsSection({ initialUnits }: { initialUnits: UnitRow[] }) {
   const router = useRouter();
   const [rows, setRows] = useState<UnitRow[]>(initialUnits);
+  const [searchValue, setSearchValue] = useState("");
   const savingDraftIdsRef = useRef(new Set<string>());
   const mutation = useMutation({
     mutationFn: async ({ row }: { row: UnitRow }) => {
@@ -120,7 +126,7 @@ export function UnitsSection({ initialUnits }: { initialUnits: UnitRow[] }) {
       {
         colId: "preview",
         kind: "display",
-        headerName: "Preview",
+        headerName: "Shows as",
         flex: 1,
         minWidth: 160,
         valueGetter: ({ data }) => data ? formatCompactUnitLabel(data) ?? "" : "",
@@ -128,11 +134,45 @@ export function UnitsSection({ initialUnits }: { initialUnits: UnitRow[] }) {
     ],
     [uomLabelByValue, uomValues],
   );
-  const saveStatus = mutation.isPending || deleteMutation.isPending
-    ? "Saving..."
-    : mutation.isError || deleteMutation.isError
-      ? "Changes not saved"
-      : "All changes saved";
+
+  const query = searchValue.trim().toLowerCase();
+  const shownRows = query
+    ? rows.filter(
+        (row) =>
+          row.name.toLowerCase().includes(query) ||
+          row.uom.toLowerCase().includes(query),
+      )
+    : rows;
+
+  function handleRowsChange(
+    nextRows: UnitRow[],
+    change: EditableLineDataGridChange<UnitRow>,
+  ) {
+    setRows((currentRows) => {
+      if (!query) return nextRows;
+      // The grid only sees the filtered rows while searching; fold the change
+      // back into the full set.
+      switch (change.type) {
+        case "row_added":
+          return change.row ? [...currentRows, change.row] : currentRows;
+        case "row_deleted":
+          return change.row
+            ? currentRows.filter((row) => row.id !== change.row!.id)
+            : currentRows;
+        default: {
+          const byId = new Map(nextRows.map((row) => [row.id, row]));
+          return currentRows.map((row) => byId.get(row.id) ?? row);
+        }
+      }
+    });
+    if (change.type !== "cell_edit_committed" || !change.row) return;
+    const row = change.row;
+    if (!toPayload(row)) return;
+    if (isDraftRow(row) && savingDraftIdsRef.current.has(row.id)) return;
+    if (isDraftRow(row)) savingDraftIdsRef.current.add(row.id);
+    mutation.mutate({ row });
+  }
+
   const actionError =
     mutation.error instanceof Error
       ? mutation.error.message
@@ -141,61 +181,63 @@ export function UnitsSection({ initialUnits }: { initialUnits: UnitRow[] }) {
         : null;
 
   return (
-    <SettingsPanel id="units">
-      <SettingsPanelHeader
+    <div className="flex flex-col gap-(--space-8)">
+      <SettingsPageHeader
         title="Units"
-        meta="Stocking and purchasing units available on item cards."
-        action={
-          <span className="text-[length:var(--text-xs)] text-muted-foreground">
-            {saveStatus}
-          </span>
-        }
+        sub="Stocking and purchasing units available on item cards."
       />
-      <div className="grid gap-(--space-4) p-(--space-8)">
-        <MutableLines<UnitRow>
-          rows={rows}
-          fields={fields}
-          getRowId={(row) => row.id}
-          createRow={() => ({
-            id: `draft-${crypto.randomUUID()}`,
-            name: "",
-            size: "1",
-            uom: "pcs",
-          })}
-          onRowsChange={(
-            nextRows: UnitRow[],
-            change: EditableLineDataGridChange<UnitRow>,
-          ) => {
-            setRows(nextRows);
-            if (change.type !== "cell_edit_committed" || !change.row) return;
-            const row = change.row;
-            if (!toPayload(row)) return;
-            if (isDraftRow(row) && savingDraftIdsRef.current.has(row.id)) return;
-            if (isDraftRow(row)) savingDraftIdsRef.current.add(row.id);
-            mutation.mutate({ row });
-          }}
-          addLabel="Add row"
-          initializeBlankRow={false}
-          enableReorder={false}
-          getDeleteDisabledReason={(row) =>
-            row.isInUse ? "Unit is in use and cannot be deleted." : null
+
+      <SettingsCard>
+        <SettingsBlock
+          title="Units"
+          count={rows.length}
+          actions={
+            <Input
+              type="search"
+              value={searchValue}
+              onChange={(event) => setSearchValue(event.target.value)}
+              placeholder="Search units…"
+              aria-label="Search units"
+              className="h-(--height-input-sm) w-56 rounded-full"
+            />
           }
-          onDeleteRow={async (row) => {
-            if (!isDraftRow(row)) {
-              const confirmed = window.confirm(`Delete ${row.name || "this unit"}?`);
-              if (!confirmed) return;
+        >
+          <MutableLines<UnitRow>
+            rows={shownRows}
+            fields={fields}
+            getRowId={(row) => row.id}
+            createRow={() => ({
+              id: `draft-${crypto.randomUUID()}`,
+              name: "",
+              size: "1",
+              uom: "pcs",
+            })}
+            onRowsChange={handleRowsChange}
+            addLabel="Add unit"
+            initializeBlankRow={false}
+            enableReorder={false}
+            getDeleteDisabledReason={(row) =>
+              row.isInUse ? "Unit is in use and cannot be deleted." : null
             }
-            await deleteMutation.mutateAsync(row);
-          }}
-          emptyMessage="No units yet."
-        />
-        {actionError ? (
-          <FieldError>
-            {actionError}
-          </FieldError>
-        ) : null}
-      </div>
-    </SettingsPanel>
+            onDeleteRow={async (row) => {
+              if (!isDraftRow(row)) {
+                const confirmed = window.confirm(`Delete ${row.name || "this unit"}?`);
+                if (!confirmed) return;
+              }
+              await deleteMutation.mutateAsync(row);
+            }}
+            emptyMessage={
+              query ? `No units match “${searchValue}”.` : "No units yet."
+            }
+          />
+          {actionError ? (
+            <div className="mt-(--space-4)">
+              <FieldError>{actionError}</FieldError>
+            </div>
+          ) : null}
+        </SettingsBlock>
+      </SettingsCard>
+    </div>
   );
 }
 

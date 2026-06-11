@@ -1,271 +1,65 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useState } from "react";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
+import { useForm } from "react-hook-form";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Delete02Icon, Location01Icon } from "@hugeicons/core-free-icons";
+import { AddressBookFields } from "@/components/address-book-fields";
 import {
-  MutableLines,
-  type EditableLineDataGridChange,
-  type LineField,
-} from "@/components/editable-lines";
-import { SettingsPanel, SettingsPanelHeader } from "@/components/settings-panel";
+  FramedTable,
+  FramedTableBody,
+  FramedTableCell,
+  FramedTableHead,
+  FramedTableHeaderCell,
+  FramedTableRow,
+  TableFrame,
+} from "@/components/table-frame";
+import {
+  SettingsAddLink,
+  SettingsBlock,
+  SettingsCard,
+  SettingsPageHeader,
+} from "@/components/settings-panel";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { FieldError } from "@/components/ui/field";
 import { apiJson } from "@/lib/client/api";
-import {
-  COUNTRY_OPTIONS,
-  DEFAULT_COUNTRY,
-  getRegionOptions,
-  normalizeCountry,
-  normalizeRegion,
-} from "@/lib/address-options";
+import { DEFAULT_COUNTRY } from "@/lib/address-options";
 import type { AddressEntry } from "@/lib/dal/addresses";
 import { createAddressEntrySchema } from "@/lib/schemas/addresses";
+import type { z } from "zod";
 
 type AddressBookRow = Omit<AddressEntry, "createdAt" | "updatedAt">;
-type SaveAddressInput = {
-  clientId: string;
-  row: AddressBookRow;
+type AddressDialogValues = z.input<typeof createAddressEntrySchema>;
+
+const EMPTY_FORM: AddressDialogValues = {
+  label: "",
+  contactName: null,
+  contactPhone: null,
+  line1: null,
+  line2: null,
+  city: null,
+  region: null,
+  postcode: null,
+  country: DEFAULT_COUNTRY,
+  deliveryInstructions: null,
+  notes: null,
 };
 
-const TEMP_ID_PREFIX = "new:";
-const EMPTY_OPTION = "__empty__";
-const US_REGION_OPTIONS = getRegionOptions(DEFAULT_COUNTRY);
-const US_REGION_VALUES = [EMPTY_OPTION, ...US_REGION_OPTIONS.map((option) => option.value)];
-const COUNTRY_VALUES = [EMPTY_OPTION, ...COUNTRY_OPTIONS.map((option) => option.value)];
-
-export function AddressesSection({ initialData }: { initialData: AddressBookRow[] }) {
-  const [addresses, setAddresses] = useState(initialData);
-  const inFlightSavesRef = useRef(new Set<string>());
-
-  const saveMutation = useMutation({
-    mutationFn: ({ clientId, row }: SaveAddressInput) =>
-      apiJson<AddressEntry>(
-        isTemporaryId(clientId) ? "/api/addresses" : `/api/addresses/${clientId}`,
-        {
-          method: isTemporaryId(clientId) ? "POST" : "PUT",
-          body: createAddressEntrySchema.parse(rowToPayload(row)),
-          fallbackError: "Failed to save address.",
-        },
-      ),
-    onSuccess: (entry, { clientId }) => {
-      const saved = toAddressBookRow(entry);
-      setAddresses((current) =>
-        current
-          .map((row) => (row.id === clientId || row.id === saved.id ? saved : row))
-          .sort((a, b) => a.label.localeCompare(b.label)),
-      );
-    },
-    onSettled: (_data, _error, { clientId }) => {
-      inFlightSavesRef.current.delete(clientId);
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (row: AddressBookRow) =>
-      isTemporaryId(row.id)
-        ? Promise.resolve({ success: true })
-        : apiJson<{ success: boolean }>(`/api/addresses/${row.id}`, {
-            method: "DELETE",
-            fallbackError: "Failed to delete address.",
-          }),
-  });
-
-  const fields = useMemo<LineField<AddressBookRow>[]>(
-    () => [
-      {
-        field: "label",
-        kind: "text",
-        headerName: "Label",
-        width: 180,
-        minWidth: 160,
-        editable: true,
-        getValidationErrors: (value) =>
-          value?.trim() ? null : ["Label is required"],
-      },
-      {
-        field: "line1",
-        kind: "text",
-        headerName: "Street address",
-        width: 260,
-        minWidth: 220,
-        editable: true,
-        valueFormatter: emptyFormatter,
-      },
-      {
-        field: "line2",
-        kind: "text",
-        headerName: "Apt / suite",
-        width: 150,
-        editable: true,
-        valueFormatter: emptyFormatter,
-      },
-      {
-        field: "city",
-        kind: "text",
-        headerName: "City",
-        width: 150,
-        editable: true,
-        valueFormatter: emptyFormatter,
-      },
-      {
-        field: "region",
-        kind: "select",
-        headerName: "State",
-        width: 120,
-        editable: true,
-        values: US_REGION_VALUES,
-        getSelectLabel: regionLabel,
-        valueFormatter: ({ value }) => regionLabel(String(value ?? EMPTY_OPTION)),
-        valueSetter: ({ data, newValue }) => {
-          if (!data) return false;
-          data.region =
-            newValue === EMPTY_OPTION
-              ? null
-              : normalizeRegion(data.country ?? DEFAULT_COUNTRY, String(newValue));
-          return true;
-        },
-      },
-      {
-        field: "postcode",
-        kind: "text",
-        headerName: "Postal code",
-        width: 140,
-        editable: true,
-        valueFormatter: emptyFormatter,
-      },
-      {
-        field: "country",
-        kind: "select",
-        headerName: "Country",
-        width: 170,
-        editable: true,
-        values: COUNTRY_VALUES,
-        getSelectLabel: countryLabel,
-        valueFormatter: ({ value }) => countryLabel(String(value ?? EMPTY_OPTION)),
-        valueSetter: ({ data, newValue }) => {
-          if (!data) return false;
-          data.country = newValue === EMPTY_OPTION ? null : normalizeCountry(String(newValue));
-          if (data.country !== DEFAULT_COUNTRY) {
-            data.region = normalizeRegion(data.country, data.region);
-          }
-          return true;
-        },
-      },
-      {
-        field: "contactName",
-        kind: "text",
-        headerName: "Contact",
-        width: 170,
-        editable: true,
-        valueFormatter: emptyFormatter,
-      },
-      {
-        field: "contactPhone",
-        kind: "text",
-        headerName: "Phone",
-        width: 150,
-        editable: true,
-        valueFormatter: emptyFormatter,
-      },
-      {
-        field: "deliveryInstructions",
-        kind: "text",
-        headerName: "Delivery instructions",
-        minWidth: 240,
-        flex: 1,
-        editable: true,
-        valueFormatter: emptyFormatter,
-      },
-    ],
-    [],
-  );
-
-  const status =
-    saveMutation.isPending || deleteMutation.isPending
-      ? "Saving..."
-      : saveMutation.isError || deleteMutation.isError
-        ? "Changes not saved"
-        : "All changes saved";
-  const actionError =
-    saveMutation.error instanceof Error
-      ? saveMutation.error.message
-      : deleteMutation.error instanceof Error
-        ? deleteMutation.error.message
-        : null;
-
-  function saveRow(row: AddressBookRow) {
-    if (!row.label.trim() || inFlightSavesRef.current.has(row.id)) return;
-    inFlightSavesRef.current.add(row.id);
-    saveMutation.mutate({ clientId: row.id, row });
-  }
-
-  function handleRowsChange(
-    nextRows: AddressBookRow[],
-    change: EditableLineDataGridChange<AddressBookRow>,
-  ) {
-    setAddresses(nextRows);
-
-    if (change.type === "row_deleted" && change.row) {
-      deleteMutation.mutate(change.row);
-      return;
-    }
-
-    if (change.row) {
-      saveRow(change.row);
-    }
-  }
-
-  return (
-    <SettingsPanel id="addresses">
-      <SettingsPanelHeader
-        title="Addresses"
-        meta="Delivery addresses shared by sales and purchasing."
-        action={
-          <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-            {status}
-          </span>
-        }
-      />
-
-      <div className="p-(--space-8)">
-        <MutableLines<AddressBookRow>
-          rows={addresses}
-          fields={fields}
-          getRowId={(row) => row.id}
-          createRow={createAddressBookRow}
-          onRowsChange={handleRowsChange}
-          addLabel="Add address"
-          initializeBlankRow={false}
-          emptyMessage="No addresses yet."
-          rowHeight={40}
-          error={actionError}
-          rowHasError={(row) => !row.label.trim()}
-        />
-      </div>
-    </SettingsPanel>
-  );
+function composedAddress(row: AddressBookRow) {
+  const locality = [row.region, row.postcode].filter(Boolean).join(" ");
+  return [row.line1, row.line2, row.city, locality].filter(Boolean).join(", ");
 }
 
-function createAddressBookRow(): AddressBookRow {
-  return {
-    id: `${TEMP_ID_PREFIX}${crypto.randomUUID()}`,
-    label: "",
-    contactName: null,
-    contactPhone: null,
-    line1: null,
-    line2: null,
-    city: null,
-    region: null,
-    postcode: null,
-    country: DEFAULT_COUNTRY,
-    deliveryInstructions: null,
-    notes: null,
-  };
-}
-
-function isTemporaryId(id: string) {
-  return id.startsWith(TEMP_ID_PREFIX);
-}
-
-function rowToPayload(row: AddressBookRow) {
+function toFormValues(row: AddressBookRow): AddressDialogValues {
   return {
     label: row.label,
     contactName: row.contactName,
@@ -281,36 +75,195 @@ function rowToPayload(row: AddressBookRow) {
   };
 }
 
-function toAddressBookRow(address: AddressEntry): AddressBookRow {
-  return {
-    id: address.id,
-    label: address.label,
-    contactName: address.contactName,
-    contactPhone: address.contactPhone,
-    line1: address.line1,
-    line2: address.line2,
-    city: address.city,
-    region: address.region,
-    postcode: address.postcode,
-    country: address.country,
-    deliveryInstructions: address.deliveryInstructions,
-    notes: address.notes,
-  };
-}
+function AddressDialog({
+  row,
+  onClose,
+  onSaved,
+}: {
+  row: AddressBookRow | null;
+  onClose: () => void;
+  onSaved: (entry: AddressEntry) => void;
+}) {
+  const form = useForm<AddressDialogValues>({
+    resolver: zodResolver(createAddressEntrySchema),
+    defaultValues: row ? toFormValues(row) : EMPTY_FORM,
+  });
 
-function emptyFormatter({ value }: { value: unknown }) {
-  return typeof value === "string" && value.length > 0 ? value : "-";
-}
+  const saveMutation = useMutation({
+    mutationFn: (values: AddressDialogValues) =>
+      apiJson<AddressEntry>(row ? `/api/addresses/${row.id}` : "/api/addresses", {
+        method: row ? "PUT" : "POST",
+        body: createAddressEntrySchema.parse(values),
+        fallbackError: "Failed to save address.",
+      }),
+    onSuccess: (entry) => {
+      onSaved(entry);
+      onClose();
+    },
+  });
 
-function regionLabel(value: string) {
-  if (!value || value === EMPTY_OPTION) return "State";
-  const normalized = normalizeRegion(DEFAULT_COUNTRY, value) ?? value;
   return (
-    US_REGION_OPTIONS.find((option) => option.value === normalized)?.label ?? normalized
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent size="2xl">
+        <DialogHeader>
+          <DialogTitle>{row ? "Edit address" : "Add address"}</DialogTitle>
+        </DialogHeader>
+        <form
+          className="flex flex-col gap-(--space-8)"
+          onSubmit={form.handleSubmit((values) => saveMutation.mutate(values))}
+        >
+          <AddressBookFields
+            control={form.control}
+            idPrefix="settings-address"
+            labelName="label"
+            contactNameName="contactName"
+            contactPhoneName="contactPhone"
+            addressNames={{
+              line1: "line1",
+              line2: "line2",
+              city: "city",
+              region: "region",
+              postcode: "postcode",
+              country: "country",
+            }}
+            notesName="deliveryInstructions"
+            notesLabel="Delivery instructions"
+          />
+
+          {saveMutation.error ? (
+            <FieldError>{saveMutation.error.message}</FieldError>
+          ) : null}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onClose}
+              disabled={saveMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={saveMutation.isPending}>
+              {saveMutation.isPending ? "Saving…" : "Save address"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function countryLabel(value: string) {
-  if (!value || value === EMPTY_OPTION) return "Country";
-  return normalizeCountry(value) ?? value;
+export function AddressesSection({ initialData }: { initialData: AddressBookRow[] }) {
+  const [addresses, setAddresses] = useState(initialData);
+  const [dialog, setDialog] = useState<{ row: AddressBookRow | null } | null>(null);
+
+  const deleteMutation = useMutation({
+    mutationFn: (row: AddressBookRow) =>
+      apiJson<{ success: boolean }>(`/api/addresses/${row.id}`, {
+        method: "DELETE",
+        fallbackError: "Failed to delete address.",
+      }),
+    onSuccess: (_result, row) => {
+      setAddresses((current) => current.filter((entry) => entry.id !== row.id));
+    },
+  });
+
+  const handleSaved = (entry: AddressEntry) => {
+    setAddresses((current) => {
+      const next = current.filter((row) => row.id !== entry.id);
+      next.push(entry);
+      return next.sort((a, b) => a.label.localeCompare(b.label));
+    });
+  };
+
+  return (
+    <div className="flex flex-col gap-(--space-8)">
+      <SettingsPageHeader
+        title="Addresses"
+        sub="Your locations — used as ship-from and deliver-to addresses on sales and purchase orders."
+      />
+
+      <SettingsCard>
+        <SettingsBlock title="Locations" count={addresses.length}>
+          {deleteMutation.error ? (
+            <div className="mb-(--space-6)">
+              <FieldError>{deleteMutation.error.message}</FieldError>
+            </div>
+          ) : null}
+
+          {addresses.length > 0 ? (
+            <TableFrame>
+              <FramedTable>
+                <FramedTableHead>
+                  <tr>
+                    <FramedTableHeaderCell className="w-40">
+                      Label
+                    </FramedTableHeaderCell>
+                    <FramedTableHeaderCell>Address</FramedTableHeaderCell>
+                    <FramedTableHeaderCell className="w-44">
+                      Contact
+                    </FramedTableHeaderCell>
+                    <FramedTableHeaderCell className="w-12" />
+                  </tr>
+                </FramedTableHead>
+                <FramedTableBody>
+                  {addresses.map((row) => (
+                    <FramedTableRow
+                      key={row.id}
+                      className="cursor-pointer"
+                      onClick={() => setDialog({ row })}
+                    >
+                      <FramedTableCell strong>{row.label}</FramedTableCell>
+                      <FramedTableCell className="whitespace-normal">
+                        {composedAddress(row) || (
+                          <span className="text-[var(--color-ink-faint)]">—</span>
+                        )}
+                      </FramedTableCell>
+                      <FramedTableCell muted>{row.contactName ?? "—"}</FramedTableCell>
+                      <FramedTableCell align="right">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Delete ${row.label}`}
+                          disabled={deleteMutation.isPending}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            deleteMutation.mutate(row);
+                          }}
+                          className="text-[var(--color-ink-faint)] hover:bg-[var(--color-danger-soft)] hover:text-[var(--status-danger-ink)]"
+                        >
+                          <HugeiconsIcon icon={Delete02Icon} />
+                        </Button>
+                      </FramedTableCell>
+                    </FramedTableRow>
+                  ))}
+                </FramedTableBody>
+              </FramedTable>
+            </TableFrame>
+          ) : (
+            <div className="flex flex-col items-center justify-center gap-(--space-4) py-(--space-12) text-center text-[var(--color-ink-faint)]">
+              <HugeiconsIcon icon={Location01Icon} size={20} aria-hidden />
+              <span className="text-[length:var(--text-status)]">
+                No addresses yet.
+              </span>
+            </div>
+          )}
+
+          <SettingsAddLink onClick={() => setDialog({ row: null })}>
+            Add address
+          </SettingsAddLink>
+        </SettingsBlock>
+      </SettingsCard>
+
+      {dialog ? (
+        <AddressDialog
+          key={dialog.row?.id ?? "new"}
+          row={dialog.row}
+          onClose={() => setDialog(null)}
+          onSaved={handleSaved}
+        />
+      ) : null}
+    </div>
+  );
 }

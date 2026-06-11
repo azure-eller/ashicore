@@ -346,6 +346,46 @@ test.describe("Team access", () => {
     operatorMemberId = operatorMember.id;
 
     await accepted.context.close();
+
+    // Owner adjusts the new member's access inline from the team table, then
+    // puts it back.
+    await page.reload();
+    const operatorRow = page.getByRole("row").filter({ hasText: operatorEmail });
+    await operatorRow.getByRole("button", { name: "Sales Operator" }).click();
+    await page.getByRole("menuitem", { name: "Ops Operator" }).click();
+    await expect(
+      operatorRow.getByRole("button", { name: "Ops Operator" })
+    ).toBeVisible();
+    const [reassigned] = await db
+      .select()
+      .from(member)
+      .where(eq(member.id, operatorMemberId));
+    expectRoleIncludes(reassigned.role, [
+      "access:matrix",
+      "member",
+      "inventory:read",
+      "sales:read",
+      "manufacturing:operate",
+      "purchasing:read",
+    ]);
+
+    await operatorRow.getByRole("button", { name: "Ops Operator" }).click();
+    await page.getByRole("menuitem", { name: "Sales Operator" }).click();
+    await expect(
+      operatorRow.getByRole("button", { name: "Sales Operator" })
+    ).toBeVisible();
+    const [restored] = await db
+      .select()
+      .from(member)
+      .where(eq(member.id, operatorMemberId));
+    expectRoleIncludes(restored.role, [
+      "access:matrix",
+      "member",
+      "inventory:read",
+      "sales:operate",
+      "manufacturing:read",
+      "purchasing:read",
+    ]);
   });
 
   test("sales operator can use sales but cannot mutate other modules", async ({ browser }) => {

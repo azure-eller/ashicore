@@ -1,48 +1,111 @@
 import type { ReactNode } from "react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Add01Icon } from "@hugeicons/core-free-icons";
 import { ListFrameItem } from "@/components/list-frame";
 import { SurfacePanel } from "@/components/surface-panel";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-export function SettingsPanel({
-  id,
+export function SettingsPageHeader({
+  title,
+  sub,
+  action,
+}: {
+  title: ReactNode;
+  sub?: ReactNode;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 flex-wrap items-start justify-between gap-(--space-6)">
+      <div className="flex min-w-0 flex-col gap-(--space-2)">
+        <h1 className="text-[length:var(--text-lg)] leading-[var(--leading-lg)] font-semibold tracking-[var(--tracking-tight)] text-[var(--color-ink)]">
+          {title}
+        </h1>
+        {sub ? (
+          <p className="max-w-xl text-[length:var(--text-status)] leading-[var(--leading-sm)] text-[var(--color-ink-faint)]">
+            {sub}
+          </p>
+        ) : null}
+      </div>
+      {action ? (
+        <div className="flex shrink-0 items-center gap-(--space-4)">{action}</div>
+      ) : null}
+    </div>
+  );
+}
+
+export function SettingsCard({
   children,
   className,
 }: {
-  id: string;
   children: ReactNode;
   className?: string;
 }) {
   return (
-    <SurfacePanel
-      as="section"
-      id={id}
-      padding="sm"
-      className={cn("scroll-mt-(--space-24) p-0", className)}
-    >
+    <SurfacePanel as="section" padding="sm" className={cn("p-0", className)}>
       {children}
     </SurfacePanel>
   );
 }
 
-export function SettingsPanelHeader({
+export function SettingsBlock({
   title,
-  meta,
+  count,
+  actions,
+  children,
+  className,
+}: {
+  title?: ReactNode;
+  count?: ReactNode;
+  actions?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <ListFrameItem className={cn("px-(--space-10) py-(--space-10) sm:px-(--space-12)", className)}>
+      {title || actions ? (
+        <div className="mb-(--space-7) flex min-w-0 flex-wrap items-center gap-(--space-4)">
+          {title ? (
+            <h2 className="font-mono text-[length:var(--text-card-header)] leading-[var(--leading-xs)] font-semibold tracking-[0.09em] text-[var(--color-ink)] uppercase">
+              {title}
+            </h2>
+          ) : null}
+          {count != null ? (
+            <span className="font-mono text-[length:var(--text-card-header)] leading-[var(--leading-xs)] text-[var(--color-ink-faint)]">
+              · {count}
+            </span>
+          ) : null}
+          {actions ? (
+            <div className="ms-auto flex shrink-0 items-center gap-(--space-4)">
+              {actions}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {children}
+    </ListFrameItem>
+  );
+}
+
+export function SettingsQuietRow({
+  title,
+  sub,
   action,
 }: {
   title: ReactNode;
-  meta?: ReactNode;
+  sub?: ReactNode;
   action?: ReactNode;
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-(--space-6) border-b border-[var(--color-line-soft)] bg-[var(--color-surface-sunk)] px-(--space-8) py-(--space-8) sm:flex-row sm:items-center sm:justify-between sm:px-(--space-12) sm:py-(--space-9)">
-      <div className="min-w-0">
-        <h2 className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-semibold tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)] uppercase">
+    <div className="flex min-w-0 flex-wrap items-center justify-between gap-(--space-6)">
+      <div className="flex min-w-0 flex-col gap-(--space-1)">
+        <span className="text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
           {title}
-        </h2>
-        {meta ? (
-          <div className="mt-(--space-1) min-w-0 break-words text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-[var(--color-ink-faint)]">
-            {meta}
-          </div>
+        </span>
+        {sub ? (
+          <span className="max-w-lg text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-[var(--color-ink-faint)]">
+            {sub}
+          </span>
         ) : null}
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}
@@ -50,98 +113,34 @@ export function SettingsPanelHeader({
   );
 }
 
-export function SettingsPanelSection({
+export function SettingsAddLink({
   children,
-  className,
-  interactive = false,
+  onClick,
+  disabled,
 }: {
   children: ReactNode;
-  className?: string;
-  interactive?: boolean;
+  onClick?: () => void;
+  disabled?: boolean;
 }) {
   return (
-    <ListFrameItem
-      interactive={interactive}
-      className={cn("px-(--space-8) py-(--space-8) sm:px-(--space-12) sm:py-(--space-10)", className)}
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      onClick={onClick}
+      disabled={disabled}
+      className="mt-(--space-4) w-fit px-(--space-5) text-[var(--color-accent-ink)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent-ink)]"
     >
+      <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
       {children}
-    </ListFrameItem>
+    </Button>
   );
 }
 
-export function SettingsPanelActionRow({
-  children,
-  action,
-  className,
-}: {
-  children: ReactNode;
-  action: ReactNode;
-  className?: string;
-}) {
+export function SettingsFootnote({ children }: { children: ReactNode }) {
   return (
-    <SettingsPanelSection
-      interactive
-      className={cn(
-        "group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-(--space-6) py-(--space-6)",
-        className
-      )}
-    >
+    <p className="px-(--space-2) text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-[var(--color-ink-faint)]">
       {children}
-      <div className="shrink-0 md:opacity-0 md:transition-opacity md:focus-within:opacity-100 md:group-hover:opacity-100">
-        {action}
-      </div>
-    </SettingsPanelSection>
-  );
-}
-
-export function SettingsRows({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return <div className={className}>{children}</div>;
-}
-
-export function SettingsKeyValueRow({
-  label,
-  value,
-  supportingText,
-  action,
-  valueClassName,
-  className,
-}: {
-  label: ReactNode;
-  value: ReactNode;
-  supportingText?: ReactNode;
-  action?: ReactNode;
-  valueClassName?: string;
-  className?: string;
-}) {
-  return (
-    <SettingsPanelSection className={cn("py-(--space-5)", className)}>
-      <div className="grid max-w-3xl gap-(--space-4) sm:grid-cols-[9rem_minmax(12rem,24rem)_auto] sm:items-center">
-        <span className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
-          {label}
-        </span>
-        <div className="min-w-0">
-          <div
-            className={cn(
-              "min-w-0 truncate text-[length:var(--text-sm)]",
-              valueClassName
-            )}
-          >
-            {value}
-          </div>
-          {supportingText ? (
-            <div className="mt-(--space-1) min-w-0 text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-[var(--color-ink-faint)]">
-              {supportingText}
-            </div>
-          ) : null}
-        </div>
-        {action ? <div className="sm:justify-self-start">{action}</div> : null}
-      </div>
-    </SettingsPanelSection>
+    </p>
   );
 }
