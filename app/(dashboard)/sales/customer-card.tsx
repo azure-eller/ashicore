@@ -1102,7 +1102,7 @@ function ActivitySection({
     >
       <div className="grid gap-(--space-5)">
         {!readOnly ? (
-          <div className="grid gap-0 rounded-(--radius-md) border border-[var(--color-line)]">
+          <div className="grid gap-0 rounded-(--radius-md) border-[1.5px] border-[var(--color-line)] transition-[border-color,box-shadow] duration-(--duration-1) ease-(--ease-out) focus-within:border-[var(--color-accent)] focus-within:shadow-[0_0_0_4px_var(--color-accent-soft)]">
             <div className="flex flex-wrap items-center gap-(--space-2) p-(--space-4) pb-0">
               {(Object.keys(activityComposerMeta) as CustomerActivityType[]).map(
                 (option) => (
@@ -1113,6 +1113,7 @@ function ActivitySection({
                     variant="outline"
                     aria-pressed={type === option}
                     className={cn(
+                      "rounded-full",
                       type === option &&
                         "border-transparent bg-[var(--color-accent-soft)] text-[var(--color-accent-ink)] hover:bg-[var(--color-accent-soft)]"
                     )}
@@ -1131,7 +1132,7 @@ function ActivitySection({
                 disabled={createMutation.isPending}
                 aria-label={isTask ? "Task title" : "Activity notes"}
                 placeholder={activityComposerMeta[type].placeholder}
-                className="border-0 shadow-none focus-visible:ring-0 text-[length:var(--text-md)] leading-[var(--leading-md)]"
+                className="field-sizing-fixed border-0 bg-transparent shadow-none hover:border-0 focus-visible:border-0 focus-visible:shadow-none text-[length:var(--text-md)] leading-[var(--leading-md)]"
                 onChange={(event) => {
                   const value = event.target.value;
                   setBody(value);
@@ -1163,7 +1164,7 @@ function ActivitySection({
                         insertMention(contact.name);
                       }}
                     >
-                      <span className="flex size-(--space-9) items-center justify-center rounded-full border border-[var(--color-line)] text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                      <span className="flex size-(--space-12) shrink-0 items-center justify-center rounded-full border border-[var(--color-line)] text-[length:var(--text-3xs)] text-[var(--color-ink-faint)]">
                         {contactInitials(contact.name)}
                       </span>
                       {contact.name}
@@ -1183,7 +1184,11 @@ function ActivitySection({
                   setProjectId(value);
                 }}
               >
-                <SelectTrigger aria-label="Project" size="sm">
+                <SelectTrigger aria-label="Project" size="sm" className="rounded-full">
+                  <HugeiconsIcon
+                    icon={Folder01Icon}
+                    className="size-(--space-5) shrink-0 text-[var(--color-ink-faint)]"
+                  />
                   <SelectValue>
                     {projectId === noActivityProjectValue
                       ? "No project"
@@ -1242,6 +1247,7 @@ function ActivitySection({
                 {error ? <FieldError>{error.message}</FieldError> : null}
                 <Button
                   type="button"
+                  className="rounded-full"
                   disabled={!body.trim() || createMutation.isPending}
                   onClick={() => {
                     if (!customerId || readOnly) return;
@@ -1323,6 +1329,7 @@ function ActivitySection({
                     variant="outline"
                     aria-pressed={newProjectStatus === status}
                     className={cn(
+                      "rounded-full",
                       newProjectStatus === status &&
                         "border-transparent bg-[var(--color-accent-soft)] text-[var(--color-accent-ink)] hover:bg-[var(--color-accent-soft)]"
                     )}
@@ -1407,7 +1414,7 @@ function ActivityStreamLists({
                       aria-label={`Complete "${task.title}"`}
                       checked={false}
                       disabled={readOnly || pending}
-                      className="rounded-full hover:border-[var(--status-success-ink)]"
+                      className="size-(--space-12) rounded-full hover:border-[var(--status-success-ink)]"
                       onCheckedChange={() =>
                         onToggle({
                           activityId: task.id,
@@ -1415,7 +1422,7 @@ function ActivityStreamLists({
                         })
                       }
                     />
-                    <span className="min-w-0 flex-1 truncate text-[length:var(--text-sm)]">
+                    <span className="min-w-0 truncate text-[length:var(--text-sm)]">
                       {renderWithMentions(task.title ?? "", task.attendees, onFilterChange)}
                     </span>
                     {task.projectName && task.customerProjectId ? (
@@ -1430,22 +1437,23 @@ function ActivityStreamLists({
                         }
                       />
                     ) : null}
+                    <span className="flex-1" />
                     <span
                       className={cn(
-                        "whitespace-nowrap rounded-full border px-(--space-4) py-(--space-1) text-[length:var(--text-xs)]",
+                        "inline-flex h-(--space-16) items-center whitespace-nowrap rounded-full border px-(--space-6) font-mono text-[length:var(--text-xs)]",
                         !task.dueDate &&
                           "border-dashed border-[var(--color-line)] text-[var(--color-ink-faint)]",
                         task.dueDate && task.dueDate < today
                           ? "border-transparent bg-[var(--color-danger-soft)] text-[var(--color-danger)]"
                           : task.dueDate === today
-                            ? "border-transparent bg-[var(--color-warning-soft)] text-[var(--color-ink)]"
+                            ? "border-transparent bg-[var(--color-warning-soft)] text-[var(--color-accent-ink)]"
                             : task.dueDate
                               ? "border-[var(--color-line)] text-[var(--color-ink-faint)]"
                               : undefined
                       )}
                     >
                       {task.dueDate
-                        ? `Due ${formatDate(task.dueDate)}${
+                        ? `Due ${shortDayLabel(task.dueDate)}${
                             task.dueDate < today
                               ? " · Overdue"
                               : task.dueDate === today
@@ -1477,7 +1485,7 @@ function ActivityStreamLists({
                           aria-label={`Reopen "${entry.title}"`}
                           checked
                           disabled={readOnly || pending}
-                          className="mt-(--space-1) rounded-full"
+                          className="mt-(--space-1) size-(--space-12) rounded-full data-checked:border-transparent data-checked:bg-[var(--color-success-soft)] data-checked:text-[var(--status-success-ink)]"
                           onCheckedChange={() =>
                             onToggle({
                               activityId: entry.id,
@@ -1486,10 +1494,10 @@ function ActivityStreamLists({
                           }
                         />
                       ) : (
-                        <span className="mt-(--space-1) flex size-(--space-9) shrink-0 items-center justify-center rounded-full border border-[var(--color-line)] text-[var(--color-ink-faint)]">
+                        <span className="mt-(--space-1) flex size-(--space-16) shrink-0 items-center justify-center rounded-full border border-[var(--color-line)] bg-[var(--color-surface-2)] text-[var(--color-ink-soft)]">
                           <HugeiconsIcon
                             icon={activityTimelineIcons[entry.type]}
-                            className="size-(--space-6)"
+                            className="size-(--space-7)"
                           />
                         </span>
                       )}
@@ -1507,7 +1515,7 @@ function ActivityStreamLists({
                             {entry.type === "task" ? " · Done" : ""}
                           </span>
                           {entry.createdByName ? (
-                            <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                            <span className="text-[length:var(--text-xs)] font-medium text-[var(--color-ink)]">
                               {entry.createdByName}
                             </span>
                           ) : null}
@@ -1606,7 +1614,9 @@ function HeaderMetaPill({
           aria-label={`${label}: ${current?.label ?? value}`}
           disabled={disabled}
         >
-          <span className="text-[var(--color-ink-faint)]">{label}</span>
+          <span className="font-mono text-[length:var(--text-3xs)] font-medium uppercase tracking-wide text-[var(--color-ink-faint)]">
+            {label}
+          </span>
           {dotClassName ? (
             <span className={cn("size-(--space-4) rounded-full", dotClassName)} />
           ) : null}
@@ -1752,7 +1762,18 @@ function relativeDayLabel(date: Date) {
   const yesterday = toDateOnlyString(new Date(Date.now() - 86_400_000));
   if (day && day === today) return "Today";
   if (day && day === yesterday) return "Yesterday";
-  return day ? formatDate(day) : "";
+  return day ? shortDayLabel(day) : "";
+}
+
+function shortDayLabel(day: string) {
+  const [year, month, date] = day.split("-").map(Number);
+  if (!year || !month || !date) return day;
+  const value = new Date(year, month - 1, date);
+  return value.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    ...(year === new Date().getFullYear() ? {} : { year: "numeric" }),
+  });
 }
 
 function CustomerAddressInput({

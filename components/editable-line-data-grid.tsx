@@ -400,11 +400,11 @@ export function EditableLineDataGrid<TData>({
     () => ({
       minHeight:
         minHeight ??
-        (rows.length === 0 ? headerHeight + emptyBodyMinHeight : undefined),
+        (displayRows.length === 0 ? headerHeight + emptyBodyMinHeight : undefined),
       "--editable-grid-body-min-height":
         displayRows.length === 0 ? `${emptyBodyMinHeight}px` : "0",
     }),
-    [displayRows.length, emptyBodyMinHeight, headerHeight, minHeight, rows.length]
+    [displayRows.length, emptyBodyMinHeight, headerHeight, minHeight]
   ) as CSSProperties;
 
   const handleCellValueChanged = useCallback(
