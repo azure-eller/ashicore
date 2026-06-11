@@ -1,4 +1,6 @@
 import "server-only";
+
+import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
 import {
   and,
   eq,
@@ -229,6 +231,15 @@ export async function applyLotDispositionAction(
     );
     const quantity = Number(action.quantity);
     const toDisposition = dispositionForAction(action.action);
+
+    // Releasing stock back to the free default disposition stays free
+    // (downgrade escape hatch); entering managed dispositions and scrap
+    // are lot-tracking workflows.
+    if (toDisposition !== "available") {
+      await assertFeatureAccessInTx(tx, orgId, "lot_tracking", {
+        route: "POST /api/items/[id]/lots/[lotId]/disposition",
+      });
+    }
 
     if (toDisposition == null) {
       return scrapLotDispositionInTx(tx, {

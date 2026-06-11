@@ -2,10 +2,23 @@ import { randomUUID } from "node:crypto";
 import Stripe from "stripe";
 import { and, eq, isNull } from "drizzle-orm";
 import { test, expect } from "../fixtures";
-import { organization, pricingSchedules } from "../../../lib/db/schema";
-import { assertFeatureAccessInTx } from "../../../lib/billing/entitlements";
+import {
+  inventoryLotBalances,
+  organization,
+  pricingSchedules,
+} from "../../../lib/db/schema";
+import {
+  assertFeatureAccessInTx,
+  getFeatureAccessInTx,
+} from "../../../lib/billing/entitlements";
 import { withOrgContext } from "../../../lib/db/with-org-context";
-import { getBaseUrl, getSessionCookie } from "../../helpers/api";
+import {
+  createItem,
+  getBaseUrl,
+  getSessionCookie,
+  getUnitId,
+  testFetch,
+} from "../../helpers/api";
 
 const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? "";
 
@@ -221,6 +234,114 @@ test("feature gates shadow-log unentitled orgs and recognize entitled ones", asy
     expect(entitled.entitled).toBe(true);
     expect(entitled.shadowDenial).toBe(false);
   });
+});
+
+test("lot tracking gates shadow-allow workflows and lock only when enforced", async ({
+  db,
+}) => {
+  // Route level: a lot disposition under the unentitled test-org succeeds in
+  // shadow mode (the default — no BILLING_ENFORCED_PLUGINS on the server).
+  const ts = Date.now();
+  const item = await createItem({
+    itemType: "material",
+    name: `Entitlement Lot Probe ${ts}`,
+    unitDefinitionId: getUnitId(),
+    sku: `ENT-LOT-PROBE-${ts}`,
+    category: `Entitlement Probe ${ts}`,
+    description: null,
+    defaultPurchasePrice: "2.00",
+    defaultSellingPrice: null,
+    stock: "3",
+    safetyStock: "0",
+    bom: [],
+  });
+  expect(item.status).toBe(201);
+  const itemId = (item.body as { id: string }).id;
+
+  const lotsResponse = await testFetch(`/api/items/${itemId}/lots`);
+  expect(lotsResponse.status).toBe(200);
+  const [lot] = (await lotsResponse.json()) as Array<{ id: string }>;
+  expect(lot).toBeTruthy();
+
+  const disposition = await testFetch(
+    `/api/items/${itemId}/lots/${lot.id}/disposition`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        action: "block",
+        fromDisposition: "available",
+        quantity: "1",
+        notes: null,
+      }),
+    }
+  );
+  expect(disposition.status, await disposition.text()).toBe(200);
+
+  const [blocked] = await db
+    .select({ quantity: inventoryLotBalances.quantity })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.lotId, lot.id),
+        eq(inventoryLotBalances.disposition, "blocked")
+      )
+    );
+  expect(Number(blocked?.quantity)).toBe(1);
+
+  // Gate decision: enforcement (in-process env) locks an unentitled
+  // post-launch org, entitlement unlocks it, downgrade re-locks it.
+  const id = randomUUID();
+  const orgId = `entitlement-lot-${id}`;
+  await db.insert(organization).values({
+    id: orgId,
+    name: `Entitlement Lot ${id}`,
+    slug: `entitlement-lot-${id}`,
+    createdAt: new Date(),
+    plan: "free",
+    status: "active",
+  });
+
+  const previousEnforced = process.env.BILLING_ENFORCED_PLUGINS;
+  const previousLaunch = process.env.BILLING_ENFORCEMENT_LAUNCH_AT;
+  process.env.BILLING_ENFORCED_PLUGINS = "lot_tracking";
+  process.env.BILLING_ENFORCEMENT_LAUNCH_AT = "2020-01-01T00:00:00Z";
+  try {
+    await withOrgContext(orgId, async (tx) => {
+      const locked = await getFeatureAccessInTx(tx, orgId, "lot_tracking");
+      expect(locked).toMatchObject({ entitled: false, locked: true });
+    });
+
+    await db
+      .update(organization)
+      .set({ entitlements: ["lot_tracking"] })
+      .where(eq(organization.id, orgId));
+
+    await withOrgContext(orgId, async (tx) => {
+      const entitled = await getFeatureAccessInTx(tx, orgId, "lot_tracking");
+      expect(entitled).toMatchObject({ entitled: true, locked: false });
+    });
+
+    await db
+      .update(organization)
+      .set({ entitlements: [] })
+      .where(eq(organization.id, orgId));
+
+    await withOrgContext(orgId, async (tx) => {
+      const relocked = await getFeatureAccessInTx(tx, orgId, "lot_tracking");
+      expect(relocked).toMatchObject({ entitled: false, locked: true });
+    });
+  } finally {
+    if (previousEnforced === undefined) {
+      delete process.env.BILLING_ENFORCED_PLUGINS;
+    } else {
+      process.env.BILLING_ENFORCED_PLUGINS = previousEnforced;
+    }
+    if (previousLaunch === undefined) {
+      delete process.env.BILLING_ENFORCEMENT_LAUNCH_AT;
+    } else {
+      process.env.BILLING_ENFORCEMENT_LAUNCH_AT = previousLaunch;
+    }
+  }
 });
 
 test("shadow mode never blocks a gated mutation for an unentitled org", async ({

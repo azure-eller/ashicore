@@ -1,6 +1,7 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { NextResponse } from "next/server";
 import { jsonError, jsonNotFound } from "@/lib/api/responses";
+import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import {
   inventoryLotBalances,
@@ -180,6 +181,14 @@ async function adjustLotTrackedStock(
   const lines = adjustLots
     .map((lot) => toAdjustmentLine(params.itemId, balanceMap, lot))
     .filter((line) => line.variance !== 0);
+
+  // Counting existing lots is free; recording a newly discovered lot is a
+  // lot-tracking workflow (same boundary as stocktake found lots).
+  if (lines.some((line) => line.lotId == null)) {
+    await assertFeatureAccessInTx(tx, params.orgId, "lot_tracking", {
+      route: "POST /api/items/[id]/stock-adjustments",
+    });
+  }
 
   await reconcilePhysicalInventoryCountInTx(tx, {
     organizationId: params.orgId,

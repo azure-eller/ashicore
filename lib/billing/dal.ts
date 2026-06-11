@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { organization } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
+import { captureAppError } from "@/lib/observability/sentry";
 import {
   asBillingPlugins,
   type BillingPlan,
@@ -12,7 +13,11 @@ import {
   type BillingState,
   type BillingStatus,
 } from "./types";
-import { getSkuEntitlementInTx } from "./entitlements";
+import {
+  getFeatureAccessInTx,
+  getSkuEntitlementInTx,
+  type FeatureAccess,
+} from "./entitlements";
 export {
   assertCanCreateSkuInTx,
   assertCanCreateSkusInTx,
@@ -20,6 +25,7 @@ export {
   BillingEntitlementError,
   FeatureEntitlementError,
   getSkuEntitlementInTx,
+  type FeatureAccess,
 } from "./entitlements";
 
 function mapBillingState(row: {
@@ -44,6 +50,23 @@ function mapBillingState(row: {
 
 export async function getBillingStateForCurrentOrg(): Promise<BillingSkuEntitlement> {
   return withAuthedOrgContext(async (tx, orgId) => getSkuEntitlementInTx(tx, orgId));
+}
+
+export async function getFeatureAccessForCurrentOrg(
+  plugin: BillingPlugin
+): Promise<FeatureAccess> {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    try {
+      return await getFeatureAccessInTx(tx, orgId, plugin);
+    } catch (error) {
+      // Fail open: a billing bug must never lock UI workflows.
+      captureAppError(error, {
+        source: "billing_feature_entitlement",
+        operation: plugin,
+      });
+      return { entitled: false, locked: false, grandfathered: false };
+    }
+  });
 }
 
 export async function setOrgStripeCustomerId(orgId: string, stripeCustomerId: string) {

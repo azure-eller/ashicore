@@ -158,10 +158,12 @@ export function StocktakeDetail({
   stocktake,
   previewItems,
   canViewLedger = false,
+  lotTrackingLocked = false,
 }: {
   stocktake: StocktakeDetailType;
   previewItems: StocktakePreviewItem[];
   canViewLedger?: boolean;
+  lotTrackingLocked?: boolean;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -650,7 +652,7 @@ export function StocktakeDetail({
               </span>
             );
           }
-          if (!canEditCounts || data.lotTrackingMode !== "tracked") {
+          if (!canEditCounts || data.lotTrackingMode !== "tracked" || lotTrackingLocked) {
             return <span className="text-muted-foreground">—</span>;
           }
           return (
@@ -700,7 +702,9 @@ export function StocktakeDetail({
         editable: (params) =>
           canEditCounts &&
           (params.data
-            ? isLotDisplayRow(params.data) || params.data.lots.length === 0
+            ? isLotDisplayRow(params.data) ||
+              (params.data.lots.length === 0 &&
+                (!lotTrackingLocked || params.data.lotTrackingMode !== "tracked"))
             : false),
         cellEditor: "agTextCellEditor",
         cellClass: "text-right",
@@ -743,7 +747,7 @@ export function StocktakeDetail({
         valueFormatter: ({ value }) => (value == null ? "" : formatQuantity(value)),
       },
     ];
-  }, [canEditCounts, itemOptions, openFoundLotDrawer, previewItemMap]);
+  }, [canEditCounts, itemOptions, lotTrackingLocked, openFoundLotDrawer, previewItemMap]);
 
   const createBlankRow = useCallback((): StocktakeDisplayRow => {
     const now = new Date();
