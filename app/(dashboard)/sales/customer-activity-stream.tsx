@@ -275,7 +275,7 @@ export function ActivitySection({
         </Button>
       }
     >
-      <div className="grid gap-(--space-5)">
+      <div className="grid gap-(--space-8)">
         {!readOnly ? (
           <div className="grid gap-0 rounded-(--radius-md) border-[1.5px] border-[var(--color-line)] transition-[border-color,box-shadow] duration-(--duration-1) ease-(--ease-out) focus-within:border-[var(--color-accent)] focus-within:shadow-[0_0_0_4px_var(--color-accent-soft)]">
             <div className="flex flex-wrap items-center gap-(--space-2) p-(--space-4) pb-0">
@@ -288,9 +288,10 @@ export function ActivitySection({
                     variant="outline"
                     aria-pressed={type === option}
                     className={cn(
-                      "rounded-full",
-                      type === option &&
-                        "border-transparent bg-[var(--color-accent-soft)] text-[var(--color-accent-ink)] hover:bg-[var(--color-accent-soft)]"
+                      "rounded-full font-normal",
+                      type === option
+                        ? "border-transparent bg-[var(--color-accent-soft)] text-[var(--color-accent-ink)] hover:bg-[var(--color-accent-soft)]"
+                        : "text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]"
                     )}
                     onClick={() => setType(option)}
                   >
@@ -303,7 +304,7 @@ export function ActivitySection({
               <Textarea
                 ref={bodyRef}
                 value={body}
-                rows={3}
+                rows={2}
                 disabled={createMutation.isPending}
                 aria-label={isTask ? "Task title" : "Activity notes"}
                 placeholder={activityComposerMeta[type].placeholder}
@@ -333,7 +334,7 @@ export function ActivitySection({
                     <button
                       key={contact.id}
                       type="button"
-                      className="flex items-center gap-(--space-3) px-(--space-4) py-(--space-2) text-left text-[length:var(--text-sm)] hover:bg-[var(--color-surface-2)]"
+                      className="flex items-center gap-(--space-3) px-(--space-4) py-(--space-2) text-left text-[length:var(--text-sm)] hover:bg-[var(--color-surface-alt)]"
                       onMouseDown={(event) => {
                         event.preventDefault();
                         insertMention(contact.name);
@@ -348,7 +349,7 @@ export function ActivitySection({
                 </div>
               ) : null}
             </div>
-            <div className="flex flex-wrap items-center gap-(--space-3) border-t border-[var(--color-line)] bg-[var(--color-surface-2)] p-(--space-3)">
+            <div className="flex flex-wrap items-center gap-(--space-3) border-t border-[var(--color-line)] bg-[var(--color-surface-alt)] p-(--space-3)">
               <Select
                 value={projectId}
                 onValueChange={(value) => {
@@ -391,7 +392,7 @@ export function ActivitySection({
                 </SelectContent>
               </Select>
               {filter ? (
-                <span className="flex items-center gap-(--space-2) rounded-full border border-[var(--color-line)] bg-[var(--color-surface-2)] px-(--space-3) py-(--space-1) font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                <span className="flex items-center gap-(--space-2) rounded-full border border-[var(--color-line)] bg-[var(--color-surface-alt)] px-(--space-3) py-(--space-1) font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                   <HugeiconsIcon
                     icon={filter.kind === "project" ? Folder01Icon : UserIcon}
                     className="size-(--space-5)"
@@ -578,12 +579,12 @@ function ActivityStreamLists({
                 Nothing scheduled — create a task above.
               </p>
             ) : null}
-            <ul className="grid gap-(--space-2)">
+            <ul className="divide-y divide-[var(--color-line-2)]">
               {openTasks.map((task) => {
                 return (
                   <li
                     key={task.id}
-                    className="flex items-center gap-(--space-3) py-(--space-2)"
+                    className="flex items-center gap-(--space-3) py-(--space-3)"
                   >
                     <button
                       type="button"
@@ -658,9 +659,9 @@ function ActivityStreamLists({
                   <h3 className={styles.sectionHeading}>{month.label}</h3>
                   <div className="h-px flex-1 bg-[var(--color-line)]" />
                 </div>
-                <ul className="grid gap-(--space-4)">
+                <ul className="divide-y divide-[var(--color-line-2)]">
                   {month.entries.map((entry) => (
-                    <li key={entry.id} className="flex gap-(--space-4)">
+                    <li key={entry.id} className="flex gap-(--space-4) py-(--space-3)">
                       {entry.type === "task" ? (
                         <Checkbox
                           aria-label={`Reopen "${entry.title}"`}
@@ -675,7 +676,7 @@ function ActivityStreamLists({
                           }
                         />
                       ) : (
-                        <span className="mt-(--space-1) flex size-(--space-16) shrink-0 items-center justify-center rounded-full border border-[var(--color-line)] bg-[var(--color-surface-2)] text-[var(--color-ink-soft)]">
+                        <span className="mt-(--space-1) flex size-(--space-16) shrink-0 items-center justify-center rounded-full border border-[var(--color-line)] bg-[var(--color-surface-alt)] text-[var(--color-ink-soft)]">
                           <HugeiconsIcon
                             icon={activityTimelineIcons[entry.type]}
                             className="size-(--space-7)"
@@ -686,7 +687,7 @@ function ActivityStreamLists({
                         <div className="flex flex-wrap items-center gap-(--space-3)">
                           <span
                             className={cn(
-                              "text-[length:var(--text-xs)] font-medium uppercase tracking-wide",
+                              "font-mono text-[length:var(--text-2xs)] font-medium uppercase tracking-wide",
                               entry.type === "task"
                                 ? "text-[var(--status-success-ink)]"
                                 : "text-[var(--color-accent-ink)]"
@@ -696,7 +697,7 @@ function ActivityStreamLists({
                             {entry.type === "task" ? " · Done" : ""}
                           </span>
                           {entry.createdByName ? (
-                            <span className="text-[length:var(--text-xs)] font-medium text-[var(--color-ink)]">
+                            <span className="text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
                               {entry.createdByName}
                             </span>
                           ) : null}
@@ -717,12 +718,12 @@ function ActivityStreamLists({
                           ) : null}
                         </div>
                         {entry.title ? (
-                          <p className="mt-(--space-2) text-[length:var(--text-sm)]">
+                          <p className="mt-(--space-2) max-w-[72ch] text-[length:var(--text-sm)]">
                             {renderWithMentions(entry.title, entry.attendees, onFilterChange)}
                           </p>
                         ) : null}
                         {entry.body ? (
-                          <p className="mt-(--space-2) whitespace-pre-wrap text-[length:var(--text-sm)] leading-[var(--leading-md)] text-[var(--color-ink)]">
+                          <p className="mt-(--space-2) max-w-[72ch] whitespace-pre-wrap text-[length:var(--text-sm)] leading-[var(--leading-md)] text-[var(--color-ink)]">
                             {renderWithMentions(entry.body, entry.attendees, onFilterChange)}
                           </p>
                         ) : null}
@@ -840,7 +841,7 @@ function ActivityProjectChip({
   return (
     <button
       type="button"
-      className="flex max-w-56 items-center gap-(--space-2) rounded-full border border-[var(--color-line)] bg-[var(--color-surface-2)] px-(--space-3) py-(--space-1) text-[length:var(--text-xs)] text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]"
+      className="flex max-w-56 items-center gap-(--space-2) rounded-full border border-[var(--color-line)] bg-[var(--color-surface-alt)] px-(--space-3) py-(--space-1) text-[length:var(--text-xs)] text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]"
       onClick={onSelect}
     >
       <HugeiconsIcon icon={Folder01Icon} className="size-(--space-5) shrink-0" />
