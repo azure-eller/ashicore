@@ -44,8 +44,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { DisabledTooltipButton } from "@/components/disabled-tooltip-button";
-import { featureUpgradeMessage } from "@/lib/billing/types";
 import {
   Sheet,
   SheetContent,
@@ -654,17 +652,8 @@ export function StocktakeDetail({
               </span>
             );
           }
-          if (!canEditCounts || data.lotTrackingMode !== "tracked") {
+          if (!canEditCounts || data.lotTrackingMode !== "tracked" || lotTrackingLocked) {
             return <span className="text-muted-foreground">—</span>;
-          }
-          if (lotTrackingLocked) {
-            return (
-              <DisabledTooltipButton
-                label="Found lot"
-                tooltip={featureUpgradeMessage("lot_tracking")}
-                variant="outline"
-              />
-            );
           }
           return (
             <Button
