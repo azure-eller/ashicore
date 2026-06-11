@@ -17,6 +17,12 @@
 -- apply to the named role AND its members, so a leftover membership (from the
 -- old SET LOCAL ROLE design) would subject every app_user write to the agent's
 -- current_org() check and break it. The agent uses its own login connection now.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'erp_agent_ro') THEN
+    CREATE ROLE erp_agent_ro NOLOGIN;
+  END IF;
+END $$;
+
 REVOKE erp_agent_ro FROM app_user;
 
 GRANT USAGE ON SCHEMA "sales", "inventory", "purchasing", "manufacturing", "settings" TO erp_agent_ro;
