@@ -17,6 +17,7 @@ import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
   beginInventoryOperationInTx,
+  defaultLocationIdSubquery,
   deriveInventoryIdempotencyKey,
   finishInventoryOperationInTx,
   lockItemsInTx,
@@ -244,6 +245,11 @@ async function getStocktakeLinesInTx(
       and(
         eq(inventoryLotBalances.lotId, stocktakeLotItems.lotId),
         eq(inventoryLotBalances.disposition, "available"),
+        // Stocktakes count and reconcile at the default location only;
+        // stock transferred elsewhere is outside this count.
+        sql`${inventoryLotBalances.locationId} = ${defaultLocationIdSubquery(
+          inventoryLotBalances.organizationId
+        )}`,
         sql`${inventoryLotBalances.quantity} <> 0`
       )
     )
@@ -295,6 +301,10 @@ async function getAvailableLotRowsForItemIdsInTx(tx: Tx, itemIds: string[]) {
         eq(inventoryLotBalances.organizationId, lots.organizationId),
         eq(inventoryLotBalances.itemId, lots.itemId),
         eq(inventoryLotBalances.lotId, lots.id),
+        // Stocktakes count and reconcile at the default location only.
+        sql`${inventoryLotBalances.locationId} = ${defaultLocationIdSubquery(
+          lots.organizationId
+        )}`,
         eq(inventoryLotBalances.disposition, "available")
       )
     )
