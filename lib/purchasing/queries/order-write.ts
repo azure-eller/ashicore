@@ -210,7 +210,7 @@ async function resolvePurchaseOrderNumberInTx(
   return orderNumber;
 }
 
-async function getValidatedSupplierInTx(tx: Tx, supplierId: string) {
+export async function getValidatedSupplierInTx(tx: Tx, supplierId: string) {
   const [supplier] = await tx
     .select({
       id: suppliers.id,

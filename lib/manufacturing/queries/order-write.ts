@@ -235,7 +235,7 @@ async function generateMONumber(tx: Tx, orgId: string) {
   return generateShortDocumentNumberInTx(tx, "manufacturing_order", orgId);
 }
 
-async function getValidatedProductInTx(
+export async function getValidatedProductInTx(
   tx: Tx,
   productId: string
 ): Promise<ProductSnapshot> {

@@ -30,6 +30,65 @@ test.describe("purchasing receiving operating story", () => {
   let orderNumber: string;
   let lineId: string;
 
+  test("Ash stages a purchase order and approval commits the draft", async ({ db, page }) => {
+    // Real LLM turns (discover → query → stage) precede the staging wait, so this
+    // needs a budget beyond the 90s default — same as the sales staging test.
+    test.setTimeout(180_000);
+
+    const material = await createMaterialFixture({
+      name: "Ash Purchasing Approval Material",
+      stock: "0",
+      cost: "4.50",
+    });
+    const supplier = await createSupplier({
+      name: `Ash Purchasing Approval Supplier ${Date.now()}`,
+    });
+    expectResponse(supplier);
+    const supplierId = supplier.body.id as string;
+
+    await page.goto("/purchasing/orders");
+    await page.getByRole("button", { name: "Open Ash assistant" }).click();
+
+    const composer = page.locator("#dashboard-agent-chat-sheet textarea");
+    await composer.fill(
+      `Stage a purchase order from the supplier "${supplier.body.name}" for 5 units of "${material.name}" at a unit cost of 4.50. Use the query tool to find their ids first, then stage the order. Do not ask me to confirm.`
+    );
+    await composer.press("Enter");
+
+    await expect(page.getByText("Staged · not applied")).toBeVisible({ timeout: 120_000 });
+
+    const beforeApprove = await db
+      .select({ id: purchaseOrders.id })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.supplierId, supplierId));
+    expect(beforeApprove).toHaveLength(0);
+
+    await page.getByRole("button", { name: "Review", exact: true }).click();
+    await expect(page.getByText("Review changes")).toBeVisible();
+    await page.getByRole("button", { name: /Approve/ }).click();
+    await expect(page.getByText("Purchase order created")).toBeVisible({ timeout: 30_000 });
+
+    const orders = await db
+      .select({ id: purchaseOrders.id, status: purchaseOrders.status })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.supplierId, supplierId));
+    expect(orders).toHaveLength(1);
+    expect(orders[0].status).toBe("draft");
+
+    const lines = await db
+      .select({
+        itemId: purchaseOrderLines.itemId,
+        quantityOrdered: purchaseOrderLines.quantityOrdered,
+        unitCost: purchaseOrderLines.unitCost,
+      })
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, orders[0].id));
+    expect(lines).toHaveLength(1);
+    expect(lines[0].itemId).toBe(material.id);
+    expect(Number(lines[0].quantityOrdered)).toBe(5);
+    expect(Number(lines[0].unitCost)).toBe(4.5);
+  });
+
   test("creates and submits a purchase order as expected supply", async ({ db, page }) => {
     const material = await createMaterialFixture({
       name: "Purchasing Story Material",

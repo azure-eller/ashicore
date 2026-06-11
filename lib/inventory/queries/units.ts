@@ -21,7 +21,21 @@ import {
 import type {
   InsertUnitDefinition,
 } from "@/lib/schemas/units";
+import type { Tx } from "@/lib/db/with-org-context";
 import { InventoryError } from "./errors";
+
+export async function getValidatedUnitDefinitionInTx(tx: Tx, unitDefinitionId: string) {
+  const [unit] = await tx
+    .select({ id: unitDefinitions.id, name: unitDefinitions.name })
+    .from(unitDefinitions)
+    .where(and(eq(unitDefinitions.id, unitDefinitionId), isNull(unitDefinitions.deletedAt)));
+
+  if (!unit) {
+    throw new InventoryError("Unit not found", 404);
+  }
+
+  return unit;
+}
 
 export async function getUnitDefinitions() {
   return withAuthedOrgContext(async (tx) => {

@@ -384,6 +384,17 @@ export function AgentChatSheet({ open, onOpenChange }: AgentChatSheetProps) {
     experimental_throttle: 60,
   });
   const busy = status === "submitted" || status === "streaming";
+  // Close-loop notes (approve/discard) must not race an active stream — sending
+  // mid-stream desyncs useChat's message reconciliation and duplicates the
+  // in-flight assistant message. Queue them and flush once the stream is idle.
+  const pendingCloseLoopRef = useRef<Array<{ text: string; context: string }>>([]);
+  const [closeLoopTick, setCloseLoopTick] = useState(0);
+  useEffect(() => {
+    if (busy || pendingCloseLoopRef.current.length === 0) return;
+    const notes = pendingCloseLoopRef.current.splice(0);
+    const text = notes.map((note) => note.text).join("\n");
+    void sendMessage({ text }, { body: { context: notes[notes.length - 1].context } });
+  }, [busy, closeLoopTick, sendMessage]);
   // Suppress the generic working line whenever a part is already animating
   // (streaming text caret, thinking line, or an in-flight tool line).
   const lastMessage = messages[messages.length - 1];
@@ -466,7 +477,8 @@ export function AgentChatSheet({ open, onOpenChange }: AgentChatSheetProps) {
 
         <AgentStagingProvider
           onCloseLoop={(text) => {
-            void sendMessage({ text }, { body: { context } });
+            pendingCloseLoopRef.current.push({ text, context });
+            setCloseLoopTick((tick) => tick + 1);
           }}
         >
         <ScrollArea
