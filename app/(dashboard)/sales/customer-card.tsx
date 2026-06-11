@@ -1410,18 +1410,24 @@ function ActivityStreamLists({
                     key={task.id}
                     className="flex items-center gap-(--space-3) py-(--space-2)"
                   >
-                    <Checkbox
+                    <button
+                      type="button"
                       aria-label={`Complete "${task.title}"`}
-                      checked={false}
                       disabled={readOnly || pending}
-                      className="size-(--space-12) rounded-full hover:border-[var(--status-success-ink)]"
-                      onCheckedChange={() =>
+                      className="grid size-(--space-12) shrink-0 place-items-center rounded-full border-[1.5px] border-[var(--color-line)] bg-[var(--color-surface)] text-transparent transition-colors duration-(--duration-1) ease-(--ease-out) outline-none hover:border-[var(--status-success-ink)] hover:bg-[var(--color-success-soft)] hover:text-[var(--status-success-ink)] focus-visible:border-[var(--color-accent)] focus-visible:shadow-[0_0_0_4px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() =>
                         onToggle({
                           activityId: task.id,
                           status: "done",
                         })
                       }
-                    />
+                    >
+                      <HugeiconsIcon
+                        icon={Tick02Icon}
+                        strokeWidth={2}
+                        className="size-(--space-7)"
+                      />
+                    </button>
                     <span className="min-w-0 truncate text-[length:var(--text-sm)]">
                       {renderWithMentions(task.title ?? "", task.attendees, onFilterChange)}
                     </span>

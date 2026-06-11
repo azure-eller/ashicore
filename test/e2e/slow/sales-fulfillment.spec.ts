@@ -326,7 +326,7 @@ test.describe("sales fulfillment operating story", () => {
         response.request().method() === "PATCH"
     );
     await page
-      .getByRole("checkbox", { name: `Complete "${taskTitle}"` })
+      .getByRole("button", { name: `Complete "${taskTitle}"` })
       .click();
     const completeResponse = await completeResponsePromise;
     expect(completeResponse.status(), await completeResponse.text()).toBe(200);
