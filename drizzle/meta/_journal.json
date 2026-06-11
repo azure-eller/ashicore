@@ -1100,6 +1100,13 @@
       "when": 1781139704709,
       "tag": "0156_flippant_rictor",
       "breakpoints": true
+    },
+    {
+      "idx": 157,
+      "version": "7",
+      "when": 1781140991756,
+      "tag": "0157_agent_base_table_access",
+      "breakpoints": true
     }
   ]
 }

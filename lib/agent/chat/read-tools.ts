@@ -14,25 +14,23 @@ const QUERY_MODULES: ModuleKey[] = ["sales", "inventory", "purchasing", "manufac
 const TRANSCRIPT_ROW_CAP = 50;
 const TRANSCRIPT_CELL_CAP = 120;
 
-const QUERY_DESCRIPTION = `Run one read-only SQL SELECT (Postgres) to answer any data question: locate records (ILIKE), filter, join, aggregate (GROUP BY / SUM / COUNT), sort. Always include LIMIT; at most ${AGENT_QUERY_MAX_ROWS} rows are returned. Everything is already scoped to the current organization, soft-deleted rows are already excluded, and the connection is read-only — writes are impossible.
+const QUERY_DESCRIPTION = `Run one read-only SQL SELECT (Postgres) to answer any data question: locate records (ILIKE), filter, join, aggregate (GROUP BY / SUM / COUNT), sort. Always include LIMIT; at most ${AGENT_QUERY_MAX_ROWS} rows are returned. Every row is already scoped to the current organization and the connection is read-only — writes are impossible.
 
-All data is in the agent_query schema (the only tables you can read):
-- agent_query.sales_orders(id, order_number, customer_id, customer_name, status 'open'|'done', priority_rank, order_date, ship_date, requested_date, due_date, is_late, shipped_at, subtotal_amount, tax_amount, total_amount, notes, created_at, updated_at)
-- agent_query.sales_order_lines(id, sales_order_id, item_id, item_name, item_sku, unit_name, quantity, shipped_quantity, cancelled_quantity, unit_price, discount_percent)
-- agent_query.customers(id, name, account_state, account_priority, email, phone, notes, created_at)
-- agent_query.items_stock(id, name, sku, item_type 'product'|'material', category, sellable, safety_stock, unit_name, on_hand_qty, demand_qty, available_qty, expected_qty, created_at) — canonical inventory quantities
-- agent_query.purchase_orders(id, order_number, supplier_id, supplier_name, status 'draft'|'ordered'|'partial'|'received', expected_date, total_amount, received_at, notes, created_at)
-- agent_query.purchase_order_lines(id, purchase_order_id, item_id, quantity_ordered, quantity_received, unit_cost)
-- agent_query.manufacturing_orders(id, order_number, product_id, product_name, product_sku, status 'open'|'done', is_blocked, requested_quantity, planned_quantity, actual_quantity, unit_name, number_of_batches, planned_date, sales_order_id, sales_order_number, started_at, completed_at, created_at)
-- agent_query.suppliers(id, name, code, contact_name, email, phone, payment_terms, notes, created_at)
-- agent_query.tax_rates(id, name, rate_percent, created_at)
+You query the real ERP tables directly across these schemas: sales, inventory, purchasing, manufacturing, settings. Most rows are soft-deleted, so add "deleted_at IS NULL" unless you want historical rows. Key tables (introspect information_schema for exact columns and any table not listed):
+- sales.sales_orders (status 'open'|'done', ship_date, requested_date, total_amount, customer_name), sales.sales_order_lines, sales.customers, sales.customer_projects, sales.pricing_schedules / sales.pricing_schedule_items
+- inventory.items (name, sku, item_type 'product'|'material', category, safety_stock), inventory.bom_revisions + inventory.bom_revision_components (recipes — which materials each product uses; is_current flags the active revision), inventory.lots, inventory.inventory_events (stock movement ledger), inventory.stocktakes
+- purchasing.purchase_orders (status 'draft'|'ordered'|'partial'|'received'), purchasing.purchase_order_lines, purchasing.suppliers, purchasing.supplier_items
+- manufacturing.manufacturing_orders (status 'open'|'done', is_blocked), manufacturing.manufacturing_order_ingredients, manufacturing.manufacturing_order_batches
+- settings.tax_rates
 
-Semantics: due_date is already COALESCE(ship_date, requested_date); is_late is precomputed (open and past due). Quantity and money columns are numeric. Use ILIKE '%term%' for name/code matching. To confirm exact columns, query information_schema (WHERE table_schema='agent_query').
+For inventory quantities ALWAYS use the view agent_query.items_stock(id, name, sku, item_type, category, sellable, safety_stock, unit_name, on_hand_qty, demand_qty, available_qty, expected_qty) — it carries the canonical kernel availability math. Do not recompute stock from inventory_lot_balances yourself.
+
+Semantics: an order's due date = COALESCE(ship_date, requested_date); late = open AND due date < CURRENT_DATE. A material is "unused" if it appears in no current BOM (inventory.bom_revision_components joined to bom_revisions WHERE is_current). Use ILIKE '%term%' for name/code matching.
 
 Examples:
-SELECT order_number, customer_name, total_amount FROM agent_query.sales_orders WHERE status = 'open' AND is_late ORDER BY due_date LIMIT 20
-SELECT customer_name, COUNT(*) AS open_orders, SUM(total_amount) AS open_value FROM agent_query.sales_orders WHERE status = 'open' GROUP BY customer_name ORDER BY open_value DESC LIMIT 10
-SELECT name, sku, on_hand_qty, safety_stock FROM agent_query.items_stock WHERE on_hand_qty < safety_stock AND safety_stock > 0 ORDER BY name LIMIT 25`;
+SELECT order_number, customer_name, total_amount FROM sales.sales_orders WHERE deleted_at IS NULL AND status = 'open' AND COALESCE(ship_date, requested_date) < CURRENT_DATE ORDER BY ship_date LIMIT 20
+SELECT name, sku, on_hand_qty, safety_stock FROM agent_query.items_stock WHERE on_hand_qty < safety_stock AND safety_stock > 0 ORDER BY name LIMIT 25
+SELECT i.name, i.sku FROM inventory.items i WHERE i.deleted_at IS NULL AND i.item_type = 'material' AND NOT EXISTS (SELECT 1 FROM inventory.bom_revision_components c JOIN inventory.bom_revisions r ON r.id = c.bom_revision_id WHERE r.is_current AND c.component_id = i.id) ORDER BY i.name LIMIT 50`;
 
 export const queryTool = buildAgentTool({
   name: "query",
