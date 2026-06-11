@@ -46,7 +46,7 @@ const baseColumns: ColDef<CustomerRow>[] = [
   },
   {
     field: "nextTaskTitle",
-    headerName: "Next task",
+    headerName: "Next action",
     width: 280,
     minWidth: 180,
     flex: 1,

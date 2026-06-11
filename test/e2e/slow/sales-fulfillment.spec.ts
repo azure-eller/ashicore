@@ -2,6 +2,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { test, expect, filterList } from "../fixtures";
 import {
   customerActivities,
+  customerActivityAttendees,
   inventoryDemandSummary,
   inventoryEvents,
   inventoryItemBalances,
@@ -136,8 +137,23 @@ test.describe("sales fulfillment operating story", () => {
   test("tags activities to a project and filters the stream by chip", async ({ db, page }) => {
     const run = Date.now();
     const projectName = `Sales Story Project ${run}`;
-    const taggedBody = `Confirm delivery gate access ${run}`;
+    const contactName = "Casey Rivera";
+    const taggedBody = `Confirm delivery gate access with @${contactName} ${run}`;
     const untaggedBody = `General check-in ${run}`;
+
+    const contactResponse = await testFetch(`/api/customers/${customerId}/contacts`, {
+      method: "POST",
+      body: JSON.stringify({
+        name: contactName,
+        title: "Site Contact",
+        email: null,
+        phone: null,
+        addressEntryId: null,
+        roles: [],
+      }),
+    });
+    expect(contactResponse.status).toBe(201);
+    const contact = (await contactResponse.json()) as { id: string };
 
     const projectResponse = await testFetch(`/api/customers/${customerId}/projects`, {
       method: "POST",
@@ -181,12 +197,13 @@ test.describe("sales fulfillment operating story", () => {
     }).toPass({ timeout: 30_000 });
     await page.getByRole("option", { name: projectName }).click();
     await page.getByLabel("Activity notes").fill(taggedBody);
-    await page.getByRole("button", { name: "Add note" }).click();
+    await page.getByRole("button", { name: "Log note" }).click();
     const createResponse = await createResponsePromise;
     expect(createResponse.status(), await createResponse.text()).toBe(201);
 
     const [tagged] = await db
       .select({
+        id: customerActivities.id,
         customerProjectId: customerActivities.customerProjectId,
         body: customerActivities.body,
       })
@@ -198,6 +215,12 @@ test.describe("sales fulfillment operating story", () => {
         )
       );
     expect(tagged.customerProjectId).toBe(project.id);
+
+    const attendees = await db
+      .select({ contactId: customerActivityAttendees.contactId })
+      .from(customerActivityAttendees)
+      .where(eq(customerActivityAttendees.activityId, tagged.id));
+    expect(attendees).toEqual([{ contactId: contact.id }]);
 
     await expect(page.getByText(untaggedBody)).toBeVisible();
     await page.getByRole("button", { name: projectName }).first().click();

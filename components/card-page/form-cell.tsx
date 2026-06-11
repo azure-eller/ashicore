@@ -11,7 +11,7 @@ export function CardFormRow({
   className,
 }: {
   children: ReactNode;
-  columns?: "default" | "two" | "three" | "four" | "five" | "purchase-order";
+  columns?: "default" | "two" | "halves" | "three" | "four" | "five" | "purchase-order";
   className?: string;
 }) {
   return (
@@ -19,6 +19,7 @@ export function CardFormRow({
       className={cn(
         cardStyles.formRow,
         (columns === "default" || columns === "two") && cardStyles.formRowTwo,
+        columns === "halves" && cardStyles.formRowHalves,
         columns === "three" && cardStyles.formRowThree,
         columns === "four" && cardStyles.formRowFour,
         columns === "five" && cardStyles.formRowFive,

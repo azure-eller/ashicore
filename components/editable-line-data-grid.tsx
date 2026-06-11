@@ -461,6 +461,13 @@ export function EditableLineDataGrid<TData>({
       return;
     }
 
+    // Clicks on interactive renderers (e.g. the contact-name stream link)
+    // act on their own; they must not also begin cell editing.
+    const target = event.event?.target as HTMLElement | null;
+    if (target?.closest("button, a")) {
+      return;
+    }
+
     const colId = event.column.getColId();
     const isEditingThisCell = event.api
       .getEditingCells()

@@ -10,13 +10,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ICellRendererParams, ValueSetterParams } from "ag-grid-community";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+  Add01Icon,
   Call02Icon,
   Cancel01Icon,
-  Delete02Icon,
   Folder01Icon,
   Mail01Icon,
   StarIcon,
   StickyNote02Icon,
+  Tag01Icon,
   Tick02Icon,
   UserIcon,
   UserMultiple02Icon,
@@ -56,6 +57,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -100,7 +102,6 @@ import {
   createCustomerContact,
   createCustomerActivity,
   createCustomerProject,
-  deleteCustomerActivity,
   patchCustomerActivity,
   deleteCustomer,
   deleteCustomerContact,
@@ -224,13 +225,13 @@ const newProjectSentinel = "__new_project__";
 const accountStateDots: Record<string, string> = {
   active: "bg-[var(--color-success)]",
   growth: "bg-[var(--color-accent)]",
-  at_risk: "bg-[var(--color-warning)]",
+  at_risk: "bg-[var(--color-danger)]",
   former: "bg-[var(--color-ink-faint)]",
 };
 
 const accountPriorityDots: Record<string, string> = {
-  strategic: "bg-[var(--color-accent)]",
-  high: "bg-[var(--color-warning)]",
+  strategic: "bg-[var(--color-warning)]",
+  high: "bg-[var(--color-accent)]",
   standard: "bg-[var(--color-ink-faint)]",
   low: "bg-[var(--color-line)]",
 };
@@ -254,7 +255,27 @@ export function CustomerCard({
   const activityAnchorRef = useRef<HTMLDivElement | null>(null);
   const openContactStream = useCallback((contact: { id: string; name: string }) => {
     setActivityFilter({ kind: "contact", id: contact.id, name: contact.name });
-    activityAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    requestAnimationFrame(() => {
+      const anchor = activityAnchorRef.current;
+      if (!anchor) return;
+      let scroller = anchor.parentElement;
+      while (scroller) {
+        const overflowY = getComputedStyle(scroller).overflowY;
+        if (
+          (overflowY === "auto" || overflowY === "scroll") &&
+          scroller.scrollHeight > scroller.clientHeight
+        ) {
+          break;
+        }
+        scroller = scroller.parentElement;
+      }
+      if (!scroller) return;
+      const top =
+        anchor.getBoundingClientRect().top -
+        scroller.getBoundingClientRect().top +
+        scroller.scrollTop;
+      scroller.scrollTo({ top, behavior: "smooth" });
+    });
   }, []);
   const [addressDialogState, setAddressDialogState] =
     useState<AddressDialogState | null>(null);
@@ -471,6 +492,7 @@ export function CustomerCard({
   return (
     <CardPage>
       <CardPageHeader
+        eyebrow="Customer"
         title={display.name.trim() || "New customer"}
         meta={
           <div className="flex flex-wrap items-center gap-(--space-2)">
@@ -479,6 +501,7 @@ export function CustomerCard({
               value={display.accountState}
               options={accountStateOptions}
               dotClassName={accountStateDots[display.accountState]}
+              optionDots={accountStateDots}
               disabled={readOnly}
               onSelect={(accountState) =>
                 commitCustomerPatch({
@@ -491,6 +514,7 @@ export function CustomerCard({
               value={display.accountPriority}
               options={accountPriorityOptions}
               dotClassName={accountPriorityDots[display.accountPriority]}
+              optionDots={accountPriorityDots}
               disabled={readOnly}
               onSelect={(accountPriority) =>
                 commitCustomerPatch({
@@ -503,6 +527,7 @@ export function CustomerCard({
               label="Category"
               value={display.customerCategoryId ?? noCustomerCategoryValue}
               options={categoryOptions}
+              icon={Tag01Icon}
               disabled={readOnly}
               onSelect={(value) =>
                 commitCustomerPatch({
@@ -535,8 +560,8 @@ export function CustomerCard({
       />
 
       <CardPageBody>
-        <CardSection title="Customer at a glance">
-          <CardFormRow columns="three">
+        <CardSection title="Customer details">
+          <CardFormRow columns="four">
             <CardField
               label="Customer name"
               htmlFor="customer-name"
@@ -575,6 +600,13 @@ export function CustomerCard({
                 onCommit={(phone) => commitCustomerPatch({ phone })}
               />
             </CardField>
+            <CardField label="Customer since">
+              <ReadOnlyFieldValue>
+                {display.createdAt ? formatDate(toDateOnlyString(display.createdAt)) : "-"}
+              </ReadOnlyFieldValue>
+            </CardField>
+          </CardFormRow>
+          <CardFormRow columns="halves">
             <CardField label="Shipping address" htmlFor="customer-shipping-address">
               <CustomerAddressInput
                 id="customer-shipping-address"
@@ -601,11 +633,6 @@ export function CustomerCard({
                 onEdit={(option) => openEditAddressDialog("billing", option)}
               />
             </CardField>
-            <CardField label="Customer since">
-              <ReadOnlyFieldValue>
-                {display.createdAt ? formatDate(toDateOnlyString(display.createdAt)) : "-"}
-              </ReadOnlyFieldValue>
-            </CardField>
           </CardFormRow>
         </CardSection>
 
@@ -623,6 +650,11 @@ export function CustomerCard({
           }}
         />
 
+        <OpenOrdersSection
+          customerId={currentCustomerId}
+          rows={openOrders}
+        />
+
         <div ref={activityAnchorRef}>
           <ActivitySection
             customerId={currentCustomerId}
@@ -634,12 +666,6 @@ export function CustomerCard({
             readOnly={readOnly || isDraft}
           />
         </div>
-
-        <OpenOrdersSection
-          customerId={currentCustomerId}
-          rows={openOrders}
-        />
-
       </CardPageBody>
 
       {deleteConfirm.dialog}
@@ -880,9 +906,9 @@ const activityComposerMeta: Record<
   CustomerActivityType,
   { label: string; submitLabel: string; placeholder: string }
 > = {
-  note: { label: "Note", submitLabel: "Add note", placeholder: "Add a customer note..." },
-  call: { label: "Call", submitLabel: "Log call", placeholder: "What was discussed?" },
-  email: { label: "Email", submitLabel: "Log email", placeholder: "What was discussed?" },
+  note: { label: "Note", submitLabel: "Log note", placeholder: "Write a note… (@ to mention a contact)" },
+  call: { label: "Call", submitLabel: "Log call", placeholder: "What happened on the call?" },
+  email: { label: "Email", submitLabel: "Log email", placeholder: "Summarize the email…" },
   meeting: { label: "Meeting", submitLabel: "Log meeting", placeholder: "What was discussed?" },
   task: { label: "Task", submitLabel: "Create task", placeholder: "What needs to happen next?" },
 };
@@ -917,7 +943,12 @@ function ActivitySection({
   const [body, setBody] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [projectId, setProjectId] = useState(noActivityProjectValue);
-  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mention, setMention] = useState<{
+    query: string;
+    start: number;
+    end: number;
+  } | null>(null);
+  const bodyRef = useRef<HTMLTextAreaElement | null>(null);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [streamSheetOpen, setStreamSheetOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
@@ -932,13 +963,28 @@ function ActivitySection({
           row.attendees.some((attendee) => attendee.contactId === filter.id)
         );
   const mentionMatches =
-    mentionQuery === null
+    mention === null
       ? []
       : contacts.filter(
           (contact) =>
             contact.name.trim() &&
-            contact.name.toLowerCase().startsWith(mentionQuery.toLowerCase())
+            contact.name.toLowerCase().startsWith(mention.query.toLowerCase())
         );
+  const insertMention = (name: string) => {
+    if (!mention) return;
+    const caret = mention.start + name.length + 2;
+    setBody(
+      (current) =>
+        `${current.slice(0, mention.start)}@${name} ${current.slice(mention.end)}`
+    );
+    setMention(null);
+    requestAnimationFrame(() => {
+      const input = bodyRef.current;
+      if (!input) return;
+      input.focus();
+      input.setSelectionRange(caret, caret);
+    });
+  };
   const isTask = type === "task";
   const openTasks = rows
     .filter((row) => row.type === "task" && row.status === "open")
@@ -989,7 +1035,7 @@ function ActivitySection({
     onSuccess: async () => {
       setBody("");
       setDueDate("");
-      setMentionQuery(null);
+      setMention(null);
       await invalidate();
     },
   });
@@ -1007,17 +1053,6 @@ function ActivitySection({
       activityId: string;
       status: "open" | "done";
     }) => patchCustomerActivity(customerId as string, activityId, { status }),
-    onSuccess: invalidate,
-  });
-
-  const deleteMutation = useMutation({
-    mutationKey: cardSaveMutationKey(
-      "customer",
-      customerId ?? "__draft__",
-      "activity-delete"
-    ),
-    mutationFn: (activityId: string) =>
-      deleteCustomerActivity(customerId as string, activityId),
     onSuccess: invalidate,
   });
 
@@ -1045,12 +1080,9 @@ function ActivitySection({
     },
   });
 
-  const pending = patchMutation.isPending || deleteMutation.isPending;
+  const pending = patchMutation.isPending;
   const error =
-    createMutation.error ??
-    patchMutation.error ??
-    deleteMutation.error ??
-    newProjectMutation.error;
+    createMutation.error ?? patchMutation.error ?? newProjectMutation.error;
 
   return (
     <CardSection
@@ -1061,6 +1093,7 @@ function ActivitySection({
           type="button"
           variant="ghost"
           size="sm"
+          className="text-[var(--color-accent-ink)]"
           onClick={() => setStreamSheetOpen(true)}
         >
           View all →
@@ -1077,8 +1110,12 @@ function ActivitySection({
                     key={option}
                     type="button"
                     size="sm"
-                    variant={type === option ? "default" : "outline"}
+                    variant="outline"
                     aria-pressed={type === option}
+                    className={cn(
+                      type === option &&
+                        "border-transparent bg-[var(--color-accent-soft)] text-[var(--color-accent-ink)] hover:bg-[var(--color-accent-soft)]"
+                    )}
                     onClick={() => setType(option)}
                   >
                     {activityComposerMeta[option].label}
@@ -1088,6 +1125,7 @@ function ActivitySection({
             </div>
             <div className="relative">
               <Textarea
+                ref={bodyRef}
                 value={body}
                 rows={3}
                 disabled={createMutation.isPending}
@@ -1098,26 +1136,31 @@ function ActivitySection({
                   const value = event.target.value;
                   setBody(value);
                   const caret = event.target.selectionStart ?? value.length;
-                  const match = value.slice(0, caret).match(/@([A-Za-z]*)$/);
-                  setMentionQuery(match ? match[1] : null);
+                  const match = value
+                    .slice(0, caret)
+                    .match(/@([A-Za-z]+(?: [A-Za-z]+)?)$/);
+                  setMention(
+                    match
+                      ? {
+                          query: match[1],
+                          start: caret - match[0].length,
+                          end: caret,
+                        }
+                      : null
+                  );
                 }}
+                onBlur={() => setMention(null)}
               />
               {mentionMatches.length > 0 ? (
-                <div className="absolute top-full left-(--space-4) z-10 mt-(--space-1) grid min-w-56 rounded-(--radius-md) border border-[var(--color-line)] bg-[var(--color-surface)] py-(--space-2) shadow-md">
+                <div className="absolute bottom-full left-(--space-4) z-10 mb-(--space-1) grid min-w-56 rounded-(--radius-md) border border-[var(--color-line)] bg-[var(--color-surface)] py-(--space-2) shadow-md">
                   {mentionMatches.slice(0, 6).map((contact) => (
                     <button
                       key={contact.id}
                       type="button"
                       className="flex items-center gap-(--space-3) px-(--space-4) py-(--space-2) text-left text-[length:var(--text-sm)] hover:bg-[var(--color-surface-2)]"
-                      onClick={() => {
-                        setBody((current) => {
-                          const match = current.match(/@[A-Za-z]*$/);
-                          const base = match
-                            ? current.slice(0, match.index)
-                            : current;
-                          return `${base}@${contact.name} `;
-                        });
-                        setMentionQuery(null);
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        insertMention(contact.name);
                       }}
                     >
                       <span className="flex size-(--space-9) items-center justify-center rounded-full border border-[var(--color-line)] text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
@@ -1157,8 +1200,13 @@ function ActivitySection({
                       {project.name}
                     </SelectItem>
                   ))}
-                  <SelectItem value={newProjectSentinel}>
-                    New project…
+                  <SelectSeparator />
+                  <SelectItem
+                    value={newProjectSentinel}
+                    className="font-medium text-[var(--color-accent-ink)]"
+                  >
+                    <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />
+                    New project
                   </SelectItem>
                 </SelectContent>
               </Select>
@@ -1216,7 +1264,6 @@ function ActivitySection({
           pending={pending}
           today={today}
           onToggle={(args) => patchMutation.mutate(args)}
-          onDelete={(activityId) => deleteMutation.mutate(activityId)}
           onFilterChange={onFilterChange}
         />
       </div>
@@ -1240,7 +1287,6 @@ function ActivitySection({
               pending={pending}
               today={today}
               onToggle={(args) => patchMutation.mutate(args)}
-              onDelete={(activityId) => deleteMutation.mutate(activityId)}
               onFilterChange={onFilterChange}
             />
           </div>
@@ -1274,8 +1320,12 @@ function ActivitySection({
                     key={status}
                     type="button"
                     size="sm"
-                    variant={newProjectStatus === status ? "default" : "outline"}
+                    variant="outline"
                     aria-pressed={newProjectStatus === status}
+                    className={cn(
+                      newProjectStatus === status &&
+                        "border-transparent bg-[var(--color-accent-soft)] text-[var(--color-accent-ink)] hover:bg-[var(--color-accent-soft)]"
+                    )}
                     onClick={() => setNewProjectStatus(status)}
                   >
                     {status === "planning" ? "Planning" : "Active"}
@@ -1321,7 +1371,6 @@ function ActivityStreamLists({
   pending,
   today,
   onToggle,
-  onDelete,
   onFilterChange,
 }: {
   openTasks: CustomerActivityRow[];
@@ -1330,16 +1379,18 @@ function ActivityStreamLists({
   pending: boolean;
   today: string;
   onToggle: (args: { activityId: string; status: "open" | "done" }) => void;
-  onDelete: (activityId: string) => void;
   onFilterChange: (filter: ActivityStreamFilter) => void;
 }) {
   return (
     <>
         {!readOnly || openTasks.length > 0 ? (
           <div className="grid gap-(--space-2)">
-            <h3 className={styles.sectionHeading}>
-              Upcoming · {openTasks.length}
-            </h3>
+            <div className="flex items-center gap-(--space-4)">
+              <h3 className={styles.sectionHeading}>
+                Upcoming · {openTasks.length}
+              </h3>
+              <div className="h-px flex-1 bg-[var(--color-line)]" />
+            </div>
             {openTasks.length === 0 ? (
               <p className="rounded-(--radius-md) border border-dashed border-[var(--color-line)] px-(--space-4) py-(--space-3) text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
                 Nothing scheduled — create a task above.
@@ -1356,6 +1407,7 @@ function ActivityStreamLists({
                       aria-label={`Complete "${task.title}"`}
                       checked={false}
                       disabled={readOnly || pending}
+                      className="rounded-full hover:border-[var(--status-success-ink)]"
                       onCheckedChange={() =>
                         onToggle({
                           activityId: task.id,
@@ -1402,18 +1454,6 @@ function ActivityStreamLists({
                           }`
                         : "No due date"}
                     </span>
-                    {!readOnly ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Delete "${task.title}"`}
-                        disabled={pending}
-                        onClick={() => onDelete(task.id)}
-                      >
-                        <HugeiconsIcon icon={Delete02Icon} />
-                      </Button>
-                    ) : null}
                   </li>
                 );
               })}
@@ -1437,7 +1477,7 @@ function ActivityStreamLists({
                           aria-label={`Reopen "${entry.title}"`}
                           checked
                           disabled={readOnly || pending}
-                          className="mt-(--space-1)"
+                          className="mt-(--space-1) rounded-full"
                           onCheckedChange={() =>
                             onToggle({
                               activityId: entry.id,
@@ -1455,7 +1495,14 @@ function ActivityStreamLists({
                       )}
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-(--space-3)">
-                          <span className="text-[length:var(--text-xs)] font-medium uppercase tracking-wide text-[var(--color-ink-faint)]">
+                          <span
+                            className={cn(
+                              "text-[length:var(--text-xs)] font-medium uppercase tracking-wide",
+                              entry.type === "task"
+                                ? "text-[var(--status-success-ink)]"
+                                : "text-[var(--color-accent-ink)]"
+                            )}
+                          >
                             {activityComposerMeta[entry.type].label}
                             {entry.type === "task" ? " · Done" : ""}
                           </span>
@@ -1533,6 +1580,8 @@ function HeaderMetaPill({
   value,
   options,
   dotClassName,
+  optionDots,
+  icon,
   disabled,
   onSelect,
 }: {
@@ -1540,6 +1589,8 @@ function HeaderMetaPill({
   value: string;
   options: Array<{ value: string; label: string }>;
   dotClassName?: string;
+  optionDots?: Record<string, string>;
+  icon?: IconSvgElement;
   disabled: boolean;
   onSelect: (value: string) => void;
 }) {
@@ -1555,10 +1606,16 @@ function HeaderMetaPill({
           aria-label={`${label}: ${current?.label ?? value}`}
           disabled={disabled}
         >
+          <span className="text-[var(--color-ink-faint)]">{label}</span>
           {dotClassName ? (
             <span className={cn("size-(--space-4) rounded-full", dotClassName)} />
           ) : null}
-          <span className="text-[var(--color-ink-faint)]">{label}</span>
+          {icon ? (
+            <HugeiconsIcon
+              icon={icon}
+              className="size-(--space-5) text-[var(--color-ink-faint)]"
+            />
+          ) : null}
           {current?.label ?? value}
         </Button>
       </DropdownMenuTrigger>
@@ -1569,6 +1626,14 @@ function HeaderMetaPill({
             checked={option.value === value}
             onCheckedChange={() => onSelect(option.value)}
           >
+            {optionDots?.[option.value] ? (
+              <span
+                className={cn(
+                  "size-(--space-4) rounded-full",
+                  optionDots[option.value]
+                )}
+              />
+            ) : null}
             {option.label}
           </DropdownMenuCheckboxItem>
         ))}
@@ -1601,7 +1666,7 @@ function MentionToken({
   return (
     <button
       type="button"
-      className="font-medium text-[var(--color-ink)] hover:underline"
+      className="font-semibold text-[var(--color-accent-ink)] hover:underline"
       onClick={() => onFilterChange({ kind: "contact", id: contactId, name })}
     >
       @{name}
@@ -1652,10 +1717,11 @@ function ActivityProjectChip({
   return (
     <button
       type="button"
-      className="max-w-56 truncate whitespace-nowrap rounded-full border border-[var(--color-line)] bg-[var(--color-surface-2)] px-(--space-3) py-(--space-1) text-[length:var(--text-xs)] text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]"
+      className="flex max-w-56 items-center gap-(--space-2) rounded-full border border-[var(--color-line)] bg-[var(--color-surface-2)] px-(--space-3) py-(--space-1) text-[length:var(--text-xs)] text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]"
       onClick={onSelect}
     >
-      {name}
+      <HugeiconsIcon icon={Folder01Icon} className="size-(--space-5) shrink-0" />
+      <span className="truncate whitespace-nowrap">{name}</span>
     </button>
   );
 }
