@@ -82,6 +82,17 @@ test.describe("manufacturing demand and completion heartbeat", () => {
     }
   }
 
+  async function setNotificationPreference(eventType: string, enabled: boolean) {
+    const res = await testFetch("/api/notification-preferences", {
+      method: "PUT",
+      body: JSON.stringify({
+        eventType,
+        enabled,
+      }),
+    });
+    expect(res.status).toBe(200);
+  }
+
   test("released manufacturing order creates ingredient demand", async ({ db }) => {
     const fixture = await createBomFixture("Demand");
     const order = await createManufacturingOrder({
@@ -401,11 +412,16 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       { method: "POST", body: JSON.stringify({ quantity: "10" }) }
     );
     expect(batch2Output.status).toBe(200);
-    const batch2Complete = await testFetch(
-      `/api/manufacturing-orders/${orderId}/batches/${batch2}/complete`,
-      { method: "POST", body: JSON.stringify({}) }
-    );
-    expect(batch2Complete.status).toBe(200);
+    await setNotificationPreference("manufacturing_order_completed", true);
+    try {
+      const batch2Complete = await testFetch(
+        `/api/manufacturing-orders/${orderId}/batches/${batch2}/complete`,
+        { method: "POST", body: JSON.stringify({}) }
+      );
+      expect(batch2Complete.status).toBe(200);
+    } finally {
+      await setNotificationPreference("manufacturing_order_completed", false);
+    }
 
     const batches = await db
       .select({
@@ -430,6 +446,17 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       .from(manufacturingOrders)
       .where(eq(manufacturingOrders.id, orderId));
     expect(savedOrder.status).toBe("done");
+
+    const [batchDoneNotification] = await db
+      .select({ id: notifications.id })
+      .from(notifications)
+      .where(
+        and(
+          eq(notifications.entityId, orderId),
+          eq(notifications.type, "manufacturing_order_completed")
+        )
+      );
+    expect(batchDoneNotification).toBeTruthy();
   });
 
   test("started open order blocks planning edits but allows rescheduling", async ({
@@ -499,21 +526,10 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       return order.body.id as string;
     }
 
-    async function setPreference(eventType: string, enabled: boolean) {
-      const res = await testFetch("/api/notification-preferences", {
-        method: "PUT",
-        body: JSON.stringify({
-          eventType,
-          enabled,
-        }),
-      });
-      expect(res.status).toBe(200);
-    }
-
     try {
       // Not subscribed -> no rows.
-      await setPreference("manufacturing_order_created", false);
-      await setPreference("manufacturing_order_completed", false);
+      await setNotificationPreference("manufacturing_order_created", false);
+      await setNotificationPreference("manufacturing_order_completed", false);
       const silentOrderId = await createOrder();
       const silentRows = await db
         .select({ id: notifications.id })
@@ -522,8 +538,8 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       expect(silentRows).toHaveLength(0);
 
       // Subscribed with a device -> row delivered + push in outbox.
-      await setPreference("manufacturing_order_created", true);
-      await setPreference("manufacturing_order_completed", true);
+      await setNotificationPreference("manufacturing_order_created", true);
+      await setNotificationPreference("manufacturing_order_completed", true);
       const token = `fast-fanout-${ts}`;
       const deviceRes = await testFetch("/api/push-devices", {
         method: "POST",
@@ -572,9 +588,27 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       expect(payload.data.title).toBeTruthy();
       expect(payload.data.body).toBeTruthy();
 
-      const complete = await completeManufacturingOrder(orderId, "3");
+      const completeBody = JSON.stringify({
+        actualQuantity: "3",
+        outputDisposition: "available",
+        confirmNegativeStock: false,
+      });
+      const completionHeaders = {
+        "Idempotency-Key": `fast-mo-complete-notification-${orderId}`,
+      };
+      const complete = await testFetch(`/api/manufacturing-orders/${orderId}/complete`, {
+        method: "POST",
+        headers: completionHeaders,
+        body: completeBody,
+      });
       expect(complete.status).toBe(200);
-      const [completedRow] = await db
+      const replay = await testFetch(`/api/manufacturing-orders/${orderId}/complete`, {
+        method: "POST",
+        headers: completionHeaders,
+        body: completeBody,
+      });
+      expect(replay.status).toBe(200);
+      const completedRows = await db
         .select({
           id: notifications.id,
           deliveryStatus: notifications.deliveryStatus,
@@ -587,6 +621,8 @@ test.describe("manufacturing demand and completion heartbeat", () => {
             eq(notifications.userId, testUser.id)
           )
         );
+      expect(completedRows).toHaveLength(1);
+      const completedRow = completedRows[0];
       expect(completedRow.deliveryStatus).toBe("delivered");
 
       const afterCompleteFiles = await fs.readdir(FCM_OUTBOX_DIR);
@@ -606,8 +642,8 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       });
     } finally {
       // Leave the shared test user unsubscribed for other suites.
-      await setPreference("manufacturing_order_created", false);
-      await setPreference("manufacturing_order_completed", false);
+      await setNotificationPreference("manufacturing_order_created", false);
+      await setNotificationPreference("manufacturing_order_completed", false);
     }
   });
 });
