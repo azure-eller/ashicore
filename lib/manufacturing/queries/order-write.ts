@@ -1,5 +1,7 @@
 import "server-only";
 
+import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
+
 import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { bomRevisions, items, manufacturingOrderBatches, manufacturingOrderOperationCosts, manufacturingOrderOutputs, manufacturingOrderIngredientConstraints, manufacturingOrderIngredients, manufacturingOrders, salesOrderLines, salesOrders, unitDefinitions } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
@@ -1637,7 +1639,7 @@ export async function patchManufacturingOrderIngredient(
   ingredientId: string,
   payload: PatchManufacturingOrderIngredient
 ): Promise<{ id: string } | null> {
-  return withAuthedOrgContext(async (tx) => {
+  return withAuthedOrgContext(async (tx, orgId) => {
     const order = await getLockedManufacturingOrderInTx(tx, orderId);
     if (!order) return null;
 
@@ -1680,6 +1682,14 @@ export async function patchManufacturingOrderIngredient(
         "Ingredient lot strategy cannot be changed after picking starts.",
         400
       );
+    }
+
+    // FIFO is the free default; explicit lot-pick policies are a
+    // lot-tracking workflow.
+    if (payload.lotStrategy !== undefined && payload.lotStrategy !== "fifo") {
+      await assertFeatureAccessInTx(tx, orgId, "lot_tracking", {
+        route: "PATCH /api/manufacturing-orders/[id]/ingredients/[ingredientId]",
+      });
     }
 
     const updates: Record<string, unknown> = { updatedAt: new Date() };

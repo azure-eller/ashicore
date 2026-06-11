@@ -6,6 +6,7 @@ import { getSuppliers } from "@/lib/purchasing/queries/suppliers";
 import { requireModuleReadAccess } from "@/lib/dal/auth";
 import { hasModuleAccess } from "@/lib/authz";
 import { getItemCard, ItemCardError } from "@/lib/inventory/item-cards";
+import { getFeatureAccessForCurrentOrg } from "@/lib/billing/dal";
 import { MaterialCard } from "./material-card";
 
 export default async function MaterialDetailPage({
@@ -24,11 +25,12 @@ export default async function MaterialDetailPage({
 
   if (!card) redirect("/inventory/materials");
 
-  const [usedInParents, unitOptions, lots, suppliers] = await Promise.all([
+  const [usedInParents, unitOptions, lots, suppliers, lotAccess] = await Promise.all([
     getUsedInParents(id),
     getUnitDefinitions(),
     getLots(id, { includeNegativeBalances: true }),
     getSuppliers(),
+    getFeatureAccessForCurrentOrg("lot_tracking"),
   ]);
 
   return (
@@ -49,6 +51,7 @@ export default async function MaterialDetailPage({
       }))}
       initialLots={lots}
       canAdminInventory={hasModuleAccess(context.assignedRoles, "inventory", "admin")}
+      lotTrackingLocked={lotAccess.locked}
     />
   );
 }

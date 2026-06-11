@@ -40,6 +40,7 @@ export type MaterialCardProps = {
   supplierOptions: SupplierOption[];
   initialLots: CardLotRow[];
   canAdminInventory?: boolean;
+  lotTrackingLocked?: boolean;
 };
 
 export function MaterialCard({
@@ -50,6 +51,7 @@ export function MaterialCard({
   supplierOptions,
   initialLots,
   canAdminInventory = false,
+  lotTrackingLocked = false,
 }: MaterialCardProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -255,6 +257,7 @@ export function MaterialCard({
                     focusItemId={currentItemId ?? ""}
                     lots={initialLots}
                     unitLabel={card.family.unitName}
+                    lotTrackingLocked={lotTrackingLocked}
                   />
                 ),
               }

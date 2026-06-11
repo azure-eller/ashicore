@@ -44,6 +44,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { DisabledTooltipButton } from "@/components/disabled-tooltip-button";
+import { featureUpgradeMessage } from "@/lib/billing/types";
 import {
   Sheet,
   SheetContent,
@@ -158,10 +160,12 @@ export function StocktakeDetail({
   stocktake,
   previewItems,
   canViewLedger = false,
+  lotTrackingLocked = false,
 }: {
   stocktake: StocktakeDetailType;
   previewItems: StocktakePreviewItem[];
   canViewLedger?: boolean;
+  lotTrackingLocked?: boolean;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -653,6 +657,15 @@ export function StocktakeDetail({
           if (!canEditCounts || data.lotTrackingMode !== "tracked") {
             return <span className="text-muted-foreground">—</span>;
           }
+          if (lotTrackingLocked) {
+            return (
+              <DisabledTooltipButton
+                label="Found lot"
+                tooltip={featureUpgradeMessage("lot_tracking")}
+                variant="outline"
+              />
+            );
+          }
           return (
             <Button
               type="button"
@@ -743,7 +756,7 @@ export function StocktakeDetail({
         valueFormatter: ({ value }) => (value == null ? "" : formatQuantity(value)),
       },
     ];
-  }, [canEditCounts, itemOptions, openFoundLotDrawer, previewItemMap]);
+  }, [canEditCounts, itemOptions, lotTrackingLocked, openFoundLotDrawer, previewItemMap]);
 
   const createBlankRow = useCallback((): StocktakeDisplayRow => {
     const now = new Date();

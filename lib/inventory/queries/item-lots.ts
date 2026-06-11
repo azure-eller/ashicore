@@ -1,4 +1,6 @@
 import "server-only";
+
+import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
 import {
   and,
   eq,
@@ -227,6 +229,9 @@ export async function applyLotDispositionAction(
       itemId,
       "Lot disposition changes are not available for untracked items."
     );
+    await assertFeatureAccessInTx(tx, orgId, "lot_tracking", {
+      route: "POST /api/items/[id]/lots/[lotId]/disposition",
+    });
     const quantity = Number(action.quantity);
     const toDisposition = dispositionForAction(action.action);
 

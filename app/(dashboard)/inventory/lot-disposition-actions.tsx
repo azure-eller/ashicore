@@ -7,7 +7,14 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useMutation } from "@tanstack/react-query";
 import type { InventoryDisposition } from "@/lib/db/schema";
 import { apiJson } from "@/lib/client/api";
-import { Button } from "@/components/ui/button";
+import { featureUpgradeMessage } from "@/lib/billing/types";
+import { cn } from "@/lib/utils";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Dialog,
   DialogContent,
@@ -48,6 +55,7 @@ export function LotDispositionActions({
   itemId,
   lotId,
   balances,
+  locked = false,
 }: {
   itemId: string;
   lotId: string;
@@ -55,6 +63,7 @@ export function LotDispositionActions({
     disposition: InventoryDisposition;
     quantity: string;
   }>;
+  locked?: boolean;
 }) {
   const router = useRouter();
   const [selectedAction, setSelectedAction] = useState<{
@@ -124,6 +133,30 @@ export function LotDispositionActions({
     setSelectedAction(null);
     setIdempotencyKey(null);
   };
+
+  if (locked) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            role="button"
+            aria-disabled="true"
+            aria-label="Lot actions"
+            tabIndex={0}
+            className={cn(
+              buttonVariants({ variant: "ghost", size: "icon-xs" }),
+              "cursor-not-allowed opacity-50"
+            )}
+          >
+            <HugeiconsIcon icon={MoreVerticalIcon} className="h-4 w-4" aria-hidden />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top">
+          {featureUpgradeMessage("lot_tracking")}
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
 
   return (
     <>

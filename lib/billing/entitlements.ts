@@ -5,7 +5,7 @@ import { DomainError } from "@/lib/errors/domain-error";
 import { captureAppError } from "@/lib/observability/sentry";
 import {
   asBillingPlugins,
-  BILLING_PLUGIN_LABELS,
+  featureUpgradeMessage,
   FREE_SKU_LIMIT,
   type BillingPlan,
   type BillingPlugin,
@@ -52,7 +52,7 @@ export class FeatureEntitlementError extends DomainError<{
 }> {
   constructor(plugin: BillingPlugin) {
     super(
-      `${BILLING_PLUGIN_LABELS[plugin]} requires a plugin upgrade. Add it in Settings → Billing.`,
+      featureUpgradeMessage(plugin),
       402,
       {
         name: "FeatureEntitlementError",
@@ -83,6 +83,47 @@ function enforcementLaunchAt(): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+export type FeatureAccess = {
+  entitled: boolean;
+  /** True when an enforced gate would deny this org right now. */
+  locked: boolean;
+  grandfathered: boolean;
+};
+
+// Pure read of the gate decision — no logging, no throwing. UI mirrors use
+// this so upsell states match exactly what the server gates would do.
+export async function getFeatureAccessInTx(
+  tx: Tx,
+  orgId: string,
+  plugin: BillingPlugin
+): Promise<FeatureAccess> {
+  const [org] = await tx
+    .select({
+      entitlements: organization.entitlements,
+      createdAt: organization.createdAt,
+    })
+    .from(organization)
+    .where(eq(organization.id, orgId))
+    .limit(1);
+
+  if (!org) {
+    throw new Error("Active organization not found for entitlement check.");
+  }
+
+  const entitled = asBillingPlugins(org.entitlements).includes(plugin);
+  if (entitled || !billingEnforcementEnabled()) {
+    return { entitled, locked: false, grandfathered: false };
+  }
+
+  const launchAt = enforcementLaunchAt();
+  const grandfathered = launchAt == null || org.createdAt < launchAt;
+  return {
+    entitled,
+    locked: !grandfathered && enforcedPlugins().has(plugin),
+    grandfathered,
+  };
+}
+
 export type FeatureAccessResult = {
   allowed: true;
   entitled: boolean;
@@ -96,43 +137,23 @@ export async function assertFeatureAccessInTx(
   plugin: BillingPlugin,
   context?: { route?: string }
 ): Promise<FeatureAccessResult> {
-  let entitled = false;
-  let deny = false;
+  let access: FeatureAccess;
   let shadowDenial = false;
 
   try {
-    const [org] = await tx
-      .select({
-        entitlements: organization.entitlements,
-        createdAt: organization.createdAt,
-      })
-      .from(organization)
-      .where(eq(organization.id, orgId))
-      .limit(1);
+    access = await getFeatureAccessInTx(tx, orgId, plugin);
 
-    if (!org) {
-      throw new Error("Active organization not found for entitlement check.");
-    }
-
-    entitled = asBillingPlugins(org.entitlements).includes(plugin);
-
-    if (!entitled && billingEnforcementEnabled()) {
-      const launchAt = enforcementLaunchAt();
-      const grandfathered = launchAt == null || org.createdAt < launchAt;
-      deny = !grandfathered && enforcedPlugins().has(plugin);
-
-      if (!deny) {
-        shadowDenial = true;
-        console.warn(
-          "[billing-shadow-denial]",
-          JSON.stringify({
-            orgId,
-            plugin,
-            route: context?.route ?? null,
-            grandfathered,
-          })
-        );
-      }
+    if (!access.entitled && !access.locked && billingEnforcementEnabled()) {
+      shadowDenial = true;
+      console.warn(
+        "[billing-shadow-denial]",
+        JSON.stringify({
+          orgId,
+          plugin,
+          route: context?.route ?? null,
+          grandfathered: access.grandfathered,
+        })
+      );
     }
   } catch (error) {
     // Fail open: a billing bug must never block a customer's operations.
@@ -144,11 +165,11 @@ export async function assertFeatureAccessInTx(
     return { allowed: true, entitled: false, shadowDenial: false, failedOpen: true };
   }
 
-  if (deny) {
+  if (access.locked) {
     throw new FeatureEntitlementError(plugin);
   }
 
-  return { allowed: true, entitled, shadowDenial, failedOpen: false };
+  return { allowed: true, entitled: access.entitled, shadowDenial, failedOpen: false };
 }
 
 export async function getSkuEntitlementInTx(

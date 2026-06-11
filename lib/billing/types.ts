@@ -26,6 +26,10 @@ export const BILLING_PLUGIN_LABELS: Record<BillingPlugin, string> = {
   multi_location: "Multi-location",
 };
 
+export function featureUpgradeMessage(plugin: BillingPlugin) {
+  return `${BILLING_PLUGIN_LABELS[plugin]} requires a plugin upgrade. Add it in Settings → Billing.`;
+}
+
 export const BILLING_PACKAGE_PLUGINS = {
   food_bev: ["lot_tracking", "batch_production", "planning"],
   soil_landscape: ["batch_production", "multi_location", "wholesale_pricing"],

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
+
 import { normalizeNumeric } from "@/lib/format";
 import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import {
@@ -880,6 +882,14 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
 
     if (stocktake.status !== "draft") {
       throw new StocktakeError("Only draft stocktakes can be updated.", 400);
+    }
+
+    // Counting expected lots and deleting found lines stay free; only
+    // recording newly discovered lots is a lot-tracking workflow.
+    if (data.foundLotLines.length > 0) {
+      await assertFeatureAccessInTx(tx, orgId, "lot_tracking", {
+        route: "PUT /api/stocktakes/[id]",
+      });
     }
 
     const existingLines = await getStocktakeLinesInTx(tx, id);

@@ -70,6 +70,7 @@ export type LotGridTabProps = {
   focusItemId: string;
   lots: CardLotRow[];
   unitLabel?: string | null;
+  lotTrackingLocked?: boolean;
 };
 
 type PendingAdjustment = {
@@ -164,6 +165,7 @@ export function LotGridTab({
   card: cardProp,
   focusItemId,
   lots,
+  lotTrackingLocked = false,
 }: LotGridTabProps) {
   const router = useRouter();
   const cardContext = useOptionalItemCardContext();
@@ -309,13 +311,14 @@ export function LotGridTab({
                 itemId={activeVariant.id}
                 lotId={data.id}
                 balances={balances}
+                locked={lotTrackingLocked}
               />
             </div>
           );
         },
       },
     ],
-    [activeVariant],
+    [activeVariant, lotTrackingLocked],
   );
 
   const handleVariantChange = (nextVariantId: string) => {
