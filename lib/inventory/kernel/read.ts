@@ -19,6 +19,7 @@ export const ON_HAND_INCREASE_EVENT_TYPES = [
   "stocktake_gain",
   "manufacturing_variance_gain",
   "unpick_restock",
+  "transfer_in",
 ] as const satisfies readonly InventoryEventType[];
 
 export const ON_HAND_DECREASE_EVENT_TYPES = [
@@ -28,6 +29,7 @@ export const ON_HAND_DECREASE_EVENT_TYPES = [
   "manufacturing_ingredient_consumption",
   "manufacturing_variance_loss",
   "quality_scrap",
+  "transfer_out",
 ] as const satisfies readonly InventoryEventType[];
 
 export const ON_HAND_EVENT_TYPES = [

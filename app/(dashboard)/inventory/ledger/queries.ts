@@ -119,6 +119,8 @@ function getDocumentCausePrefix(sourceType: InventoryLedgerSourceType) {
       return "Adjustment";
     case "seed":
       return "Opening balance";
+    case "inventory_transfer":
+      return "Transfer";
     default:
       return "System";
   }
@@ -260,6 +262,15 @@ function buildDocumentConditions(filters: InventoryLedgerFilters) {
       ];
     case "seed":
       return [eq(inventoryEvents.referenceType, "seed")];
+    case "inventory_transfer":
+      return [
+        id
+          ? and(
+              eq(inventoryEvents.referenceType, "inventory_transfer"),
+              eq(inventoryEvents.referenceId, id)
+            )
+          : eq(inventoryEvents.referenceType, "inventory_transfer"),
+      ];
   }
 }
 
@@ -451,6 +462,8 @@ function getSourceDocumentHref(
       return itemDetailHref(itemType, itemId);
     case "seed":
       return null;
+    case "inventory_transfer":
+      return null;
   }
 }
 
@@ -555,6 +568,15 @@ function resolveSourceDocument(row: {
     };
   }
 
+  if (row.referenceType === "inventory_transfer") {
+    return {
+      id: null,
+      type: "inventory_transfer" as const,
+      label: "Transfer",
+      href: null,
+    };
+  }
+
   return null;
 }
 
@@ -626,6 +648,8 @@ async function resolveDocumentFilterLabel(
       return resolveItemFilterLabel(tx, filters.documentId);
     case "seed":
       return "Seed";
+    case "inventory_transfer":
+      return "Transfer";
   }
 }
 

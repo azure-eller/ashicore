@@ -19,6 +19,7 @@ const STOCK_INCREASE_TYPES = new Set([
   "stocktake_gain",
   "manufacturing_variance_gain",
   "unpick_restock",
+  "transfer_in",
 ]);
 
 const STOCK_DECREASE_TYPES = new Set([
@@ -28,6 +29,7 @@ const STOCK_DECREASE_TYPES = new Set([
   "manufacturing_ingredient_consumption",
   "manufacturing_variance_loss",
   "quality_scrap",
+  "transfer_out",
 ]);
 
 const DEMAND_INCREASE_TYPES = new Set(["demand_increase"]);

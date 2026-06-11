@@ -18,6 +18,37 @@ export async function getExistingDefaultInventoryLocationInTx(
   });
 }
 
+export async function resolveInventoryLocationInTx(
+  tx: Tx,
+  organizationId: string,
+  locationId?: string | null
+) {
+  if (!locationId) {
+    return getDefaultInventoryLocationInTx(tx, organizationId);
+  }
+
+  // FOR SHARE pairs with deleteInventoryLocation's FOR UPDATE: a delete
+  // cannot commit while an operation that resolved this location is in
+  // flight, so stock cannot land in a location deleted under it.
+  const [location] = await tx
+    .select()
+    .from(inventoryLocations)
+    .where(
+      and(
+        eq(inventoryLocations.id, locationId),
+        eq(inventoryLocations.organizationId, organizationId),
+        isNull(inventoryLocations.deletedAt)
+      )
+    )
+    .for("share");
+
+  if (!location) {
+    throw new Error("Inventory location not found for this organization.");
+  }
+
+  return location;
+}
+
 export async function getDefaultInventoryLocationInTx(
   tx: Tx,
   organizationId: string

@@ -19,6 +19,7 @@ import {
 import { getAverageIngredientsCost } from "@/lib/inventory/item-card-metrics";
 import { type CardSaveState } from "@/components/card-page/card-save-status";
 import { VariantConfigurationDialog } from "@/components/card-page/variant-configuration-dialog";
+import { StockByLocationSection } from "../../stock-by-location-section";
 import { ProductGeneralInfoTab } from "./tabs/general-info";
 import { useItemCardDraftController } from "@/components/card-page/use-item-card-draft-controller";
 import { ItemCardProvider } from "@/components/card-page/item-card-focus-context";
@@ -332,26 +333,32 @@ export function ProductCard({
           }
         >
           {resolvedActiveTab === "general" || isDraft ? (
-            <ProductGeneralInfoTab
-              card={card}
-              focusItemId={resolvedFocusedItemId ?? currentItemId}
-              unitOptions={unitOptions}
-              onOpenConfig={() => setConfigOpen(true)}
-              onFamilyChange={controller.patchFamily}
-              onFamilyCommit={controller.commitFamily}
-              onSellableChange={controller.setSellable}
-              onVariantPatch={controller.patchVariant}
-              onVariantReorder={controller.reorderVariants}
-              onCreateVariant={handleCreateVariant}
-              onFocusedVariantDeleted={(nextVariantId) => {
-                setFocusedItemId(nextVariantId);
-                router.replace(`/inventory/products/${nextVariantId}`, { scroll: false });
-              }}
-              onFlush={controller.flush}
-              variantsEnabled={variantsEnabled}
-              onVariantsEnabledChange={setVariantsEnabled}
-              canAdminInventory={canAdminInventory}
-            />
+            <>
+              <ProductGeneralInfoTab
+                card={card}
+                focusItemId={resolvedFocusedItemId ?? currentItemId}
+                unitOptions={unitOptions}
+                onOpenConfig={() => setConfigOpen(true)}
+                onFamilyChange={controller.patchFamily}
+                onFamilyCommit={controller.commitFamily}
+                onSellableChange={controller.setSellable}
+                onVariantPatch={controller.patchVariant}
+                onVariantReorder={controller.reorderVariants}
+                onCreateVariant={handleCreateVariant}
+                onFocusedVariantDeleted={(nextVariantId) => {
+                  setFocusedItemId(nextVariantId);
+                  router.replace(`/inventory/products/${nextVariantId}`, { scroll: false });
+                }}
+                onFlush={controller.flush}
+                variantsEnabled={variantsEnabled}
+                onVariantsEnabledChange={setVariantsEnabled}
+                canAdminInventory={canAdminInventory}
+              />
+              <StockByLocationSection
+                itemId={isDraft ? null : resolvedFocusedItemId ?? currentItemId}
+                unitLabel={card.family.unitName}
+              />
+            </>
           ) : (
             children
           )}

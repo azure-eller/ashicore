@@ -7,6 +7,7 @@ export * from "./inventory-projections";
 export * from "./inventory-idempotency";
 export * from "./quality-disposition-events";
 export * from "./stocktakes";
+export * from "./transfers";
 export * from "./bom";
 export * from "./manufacturing-resources";
 export * from "./addresses";

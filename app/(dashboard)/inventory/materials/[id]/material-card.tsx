@@ -20,6 +20,7 @@ import { getAverageIngredientsCost } from "@/lib/inventory/item-card-metrics";
 import { type CardSaveState } from "@/components/card-page/card-save-status";
 import { LotGridTab, type CardLotRow } from "@/components/card-page/lot-grid-tab";
 import { VariantConfigurationDialog } from "@/components/card-page/variant-configuration-dialog";
+import { StockByLocationSection } from "../../stock-by-location-section";
 import { MaterialGeneralInfoTab } from "./tabs/general-info";
 import { MaterialUsedInBomsTab } from "./tabs/used-in-boms";
 import { MaterialSupplyDetailsTab } from "./tabs/supply-details";
@@ -221,24 +222,30 @@ export function MaterialCard({
         }
         panels={{
           general: (
-            <MaterialGeneralInfoTab
-              card={card}
-              focusItemId={currentItemId}
-              unitOptions={unitOptions}
-              onOpenConfig={() => setConfigOpen(true)}
-              onFamilyChange={controller.patchFamily}
-              onFamilyCommit={controller.commitFamily}
-              onVariantPatch={controller.patchVariant}
-              onVariantReorder={controller.reorderVariants}
-              onCreateVariant={handleCreateVariant}
-              onFocusedVariantDeleted={(nextVariantId) =>
-                router.replace(`/inventory/materials/${nextVariantId}`, { scroll: false })
-              }
-              onFlush={controller.flush}
-              variantsEnabled={variantsEnabled}
-              onVariantsEnabledChange={setVariantsEnabled}
-              canAdminInventory={canAdminInventory}
-            />
+            <>
+              <MaterialGeneralInfoTab
+                card={card}
+                focusItemId={currentItemId}
+                unitOptions={unitOptions}
+                onOpenConfig={() => setConfigOpen(true)}
+                onFamilyChange={controller.patchFamily}
+                onFamilyCommit={controller.commitFamily}
+                onVariantPatch={controller.patchVariant}
+                onVariantReorder={controller.reorderVariants}
+                onCreateVariant={handleCreateVariant}
+                onFocusedVariantDeleted={(nextVariantId) =>
+                  router.replace(`/inventory/materials/${nextVariantId}`, { scroll: false })
+                }
+                onFlush={controller.flush}
+                variantsEnabled={variantsEnabled}
+                onVariantsEnabledChange={setVariantsEnabled}
+                canAdminInventory={canAdminInventory}
+              />
+              <StockByLocationSection
+                itemId={currentItemId}
+                unitLabel={card.family.unitName}
+              />
+            </>
           ),
           ...(card.family.lotTrackingMode === "tracked"
             ? {

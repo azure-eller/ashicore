@@ -1,9 +1,7 @@
 import "server-only";
 import {
   and,
-  desc,
   eq,
-  inArray,
   isNotNull,
   sql,
 } from "drizzle-orm";
@@ -30,6 +28,7 @@ import {
 } from "@/lib/dal/auth";
 import {
   changeLotDispositionInTx,
+  defaultLocationIdSubquery,
   ledgerLotUnitCostByOrigin,
   projectedLotUnitCost,
   scrapLotDispositionInTx,
@@ -132,6 +131,11 @@ export async function getLots(
           eq(inventoryLotBalances.organizationId, lots.organizationId),
           eq(inventoryLotBalances.itemId, lots.itemId),
           eq(inventoryLotBalances.lotId, lots.id),
+          // Lot adjustments apply at the default location, so the grid must
+          // show the same default-location balance (per-location reads: PR3).
+          sql`${inventoryLotBalances.locationId} = ${defaultLocationIdSubquery(
+            lots.organizationId
+          )}`,
           options.includeNegativeBalances
             ? sql`${inventoryLotBalances.quantity} <> 0`
             : sql`${inventoryLotBalances.quantity} > 0`
@@ -250,64 +254,5 @@ export async function applyLotDispositionAction(
       idempotencyKey: options?.idempotencyKey ?? null,
       notes: action.notes,
     });
-  });
-}
-
-export async function getStockMovements(itemId: string) {
-  return withAuthedOrgContext(async (tx) => {
-    return tx
-      .select({
-        id: inventoryEvents.id,
-        quantity: trimScale(inventoryEvents.quantity).as("quantity"),
-        movementType: sql<string>`CASE
-          WHEN ${inventoryEvents.eventType} = 'purchase_receipt' THEN 'purchase_received'
-          WHEN ${inventoryEvents.eventType} = 'manufacturing_output' THEN 'manufacturing_produced'
-          WHEN ${inventoryEvents.eventType} = 'sales_consumption' THEN 'sales_shipped'
-          WHEN ${inventoryEvents.eventType} = 'manufacturing_ingredient_consumption' THEN 'manufacturing_picked'
-          WHEN ${inventoryEvents.eventType} IN ('manufacturing_variance_loss', 'manufacturing_variance_gain') THEN 'manufacturing_variance'
-          WHEN ${inventoryEvents.eventType} IN ('stocktake_gain', 'stocktake_loss', 'stocktake_verification') THEN 'stocktake_adjustment'
-          WHEN ${inventoryEvents.eventType} = 'quality_disposition_change' THEN 'quality_disposition'
-          WHEN ${inventoryEvents.eventType} = 'quality_scrap' THEN 'quality_scrap'
-          ELSE 'manual_adjustment'
-        END`.as("movementType"),
-        referenceType: sql<string | null>`CASE
-          WHEN ${inventoryEvents.referenceType} = 'stocktake_line'
-            THEN 'stocktake'
-          ELSE ${inventoryEvents.referenceType}
-        END`.as("referenceType"),
-        referenceId: sql<string | null>`CASE
-          WHEN ${inventoryEvents.referenceType} = 'stocktake_line'
-            THEN COALESCE(${inventoryEvents.metadata}->>'stocktakeId', ${inventoryEvents.referenceId}::text)
-          ELSE ${inventoryEvents.referenceId}::text
-        END`.as("referenceId"),
-        createdBy: inventoryEvents.actorUserId,
-        createdAt: inventoryEvents.occurredAt,
-        lotNumber: lots.lotNumber,
-      })
-      .from(inventoryEvents)
-      .leftJoin(lots, eq(inventoryEvents.lotId, lots.id))
-      .where(
-        and(
-          eq(inventoryEvents.itemId, itemId),
-          inArray(inventoryEvents.eventType, [
-            "opening_balance",
-            "purchase_receipt",
-            "manufacturing_output",
-            "manual_adjustment_increase",
-            "stocktake_gain",
-            "manufacturing_variance_gain",
-            "manual_adjustment_decrease",
-            "stocktake_loss",
-            "sales_consumption",
-            "manufacturing_ingredient_consumption",
-            "manufacturing_variance_loss",
-            "unpick_restock",
-            "stocktake_verification",
-            "quality_disposition_change",
-            "quality_scrap",
-          ])
-        )
-      )
-      .orderBy(desc(inventoryEvents.occurredAt));
   });
 }

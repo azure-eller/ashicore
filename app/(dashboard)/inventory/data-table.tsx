@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ERPDataGridList } from "@/components/erp-data-grid-list";
 import { appendSearchParams } from "@/lib/routing/search-params";
 import { getColumns } from "./columns";
+import { TransferStockDialog } from "./transfer-stock-dialog";
 import type { ItemRow, ItemType } from "@/lib/inventory/types";
 import { queryKeys } from "@/lib/client/query-keys";
 
@@ -39,6 +40,7 @@ export function DataTable({
       queryEndpoint={appendSearchParams("/api/items", { itemType })}
       queryErrorMessage="Failed to fetch items."
       searchAriaLabel="Search items"
+      actions={<TransferStockDialog />}
       addHref={itemType === "product" ? "/inventory/product" : "/inventory/material"}
       addAriaLabel={itemType === "product" ? "New Product" : "New Material"}
       emptyMessage={isProduct ? "No items yet." : "No materials yet."}
