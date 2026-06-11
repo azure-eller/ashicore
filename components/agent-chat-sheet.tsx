@@ -28,6 +28,9 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { isAgentProposal } from "@/lib/agent/chat/proposals";
+import { AgentStagingProvider } from "@/components/agent-staging/staging-provider";
+import { AshTray, StagedCard } from "@/components/agent-staging/staged-card";
 
 type AgentChatSheetProps = {
   open: boolean;
@@ -128,6 +131,12 @@ function toolLabel(toolName: string) {
   switch (toolName) {
     case "query":
       return "Querying data";
+    case "list_actions":
+      return "Finding actions";
+    case "describe_action":
+      return "Reading action";
+    case "stage":
+      return "Staging change";
     default:
       return `Running ${toolName}`;
   }
@@ -283,6 +292,11 @@ function ToolPart({ part }: { part: UIMessage["parts"][number] }) {
 
   const output = part.output as ToolOutput;
   const data = output.data;
+
+  // The stage tool returns a draft — render the live staged card, not a ✓ chip.
+  if (part.toolName === "stage" && isAgentProposal(data)) {
+    return <StagedCard id={part.toolCallId} proposal={data} />;
+  }
 
   return (
     <div className="space-y-(--space-3) motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1">
@@ -450,6 +464,11 @@ export function AgentChatSheet({ open, onOpenChange }: AgentChatSheetProps) {
           </div>
         </SheetHeader>
 
+        <AgentStagingProvider
+          onCloseLoop={(text) => {
+            void sendMessage({ text }, { body: { context } });
+          }}
+        >
         <ScrollArea
           className="min-h-0 flex-1"
           viewportRef={viewportRef}
@@ -555,6 +574,7 @@ export function AgentChatSheet({ open, onOpenChange }: AgentChatSheetProps) {
           onSubmit={handleSubmit}
           className="shrink-0 space-y-(--space-3) border-t border-[var(--color-line)] bg-[var(--color-surface-sunk)] p-(--space-5)"
         >
+          <AshTray />
           <div className="rounded-(--radius-lg) border border-[var(--color-line)] bg-[var(--color-surface)] p-(--space-4) focus-within:border-[var(--color-accent)] focus-within:shadow-[0_0_0_4px_var(--color-accent-soft)]">
             <Textarea
               ref={textareaRef}
@@ -597,6 +617,7 @@ export function AgentChatSheet({ open, onOpenChange }: AgentChatSheetProps) {
             </div>
           </div>
         </form>
+        </AgentStagingProvider>
       </SheetContent>
     </Sheet>
   );
