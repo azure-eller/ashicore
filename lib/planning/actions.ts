@@ -13,6 +13,7 @@ import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import { DomainError } from "@/lib/errors/domain-error";
 import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
 import { createManufacturingOrderInTx } from "@/lib/manufacturing/queries/order-write";
+import { notifyManufacturingOrderCreated } from "@/lib/notifications/manufacturing";
 import { createPurchaseOrderInTx } from "@/lib/purchasing/queries/order-write";
 import type {
   CreatePlanningPurchaseOrderDrafts,
@@ -411,7 +412,9 @@ export async function createPurchaseOrderDraftsFromPlanning(
 export async function createManufacturingOrderDraftFromPlanning(
   payload: CreatePlanningManufacturingOrderDraft
 ) {
-  return withAuthedOrgContext(async (tx, orgId) => {
+  let notifyOrgId = "";
+  const created = await withAuthedOrgContext(async (tx, orgId) => {
+    notifyOrgId = orgId;
     await lockItemsInTx(tx, [payload.itemId]);
 
     const snapshot = await buildPlanningSnapshotInTx(tx, orgId);
@@ -435,4 +438,6 @@ export async function createManufacturingOrderDraftFromPlanning(
       confirmShortage: false,
     });
   });
+  await notifyManufacturingOrderCreated(notifyOrgId, created.id);
+  return created;
 }

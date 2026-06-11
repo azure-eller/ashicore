@@ -4,17 +4,21 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { organization } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
-import type {
-  BillingPlan,
-  BillingSkuEntitlement,
-  BillingState,
-  BillingStatus,
+import {
+  asBillingPlugins,
+  type BillingPlan,
+  type BillingPlugin,
+  type BillingSkuEntitlement,
+  type BillingState,
+  type BillingStatus,
 } from "./types";
 import { getSkuEntitlementInTx } from "./entitlements";
 export {
   assertCanCreateSkuInTx,
   assertCanCreateSkusInTx,
+  assertFeatureAccessInTx,
   BillingEntitlementError,
+  FeatureEntitlementError,
   getSkuEntitlementInTx,
 } from "./entitlements";
 
@@ -22,15 +26,19 @@ function mapBillingState(row: {
   plan: string;
   status: string;
   stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
   cancelAtPeriodEnd: boolean;
   currentPeriodEnd: Date | null;
+  entitlements: string[] | null;
 }): BillingState {
   return {
     plan: row.plan as BillingPlan,
     status: row.status as BillingStatus,
     stripeCustomerId: row.stripeCustomerId,
+    stripeSubscriptionId: row.stripeSubscriptionId,
     cancelAtPeriodEnd: row.cancelAtPeriodEnd,
     currentPeriodEnd: row.currentPeriodEnd,
+    entitlements: asBillingPlugins(row.entitlements),
   };
 }
 
@@ -53,8 +61,10 @@ export async function getBillingStateByOrgId(orgId: string) {
       plan: organization.plan,
       status: organization.status,
       stripeCustomerId: organization.stripeCustomerId,
+      stripeSubscriptionId: organization.stripeSubscriptionId,
       cancelAtPeriodEnd: organization.cancelAtPeriodEnd,
       currentPeriodEnd: organization.currentPeriodEnd,
+      entitlements: organization.entitlements,
     })
     .from(organization)
     .where(eq(organization.id, orgId))
@@ -71,8 +81,10 @@ export async function getOrgByStripeCustomerId(stripeCustomerId: string) {
       plan: organization.plan,
       status: organization.status,
       stripeCustomerId: organization.stripeCustomerId,
+      stripeSubscriptionId: organization.stripeSubscriptionId,
       cancelAtPeriodEnd: organization.cancelAtPeriodEnd,
       currentPeriodEnd: organization.currentPeriodEnd,
+      entitlements: organization.entitlements,
     })
     .from(organization)
     .where(eq(organization.stripeCustomerId, stripeCustomerId))
@@ -86,6 +98,8 @@ export async function updateOrgBillingState({
   plan,
   status,
   stripeCustomerId,
+  stripeSubscriptionId,
+  entitlements,
   cancelAtPeriodEnd,
   currentPeriodEnd,
 }: {
@@ -93,6 +107,8 @@ export async function updateOrgBillingState({
   plan: BillingPlan;
   status: BillingStatus;
   stripeCustomerId?: string | null;
+  stripeSubscriptionId?: string | null;
+  entitlements?: BillingPlugin[];
   cancelAtPeriodEnd?: boolean;
   currentPeriodEnd?: Date | null;
 }) {
@@ -102,6 +118,9 @@ export async function updateOrgBillingState({
       plan,
       status,
       stripeCustomerId: stripeCustomerId === undefined ? undefined : stripeCustomerId,
+      stripeSubscriptionId:
+        stripeSubscriptionId === undefined ? undefined : stripeSubscriptionId,
+      entitlements: entitlements === undefined ? undefined : [...entitlements],
       cancelAtPeriodEnd: cancelAtPeriodEnd ?? false,
       currentPeriodEnd: currentPeriodEnd ?? null,
     })

@@ -5,7 +5,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Alert02Icon, CreditCardIcon, RefreshIcon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import { apiJson } from "@/lib/client/api";
-import { FREE_SKU_LIMIT } from "@/lib/billing/types";
+import { BILLING_PLUGIN_LABELS, FREE_SKU_LIMIT } from "@/lib/billing/types";
 import type { BillingPageData } from "./types";
 import {
   SettingsKeyValueRow,
@@ -207,6 +207,16 @@ export function BillingSection({
         ) : null}
 
         <SettingsKeyValueRow label="Plan" value={formatPlan(initialData.plan)} />
+        <SettingsKeyValueRow
+          label="Plugins"
+          value={
+            initialData.entitlements.length > 0
+              ? initialData.entitlements
+                  .map((plugin) => BILLING_PLUGIN_LABELS[plugin])
+                  .join(", ")
+              : "No plugins yet"
+          }
+        />
         <SettingsKeyValueRow label="Status" value={formatStatus(initialData)} />
         <SettingsKeyValueRow label="SKU usage" value={usageText(initialData)} />
         <SettingsKeyValueRow

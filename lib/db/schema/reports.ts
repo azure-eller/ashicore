@@ -184,11 +184,11 @@ export const notifications = reportingSchema
       index("notifications_entity_idx").on(table.entityType, table.entityId),
       check(
         "notifications_type_check",
-        sql`${table.type} IN ('daily_manufacturing_report')`
+        sql`${table.type} IN ('daily_manufacturing_report', 'manufacturing_order_created')`
       ),
       check(
         "notifications_entity_type_check",
-        sql`${table.entityType} IN ('report_run')`
+        sql`${table.entityType} IN ('report_run', 'manufacturing_order')`
       ),
       check(
         "notifications_delivery_status_check",
@@ -199,6 +199,93 @@ export const notifications = reportingSchema
         to: "public",
         using: sql`organization_id = current_setting('app.current_org_id', true)`,
         withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const notificationPreferences = reportingSchema
+  .table(
+    "notification_preferences",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      organizationId: text("organization_id")
+        .notNull()
+        .references(() => organization.id, { onDelete: "cascade" }),
+      userId: text("user_id")
+        .notNull()
+        .references(() => user.id, { onDelete: "cascade" }),
+      eventType: varchar("event_type", { length: 64 }).notNull(),
+      enabled: boolean("enabled").notNull().default(false),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true })
+        .notNull()
+        .defaultNow()
+        .$onUpdate(() => new Date()),
+    },
+    (table) => [
+      uniqueIndex("notification_preferences_org_user_event_uidx").on(
+        table.organizationId,
+        table.userId,
+        table.eventType
+      ),
+      check(
+        "notification_preferences_event_type_check",
+        sql`${table.eventType} IN ('manufacturing_order_created')`
+      ),
+      pgPolicy("notification_preferences_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`organization_id = current_setting('app.current_org_id', true)`,
+        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+// User-scoped like auth sessions: a phone belongs to a person; the org lives on
+// the notification row.
+export const pushDevices = reportingSchema
+  .table(
+    "push_devices",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      userId: text("user_id")
+        .notNull()
+        .references(() => user.id, { onDelete: "cascade" }),
+      fcmToken: text("fcm_token").notNull(),
+      platform: varchar("platform", { length: 16 }).notNull().default("android"),
+      lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true })
+        .notNull()
+        .defaultNow()
+        .$onUpdate(() => new Date()),
+    },
+    (table) => [
+      uniqueIndex("push_devices_token_uidx").on(table.fcmToken),
+      index("push_devices_user_idx").on(table.userId),
+      check("push_devices_platform_check", sql`${table.platform} IN ('android')`),
+      pgPolicy("push_devices_select_own", {
+        for: "select",
+        to: "public",
+        using: sql`user_id = current_setting('app.current_user_id', true) OR fcm_token = current_setting('app.current_fcm_token', true)`,
+      }),
+      pgPolicy("push_devices_insert_own", {
+        for: "insert",
+        to: "public",
+        withCheck: sql`user_id = current_setting('app.current_user_id', true)`,
+      }),
+      pgPolicy("push_devices_reassign_to_current_user", {
+        for: "update",
+        to: "public",
+        using: sql`fcm_token = current_setting('app.current_fcm_token', true)`,
+        withCheck: sql`user_id = current_setting('app.current_user_id', true)`,
+      }),
+      pgPolicy("push_devices_delete_own", {
+        for: "delete",
+        to: "public",
+        using: sql`user_id = current_setting('app.current_user_id', true)`,
       }),
     ]
   )

@@ -84,6 +84,7 @@ This file is a constitution + map. Deep reference lives in `docs/` — read the 
 | Xero App Store / partner readiness | `docs/xero-partner-readiness.md` |
 | Xero security evidence / key rotation | `docs/xero-security-evidence.md` |
 | Manufacturing orders | `docs/manufacturing.md` |
+| Notifications, push, FCM | `docs/notifications.md` |
 | Sales orders, customers, shipping | `docs/sales.md` |
 | Purchasing, suppliers, receiving | `docs/purchasing.md` |
 | Stocktakes, reconciliation | `docs/stocktakes.md` |

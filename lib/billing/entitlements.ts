@@ -2,9 +2,13 @@ import { eq, sql } from "drizzle-orm";
 import { items, organization } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
 import { DomainError } from "@/lib/errors/domain-error";
+import { captureAppError } from "@/lib/observability/sentry";
 import {
+  asBillingPlugins,
+  BILLING_PLUGIN_LABELS,
   FREE_SKU_LIMIT,
   type BillingPlan,
+  type BillingPlugin,
   type BillingSkuEntitlement,
   type BillingStatus,
 } from "./types";
@@ -42,6 +46,110 @@ function billingEnforcementEnabled() {
   return process.env.BILLING_ENTITLEMENTS_ENFORCED !== "0";
 }
 
+export class FeatureEntitlementError extends DomainError<{
+  billing: { plugin: BillingPlugin };
+}> {
+  constructor(plugin: BillingPlugin) {
+    super(
+      `${BILLING_PLUGIN_LABELS[plugin]} requires a plugin upgrade. Add it in Settings → Billing.`,
+      402,
+      {
+        name: "FeatureEntitlementError",
+        extra: { billing: { plugin } },
+      }
+    );
+  }
+}
+
+// Plugins listed here enforce 402s; everything else runs in shadow mode
+// (would-be denials are logged, nothing blocks). Both are unset by default.
+function enforcedPlugins(): Set<string> {
+  return new Set(
+    (process.env.BILLING_ENFORCED_PLUGINS ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
+  );
+}
+
+// Orgs created before this instant are grandfathered: never blocked, only
+// shadow-logged. Unset means every org is exempt — enforcement cannot fire
+// anywhere until launch sets it.
+function enforcementLaunchAt(): Date | null {
+  const raw = process.env.BILLING_ENFORCEMENT_LAUNCH_AT?.trim();
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export type FeatureAccessResult = {
+  allowed: true;
+  entitled: boolean;
+  shadowDenial: boolean;
+  failedOpen: boolean;
+};
+
+export async function assertFeatureAccessInTx(
+  tx: Tx,
+  orgId: string,
+  plugin: BillingPlugin,
+  context?: { route?: string }
+): Promise<FeatureAccessResult> {
+  let entitled = false;
+  let deny = false;
+  let shadowDenial = false;
+
+  try {
+    const [org] = await tx
+      .select({
+        entitlements: organization.entitlements,
+        createdAt: organization.createdAt,
+      })
+      .from(organization)
+      .where(eq(organization.id, orgId))
+      .limit(1);
+
+    if (!org) {
+      throw new Error("Active organization not found for entitlement check.");
+    }
+
+    entitled = asBillingPlugins(org.entitlements).includes(plugin);
+
+    if (!entitled && billingEnforcementEnabled()) {
+      const launchAt = enforcementLaunchAt();
+      const grandfathered = launchAt == null || org.createdAt < launchAt;
+      deny = !grandfathered && enforcedPlugins().has(plugin);
+
+      if (!deny) {
+        shadowDenial = true;
+        console.warn(
+          "[billing-shadow-denial]",
+          JSON.stringify({
+            orgId,
+            plugin,
+            route: context?.route ?? null,
+            grandfathered,
+          })
+        );
+      }
+    }
+  } catch (error) {
+    // Fail open: a billing bug must never block a customer's operations.
+    captureAppError(error, {
+      source: "billing_feature_entitlement",
+      operation: plugin,
+      route: context?.route,
+    });
+    return { allowed: true, entitled: false, shadowDenial: false, failedOpen: true };
+  }
+
+  if (deny) {
+    throw new FeatureEntitlementError(plugin);
+  }
+
+  return { allowed: true, entitled, shadowDenial, failedOpen: false };
+}
+
 export async function getSkuEntitlementInTx(
   tx: Tx,
   orgId: string
@@ -64,8 +172,10 @@ async function readSkuEntitlementInTx(
       plan: organization.plan,
       status: organization.status,
       stripeCustomerId: organization.stripeCustomerId,
+      stripeSubscriptionId: organization.stripeSubscriptionId,
       cancelAtPeriodEnd: organization.cancelAtPeriodEnd,
       currentPeriodEnd: organization.currentPeriodEnd,
+      entitlements: organization.entitlements,
     })
     .from(organization)
     .where(eq(organization.id, orgId))
@@ -89,8 +199,10 @@ async function readSkuEntitlementInTx(
     plan,
     status: org.status as BillingStatus,
     stripeCustomerId: org.stripeCustomerId,
+    stripeSubscriptionId: org.stripeSubscriptionId,
     cancelAtPeriodEnd: org.cancelAtPeriodEnd,
     currentPeriodEnd: org.currentPeriodEnd,
+    entitlements: asBillingPlugins(org.entitlements),
     skuLimit,
     skuCount,
     enforcementEnabled,

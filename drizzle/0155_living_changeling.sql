@@ -1,0 +1,2 @@
+ALTER TABLE "system"."organization" ADD COLUMN IF NOT EXISTS "stripe_subscription_id" text;--> statement-breakpoint
+ALTER TABLE "system"."organization" ADD COLUMN IF NOT EXISTS "entitlements" jsonb DEFAULT '[]'::jsonb NOT NULL;

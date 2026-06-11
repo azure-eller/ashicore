@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { and, eq } from "drizzle-orm";
 import { test, expect } from "../fixtures";
 import {
@@ -8,6 +10,8 @@ import {
   manufacturingOrderBatches,
   manufacturingOrderIngredients,
   manufacturingOrders,
+  notifications,
+  user,
 } from "../../../lib/db/schema";
 import {
   completeManufacturingOrder,
@@ -17,6 +21,8 @@ import {
   releaseManufacturingOrder,
   testFetch,
 } from "../../helpers/api";
+
+const FCM_OUTBOX_DIR = path.join(process.cwd(), ".tmp", "fcm-outbox");
 
 test.describe("manufacturing demand and completion heartbeat", () => {
   const ts = Date.now();
@@ -475,5 +481,97 @@ test.describe("manufacturing demand and completion heartbeat", () => {
 
     expect(saved.plannedQuantity).toBe("2.0000");
     expect(saved.plannedDate).toBe("2026-06-15");
+  });
+
+  test("MO creation fans out notifications to subscribed users only", async ({
+    db,
+  }) => {
+    const fixture = await createBomFixture("Notif Fanout");
+
+    async function createOrder() {
+      const order = await createManufacturingOrder({
+        productId: fixture.productId,
+        plannedQuantity: "3",
+        ingredients: [{ itemId: fixture.componentId, quantityPerUnit: "2" }],
+        confirmShortage: false,
+      });
+      expect(order.status).toBe(201);
+      return order.body.id as string;
+    }
+
+    async function setPreference(enabled: boolean) {
+      const res = await testFetch("/api/notification-preferences", {
+        method: "PUT",
+        body: JSON.stringify({
+          eventType: "manufacturing_order_created",
+          enabled,
+        }),
+      });
+      expect(res.status).toBe(200);
+    }
+
+    try {
+      // Not subscribed -> no rows.
+      await setPreference(false);
+      const silentOrderId = await createOrder();
+      const silentRows = await db
+        .select({ id: notifications.id })
+        .from(notifications)
+        .where(eq(notifications.entityId, silentOrderId));
+      expect(silentRows).toHaveLength(0);
+
+      // Subscribed with a device -> row delivered + push in outbox.
+      await setPreference(true);
+      const token = `fast-fanout-${ts}`;
+      const deviceRes = await testFetch("/api/push-devices", {
+        method: "POST",
+        body: JSON.stringify({ token, platform: "android" }),
+      });
+      expect(deviceRes.status).toBe(200);
+
+      const orderId = await createOrder();
+      const [testUser] = await db
+        .select({ id: user.id })
+        .from(user)
+        .where(eq(user.email, "test@test.com"));
+      const rows = await db
+        .select({
+          id: notifications.id,
+          deliveryStatus: notifications.deliveryStatus,
+        })
+        .from(notifications)
+        .where(
+          and(
+            eq(notifications.entityId, orderId),
+            eq(notifications.type, "manufacturing_order_created"),
+            eq(notifications.userId, testUser.id)
+          )
+        );
+      expect(rows).toHaveLength(1);
+      expect(rows[0].deliveryStatus).toBe("delivered");
+
+      const files = await fs.readdir(FCM_OUTBOX_DIR);
+      const payloads = await Promise.all(
+        files.map((f) =>
+          fs.readFile(path.join(FCM_OUTBOX_DIR, f), "utf8").then(JSON.parse)
+        )
+      );
+      // The data payload is the mobile contract: Android renders it client-side.
+      const payload = payloads.find(
+        (p) => p.token === token && p.data?.notificationId === rows[0].id
+      );
+      expect(payload).toBeDefined();
+      expect(payload.data).toMatchObject({
+        type: "manufacturing_order_created",
+        entityType: "manufacturing_order",
+        entityId: orderId,
+      });
+      expect(payload.data.organizationId).toBeTruthy();
+      expect(payload.data.title).toBeTruthy();
+      expect(payload.data.body).toBeTruthy();
+    } finally {
+      // Leave the shared test user unsubscribed for other suites.
+      await setPreference(false);
+    }
   });
 });

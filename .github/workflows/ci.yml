@@ -488,6 +488,11 @@ jobs:
     env:
       EMAIL_OUTBOX_ONLY: "1"
       PLAYWRIGHT_FAST_WORKERS: "4"
+      # Fake Stripe credentials for the billing entitlement seam: webhook
+      # signatures verify against this secret; the fake API key forces
+      # handleStripeWebhook onto its event-payload fallback (no network).
+      STRIPE_SECRET_KEY: sk_test_ci_fake
+      STRIPE_WEBHOOK_SECRET: whsec_ci_fake
     services:
       postgres:
         image: postgres:16

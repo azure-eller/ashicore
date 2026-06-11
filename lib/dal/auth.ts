@@ -845,6 +845,7 @@ export async function withAuthedOrgContext<T>(
     orgId,
     (tx) => callback(tx, orgId, userId),
     {
+      userId,
       setOrgContext: (setOrgContext) =>
         measureObservedOperation("db.set_org_context", setOrgContext, {
           headers: requestHeaders,

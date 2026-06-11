@@ -44,7 +44,7 @@ REVOKE ALL ON ALL TABLES IN SCHEMA "sales", "inventory", "purchasing", "manufact
 REVOKE ALL ON SCHEMA "sales", "inventory", "purchasing", "manufacturing", "settings" FROM erp_agent_ro;
 
 DROP SCHEMA IF EXISTS "agent_query" CASCADE;
-CREATE SCHEMA "agent_query";
+CREATE SCHEMA IF NOT EXISTS "agent_query";
 
 -- Set-once org pin: writes the request's org into an owner-owned temp table the
 -- agent cannot read, write, or drop. A second call (e.g. agent SQL trying to

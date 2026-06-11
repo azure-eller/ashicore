@@ -1,4 +1,5 @@
 import type { AppRole, DerivedAccessPresetKey, ModuleAccessMap } from "@/lib/authz";
+import type { BillingPlugin } from "@/lib/billing/types";
 
 export type TeamMemberRow = {
   id: string;
@@ -76,6 +77,8 @@ export type BillingPageData = {
   plan: "free" | "core";
   status: "active" | "past_due" | "canceled";
   stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
+  entitlements: BillingPlugin[];
   cancelAtPeriodEnd: boolean;
   currentPeriodEnd: string | null;
   skuCount: number;
