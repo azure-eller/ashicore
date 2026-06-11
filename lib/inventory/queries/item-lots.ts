@@ -30,6 +30,7 @@ import {
 } from "@/lib/dal/auth";
 import {
   changeLotDispositionInTx,
+  defaultLocationIdSubquery,
   ledgerLotUnitCostByOrigin,
   projectedLotUnitCost,
   scrapLotDispositionInTx,
@@ -132,6 +133,11 @@ export async function getLots(
           eq(inventoryLotBalances.organizationId, lots.organizationId),
           eq(inventoryLotBalances.itemId, lots.itemId),
           eq(inventoryLotBalances.lotId, lots.id),
+          // Lot adjustments apply at the default location, so the grid must
+          // show the same default-location balance (per-location reads: PR3).
+          sql`${inventoryLotBalances.locationId} = ${defaultLocationIdSubquery(
+            lots.organizationId
+          )}`,
           options.includeNegativeBalances
             ? sql`${inventoryLotBalances.quantity} <> 0`
             : sql`${inventoryLotBalances.quantity} > 0`
