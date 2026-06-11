@@ -41,14 +41,16 @@ type PositiveStockEventType =
   | "manufacturing_output"
   | "manual_adjustment_increase"
   | "stocktake_gain"
-  | "manufacturing_variance_gain";
+  | "manufacturing_variance_gain"
+  | "transfer_in";
 
 type NegativeStockEventType =
   | "manual_adjustment_decrease"
   | "stocktake_loss"
   | "sales_consumption"
   | "manufacturing_ingredient_consumption"
-  | "manufacturing_variance_loss";
+  | "manufacturing_variance_loss"
+  | "transfer_out";
 
 type RestockEventType = "unpick_restock" | "manufacturing_variance_gain";
 
@@ -688,6 +690,7 @@ export async function appendPositiveStockToExistingLotInTx(
     occurredAt?: Date;
     metadata?: Record<string, unknown> | null;
     disposition?: InventoryDisposition;
+    parentEventId?: string | null;
   }
 ) {
   await lockItemsInTx(tx, [params.itemId]);
@@ -786,6 +789,7 @@ export async function appendPositiveStockToExistingLotInTx(
       toDisposition: disposition,
       referenceType: params.referenceType ?? null,
       referenceId: params.referenceId ?? null,
+      parentEventId: params.parentEventId ?? null,
       actorUserId: params.actorUserId ?? null,
       idempotencyKey: params.idempotencyKey ?? null,
       occurredAt: params.occurredAt,

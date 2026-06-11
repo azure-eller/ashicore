@@ -23,6 +23,7 @@ export const INVENTORY_LEDGER_SOURCE_TYPES = [
   "stocktake",
   "item",
   "seed",
+  "inventory_transfer",
 ] as const;
 export type InventoryLedgerSourceType =
   (typeof INVENTORY_LEDGER_SOURCE_TYPES)[number];
@@ -49,6 +50,7 @@ const STOCK_INCREASE_TYPES: ReadonlySet<InventoryEventType> = new Set([
   "stocktake_gain",
   "manufacturing_variance_gain",
   "unpick_restock",
+  "transfer_in",
 ]);
 
 const STOCK_DECREASE_TYPES: ReadonlySet<InventoryEventType> = new Set([
@@ -58,6 +60,7 @@ const STOCK_DECREASE_TYPES: ReadonlySet<InventoryEventType> = new Set([
   "manufacturing_ingredient_consumption",
   "manufacturing_variance_loss",
   "quality_scrap",
+  "transfer_out",
 ]);
 
 const QUALITY_EVENT_TYPES: ReadonlySet<InventoryEventType> = new Set([
@@ -96,6 +99,8 @@ const EVENT_LABELS: Record<InventoryEventType, string> = {
   manufacturing_variance_loss: "Manufacturing variance loss",
   quality_scrap: "Quality scrap",
   unpick_restock: "Unpick restock",
+  transfer_out: "Transfer out",
+  transfer_in: "Transfer in",
   quality_disposition_change: "Quality disposition change",
   demand_increase: "Customer demand increase",
   demand_release: "Customer demand release",
@@ -120,6 +125,8 @@ const SUMMARY_ACTIONS: Record<InventoryEventType, string> = {
   manufacturing_variance_loss: "recorded manufacturing variance loss for",
   quality_scrap: "scrapped",
   unpick_restock: "returned picked material for",
+  transfer_out: "transferred out",
+  transfer_in: "transferred in",
   quality_disposition_change: "changed quality disposition for",
   demand_increase: "added customer demand for",
   demand_release: "released customer demand for",
@@ -162,6 +169,7 @@ const SOURCE_TYPE_LABELS: Record<InventoryLedgerSourceType, string> = {
   stocktake: "Stocktake",
   item: "Item",
   seed: "Seed",
+  inventory_transfer: "Transfer",
 };
 
 export function getInventoryLedgerEventClass(

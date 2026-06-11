@@ -18,6 +18,30 @@ export async function getExistingDefaultInventoryLocationInTx(
   });
 }
 
+export async function resolveInventoryLocationInTx(
+  tx: Tx,
+  organizationId: string,
+  locationId?: string | null
+) {
+  if (!locationId) {
+    return getDefaultInventoryLocationInTx(tx, organizationId);
+  }
+
+  const location = await tx.query.inventoryLocations.findFirst({
+    where: and(
+      eq(inventoryLocations.id, locationId),
+      eq(inventoryLocations.organizationId, organizationId),
+      isNull(inventoryLocations.deletedAt)
+    ),
+  });
+
+  if (!location) {
+    throw new Error("Inventory location not found for this organization.");
+  }
+
+  return location;
+}
+
 export async function getDefaultInventoryLocationInTx(
   tx: Tx,
   organizationId: string

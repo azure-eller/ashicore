@@ -21,6 +21,7 @@ export const INVENTORY_OPERATION_NAMES = [
   "cancelManufacturingOrder",
   "manualIncreaseStock",
   "manualDecreaseStock",
+  "transferStock",
   "changeLotDisposition",
   "scrapLotDisposition",
   "reconcileStocktakeCount",
