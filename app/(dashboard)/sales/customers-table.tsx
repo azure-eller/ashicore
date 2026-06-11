@@ -17,73 +17,6 @@ import { queryKeys } from "@/lib/client/query-keys";
 
 type CustomerView = "all" | "due";
 
-const baseColumns: ColDef<CustomerRow>[] = [
-  {
-    field: "name",
-    headerName: "Name",
-    width: 260,
-    minWidth: 190,
-    flex: 1.2,
-    cellRenderer: ({ data }: ICellRendererParams<CustomerRow>) =>
-      data ? (
-        <Link href={`/sales/customers/${data.id}`} className="hover:underline">
-          {data.name}
-        </Link>
-      ) : null,
-  },
-  {
-    field: "customerCategoryName",
-    headerName: "Category",
-    headerTooltip: CUSTOMER_CATEGORY_TOOLTIP,
-    width: 170,
-    valueFormatter: ({ value }) => value ?? "Uncategorized",
-  },
-  {
-    field: "nextTaskDueDate",
-    headerName: "Due",
-    width: 130,
-    valueFormatter: ({ value }) => (value ? formatDate(value) : "—"),
-  },
-  {
-    field: "nextTaskTitle",
-    headerName: "Next action",
-    width: 280,
-    minWidth: 180,
-    flex: 1,
-    valueFormatter: ({ value }) => value ?? "—",
-    tooltipValueGetter: ({ data }) => data?.nextTaskTitle ?? "",
-  },
-  {
-    field: "primaryContactName",
-    headerName: "Primary contact",
-    width: 220,
-    minWidth: 160,
-    valueFormatter: ({ data }) => formatPrimaryContact(data),
-    tooltipValueGetter: ({ data }) => formatPrimaryContact(data),
-  },
-  {
-    field: "email",
-    headerName: "Email",
-    width: 260,
-    minWidth: 180,
-    flex: 1,
-    valueFormatter: ({ value }) => value ?? "—",
-  },
-  {
-    field: "phone",
-    headerName: "Phone",
-    width: 160,
-    valueFormatter: ({ value }) => value ?? "—",
-  },
-  {
-    field: "xeroContactId",
-    headerName: "Reference ID",
-    width: 190,
-    valueFormatter: ({ value }) => value ?? "—",
-    tooltipValueGetter: ({ data }) => data?.xeroContactId ?? "",
-  },
-];
-
 export function CustomersTable({
   initialData,
   today,
@@ -98,32 +31,88 @@ export function CustomersTable({
       patchCustomerActivity(customerId, taskId, { status: "done" }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.customers.root }),
   });
-  const columns = useMemo<ColDef<CustomerRow>[]>(() => {
-    const checkColumn: ColDef<CustomerRow> = {
-      colId: "completeTask",
-      headerName: "",
-      width: 56,
-      minWidth: 56,
-      cellRenderer: ({ data }: ICellRendererParams<CustomerRow>) => {
-        if (!data?.nextTaskId || !data.nextTaskTitle) return null;
-        return (
-          <Checkbox
-            aria-label={`Complete "${data.nextTaskTitle}"`}
-            checked={false}
-            disabled={completeTask.isPending}
-            onCheckedChange={() =>
-              completeTask.mutate({
-                customerId: data.id,
-                taskId: data.nextTaskId as string,
-              })
-            }
-          />
-        );
+  const columns = useMemo<ColDef<CustomerRow>[]>(
+    () => [
+      {
+        field: "name",
+        headerName: "Name",
+        width: 260,
+        minWidth: 190,
+        flex: 1.2,
+        cellRenderer: ({ data }: ICellRendererParams<CustomerRow>) =>
+          data ? (
+            <Link href={`/sales/customers/${data.id}`} className="hover:underline">
+              {data.name}
+            </Link>
+          ) : null,
       },
-    };
-    const [nameColumn, ...rest] = baseColumns;
-    return [nameColumn, checkColumn, ...rest];
-  }, [completeTask]);
+      {
+        field: "nextTaskTitle",
+        headerName: "Next action",
+        width: 280,
+        minWidth: 200,
+        flex: 1,
+        tooltipValueGetter: ({ data }) => data?.nextTaskTitle ?? "",
+        cellRenderer: ({ data }: ICellRendererParams<CustomerRow>) => {
+          if (!data?.nextTaskId || !data.nextTaskTitle) return "—";
+          return (
+            <span className="flex min-w-0 items-center gap-(--space-3)">
+              <Checkbox
+                aria-label={`Complete "${data.nextTaskTitle}"`}
+                checked={false}
+                disabled={completeTask.isPending}
+                onCheckedChange={() =>
+                  completeTask.mutate({
+                    customerId: data.id,
+                    taskId: data.nextTaskId as string,
+                  })
+                }
+              />
+              <span className="truncate">{data.nextTaskTitle}</span>
+            </span>
+          );
+        },
+      },
+      {
+        field: "nextTaskDueDate",
+        headerName: "Due",
+        width: 130,
+        valueFormatter: ({ value }) => (value ? formatDate(value) : "—"),
+      },
+      {
+        field: "customerCategoryName",
+        headerName: "Category",
+        headerTooltip: CUSTOMER_CATEGORY_TOOLTIP,
+        width: 170,
+        valueFormatter: ({ value }) => value ?? "Uncategorized",
+      },
+      {
+        field: "primaryContactName",
+        headerName: "Primary contact",
+        width: 190,
+        minWidth: 150,
+        valueFormatter: ({ value }) => value ?? "—",
+      },
+      {
+        field: "email",
+        headerName: "Email",
+        width: 260,
+        minWidth: 180,
+        flex: 1,
+        valueGetter: ({ data }) => data?.primaryContactEmail ?? data?.email ?? null,
+        valueFormatter: ({ value }) => value ?? "—",
+        tooltipValueGetter: ({ data }) => data?.primaryContactEmail ?? data?.email ?? "",
+      },
+      {
+        field: "phone",
+        headerName: "Phone",
+        width: 160,
+        valueGetter: ({ data }) => data?.primaryContactPhone ?? data?.phone ?? null,
+        valueFormatter: ({ value }) => value ?? "—",
+      },
+    ],
+    [completeTask]
+  );
   const filteredRows = useMemo(
     () => filterCustomersForView(initialData, view, today),
     [initialData, today, view]
@@ -194,13 +183,4 @@ function filterCustomersForView(
 
 function hasDueTask(row: CustomerRow, today: string) {
   return Boolean(row.nextTaskDueDate && row.nextTaskDueDate <= today);
-}
-
-function formatPrimaryContact(row: CustomerRow | null | undefined) {
-  if (!row?.primaryContactName) return "—";
-
-  const contactDetails = [row.primaryContactEmail, row.primaryContactPhone]
-    .filter(Boolean)
-    .join(" · ");
-  return contactDetails ? `${row.primaryContactName} · ${contactDetails}` : row.primaryContactName;
 }
