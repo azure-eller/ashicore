@@ -1,4 +1,5 @@
-import { jsonNotFound, jsonOk, jsonSuccess } from "@/lib/api/responses";
+import { NextResponse } from "next/server";
+import { jsonNotFound, jsonSuccess } from "@/lib/api/responses";
 import {
   deleteInventoryLocation,
   updateInventoryLocation,
@@ -13,7 +14,7 @@ export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
   const data = await parseJsonBody(request, updateLocationSchema);
   const location = await updateInventoryLocation(id, data);
-  return jsonOk(location);
+  return NextResponse.json(location);
 });
 
 export const DELETE = apiHandler(async (request: Request, ctx: unknown) => {

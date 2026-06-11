@@ -9,6 +9,7 @@ const locationName = z
 const locationCode = z
   .string()
   .trim()
+  .toLowerCase()
   .min(1, "Code is required")
   .max(40, "Code must be 40 characters or fewer");
 

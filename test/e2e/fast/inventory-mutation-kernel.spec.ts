@@ -1457,4 +1457,68 @@ test.describe("inventory mutation kernel heartbeat", () => {
       expect(coreEntitlement.canCreateSku).toBe(true);
     });
   });
+
+  test("location management preserves API shape and blocks unsafe default swaps", async () => {
+    const code = `FAST-LOC-${ts}`;
+    const created = await testFetch("/api/locations", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `Fast Location ${ts}`,
+        code,
+      }),
+    });
+    expect(created.status).toBe(201);
+    const location = await created.json();
+    expect(location).toMatchObject({
+      name: `Fast Location ${ts}`,
+      code: code.toLowerCase(),
+      isDefault: false,
+      hasActivity: false,
+    });
+
+    const duplicate = await testFetch("/api/locations", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `Fast Location Duplicate ${ts}`,
+        code: code.toLowerCase(),
+      }),
+    });
+    expect(duplicate.status).toBe(409);
+
+    const renamed = await testFetch(`/api/locations/${location.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name: `Fast Location Renamed ${ts}` }),
+    });
+    expect(renamed.status).toBe(200);
+    const renamedBody = await renamed.json();
+    expect(renamedBody).toMatchObject({
+      id: location.id,
+      name: `Fast Location Renamed ${ts}`,
+      code: code.toLowerCase(),
+      isDefault: false,
+      hasActivity: false,
+    });
+    expect(renamedBody.ok).toBeUndefined();
+
+    const item = await createItem({
+      itemType: "material",
+      name: `Fast Location Blocker ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-LOC-BLOCKER-${ts}`,
+      category: `Fast Location ${ts}`,
+      description: null,
+      defaultPurchasePrice: "1.00",
+      defaultSellingPrice: null,
+      stock: "1",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(item.status).toBe(201);
+
+    const defaultSwap = await testFetch(`/api/locations/${location.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ isDefault: true }),
+    });
+    expect(defaultSwap.status).toBe(409);
+  });
 });

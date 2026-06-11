@@ -12,7 +12,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field";
-import { SettingsPanel, SettingsPanelHeader } from "@/components/settings-panel";
+import {
+  SettingsBlock,
+  SettingsCard,
+  SettingsPageHeader,
+} from "@/components/settings-panel";
 import { apiJson } from "@/lib/client/api";
 
 type LocationRow = {
@@ -156,63 +160,70 @@ export function LocationsSection({
           : null;
 
   return (
-    <SettingsPanel id="locations">
-      <SettingsPanelHeader
+    <div className="flex flex-col gap-(--space-8)">
+      <SettingsPageHeader
         title="Locations"
-        meta="Places stock is stored. Stock moves between locations via transfers."
+        sub="Places stock is stored. Stock moves between locations via transfers."
         action={
           <span className="text-[length:var(--text-xs)] text-muted-foreground">
             {saveStatus}
           </span>
         }
       />
-      <div className="grid gap-(--space-4) p-(--space-8)">
-        <MutableLines<LocationRow>
-          rows={rows}
-          fields={fields}
-          getRowId={(row) => row.id}
-          createRow={() => ({
-            id: `draft-${crypto.randomUUID()}`,
-            name: "",
-            code: "",
-            isDefault: false,
-          })}
-          onRowsChange={(
-            nextRows: LocationRow[],
-            change: EditableLineDataGridChange<LocationRow>,
-          ) => {
-            setRows(nextRows);
-            if (change.type !== "cell_edit_committed" || !change.row) return;
-            const row = change.row;
-            if (!toPayload(row)) return;
-            if (isDraftRow(row) && savingDraftIdsRef.current.has(row.id)) return;
-            if (isDraftRow(row)) savingDraftIdsRef.current.add(row.id);
-            mutation.mutate({ row });
-          }}
-          addLabel="Add location"
-          initializeBlankRow={false}
-          enableReorder={false}
-          getDeleteDisabledReason={(row) =>
-            row.isDefault
-              ? "The default location cannot be deleted."
-              : row.hasActivity
-                ? "This location has inventory activity and cannot be deleted."
-                : null
-          }
-          onDeleteRow={async (row) => {
-            if (!isDraftRow(row)) {
-              const confirmed = window.confirm(
-                `Delete ${row.name || "this location"}?`,
-              );
-              if (!confirmed) return;
+
+      <SettingsCard>
+        <SettingsBlock title="Locations" count={rows.length}>
+          <MutableLines<LocationRow>
+            rows={rows}
+            fields={fields}
+            getRowId={(row) => row.id}
+            createRow={() => ({
+              id: `draft-${crypto.randomUUID()}`,
+              name: "",
+              code: "",
+              isDefault: false,
+            })}
+            onRowsChange={(
+              nextRows: LocationRow[],
+              change: EditableLineDataGridChange<LocationRow>,
+            ) => {
+              setRows(nextRows);
+              if (change.type !== "cell_edit_committed" || !change.row) return;
+              const row = change.row;
+              if (!toPayload(row)) return;
+              if (isDraftRow(row) && savingDraftIdsRef.current.has(row.id)) return;
+              if (isDraftRow(row)) savingDraftIdsRef.current.add(row.id);
+              mutation.mutate({ row });
+            }}
+            addLabel="Add location"
+            initializeBlankRow={false}
+            enableReorder={false}
+            getDeleteDisabledReason={(row) =>
+              row.isDefault
+                ? "The default location cannot be deleted."
+                : row.hasActivity
+                  ? "This location has inventory activity and cannot be deleted."
+                  : null
             }
-            await deleteMutation.mutateAsync(row);
-          }}
-          emptyMessage="No locations yet."
-        />
-        {actionError ? <FieldError>{actionError}</FieldError> : null}
-      </div>
-    </SettingsPanel>
+            onDeleteRow={async (row) => {
+              if (!isDraftRow(row)) {
+                const confirmed = window.confirm(
+                  `Delete ${row.name || "this location"}?`,
+                );
+                if (!confirmed) return;
+              }
+              await deleteMutation.mutateAsync(row);
+            }}
+            emptyMessage="No locations yet."
+          />
+          {actionError ? (
+            <div className="mt-(--space-4)">
+              <FieldError>{actionError}</FieldError>
+            </div>
+          ) : null}
+        </SettingsBlock>
+      </SettingsCard>
+    </div>
   );
 }
 

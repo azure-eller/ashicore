@@ -1,9 +1,13 @@
 import "server-only";
 import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import {
+  inventoryDemandSummary,
   inventoryEvents,
+  inventoryExpectedSummary,
+  inventoryItemBalances,
   inventoryLocations,
   inventoryLotBalances,
+  stocktakes,
 } from "@/lib/db/schema";
 import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
@@ -48,11 +52,30 @@ async function getActiveLocationInTx(tx: Tx, orgId: string, locationId: string) 
   });
 }
 
+async function getLocationRowInTx(
+  tx: Tx,
+  orgId: string,
+  locationId: string
+): Promise<LocationRow | null> {
+  const [row] = await tx
+    .select({ ...locationColumns, hasActivity: hasActivityExpr.as("hasActivity") })
+    .from(inventoryLocations)
+    .where(
+      and(
+        eq(inventoryLocations.id, locationId),
+        eq(inventoryLocations.organizationId, orgId),
+        isNull(inventoryLocations.deletedAt)
+      )
+    );
+
+  return row ?? null;
+}
+
 async function assertCodeAvailableInTx(tx: Tx, orgId: string, code: string, excludeId?: string) {
   const conflict = await tx.query.inventoryLocations.findFirst({
     where: and(
       eq(inventoryLocations.organizationId, orgId),
-      eq(inventoryLocations.code, code),
+      sql`lower(${inventoryLocations.code}) = ${code.toLowerCase()}`,
       isNull(inventoryLocations.deletedAt),
       excludeId ? ne(inventoryLocations.id, excludeId) : undefined
     ),
@@ -62,9 +85,85 @@ async function assertCodeAvailableInTx(tx: Tx, orgId: string, code: string, excl
   }
 }
 
+async function assertDefaultSwapSafeInTx(
+  tx: Tx,
+  orgId: string,
+  currentDefaultLocationId: string
+) {
+  const [draftStocktake] = await tx
+    .select({ id: stocktakes.id })
+    .from(stocktakes)
+    .where(
+      and(
+        eq(stocktakes.organizationId, orgId),
+        eq(stocktakes.status, "draft")
+      )
+    )
+    .limit(1);
+  if (draftStocktake) {
+    throw new InventoryError(
+      "Complete or cancel draft stocktakes before changing the default location.",
+      409
+    );
+  }
+
+  const [openBalanceState] = await tx
+    .select({ itemId: inventoryItemBalances.itemId })
+    .from(inventoryItemBalances)
+    .where(
+      and(
+        eq(inventoryItemBalances.organizationId, orgId),
+        eq(inventoryItemBalances.locationId, currentDefaultLocationId),
+        sql`(${inventoryItemBalances.onHandQty} <> 0 OR ${inventoryItemBalances.demandQty} <> 0 OR ${inventoryItemBalances.expectedQty} <> 0)`
+      )
+    )
+    .limit(1);
+  if (openBalanceState) {
+    throw new InventoryError(
+      "Move or close stock, demand, and expected supply before changing the default location.",
+      409
+    );
+  }
+
+  const [openDemand] = await tx
+    .select({ referenceId: inventoryDemandSummary.referenceId })
+    .from(inventoryDemandSummary)
+    .where(
+      and(
+        eq(inventoryDemandSummary.organizationId, orgId),
+        eq(inventoryDemandSummary.locationId, currentDefaultLocationId),
+        sql`${inventoryDemandSummary.quantity} <> 0`
+      )
+    )
+    .limit(1);
+  if (openDemand) {
+    throw new InventoryError(
+      "Close or fulfill open demand before changing the default location.",
+      409
+    );
+  }
+
+  const [openExpectedSupply] = await tx
+    .select({ referenceId: inventoryExpectedSummary.referenceId })
+    .from(inventoryExpectedSummary)
+    .where(
+      and(
+        eq(inventoryExpectedSummary.organizationId, orgId),
+        eq(inventoryExpectedSummary.locationId, currentDefaultLocationId),
+        sql`${inventoryExpectedSummary.quantity} <> 0`
+      )
+    )
+    .limit(1);
+  if (openExpectedSupply) {
+    throw new InventoryError(
+      "Close or receive expected supply before changing the default location.",
+      409
+    );
+  }
+}
+
 export async function getInventoryLocations(): Promise<LocationRow[]> {
   return withAuthedOrgContext(async (tx, orgId) => {
-    await getDefaultInventoryLocationInTx(tx, orgId);
     return tx
       .select({ ...locationColumns, hasActivity: hasActivityExpr.as("hasActivity") })
       .from(inventoryLocations)
@@ -112,6 +211,8 @@ export async function updateInventoryLocation(locationId: string, data: UpdateLo
       await assertCodeAvailableInTx(tx, orgId, data.code, locationId);
     }
     if (data.isDefault && !existing.isDefault) {
+      const currentDefault = await getDefaultInventoryLocationInTx(tx, orgId);
+      await assertDefaultSwapSafeInTx(tx, orgId, currentDefault.id);
       await tx
         .update(inventoryLocations)
         .set({ isDefault: false, updatedAt: new Date() })
@@ -132,9 +233,23 @@ export async function updateInventoryLocation(locationId: string, data: UpdateLo
         ...(data.isDefault ? { isDefault: true } : {}),
         updatedAt: new Date(),
       })
-      .where(eq(inventoryLocations.id, locationId))
+      .where(
+        and(
+          eq(inventoryLocations.id, locationId),
+          eq(inventoryLocations.organizationId, orgId),
+          isNull(inventoryLocations.deletedAt)
+        )
+      )
       .returning(locationColumns);
-    return row;
+    if (!row) {
+      throw new InventoryError("Location not found.", 404);
+    }
+
+    const updated = await getLocationRowInTx(tx, orgId, row.id);
+    if (!updated) {
+      throw new InventoryError("Location not found.", 404);
+    }
+    return updated;
   });
 }
 
