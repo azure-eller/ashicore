@@ -23,6 +23,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
+import { apiJson } from "@/lib/client/api";
 import { formatBytes } from "@/lib/format";
 import { getAccessPresetKeys, formatAccessPresetLabel, type AccessPresetKey } from "@/lib/authz";
 import { cn } from "@/lib/utils";
@@ -476,21 +477,6 @@ function updateReviewValue(pkg: ImportPackage, row: ReviewRow, field: string, va
   return pkg;
 }
 
-async function apiJson<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, {
-    ...init,
-    headers: {
-      ...(init.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
-      ...init.headers,
-    },
-  });
-  const body = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(body?.error ?? "Request failed.");
-  }
-  return body as T;
-}
-
 function onboardingActiveIndex(step: FlowStep) {
   switch (step) {
     case "invite":
@@ -540,7 +526,7 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
         method: "POST",
         // Only assert the plan when the URL carried it (first entry). On the Stripe
         // return there's no plan param, so we preserve the persisted intent.
-        body: JSON.stringify(plan ? { selectedPlan: plan } : {}),
+        body: plan ? { selectedPlan: plan } : {},
       }),
     onSuccess: (data) => {
       if (!data.session) return;
@@ -606,11 +592,11 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
       if (!sessionId || !reviewPackage) throw new Error("Review data is not ready.");
       return apiJson<ImportSessionResponse>(`/api/onboarding/imports/${sessionId}`, {
         method: "PATCH",
-        body: JSON.stringify({
+        body: {
           openingStockAsOf: reviewPackage.openingStockAsOf,
           includeBoms,
           package: reviewPackage,
-        }),
+        },
       });
     },
     onSuccess: (data) => {
@@ -627,7 +613,7 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
       if (!sessionId || !preview?.hash) throw new Error("Validate the import before approving.");
       return apiJson<ImportSessionResponse>(`/api/onboarding/imports/${sessionId}/approve`, {
         method: "POST",
-        body: JSON.stringify({ previewHash: preview.hash }),
+        body: { previewHash: preview.hash },
       });
     },
     onSuccess: (data) => {
@@ -647,7 +633,7 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
       apiJson<{ url?: string }>("/api/billing/checkout", {
         method: "POST",
         headers: { "Idempotency-Key": `onboarding-${sessionId ?? "checkout"}` },
-        body: JSON.stringify({ flow: "onboarding" }),
+        body: { flow: "onboarding" },
       }),
     onSuccess: (data) => {
       if (data.url) {
@@ -667,7 +653,7 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
     mutationFn: (id: string) =>
       apiJson<ImportSessionResponse>(`/api/onboarding/imports/${id}/finalize`, {
         method: "POST",
-        body: JSON.stringify({}),
+        body: {},
       }),
     onMutate: () => setFinalizing(true),
     onSuccess: (data) => {
@@ -691,7 +677,7 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
     mutationFn: (body: Record<string, unknown>) =>
       apiJson<OnboardingSessionResponse>("/api/onboarding/session", {
         method: "PATCH",
-        body: JSON.stringify(body),
+        body: body,
       }),
   });
 
@@ -703,26 +689,26 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
 
       await apiJson<OnboardingSessionResponse>("/api/onboarding/session", {
         method: "PATCH",
-        body: JSON.stringify({
+        body: {
           invitesDraft: invites.map((invite) => ({
             email: invite.email,
             role: invite.presetKey,
           })),
-        }),
+        },
       });
 
       await Promise.all(
         invites.map((invite) =>
           apiJson<void>("/api/team/invitations", {
             method: "POST",
-            body: JSON.stringify({ email: invite.email, presetKey: invite.presetKey }),
+            body: { email: invite.email, presetKey: invite.presetKey },
           }),
         ),
       );
 
       return apiJson<OnboardingSessionResponse>("/api/onboarding/session", {
         method: "PATCH",
-        body: JSON.stringify({ status: "org_created", currentStep: "import" }),
+        body: { status: "org_created", currentStep: "import" },
       });
     },
     onSuccess: () => {

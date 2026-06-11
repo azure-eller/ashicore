@@ -5,7 +5,7 @@ import type {
   CustomerProjectRow,
 } from "@/lib/sales/types";
 import type { AddressEntry } from "@/lib/dal/addresses";
-import { ApiClientError, createApiJsonRequester } from "@/lib/client/api";
+import { apiClientJson } from "@/lib/client/api";
 import type { CreateAddressEntry, UpdateAddressEntry } from "@/lib/schemas/addresses";
 import type {
   CustomerActivityInput,
@@ -15,19 +15,7 @@ import type {
 } from "@/lib/schemas/customer-crm";
 import type { InsertCustomer, PatchCustomer } from "@/lib/schemas/customers";
 
-export class CustomerApiError extends ApiClientError {
-  constructor(
-    message: string,
-    status: number,
-    fieldErrors?: Record<string, string[]>
-  ) {
-    super("CustomerApiError", message, status, fieldErrors);
-  }
-}
-
-const json = createApiJsonRequester(
-  ({ message, status, fieldErrors }) => new CustomerApiError(message, status, fieldErrors),
-);
+const json = apiClientJson;
 
 const jsonHeaders = { "Content-Type": "application/json" };
 

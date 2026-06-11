@@ -16,16 +16,6 @@ export class EndpointNotReadyError extends Error {
   }
 }
 
-export class ItemCardApiError extends ApiClientError {
-  constructor(
-    message: string,
-    status: number,
-    fieldErrors?: Record<string, string[]>
-  ) {
-    super("ItemCardApiError", message, status, fieldErrors);
-  }
-}
-
 // Date-like fields tolerate both Date (server-side, fresh from DAL) and string
 // (after server→client RSC serialization). Client code should not depend on
 // these being Date instances.
@@ -187,7 +177,7 @@ const json = createApiJsonRequester(({ message, status, fieldErrors, path }) => 
     return new EndpointNotReadyError(path);
   }
 
-  return new ItemCardApiError(message, status, fieldErrors);
+  return new ApiClientError("ApiClientError", message, status, fieldErrors);
 }, (path) => `Request failed (${path})`, (status, path) => `Request failed (${status} ${path})`);
 
 function request<T>(

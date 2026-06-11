@@ -123,6 +123,9 @@ import {
   type PurchaseOrderLineDraftRow,
 } from "./use-purchase-order-draft-controller";
 import styles from "@/components/card-page/card-page.module.css";
+import { ApiJsonError, apiJson } from "@/lib/client/api";
+import { useApiMutation } from "@/lib/client/use-api-mutation";
+import { queryKeys } from "@/lib/client/query-keys";
 
 type ApiError = {
   error?: string;
@@ -828,19 +831,15 @@ export function PurchaseOrderCard({
       };
     });
   const xeroAccountsQuery = useQuery({
-    queryKey: ["accounting-accounts", accountingProviderLabel],
+    queryKey: queryKeys.accountingAccounts.byProvider(accountingProviderLabel),
     enabled: xeroBillSetupStatus === "ready",
     queryFn: async () => {
       const provider =
         accountingProviderLabel === "QuickBooks" ? "quickbooks" : "xero";
-      const response = await fetch(
-        `/api/accounting/connections/${provider}/accounts`
+      return apiJson<{ accounts: XeroAccountOption[] }>(
+        `/api/accounting/connections/${provider}/accounts`,
+        { fallbackError: "Failed to load accounting accounts." },
       );
-      if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        throw new Error(body?.error ?? "Failed to load accounting accounts.");
-      }
-      return response.json() as Promise<{ accounts: XeroAccountOption[] }>;
     },
   });
   const xeroAccounts = useMemo(
@@ -924,30 +923,26 @@ export function PurchaseOrderCard({
 
       setFormError(null);
       setFieldErrors({});
-      const response = await fetch(
-        orderId ? `/api/purchase-orders/${orderId}` : "/api/purchase-orders",
-        {
-          method: orderId ? "PUT" : "POST",
-          headers: createIdempotencyHeaders("savePurchaseOrder", {
-            "Content-Type": "application/json",
-          }),
-          body: JSON.stringify(values),
-        },
-      );
-
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        const error = {
-          error: body?.error ?? "Failed to save purchase order.",
-          errors: body?.errors,
+      try {
+        return await apiJson<PurchaseOrderDetail>(
+          orderId ? `/api/purchase-orders/${orderId}` : "/api/purchase-orders",
+          {
+            method: orderId ? "PUT" : "POST",
+            headers: createIdempotencyHeaders("savePurchaseOrder"),
+            body: values,
+            fallbackError: "Failed to save purchase order.",
+          },
+        );
+      } catch (error) {
+        if (!(error instanceof ApiJsonError)) throw error;
+        const apiError = {
+          error: error.message,
+          errors: error.errors,
         } satisfies ApiError;
-        setFieldErrors(purchaseOrderApiFieldErrors(error));
-        setFormError(error.error);
-        throw error;
+        setFieldErrors(purchaseOrderApiFieldErrors(apiError));
+        setFormError(apiError.error);
+        throw apiError;
       }
-
-      return body as PurchaseOrderDetail;
     },
     [],
   );
@@ -1629,46 +1624,37 @@ export function PurchaseOrderCard({
     mutationFn: async ({ orderId, file }: { orderId: string; file: File }) => {
       const formData = new FormData();
       formData.set("file", file);
-      const response = await fetch(`/api/purchase-orders/${orderId}/files`, {
-        method: "POST",
-        body: formData,
-      });
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to upload file.");
-      }
-
-      return body as PurchaseOrderFormAttachment;
+      return apiJson<PurchaseOrderFormAttachment>(
+        `/api/purchase-orders/${orderId}/files`,
+        {
+          method: "POST",
+          body: formData,
+          fallbackError: "Failed to upload file.",
+        },
+      );
     },
     onMutate: () => setFileActionError(null),
     onSuccess: (file) => {
       setAttachments((current) => [file, ...current]);
-      void queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.root });
     },
     onError: (error: Error) => setFileActionError(error.message),
   });
 
-  const duplicateMutation = useMutation({
+  const duplicateMutation = useApiMutation({
+    invalidates: [queryKeys.purchaseOrders.root],
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "duplicate"],
     mutationFn: async () => {
       if (!savedOrderId) throw new Error("Save the purchase order first.");
-      const response = await fetch(
+      return apiJson<{ id: string }>(
         `/api/purchase-orders/${savedOrderId}/duplicate`,
         {
           method: "POST",
+          fallbackError: "Failed to duplicate purchase order.",
         },
       );
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to duplicate purchase order.");
-      }
-
-      return body as { id: string };
     },
-    onSuccess: async (order) => {
-      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+    onSuccess: (order) => {
       router.push(`/purchasing/order/${order.id}`);
     },
     onError: (error: Error) => setFormError(error.message),
@@ -1679,17 +1665,13 @@ export function PurchaseOrderCard({
       await purchaseOrderController.flush();
       const orderId = savedOrderIdRef.current;
       if (!orderId) throw new Error("Save the purchase order first.");
-      const response = await fetch(`/api/purchase-orders/${orderId}`, {
+      await apiJson<void>(`/api/purchase-orders/${orderId}`, {
         method: "DELETE",
+        fallbackError: "Failed to delete purchase order.",
       });
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to delete purchase order.");
-      }
     },
     onMutate: () => setFormError(null),
-    invalidateQueryKeys: [["purchase-orders"]],
+    invalidateQueryKeys: [queryKeys.purchaseOrders.root],
     onDeleted: () => router.push("/purchasing/orders"),
     onError: (error) => setFormError(error.message),
   });
@@ -1705,35 +1687,25 @@ export function PurchaseOrderCard({
     pendingLabel: "Deleting...",
     mutation: deleteMutation,
   });
-  const statusMutation = useMutation({
+  const statusMutation = useApiMutation({
+    invalidates: [queryKeys.purchaseOrders.root],
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "status"],
     mutationFn: async (status: PurchaseOrderStatus) => {
       await purchaseOrderController.flush();
       const orderId = savedOrderIdRef.current;
       if (!orderId) throw new Error("Save the purchase order first.");
-      const response = await fetch(
+      return apiJson<{ id: string }>(
         `/api/purchase-orders/${orderId}/status`,
         {
           method: "PATCH",
-          headers: createIdempotencyHeaders("purchase-order-status", {
-            "Content-Type": "application/json",
-          }),
-          body: JSON.stringify({ status }),
+          headers: createIdempotencyHeaders("purchase-order-status"),
+          body: { status },
+          fallbackError: "Failed to update purchase order status.",
         },
       );
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(
-          body?.error ?? "Failed to update purchase order status.",
-        );
-      }
-
-      return body as { id: string };
     },
-    onSuccess: async (_result, status) => {
+    onSuccess: (_result, status) => {
       setDisplayStatus(status);
-      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
     },
     onError: (error: Error) => setFormError(error.message),
   });
@@ -1743,28 +1715,7 @@ export function PurchaseOrderCard({
       await purchaseOrderController.flush();
       const orderId = savedOrderIdRef.current;
       if (!orderId) throw new Error("Save the purchase order first.");
-      const response = await fetch(
-        `/api/purchase-orders/${orderId}/accounting-bill`,
-        {
-          method: "POST",
-          headers: createIdempotencyHeaders("purchase-order-bill", {
-            "Content-Type": "application/json",
-          }),
-          body: JSON.stringify(values),
-        },
-      );
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        const message =
-          typeof body?.error === "string" &&
-          body.error.toLowerCase().includes("not connected")
-            ? ACCOUNTING_NOT_CONNECTED_MESSAGE
-            : body?.error ?? "Failed to create supplier bill.";
-        throw new Error(message);
-      }
-
-      return body as {
+      return apiJson<{
         xeroBillId: string | null;
         xeroBillNumber: string | null;
         status: "pushed";
@@ -1775,7 +1726,20 @@ export function PurchaseOrderCard({
           xeroBillId: string;
           xeroBillNumber: string;
         }>;
-      };
+      }>(`/api/purchase-orders/${orderId}/accounting-bill`, {
+        method: "POST",
+        headers: createIdempotencyHeaders("purchase-order-bill"),
+        body: values,
+        fallbackError: "Failed to create supplier bill.",
+        mapError: (_status, body) => {
+          const message =
+            typeof (body as { error?: unknown } | null)?.error === "string" &&
+            (body as { error: string }).error.toLowerCase().includes("not connected")
+              ? ACCOUNTING_NOT_CONNECTED_MESSAGE
+              : undefined;
+          return message ? new Error(message) : undefined;
+        },
+      });
     },
     onMutate: () => {
       setFormError(null);
@@ -1787,13 +1751,14 @@ export function PurchaseOrderCard({
       setPurchaseBillExternalId(result.xeroBillId ?? null);
       setPurchaseBillExternalNumber(result.xeroBillNumber ?? null);
       setPurchaseBillDialogOpen(false);
-      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.root });
     },
     onError: (error: Error, _values, context) => {
       setPurchaseBillStatus(context?.previousStatus ?? null);
     },
   });
-  const purchaseBillManualStatusMutation = useMutation({
+  const purchaseBillManualStatusMutation = useApiMutation({
+    invalidates: [queryKeys.purchaseOrders.root],
     mutationKey: [
       "purchase-order-action",
       savedOrderId ?? "__draft__",
@@ -1804,24 +1769,17 @@ export function PurchaseOrderCard({
     ) => {
       const orderId = savedOrderIdRef.current;
       if (!orderId) throw new Error("Save the purchase order first.");
-      const response = await fetch(`/api/purchase-orders/${orderId}/bill-status`, {
-        method: "PATCH",
-        headers: createIdempotencyHeaders("purchase-order-bill-status", {
-          "Content-Type": "application/json",
-        }),
-        body: JSON.stringify({ status }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to update bill status.");
-      }
-      return body as {
+      return apiJson<{
         purchaseBillManualStatus: "not_billed" | "partly_billed" | "billed" | null;
-      };
+      }>(`/api/purchase-orders/${orderId}/bill-status`, {
+        method: "PATCH",
+        headers: createIdempotencyHeaders("purchase-order-bill-status"),
+        body: { status },
+        fallbackError: "Failed to update bill status.",
+      });
     },
-    onSuccess: async (result) => {
+    onSuccess: (result) => {
       setPurchaseBillManualStatus(result.purchaseBillManualStatus);
-      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
     },
     onError: (error: Error) => setFormError(error.message),
   });
@@ -1832,12 +1790,13 @@ export function PurchaseOrderCard({
       const orderId = savedOrderIdRef.current;
       if (!orderId) throw new Error("Save the purchase order first.");
 
-      const response = await fetch(`/api/purchase-orders/${orderId}/email`, {
+      return apiJson<{
+        status: "sent";
+        sent: Array<{ groupKey: string; recipientEmail: string }>;
+      }>(`/api/purchase-orders/${orderId}/email`, {
         method: "POST",
-        headers: createIdempotencyHeaders("purchase-order-email", {
-          "Content-Type": "application/json",
-        }),
-        body: JSON.stringify({
+        headers: createIdempotencyHeaders("purchase-order-email"),
+        body: {
           groups: (poEmailDialogValues.groups ?? []).map((group) => ({
             groupKey: group.groupKey,
             include: group.include,
@@ -1850,18 +1809,9 @@ export function PurchaseOrderCard({
             message: group.message || null,
             attachmentFileIds: group.attachmentFileIds ?? [],
           })),
-        }),
+        },
+        fallbackError: "Failed to send purchase order.",
       });
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to send purchase order.");
-      }
-
-      return body as {
-        status: "sent";
-        sent: Array<{ groupKey: string; recipientEmail: string }>;
-      };
     },
     onMutate: () => {
       setFormError(null);
@@ -1891,34 +1841,31 @@ export function PurchaseOrderCard({
       });
       setPoEmailStatus("sent");
       setPoEmailDialogOpen(false);
-      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.root });
     },
     onError: (error: Error) => {
       setPoEmailStatus("failed");
       setPoEmailError(error.message);
-      void queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.root });
     },
   });
 
-  const saveSupplierEmailMutation = useMutation({
+  const saveSupplierEmailMutation = useApiMutation({
+    invalidates: [queryKeys.purchaseOrders.root],
     mutationKey: ["supplier-email", savedOrderId ?? "__draft__"],
     mutationFn: async (input: {
       groupKey: string;
       supplierId: string;
       email: string;
     }) => {
-      const response = await fetch(`/api/suppliers/${input.supplierId}`, {
+      await apiJson<void>(`/api/suppliers/${input.supplierId}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: input.email }),
+        body: { email: input.email },
+        fallbackError: "Failed to save supplier email.",
       });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to save supplier email.");
-      }
       return input;
     },
-    onSuccess: async (input) => {
+    onSuccess: (input) => {
       setPoEmailDialogValues((current) => ({
         ...current,
         groups: (current.groups ?? []).map((group) =>
@@ -1927,7 +1874,6 @@ export function PurchaseOrderCard({
             : group,
         ),
       }));
-      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
     },
     onError: (error: Error) => setPoEmailError(error.message),
   });
@@ -2011,24 +1957,22 @@ export function PurchaseOrderCard({
       id: string | null;
       values: AddressDialogValues;
     }) => {
-      const response = await fetch(
-        id ? `/api/addresses/${id}` : "/api/addresses",
-        {
-          method: id ? "PUT" : "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(values),
-        },
-      );
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
+      try {
+        return await apiJson<AddressEntry>(
+          id ? `/api/addresses/${id}` : "/api/addresses",
+          {
+            method: id ? "PUT" : "POST",
+            body: values,
+            fallbackError: "Failed to save address.",
+          },
+        );
+      } catch (error) {
+        if (!(error instanceof ApiJsonError)) throw error;
         throw {
-          error: body?.error ?? "Failed to save address.",
-          errors: body?.errors,
+          error: error.message,
+          errors: error.errors,
         } satisfies ApiError;
       }
-
-      return body as AddressEntry;
     },
     onSuccess: (entry) => {
       const option = addressEntryToOption(entry);
@@ -2067,28 +2011,29 @@ export function PurchaseOrderCard({
   const additionalCostSupplierMutation = useMutation({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "supplier"],
     mutationFn: async (values: AdditionalCostSupplierDialogValues) => {
-      const response = await fetch("/api/suppliers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: values.name,
-          contactName: values.contactName,
+      try {
+        const body = await apiJson<{ id: unknown; name?: unknown }>("/api/suppliers", {
+          method: "POST",
+          body: {
+            name: values.name,
+            contactName: values.contactName,
+            email: values.email,
+          },
+          fallbackError: "Failed to create supplier.",
+        });
+        return {
+          id: String(body.id),
+          name: String(body.name ?? values.name),
+          code: null,
           email: values.email,
-        }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
+        } satisfies SupplierOption;
+      } catch (error) {
+        if (!(error instanceof ApiJsonError)) throw error;
         throw {
-          error: body?.error ?? "Failed to create supplier.",
-          errors: body?.errors,
+          error: error.message,
+          errors: error.errors,
         } satisfies ApiError;
       }
-      return {
-        id: String(body.id),
-        name: String(body.name ?? values.name),
-        code: null,
-        email: values.email,
-      } satisfies SupplierOption;
     },
     onSuccess: (created) => {
       setPurchaseOrderSupplierOptions((current) => {
@@ -2473,7 +2418,7 @@ export function PurchaseOrderCard({
                 onTransitionError={(error) => setFormError(error.message)}
                 onChanged={(next) => {
                   setDisplayStatus(next as PurchaseOrderStatus);
-                  void queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+                  void queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.root });
                 }}
               />
             ) : null

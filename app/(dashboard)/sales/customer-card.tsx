@@ -146,6 +146,7 @@ import type {
 } from "@/lib/sales/types";
 import { SalesOrderStatusBadge } from "./status-badge";
 import styles from "@/components/card-page/card-page.module.css";
+import { queryKeys } from "@/lib/client/query-keys";
 
 type CustomerCardProps = {
   initialCustomerId: string | null;
@@ -295,15 +296,15 @@ export function CustomerCard({
       reflectPersistedCardUrlWithoutNavigation(`/sales/customers/${id}`);
     },
     onResult: (result, draft) => {
-      queryClient.setQueryData(["customer-card", result.id], draft);
-      void queryClient.invalidateQueries({ queryKey: ["customers"] });
+      queryClient.setQueryData(queryKeys.customers.card(result.id), draft);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.customers.root });
     },
   });
   const currentCustomerId = engine.currentId;
   const isDraft = !engine.hasPersistedEntity;
 
   const customerQuery = useQuery({
-    queryKey: ["customer-card", currentCustomerId ?? "__draft__"],
+    queryKey: queryKeys.customers.card(currentCustomerId ?? "__draft__"),
     queryFn: () => getCustomerCard(currentCustomerId as string),
     initialData: initialCustomer ?? undefined,
     enabled: !isDraft,
@@ -324,7 +325,7 @@ export function CustomerCard({
   const deleteMutation = useDeleteEntity({
     mutationKey: ["customer-action", currentCustomerId ?? "__draft__", "delete"],
     mutationFn: () => deleteCustomer(currentCustomerId as string),
-    invalidateQueryKeys: [["customers"]],
+    invalidateQueryKeys: [queryKeys.customers.root],
     onDeleted: () => router.push("/sales/customers"),
   });
   const deleteConfirm = useConfirmMutation<void>({
@@ -958,7 +959,7 @@ function ActivitySection({
   const invalidate = async () => {
     if (customerId) {
       await queryClient.invalidateQueries({
-        queryKey: ["customer-card", customerId],
+        queryKey: queryKeys.customers.card(customerId),
       });
     }
   };

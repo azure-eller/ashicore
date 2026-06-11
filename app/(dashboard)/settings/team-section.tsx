@@ -49,6 +49,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { TeamRoleBadge } from "./team-role-badge";
 import type { PendingInviteRow, TeamMemberRow, TeamPageData } from "./types";
 import { SettingsPanel, SettingsPanelHeader } from "@/components/settings-panel";
+import { queryKeys } from "@/lib/client/query-keys";
 
 type InviteFormValues = {
   email: string;
@@ -433,7 +434,7 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
   const [customizingMember, setCustomizingMember] = useState<TeamMemberRow | null>(null);
 
   const { data = initialData } = useQuery<TeamPageData>({
-    queryKey: ["team"],
+    queryKey: queryKeys.team.root,
     queryFn: () =>
       apiJson<TeamPageData>("/api/team", {
         fallbackError: "Failed to load team settings.",
@@ -444,7 +445,7 @@ export function TeamSection({ initialData }: { initialData: TeamPageData }) {
 
   const refreshData = async () => {
     setActionError(null);
-    await queryClient.invalidateQueries({ queryKey: ["team"] });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.team.root });
   };
 
   const resendMutation = useMutation({

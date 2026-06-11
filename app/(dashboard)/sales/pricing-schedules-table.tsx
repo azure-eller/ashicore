@@ -11,6 +11,7 @@ import {
   PRICING_SCOPE_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import type { PricingScheduleRow } from "@/lib/sales/types";
+import { queryKeys } from "@/lib/client/query-keys";
 
 const columns: ColDef<PricingScheduleRow>[] = [
   {
@@ -73,7 +74,7 @@ export function PricingSchedulesTable({
     <ERPDataGridList
       rows={initialData}
       columns={columns}
-      queryKey={["pricing-schedules"]}
+      queryKey={queryKeys.pricingSchedules.root}
       queryEndpoint="/api/pricing-schedules"
       queryErrorMessage="Failed to fetch pricing schedules"
       searchAriaLabel="Search pricing schedules"
@@ -82,7 +83,7 @@ export function PricingSchedulesTable({
       emptyMessage="No pricing schedules yet."
       deleteAction={{
         endpoint: "/api/pricing-schedules",
-        invalidateQueryKeys: [["pricing-schedules"]],
+        invalidateQueryKeys: [queryKeys.pricingSchedules.root],
         defaultErrorMessage: "Failed to delete pricing schedules.",
         confirmTitle: (count) =>
           `Delete ${count} pricing schedule${count !== 1 ? "s" : ""}?`,

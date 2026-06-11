@@ -22,6 +22,7 @@ import { VariantConfigurationDialog } from "@/components/card-page/variant-confi
 import { ProductGeneralInfoTab } from "./tabs/general-info";
 import { useItemCardDraftController } from "@/components/card-page/use-item-card-draft-controller";
 import { ItemCardProvider } from "@/components/card-page/item-card-focus-context";
+import { queryKeys } from "@/lib/client/query-keys";
 
 export type ProductCardTab = "general" | "recipe" | "production" | "lots";
 
@@ -88,7 +89,7 @@ export function ProductCard({
   const actionSaveStatus = useCardSaveStatus(currentItemId ?? "__draft__");
 
   const cardQuery = useQuery({
-    queryKey: ["item-card", currentItemId ?? "__draft__"],
+    queryKey: queryKeys.itemCards.detail(currentItemId ?? "__draft__"),
     queryFn: () => getItemCard(currentItemId as string),
     initialData: initialCard,
     enabled: !isDraft,
@@ -172,7 +173,7 @@ export function ProductCard({
   const deleteCardMutation = useDeleteEntity({
     mutationKey: ["item-card-action", currentItemId ?? "__draft__", "delete-card"],
     mutationFn: () => deleteItemCard(currentItemId as string),
-    invalidateQueryKeys: [["item-cards"]],
+    invalidateQueryKeys: [queryKeys.itemCards.root],
     onDeleted: () => router.push("/inventory/products"),
   });
   const deleteConfirm = useConfirmMutation<void>({
@@ -190,7 +191,7 @@ export function ProductCard({
     mutationKey: ["item-card-action", currentItemId ?? "__draft__", "clone-card"],
     mutationFn: () => cloneItemCard(currentItemId as string),
     onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["item-cards"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.itemCards.root });
       router.push(productCardHrefForTab(result.itemId, getProductCardTabFromPath(pathname)));
     },
   });

@@ -21,6 +21,7 @@ import type {
   ManufacturingOrderIngredientDetail,
 } from "@/lib/manufacturing/types";
 import type { ManufacturingProductOption } from "./manufacturing-order-card";
+import { queryKeys } from "@/lib/client/query-keys";
 
 export type ManufacturingOrderDraftHeaderPatch = PatchManufacturingOrder & {
   salesOrderNumber?: string | null;
@@ -257,8 +258,8 @@ export function useManufacturingOrderDraftController({
       }),
     onPersisted,
     onResult: (result, draft) => {
-      queryClient.setQueryData(["manufacturing-order", result.id], draft);
-      void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
+      queryClient.setQueryData(queryKeys.manufacturingOrders.detail(result.id), draft);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.manufacturingOrders.root });
     },
   });
 

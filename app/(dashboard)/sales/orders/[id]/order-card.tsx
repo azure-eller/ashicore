@@ -51,6 +51,7 @@ import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
 import type { CardSaveState } from "@/components/card-page/card-save-status";
 import { makeDraftOrder } from "./order-draft";
 import { useSalesOrderDraftController } from "./use-sales-order-draft-controller";
+import { queryKeys } from "@/lib/client/query-keys";
 
 export type XeroInvoiceSetupStatus =
   | "not_connected"
@@ -158,7 +159,7 @@ export function OrderCard({
       });
     },
     onMutate: () => setActionError(null),
-    invalidateQueryKeys: [["sales-orders"]],
+    invalidateQueryKeys: [queryKeys.salesOrders.root],
     onDeleted: () => router.push("/sales/orders"),
     onError: (error) => setActionError((error as Error).message),
   });
@@ -182,7 +183,7 @@ export function OrderCard({
     },
     onMutate: () => setActionError(null),
     onSuccess: async (created) => {
-      await queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.salesOrders.root });
       router.push(`/sales/order/${created.id}`);
     },
     onError: (error) => setActionError((error as Error).message),
@@ -201,7 +202,7 @@ export function OrderCard({
     onMutate: () => setActionError(null),
     onSuccess: async () => {
       await controller.refreshFromServer();
-      await queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.salesOrders.root });
     },
     onError: (error) => setActionError((error as Error).message),
   });
@@ -243,7 +244,7 @@ export function OrderCard({
               onTransitionError={(error) => setActionError(error.message)}
               onChanged={() => {
                 void controller.refreshFromServer();
-                void queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
+                void queryClient.invalidateQueries({ queryKey: queryKeys.salesOrders.root });
               }}
             />
           ) : undefined

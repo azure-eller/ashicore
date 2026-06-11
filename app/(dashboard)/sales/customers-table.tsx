@@ -13,6 +13,7 @@ import { apiJson } from "@/lib/client/api";
 import { formatDate } from "@/lib/format";
 import { CUSTOMER_CATEGORY_TOOLTIP } from "@/lib/tooltip-copy";
 import type { CustomerRow } from "@/lib/sales/types";
+import { queryKeys } from "@/lib/client/query-keys";
 
 type CustomerView = "all" | "due";
 
@@ -95,7 +96,7 @@ export function CustomersTable({
   const completeTask = useMutation({
     mutationFn: ({ customerId, taskId }: { customerId: string; taskId: string }) =>
       patchCustomerActivity(customerId, taskId, { status: "done" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["customers"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.customers.root }),
   });
   const columns = useMemo<ColDef<CustomerRow>[]>(() => {
     const checkColumn: ColDef<CustomerRow> = {
@@ -136,7 +137,7 @@ export function CustomersTable({
     <ERPDataGridList
       rows={filteredRows}
       columns={columns}
-      queryKey={["customers", view]}
+      queryKey={queryKeys.customers.list(view)}
       queryFn={async () => {
         const rows = await apiJson<CustomerRow[]>("/api/customers");
         return filterCustomersForView(rows, view, today);
@@ -169,7 +170,7 @@ export function CustomersTable({
       }
       deleteAction={{
         endpoint: "/api/customers",
-        invalidateQueryKeys: [["customers"]],
+        invalidateQueryKeys: [queryKeys.customers.root],
         defaultErrorMessage: "Failed to delete customer.",
         confirmTitle: (count) =>
           `Delete ${count} customer${count !== 1 ? "s" : ""}?`,

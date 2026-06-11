@@ -24,7 +24,7 @@ export function useEntityFieldCommit<TPatch, TResult>({
     current: TResult | undefined,
     patch: TPatch,
   ) => TResult | undefined;
-  invalidateQueryKeys?: QueryKey[];
+  invalidateQueryKeys?: readonly QueryKey[];
 }) {
   const queryClient = useQueryClient();
   const mutation = useMutation({

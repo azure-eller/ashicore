@@ -174,37 +174,47 @@ Never allow updates or re-activations of soft-deleted master data via API.
 
 ## TanStack Query — Keys
 
-Standard key pattern: `["entity", filterOrId]`
+All query keys come from the `queryKeys` factory in `lib/client/query-keys.ts` —
+inline key arrays are blocked by lint. Add new families there.
 
 ```ts
-// List queries
-["items", "material"]    // all materials
-["items", "product"]     // all products
-["units"]                // all units
+import { queryKeys } from "@/lib/client/query-keys";
 
-// Single item queries
-["items", id]            // specific item by ID
+queryKeys.salesOrders.root        // ["sales-orders"] — list
+queryKeys.salesOrders.detail(id)  // ["sales-orders", id] — extends the root,
+                                  // so invalidating the root refreshes details
 ```
+
+Detail keys nest under their list root. Card read-models (`itemCards`,
+`customers.card`) are separate roots — they are draft-save surfaces with their
+own `setQueryData` flows.
 
 ## TanStack Query — Mutations
 
+Network calls go through `apiJson` (`lib/client/api.ts`); never hand-roll
+`fetch` + `res.ok` + error parsing. Mutations whose success step is
+"invalidate, then maybe a callback" use `useApiMutation`:
+
 ```ts
-const mutation = useMutation({
-  mutationFn: async (data) => {
-    const res = await fetch("/api/items", { method: "POST", body: JSON.stringify(data) });
-    if (!res.ok) throw await res.json();
-    return res.json();
-  },
-  onSuccess: () => {
-    queryClient.invalidateQueries({ queryKey: ["items"] });
-    router.back();
-  },
+import { apiJson } from "@/lib/client/api";
+import { queryKeys } from "@/lib/client/query-keys";
+import { useApiMutation } from "@/lib/client/use-api-mutation";
+
+const mutation = useApiMutation({
+  mutationFn: (data: CreateItem) =>
+    apiJson<{ id: string }>("/api/items", {
+      method: "POST",
+      body: data,
+      fallbackError: "Failed to create item.",
+    }),
+  invalidates: [queryKeys.items.root],
+  onSuccess: () => router.back(),
 });
 ```
 
 - Use `mutation.isPending` for loading state
-- No optimistic updates
-- Invalidate the relevant query key(s) on success
+- Plain `useMutation` is for genuinely different success handling (optimistic
+  updates with rollback, sequencing) — still with factory keys
 
 ## Canonical References
 

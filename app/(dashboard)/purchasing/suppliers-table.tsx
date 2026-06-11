@@ -7,6 +7,7 @@ import { ERPDataGridList } from "@/components/erp-data-grid-list";
 import type { ColDef } from "@/components/erp-data-grid";
 import { SUPPLIER_CODE_TOOLTIP } from "@/lib/tooltip-copy";
 import type { SupplierRow } from "@/lib/purchasing/types";
+import { queryKeys } from "@/lib/client/query-keys";
 
 const columns: ColDef<SupplierRow>[] = [
   {
@@ -58,7 +59,7 @@ export function SuppliersTable({ initialData }: { initialData: SupplierRow[] }) 
     <ERPDataGridList
       rows={initialData}
       columns={columns}
-      queryKey={["suppliers"]}
+      queryKey={queryKeys.suppliers.root}
       queryEndpoint="/api/suppliers"
       queryErrorMessage="Failed to fetch suppliers"
       searchAriaLabel="Search suppliers"
@@ -67,7 +68,7 @@ export function SuppliersTable({ initialData }: { initialData: SupplierRow[] }) 
       emptyMessage="No suppliers yet."
       deleteAction={{
         endpoint: "/api/suppliers",
-        invalidateQueryKeys: [["suppliers"]],
+        invalidateQueryKeys: [queryKeys.suppliers.root],
         defaultErrorMessage: "Failed to delete supplier.",
         confirmTitle: (count) =>
           `Delete ${count} supplier${count !== 1 ? "s" : ""}?`,

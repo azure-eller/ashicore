@@ -13,6 +13,7 @@ import {
 import { cn } from "@/lib/utils";
 import { patchManufacturingOrderIngredient } from "@/lib/api/clients/manufacturing-orders";
 import type { ManufacturingLotStrategy } from "@/lib/schemas/manufacturing-orders";
+import { queryKeys } from "@/lib/client/query-keys";
 
 const STRATEGY_LABEL: Record<ManufacturingLotStrategy, string> = {
   fifo: "FIFO",
@@ -65,7 +66,7 @@ export function LotStrategyChip({
         lotStrategy: next,
     }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["manufacturing-order", orderId] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.manufacturingOrders.detail(orderId) });
       onChanged?.();
     },
   });

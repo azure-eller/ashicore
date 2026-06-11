@@ -30,16 +30,16 @@ import {
   copyVariantConfigFrom,
   EndpointNotReadyError,
   generateVariants,
-  ItemCardApiError,
   previewVariantGeneration,
   updateVariantConfig,
   type GenerationPreviewDto,
   type ItemCardDto,
   type VariantConfigInput,
 } from "@/lib/api/clients/item-cards";
-import { apiJson } from "@/lib/client/api";
+import { ApiClientError, apiJson } from "@/lib/client/api";
 import { cardSaveMutationKey } from "./card-save-status";
 import styles from "./card-page.module.css";
+import { queryKeys } from "@/lib/client/query-keys";
 
 const MAX_OPTIONS = 3;
 
@@ -115,7 +115,7 @@ function DialogBody({
   // Preview always reads the persisted config; if local edits exist, the
   // user must save first (we sequence the calls below).
   const previewQuery = useQuery({
-    queryKey: ["item-card", card.variants[0]?.id ?? card.family.id, "variants-preview"],
+    queryKey: queryKeys.itemCards.variantsPreview(card.variants[0]?.id ?? card.family.id),
     queryFn: () => previewVariantGeneration(card.variants[0]?.id ?? card.family.id),
     enabled: card.variants.length > 0 && !dirty,
     staleTime: 0,
@@ -123,7 +123,7 @@ function DialogBody({
   });
 
   const sourcesQuery = useQuery({
-    queryKey: ["item-card", card.family.itemType, "variant-config-sources"],
+    queryKey: queryKeys.itemCards.variantConfigSources(card.family.itemType),
     queryFn: () =>
       apiJson<VariantConfigSourceRow[]>(`/api/items?itemType=${card.family.itemType}`, {
         fallbackError: "Failed to load item cards.",
@@ -171,7 +171,8 @@ function DialogBody({
       // and the latest "missing" set.
       const preview = await previewVariantGeneration(focusItemId);
       if (preview.blocksGenerateAll) {
-        throw new ItemCardApiError(
+        throw new ApiClientError(
+          "ApiClientError",
           "Too many combinations to generate at once (over 250). Reduce option values first.",
           400,
         );
@@ -180,7 +181,7 @@ function DialogBody({
     },
     onSuccess: (result) => {
       if (result.card) onSaved?.(result.card);
-      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.itemCards.root });
       onOpenChange(false);
     },
   });
@@ -197,7 +198,7 @@ function DialogBody({
       setOptions(seedOptionsFromCard(nextCard));
       setCopyOpen(false);
       setSourceItemId("");
-      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.itemCards.root });
     },
   });
 

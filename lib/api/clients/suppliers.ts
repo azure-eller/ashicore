@@ -1,20 +1,8 @@
 import type { SupplierRow } from "@/lib/purchasing/types";
-import { ApiClientError, createApiJsonRequester } from "@/lib/client/api";
+import { apiClientJson } from "@/lib/client/api";
 import type { InsertSupplier, PatchSupplier, UpdateSupplier } from "@/lib/schemas/suppliers";
 
-export class SupplierApiError extends ApiClientError {
-  constructor(
-    message: string,
-    status: number,
-    fieldErrors?: Record<string, string[]>
-  ) {
-    super("SupplierApiError", message, status, fieldErrors);
-  }
-}
-
-const json = createApiJsonRequester(
-  ({ message, status, fieldErrors }) => new SupplierApiError(message, status, fieldErrors),
-);
+const json = apiClientJson;
 
 const jsonHeaders = { "Content-Type": "application/json" };
 

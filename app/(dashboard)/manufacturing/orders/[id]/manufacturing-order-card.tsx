@@ -66,6 +66,7 @@ import type {
   ManufacturingOrderOperationCostDetail,
 } from "@/lib/manufacturing/types";
 import styles from "@/components/card-page/card-page.module.css";
+import { queryKeys } from "@/lib/client/query-keys";
 import {
   useManufacturingOrderDraftController,
   ingredientRequirementMultiplier,
@@ -136,7 +137,7 @@ export function ManufacturingOrderCard({
   const refreshOrder = useCallback(() => {
     void controller.refreshFromServer();
     if (currentOrderId != null) {
-      void queryClient.invalidateQueries({ queryKey: ["manufacturing-order", currentOrderId] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.manufacturingOrders.detail(currentOrderId) });
     }
   }, [controller, currentOrderId, queryClient]);
 
@@ -155,7 +156,7 @@ export function ManufacturingOrderCard({
       );
     },
     onSuccess: (created) => {
-      void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.manufacturingOrders.root });
       router.push(`/manufacturing/order/${created.id}`);
     },
     onError: (error) => setActionError((error as Error).message),
@@ -171,7 +172,7 @@ export function ManufacturingOrderCard({
         fallbackError: "Failed to delete order.",
       });
     },
-    invalidateQueryKeys: [["manufacturing-orders"]],
+    invalidateQueryKeys: [queryKeys.manufacturingOrders.root],
     onDeleted: goBack,
     onError: (error) => setActionError((error as Error).message),
   });

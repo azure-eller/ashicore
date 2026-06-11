@@ -80,6 +80,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { TooltipHeader } from "@/components/tooltip-header";
+import { queryKeys } from "@/lib/client/query-keys";
 import {
   MutableLines,
   type LineField,
@@ -350,7 +351,7 @@ export function PricingScheduleForm({
       form.clearErrors();
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["pricing-schedules"] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.pricingSchedules.root });
       router.push(fallbackPath);
     },
     onError: (error: PricingScheduleApiError) => {

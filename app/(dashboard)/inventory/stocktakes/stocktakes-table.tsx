@@ -28,6 +28,7 @@ import {
 import { StocktakeStatusBadge } from "./status-badge";
 import { CreateStocktakeDialog } from "./create-stocktake-dialog";
 import { CloneStocktakeReasonDialog } from "./clone-stocktake-reason-dialog";
+import { queryKeys } from "@/lib/client/query-keys";
 import {
   formatCloneSkippedItemsWarning,
   formatScope,
@@ -120,7 +121,7 @@ export function StocktakesTable({ initialData }: { initialData: StocktakeListRow
     <ERPDataGridList
       rows={initialData}
       columns={columns}
-      queryKey={["stocktakes"]}
+      queryKey={queryKeys.stocktakes.root}
       queryEndpoint="/api/stocktakes"
       queryErrorMessage="Failed to fetch stocktakes"
       searchAriaLabel="Search stocktakes"
@@ -128,7 +129,7 @@ export function StocktakesTable({ initialData }: { initialData: StocktakeListRow
       emptyMessage="No stocktakes yet."
       deleteAction={{
         endpoint: "/api/stocktakes",
-        invalidateQueryKeys: [["stocktakes"]],
+        invalidateQueryKeys: [queryKeys.stocktakes.root],
         defaultErrorMessage: "Failed to delete stocktakes.",
         confirmTitle: (count) =>
           `Delete ${count} stocktake${count !== 1 ? "s" : ""}?`,
@@ -154,7 +155,7 @@ function StocktakeRowActions({ stocktake }: { stocktake: StocktakeListRow }) {
       }),
     onSuccess: async (created) => {
       setCloneDialogOpen(false);
-      await queryClient.invalidateQueries({ queryKey: ["stocktakes"] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.stocktakes.root });
       const warning = formatCloneSkippedItemsWarning(created);
       if (warning) window.alert(warning);
       router.push(`/inventory/stocktakes/${created.id}`);

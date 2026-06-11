@@ -23,6 +23,9 @@ import {
 } from "./purchase-order-workflow-dialogs";
 import { groupPurchaseOrderByResolvedSupplier } from "@/lib/purchasing/resolved-supplier-groups";
 import type { PurchaseOrderDetail, PurchaseOrderListRow } from "@/lib/purchasing/types";
+import { queryKeys } from "@/lib/client/query-keys";
+import { apiJson } from "@/lib/client/api";
+import { useApiMutation } from "@/lib/client/use-api-mutation";
 
 const ACCOUNTING_NOT_CONNECTED_MESSAGE =
   "Connect accounting software before creating supplier bills.";
@@ -42,7 +45,7 @@ function PurchaseStatusCell({ order }: { order: PurchaseOrderListRow }) {
       config={purchaseOrderStatusConfig}
       ctx={{ orderId: order.id, status: order.status }}
       onChanged={() => {
-        void queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.root });
       }}
     />
   );
@@ -123,7 +126,6 @@ function makePurchaseBillDialogValues(
 }
 
 function PurchaseBillCell({ order }: { order: PurchaseOrderListRow }) {
-  const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [status, setStatus] = useState(order.purchaseBillStatus);
   const [manualStatus, setManualStatus] = useState(order.purchaseBillManualStatus);
@@ -136,61 +138,46 @@ function PurchaseBillCell({ order }: { order: PurchaseOrderListRow }) {
   );
 
   const xeroAccountsQuery = useQuery({
-    queryKey: ["xero-accounts"],
+    queryKey: queryKeys.xeroAccounts.root,
     enabled: dialogOpen,
-    queryFn: async () => {
-      const response = await fetch("/api/xero/accounts");
-      if (!response.ok) {
-        const body = await response.json().catch(() => null);
-        throw new Error(body?.error ?? "Failed to load accounting accounts.");
-      }
-      return response.json() as Promise<{ accounts: XeroAccountOption[] }>;
-    },
+    queryFn: () =>
+      apiJson<{ accounts: XeroAccountOption[] }>("/api/xero/accounts", {
+        fallbackError: "Failed to load accounting accounts.",
+      }),
   });
   const orderDetailMutation = useMutation({
     mutationKey: ["purchase-order", order.id, "bill-dialog-detail"],
-    mutationFn: async () => {
-      const response = await fetch(`/api/purchase-orders/${order.id}`);
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to load purchase order.");
-      }
-      return body as PurchaseOrderDetail;
-    },
+    mutationFn: () =>
+      apiJson<PurchaseOrderDetail>(`/api/purchase-orders/${order.id}`, {
+        fallbackError: "Failed to load purchase order.",
+      }),
     onSuccess: (detail) => {
       setValues(makePurchaseBillDialogValues(order, detail));
     },
   });
 
-  const mutation = useMutation({
+  const mutation = useApiMutation({
+    invalidates: [queryKeys.purchaseOrders.root],
     mutationKey: ["purchase-order-action", order.id, "purchase-bill"],
     mutationFn: async (input: PurchaseBillDialogValues) => {
-      const response = await fetch(
-        `/api/purchase-orders/${order.id}/accounting-bill`,
-        {
-          method: "POST",
-          headers: createIdempotencyHeaders("purchase-order-bill", {
-            "Content-Type": "application/json",
-          }),
-          body: JSON.stringify(input),
-        },
-      );
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        const message =
-          typeof body?.error === "string" &&
-          body.error.toLowerCase().includes("not connected")
-            ? ACCOUNTING_NOT_CONNECTED_MESSAGE
-            : body?.error ?? "Failed to create supplier bill.";
-        throw new Error(message);
-      }
-
-      return body as {
+      return apiJson<{
         xeroBillId: string | null;
         xeroBillNumber: string | null;
         status: "pushed";
-      };
+      }>(`/api/purchase-orders/${order.id}/accounting-bill`, {
+        method: "POST",
+        headers: createIdempotencyHeaders("purchase-order-bill"),
+        body: input,
+        fallbackError: "Failed to create supplier bill.",
+        mapError: (_status, body) => {
+          const message =
+            typeof (body as { error?: unknown } | null)?.error === "string" &&
+            (body as { error: string }).error.toLowerCase().includes("not connected")
+              ? ACCOUNTING_NOT_CONNECTED_MESSAGE
+              : undefined;
+          return message ? new Error(message) : undefined;
+        },
+      });
     },
     onMutate: () => setStatus("pending"),
     onSuccess: async (result) => {
@@ -198,33 +185,26 @@ function PurchaseBillCell({ order }: { order: PurchaseOrderListRow }) {
       setExternalId(result.xeroBillId);
       setExternalNumber(result.xeroBillNumber);
       setDialogOpen(false);
-      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
     },
     onError: () => setStatus("failed"),
   });
-  const manualStatusMutation = useMutation({
+  const manualStatusMutation = useApiMutation({
+    invalidates: [queryKeys.purchaseOrders.root],
     mutationKey: ["purchase-order-action", order.id, "purchase-bill-manual-status"],
     mutationFn: async (
       nextStatus: "not_billed" | "partly_billed" | "billed",
     ) => {
-      const response = await fetch(`/api/purchase-orders/${order.id}/bill-status`, {
-        method: "PATCH",
-        headers: createIdempotencyHeaders("purchase-order-bill-status", {
-          "Content-Type": "application/json",
-        }),
-        body: JSON.stringify({ status: nextStatus }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(body?.error ?? "Failed to update bill status.");
-      }
-      return body as {
+      return apiJson<{
         purchaseBillManualStatus: "not_billed" | "partly_billed" | "billed" | null;
-      };
+      }>(`/api/purchase-orders/${order.id}/bill-status`, {
+        method: "PATCH",
+        headers: createIdempotencyHeaders("purchase-order-bill-status"),
+        body: { status: nextStatus },
+        fallbackError: "Failed to update bill status.",
+      });
     },
     onSuccess: async (result) => {
       setManualStatus(result.purchaseBillManualStatus);
-      await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
     },
   });
 
@@ -350,7 +330,7 @@ export function OrdersTable({
     <ERPDataGridList
       rows={initialData}
       columns={columns}
-      queryKey={["purchase-orders"]}
+      queryKey={queryKeys.purchaseOrders.root}
       queryEndpoint="/api/purchase-orders"
       queryErrorMessage="Failed to fetch purchase orders"
       searchAriaLabel="Search purchase orders"
@@ -359,7 +339,7 @@ export function OrdersTable({
       emptyMessage="No purchase orders yet."
       deleteAction={{
         endpoint: "/api/purchase-orders",
-        invalidateQueryKeys: [["purchase-orders"]],
+        invalidateQueryKeys: [queryKeys.purchaseOrders.root],
         defaultErrorMessage: "Failed to delete purchase orders.",
         confirmTitle: (count) => `Delete ${count} order${count !== 1 ? "s" : ""}?`,
         confirmDescription: (count) =>

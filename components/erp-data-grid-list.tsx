@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import {
   useMutation,
   useQuery,
@@ -46,7 +46,7 @@ type SelectedAction<TData extends { id: string }> = {
 
 type DeleteAction<TData extends { id: string }> = {
   endpoint: string;
-  invalidateQueryKeys: readonly unknown[][];
+  invalidateQueryKeys: readonly (readonly unknown[])[];
   defaultErrorMessage: string;
   confirmTitle: (count: number) => string;
   confirmDescription: (count: number) => string;
@@ -104,6 +104,8 @@ function ERPDataGridListInner<TData extends { id: string }>({
   const queryClient = useQueryClient();
   const [searchValue, setSearchValue] = useState("");
   const [selectedRows, setSelectedRows] = useState<TData[]>([]);
+  const selectedRowsRef = useRef<TData[]>([]);
+  const [deleteRows, setDeleteRows] = useState<TData[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const resolvedQueryFn = useMemo(() => {
@@ -125,6 +127,7 @@ function ERPDataGridListInner<TData extends { id: string }>({
     initialData: rows,
   });
   const selectedCount = selectedRows.length;
+  const deleteCount = deleteRows.length;
   const selectionActions = useMemo(() => selectedActions ?? [], [selectedActions]);
   const hasSelectionMenu = selectionActions.length > 0;
   const anySelectionActionPending = selectionActions.some((action) => action.isPending);
@@ -158,6 +161,7 @@ function ERPDataGridListInner<TData extends { id: string }>({
         )
       );
       setSelectedRows([]);
+      setDeleteRows([]);
       setDeleteDialogOpen(false);
     },
     onError: (error) => {
@@ -240,6 +244,7 @@ function ERPDataGridListInner<TData extends { id: string }>({
             }
             onClick={() => {
               setDeleteError(null);
+              setDeleteRows(selectedRowsRef.current);
               setDeleteDialogOpen(true);
             }}
           >
@@ -286,7 +291,10 @@ function ERPDataGridListInner<TData extends { id: string }>({
         actions={gridActions}
         enableRowSelection={Boolean(deleteAction) || selectionActions.length > 0}
         isRowSelectable={deleteAction?.isRowSelectable}
-        onSelectionChange={setSelectedRows}
+        onSelectionChange={(rows) => {
+          selectedRowsRef.current = rows;
+          setSelectedRows(rows);
+        }}
         height={height ?? (fillViewport ? "100%" : undefined)}
         className={cn(
           fillViewport &&
@@ -302,16 +310,17 @@ function ERPDataGridListInner<TData extends { id: string }>({
             setDeleteDialogOpen(open);
             if (!open) {
               setDeleteError(null);
+              setDeleteRows([]);
             }
           }}
         >
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>
-                {deleteAction.confirmTitle(selectedCount)}
+                {deleteAction.confirmTitle(deleteCount)}
               </AlertDialogTitle>
               <AlertDialogDescription>
-                {deleteAction.confirmDescription(selectedCount)}
+                {deleteAction.confirmDescription(deleteCount)}
               </AlertDialogDescription>
               {deleteError ? (
                 <NoticePanel
@@ -330,10 +339,10 @@ function ERPDataGridListInner<TData extends { id: string }>({
               </AlertDialogCancel>
               <AlertDialogAction
                 variant="danger"
-                disabled={deleteMutation.isPending || selectedCount === 0}
+                disabled={deleteMutation.isPending || deleteCount === 0}
                 onClick={(event) => {
                   event.preventDefault();
-                  deleteMutation.mutate(selectedRows.map((row) => row.id));
+                  deleteMutation.mutate(deleteRows.map((row) => row.id));
                 }}
               >
                 {deleteMutation.isPending ? "Deleting..." : "Delete"}

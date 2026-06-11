@@ -74,6 +74,7 @@ import {
   defaultManufacturingPlannedDate,
 } from "./create-manufacturing-orders-dialog";
 import type { SalesOrderListRow } from "@/lib/sales/types";
+import { queryKeys } from "@/lib/client/query-keys";
 
 const OPEN_SALES_STATUSES = ["open"] as const;
 const DONE_SALES_STATUSES = ["done"] as const;
@@ -395,8 +396,8 @@ function SalesDeliveryPanelContent({
     setDialogTarget(null);
     onClose();
     void status;
-    void queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
-    void queryClient.invalidateQueries({ queryKey: ["items"] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.salesOrders.root });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.items.root });
   };
 
   return (
@@ -719,7 +720,7 @@ function OrdersTableContent({
     null
   );
   const { data: orders = initialData } = useQuery({
-    queryKey: ["sales-orders"],
+    queryKey: queryKeys.salesOrders.root,
     queryFn: () =>
       apiJson<SalesOrderListRow[]>("/api/sales-orders", {
         fallbackError: "Failed to fetch orders.",
@@ -1026,15 +1027,15 @@ function OrdersTableContent({
       });
     },
     onMutate: async (orderedRows) => {
-      await queryClient.cancelQueries({ queryKey: ["sales-orders"] });
+      await queryClient.cancelQueries({ queryKey: queryKeys.salesOrders.root });
       const previous =
-        queryClient.getQueryData<SalesOrderListRow[]>(["sales-orders"]);
+        queryClient.getQueryData<SalesOrderListRow[]>(queryKeys.salesOrders.root);
       const rankById = new Map(
         orderedRows.map((row, index) => [row.id, index + 1])
       );
 
       queryClient.setQueryData<SalesOrderListRow[]>(
-        ["sales-orders"],
+        queryKeys.salesOrders.root,
         (current) => {
           if (!current) return current;
 
@@ -1058,12 +1059,12 @@ function OrdersTableContent({
       return { previous };
     },
     onError: (_error, _orderedRows, context) => {
-      queryClient.setQueryData(["sales-orders"], context?.previous);
+      queryClient.setQueryData(queryKeys.salesOrders.root, context?.previous);
     },
     onSettled: async () => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
-        queryClient.invalidateQueries({ queryKey: ["items"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.salesOrders.root }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.items.root }),
       ]);
     },
   });
@@ -1078,8 +1079,8 @@ function OrdersTableContent({
     },
     onSettled: async () => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
-        queryClient.invalidateQueries({ queryKey: ["items"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.salesOrders.root }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.items.root }),
       ]);
       setSelectedOrders([]);
       setDeleteDialogOpen(false);

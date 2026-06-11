@@ -227,7 +227,7 @@ For standard dashboard list pages, use the shared AG Grid list shell instead of 
 <ERPDataGridList
   columns={columns}
   rows={initialData}
-  queryKey={["customers"]}
+  queryKey={queryKeys.customers.root}
   queryFn={fetchCustomers}
   searchAriaLabel="Search customers"
   addHref="/sales/customer"
@@ -235,7 +235,7 @@ For standard dashboard list pages, use the shared AG Grid list shell instead of 
   emptyMessage="No customers yet."
   deleteAction={{
     endpoint: "/api/customers",
-    invalidateQueryKeys: [["customers"]],
+    invalidateQueryKeys: [queryKeys.customers.root],
     defaultErrorMessage: "Failed to delete customer.",
     confirmTitle: (count) => `Delete ${count} customer${count !== 1 ? "s" : ""}?`,
     confirmDescription: (count) =>

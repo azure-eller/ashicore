@@ -15,6 +15,7 @@ import {
 import { fetchItemCategories } from "@/lib/api/clients/item-cards";
 import type { ItemType } from "@/lib/inventory/types";
 import styles from "./card-page.module.css";
+import { queryKeys } from "@/lib/client/query-keys";
 
 type CategoryComboboxFieldProps = {
   itemType: ItemType;
@@ -54,7 +55,7 @@ export function CategoryComboboxField({
   const comboboxId = `${useId()}-categories`;
 
   const { data: categories = [] } = useQuery({
-    queryKey: ["item-categories", itemType],
+    queryKey: queryKeys.itemCategories.byType(itemType),
     queryFn: () => fetchItemCategories(itemType),
     staleTime: 60_000,
   });

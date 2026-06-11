@@ -70,6 +70,7 @@ import {
   type StocktakeDetail as StocktakeDetailType,
 } from "./types";
 import styles from "@/components/card-page/card-page.module.css";
+import { queryKeys } from "@/lib/client/query-keys";
 
 type ApiError = {
   status?: number;
@@ -180,7 +181,7 @@ export function StocktakeDetail({
   const canEditCounts = stocktake.status === "draft";
 
   const refreshStocktakeQueries = async () => {
-    await queryClient.invalidateQueries({ queryKey: ["stocktakes"] });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.stocktakes.root });
   };
 
   const saveEngine = useDraftSaveEngine<
@@ -242,7 +243,7 @@ export function StocktakeDetail({
     onSuccess: async () => {
       await Promise.all([
         refreshStocktakeQueries(),
-        queryClient.invalidateQueries({ queryKey: ["items"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.items.root }),
       ]);
       router.refresh();
     },
@@ -294,7 +295,7 @@ export function StocktakeDetail({
     onMutate: () => {
       setActionError(null);
     },
-    invalidateQueryKeys: [["stocktakes"]],
+    invalidateQueryKeys: [queryKeys.stocktakes.root],
     onDeleted: () => router.push("/inventory/stocktakes"),
     onError: (error) => {
       setActionError(error.message);

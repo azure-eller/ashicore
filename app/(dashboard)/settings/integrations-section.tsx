@@ -80,6 +80,7 @@ import {
   XeroImportSection,
 } from "./integrations/xero-import-section";
 import { SettingsPanel, SettingsPanelHeader } from "@/components/settings-panel";
+import { queryKeys } from "@/lib/client/query-keys";
 
 const ERROR_MESSAGES: Record<string, string> = {
   state_mismatch: "Security check failed. Please try connecting Xero again.",
@@ -996,7 +997,7 @@ function QuickBooksDefaultsDialog({
   );
   const [formError, setFormError] = useState<string | null>(null);
   const accountsQuery = useQuery({
-    queryKey: ["quickbooks-accounts", connection.tenantId],
+    queryKey: queryKeys.quickbooksAccounts.byTenant(connection.tenantId),
     enabled: open,
     queryFn: () =>
       apiJson<{ accounts: XeroAccountOption[] }>(
@@ -1305,7 +1306,7 @@ function PostingDefaultsDialog({
   );
   const [formError, setFormError] = useState<string | null>(null);
   const accountsQuery = useQuery({
-    queryKey: ["xero-accounts", connection.tenantId],
+    queryKey: queryKeys.xeroAccounts.byTenant(connection.tenantId),
     queryFn: () =>
       apiJson<{ accounts: XeroAccountOption[] }>("/api/xero/accounts", {
         fallbackError: "Failed to load Xero accounts.",

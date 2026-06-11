@@ -65,6 +65,7 @@ import {
   manufacturingOrderStatusConfig,
 } from "@/components/card-page/order-status-configs";
 import type { ManufacturingOrderListRow } from "@/lib/manufacturing/types";
+import { queryKeys } from "@/lib/client/query-keys";
 
 const OPEN_MANUFACTURING_STATUSES = ["open"] as const;
 const DONE_MANUFACTURING_STATUSES = ["done"] as const;
@@ -213,8 +214,8 @@ function ProductionActionCell({ order }: { order: ManufacturingOrderListRow }) {
       disabled={isManufacturingStatusDisabled(order)}
       actionVariant="button"
       onChanged={() => {
-        void queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] });
-        void queryClient.invalidateQueries({ queryKey: ["items"] });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.manufacturingOrders.root });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.items.root });
       }}
     />
   );
@@ -317,7 +318,7 @@ export function OrdersTable({
     defaultValue: DEFAULT_MANUFACTURING_ORDERS_PREFERENCE,
   });
   const { data: orders = initialData } = useQuery({
-    queryKey: ["manufacturing-orders"],
+    queryKey: queryKeys.manufacturingOrders.root,
     queryFn: () =>
       apiJson<ManufacturingOrderListRow[]>("/api/manufacturing-orders", {
         fallbackError: "Failed to fetch manufacturing orders.",
@@ -536,7 +537,7 @@ export function OrdersTable({
       });
     },
     onMutate: async (orderedRows) => {
-      await queryClient.cancelQueries({ queryKey: ["manufacturing-orders"] });
+      await queryClient.cancelQueries({ queryKey: queryKeys.manufacturingOrders.root });
       const previous =
         queryClient.getQueryData<ManufacturingOrderListRow[]>([
           "manufacturing-orders",
@@ -546,7 +547,7 @@ export function OrdersTable({
       );
 
       queryClient.setQueryData<ManufacturingOrderListRow[]>(
-        ["manufacturing-orders"],
+        queryKeys.manufacturingOrders.root,
         (current) => {
           if (!current) return current;
 
@@ -565,7 +566,7 @@ export function OrdersTable({
       return { previous };
     },
     onError: (_error, _orderedRows, context) => {
-      queryClient.setQueryData(["manufacturing-orders"], context?.previous);
+      queryClient.setQueryData(queryKeys.manufacturingOrders.root, context?.previous);
     },
   });
   const deleteMutation = useMutation({
@@ -579,8 +580,8 @@ export function OrdersTable({
     },
     onSettled: async () => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] }),
-        queryClient.invalidateQueries({ queryKey: ["items"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.manufacturingOrders.root }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.items.root }),
       ]);
       setSelectedOrders([]);
       setDeleteDialogOpen(false);

@@ -81,6 +81,7 @@ import {
 } from "@/lib/tooltip-copy";
 import type { SupplierRow } from "@/lib/purchasing/types";
 import styles from "@/components/card-page/card-page.module.css";
+import { queryKeys } from "@/lib/client/query-keys";
 
 type SupplierCardProps = {
   initialSupplierId: string | null;
@@ -185,8 +186,8 @@ export function SupplierCard({
       reflectPersistedCardUrlWithoutNavigation(`/purchasing/suppliers/${id}`);
     },
     onResult: (result, draft) => {
-      queryClient.setQueryData(["supplier-card", result.id], draft);
-      void queryClient.invalidateQueries({ queryKey: ["suppliers"] });
+      queryClient.setQueryData(queryKeys.suppliers.card(result.id), draft);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.suppliers.root });
     },
   });
   const currentSupplierId = engine.currentId;
@@ -198,7 +199,7 @@ export function SupplierCard({
   const deleteMutation = useDeleteEntity({
     mutationKey: ["supplier-action", currentSupplierId ?? "__draft__", "delete"],
     mutationFn: () => deleteSupplier(currentSupplierId as string),
-    invalidateQueryKeys: [["suppliers"]],
+    invalidateQueryKeys: [queryKeys.suppliers.root],
     onDeleted: () => router.push("/purchasing/suppliers"),
   });
   const deleteConfirm = useConfirmMutation<void>({

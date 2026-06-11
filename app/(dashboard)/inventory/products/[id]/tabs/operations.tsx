@@ -31,6 +31,7 @@ import {
 } from "@/lib/api/clients/item-cards";
 import { pushCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
 import styles from "@/components/card-page/card-page.module.css";
+import { queryKeys } from "@/lib/client/query-keys";
 
 type ManufacturingResourceOption = {
   id: string;
@@ -104,7 +105,7 @@ export function ProductOperationsTab({
 
   const loadProductionPayload = (variantId: string) =>
     queryClient.fetchQuery({
-      queryKey: ["product-production-tab", variantId],
+      queryKey: queryKeys.productTabs.production(variantId),
       queryFn: () => getProductProductionTabPayload(variantId),
       staleTime: Infinity,
     });
@@ -136,10 +137,10 @@ export function ProductOperationsTab({
       setDirty(false);
       void (async () => {
         const nextData = await getProductProductionTabPayload(activeFocusItemId);
-        queryClient.setQueryData(["product-production-tab", activeFocusItemId], nextData);
+        queryClient.setQueryData(queryKeys.productTabs.production(activeFocusItemId), nextData);
         setProductionData(nextData);
         setRows(nextData.initialOperationCosts);
-        await queryClient.invalidateQueries({ queryKey: ["item-card"] });
+        await queryClient.invalidateQueries({ queryKey: queryKeys.itemCards.root });
       })();
     },
   });

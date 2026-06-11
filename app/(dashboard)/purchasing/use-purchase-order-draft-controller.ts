@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useRef, type RefObject } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 import { z } from "zod";
+import { queryKeys } from "@/lib/client/query-keys";
 import {
   insertPurchaseOrderSchema,
   type InsertPurchaseOrder,
@@ -435,8 +436,8 @@ export function usePurchaseOrderDraftController({
       }),
     onPersisted,
     onResult: (result, draft) => {
-      queryClient.setQueryData(["purchase-order", result.id], result);
-      void queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+      queryClient.setQueryData(queryKeys.purchaseOrders.detail(result.id), result);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.root });
       onResult?.(result, draft);
     },
     getErrorMessage: (error) =>

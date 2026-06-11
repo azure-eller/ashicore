@@ -33,6 +33,7 @@ import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { apiJson, requireApiProperty } from "@/lib/client/api";
+import { queryKeys } from "@/lib/client/query-keys";
 import type {
   AgentAccessPageData,
   AgentApiTokenRow,
@@ -379,7 +380,7 @@ export function AgentAccessSection({
   const [actionError, setActionError] = useState<string | null>(null);
 
   const { data = initialData } = useQuery<AgentAccessPageData>({
-    queryKey: ["agent-access"],
+    queryKey: queryKeys.agentAccess.root,
     queryFn: async () => {
       const [tokensBody, grantsBody] = await Promise.all([
         apiJson<{ tokens?: AgentApiTokenRow[] }>("/api/agent/api-tokens", {
@@ -414,7 +415,7 @@ export function AgentAccessSection({
 
   const refreshData = async () => {
     setActionError(null);
-    await queryClient.invalidateQueries({ queryKey: ["agent-access"] });
+    await queryClient.invalidateQueries({ queryKey: queryKeys.agentAccess.root });
   };
 
   const revokeMutation = useMutation({

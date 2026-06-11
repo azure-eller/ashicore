@@ -28,6 +28,7 @@ import {
   type ItemCardVariantDto,
 } from "@/lib/api/clients/item-cards";
 import { cardSaveMutationKey } from "./card-save-status";
+import { queryKeys } from "@/lib/client/query-keys";
 
 export type CopyScope = "bom" | "operations";
 export type CopyDirection = "to" | "from";
@@ -123,8 +124,8 @@ function DialogBody({
       const affectedVariantIds =
         direction === "to" ? Array.from(selectedIds) : [activeVariant.id];
       for (const variantId of affectedVariantIds) {
-        void queryClient.invalidateQueries({ queryKey: ["item-card", variantId] });
-        void queryClient.invalidateQueries({ queryKey: ["bom-revisions", variantId] });
+        void queryClient.invalidateQueries({ queryKey: queryKeys.itemCards.detail(variantId) });
+        void queryClient.invalidateQueries({ queryKey: scope === "bom" ? queryKeys.productTabs.recipe(variantId) : queryKeys.productTabs.production(variantId) });
       }
       onOpenChange(false);
       router.refresh();

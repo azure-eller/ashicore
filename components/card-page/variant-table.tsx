@@ -54,6 +54,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { CardLotRow } from "./lot-grid-tab";
 import styles from "./card-page.module.css";
+import { queryKeys } from "@/lib/client/query-keys";
 
 export type VariantTableProps = {
   card: ItemCardDto;
@@ -222,7 +223,7 @@ function StockQuantityAdjustmentBody({
   const [reason, setReason] = useState<AdjustmentReason | "">("");
   const [note, setNote] = useState("");
   const lotsQuery = useQuery({
-    queryKey: ["item-lots", adjustment.variant.id],
+    queryKey: queryKeys.itemLots.byVariant(adjustment.variant.id),
     queryFn: () =>
       apiJson<CardLotRow[]>(`/api/items/${adjustment.variant.id}/lots`, {
         fallbackError: "Failed to load lots.",
@@ -290,7 +291,7 @@ function StockQuantityAdjustmentBody({
       });
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["item-card"] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.itemCards.root });
       onSaved();
     },
   });
@@ -637,7 +638,7 @@ export function VariantTable({
       }
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["item-card"] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.itemCards.root });
     },
   });
 
@@ -1011,7 +1012,7 @@ export function VariantTable({
         }}
         onSaved={() => {
           setStockAdjustment(null);
-          void queryClient.invalidateQueries({ queryKey: ["item-card"] });
+          void queryClient.invalidateQueries({ queryKey: queryKeys.itemCards.root });
         }}
       />
     </>

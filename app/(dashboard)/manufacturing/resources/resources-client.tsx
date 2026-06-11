@@ -27,6 +27,7 @@ import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field
 import { ERPDataGridList } from "@/components/erp-data-grid-list";
 import type { ColDef } from "@/components/erp-data-grid";
 import { formatPrice } from "@/lib/format";
+import { queryKeys } from "@/lib/client/query-keys";
 
 type ResourceRow = {
   id: string;
@@ -112,7 +113,7 @@ export function ManufacturingResourcesClient({
       setFormErrors({});
       setFormError(null);
       setDialogOpen(false);
-      await queryClient.invalidateQueries({ queryKey: ["manufacturing-resources"] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.manufacturingResources.root });
     },
     onError: (error) => {
       setFormError(error instanceof Error ? error.message : "Resource save failed.");
@@ -193,7 +194,7 @@ export function ManufacturingResourcesClient({
       <ERPDataGridList
         rows={initialResources}
         columns={columns}
-        queryKey={["manufacturing-resources"]}
+        queryKey={queryKeys.manufacturingResources.root}
         queryFn={() => apiJson<ResourceRow[]>("/api/manufacturing-resources")}
         searchAriaLabel="Search manufacturing resources"
         emptyMessage="No resources yet."
@@ -205,7 +206,7 @@ export function ManufacturingResourcesClient({
         }
         deleteAction={{
           endpoint: "/api/manufacturing-resources",
-          invalidateQueryKeys: [["manufacturing-resources"]],
+          invalidateQueryKeys: [queryKeys.manufacturingResources.root],
           defaultErrorMessage: "Failed to delete resource.",
           confirmTitle: (count) =>
             `Delete ${count} resource${count === 1 ? "" : "s"}?`,

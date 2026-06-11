@@ -25,6 +25,7 @@ import { MaterialUsedInBomsTab } from "./tabs/used-in-boms";
 import { MaterialSupplyDetailsTab } from "./tabs/supply-details";
 import type { SupplierOption } from "@/lib/purchasing/types";
 import { useItemCardDraftController } from "@/components/card-page/use-item-card-draft-controller";
+import { queryKeys } from "@/lib/client/query-keys";
 
 export type MaterialCardProps = {
   initialItemId: string | null;
@@ -68,7 +69,7 @@ export function MaterialCard({
   const actionSaveStatus = useCardSaveStatus(currentItemId ?? "__draft__");
 
   const cardQuery = useQuery({
-    queryKey: ["item-card", currentItemId ?? "__draft__"],
+    queryKey: queryKeys.itemCards.detail(currentItemId ?? "__draft__"),
     queryFn: () => getItemCard(currentItemId as string),
     initialData: initialCard,
     enabled: !isDraft,
@@ -84,7 +85,7 @@ export function MaterialCard({
   const deleteCardMutation = useDeleteEntity({
     mutationKey: ["item-card-action", currentItemId ?? "__draft__", "delete-card"],
     mutationFn: () => deleteItemCard(currentItemId as string),
-    invalidateQueryKeys: [["item-cards"]],
+    invalidateQueryKeys: [queryKeys.itemCards.root],
     onDeleted: () => router.push("/inventory/materials"),
   });
   const deleteConfirm = useConfirmMutation<void>({
@@ -102,7 +103,7 @@ export function MaterialCard({
     mutationKey: ["item-card-action", currentItemId ?? "__draft__", "clone-card"],
     mutationFn: () => cloneItemCard(currentItemId as string),
     onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["item-cards"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.itemCards.root });
       router.push(`/inventory/materials/${result.itemId}`);
     },
   });

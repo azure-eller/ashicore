@@ -44,6 +44,29 @@ const eslintConfig = defineConfig([
           ],
         },
       ],
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "Property[key.name='queryKey'] > ArrayExpression",
+          message: "Use queryKeys from lib/client/query-keys.ts instead of inline query key arrays.",
+        },
+        {
+          selector: "JSXAttribute[name.name='queryKey'] > JSXExpressionContainer > ArrayExpression",
+          message: "Use queryKeys from lib/client/query-keys.ts instead of inline query key arrays.",
+        },
+        {
+          selector: "Property[key.name='invalidateQueryKeys'] > ArrayExpression > ArrayExpression",
+          message: "Use queryKeys from lib/client/query-keys.ts instead of inline invalidateQueryKeys arrays.",
+        },
+        {
+          selector: "JSXAttribute[name.name='invalidateQueryKeys'] > JSXExpressionContainer > ArrayExpression > ArrayExpression",
+          message: "Use queryKeys from lib/client/query-keys.ts instead of inline invalidateQueryKeys arrays.",
+        },
+        {
+          selector: "CallExpression[callee.property.name='setQueryData'] > ArrayExpression",
+          message: "Use queryKeys from lib/client/query-keys.ts instead of inline setQueryData arrays.",
+        },
+      ],
     },
   },
   {

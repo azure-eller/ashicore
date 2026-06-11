@@ -22,6 +22,7 @@ import {
 } from "@/lib/hooks/use-draft-save-engine";
 import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
 import type { ItemType } from "@/lib/inventory/types";
+import { queryKeys } from "@/lib/client/query-keys";
 
 export type ItemCardDraftOp =
   | { type: "patchFamily"; patch: UpdateItemCardInput }
@@ -138,14 +139,14 @@ export function useItemCardDraftController({
   );
   const onResult = useCallback(
     (result: ItemCardSaveResult, draft: ItemCardDto) => {
-      queryClient.setQueryData(["item-card", result.itemId], draft);
+      queryClient.setQueryData(queryKeys.itemCards.detail(result.itemId), draft);
       for (const variant of draft.variants) {
-        queryClient.setQueryData(["item-card", variant.id], draft);
+        queryClient.setQueryData(queryKeys.itemCards.detail(variant.id), draft);
       }
       void Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["item-cards"] }),
-        queryClient.invalidateQueries({ queryKey: ["items"] }),
-        queryClient.invalidateQueries({ queryKey: ["item-categories", itemType] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.itemCards.root }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.items.root }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.itemCategories.byType(itemType) }),
       ]);
     },
     [itemType, queryClient],

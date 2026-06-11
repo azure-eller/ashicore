@@ -30,6 +30,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { FieldError } from "@/components/ui/field";
+import { queryKeys } from "@/lib/client/query-keys";
 import {
   CardNumberField,
   CardSelectField,
@@ -315,7 +316,7 @@ function CreateResourceDialog({
       setFormErrors({});
       setFormError(null);
       onOpenChange(false);
-      await queryClient.invalidateQueries({ queryKey: ["manufacturing-resources"] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.manufacturingResources.root });
     },
     onError: (error) => {
       setFormError(error instanceof Error ? error.message : "Failed to create resource.");

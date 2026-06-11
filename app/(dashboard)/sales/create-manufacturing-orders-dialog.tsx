@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/dialog";
 import type { SalesOrderDetail } from "@/lib/sales/types";
 import { cn } from "@/lib/utils";
+import { queryKeys } from "@/lib/client/query-keys";
 
 type Props = {
   salesOrderId: string;
@@ -176,7 +177,7 @@ export function CreateManufacturingOrdersDialog({
   );
 
   const orderQuery = useQuery<SalesOrderDetail>({
-    queryKey: ["sales-order", salesOrderId],
+    queryKey: queryKeys.salesOrders.detail(salesOrderId),
     queryFn: () =>
       apiJson<SalesOrderDetail>(`/api/sales-orders/${salesOrderId}`, {
         fallbackError: "Failed to load sales order.",
@@ -186,7 +187,7 @@ export function CreateManufacturingOrdersDialog({
   });
 
   const previewQuery = useQuery<ManufacturingSalesOrderPreview>({
-    queryKey: ["manufacturing-sales-order-preview", salesOrderId],
+    queryKey: queryKeys.salesOrders.manufacturingPreview(salesOrderId),
     queryFn: () =>
       apiJson<ManufacturingSalesOrderPreview>(
         `/api/sales-orders/${salesOrderId}/manufacturing-orders`,
@@ -265,13 +266,13 @@ export function CreateManufacturingOrdersDialog({
       if (controlledOpen === undefined) setUncontrolledOpen(false);
       resetForm();
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["sales-orders"] }),
-        queryClient.invalidateQueries({ queryKey: ["sales-order", salesOrderId] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.salesOrders.root }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.salesOrders.detail(salesOrderId) }),
         queryClient.invalidateQueries({
-          queryKey: ["manufacturing-sales-order-preview", salesOrderId],
+          queryKey: queryKeys.salesOrders.manufacturingPreview(salesOrderId),
         }),
-        queryClient.invalidateQueries({ queryKey: ["manufacturing-orders"] }),
-        queryClient.invalidateQueries({ queryKey: ["items"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.manufacturingOrders.root }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.items.root }),
       ]);
       router.refresh();
     },

@@ -155,6 +155,11 @@ export function createApiJsonRequester<TError extends Error>(
   };
 }
 
+export const apiClientJson = createApiJsonRequester(
+  ({ message, status, fieldErrors }) =>
+    new ApiClientError("ApiClientError", message, status, fieldErrors),
+);
+
 function isBodyInit(value: unknown): value is BodyInit {
   return (
     typeof value === "string" ||

@@ -18,6 +18,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { apiJson } from "@/lib/client/api";
 import { formatDate, formatQuantityWithUnitText } from "@/lib/format";
 import type { ItemType } from "@/lib/inventory/types";
+import { queryKeys } from "@/lib/client/query-keys";
 
 type ItemHistoryMode = "usage" | "production";
 
@@ -77,7 +78,7 @@ export function ItemHistorySparklineCard({
 }: ItemHistorySparklineCardProps) {
   const mode = historyModeForItem(itemType);
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["items", itemId, "history", mode, 180],
+    queryKey: queryKeys.items.history(itemId, mode, 180),
     queryFn: () => fetchItemHistory(itemId, mode),
   });
 

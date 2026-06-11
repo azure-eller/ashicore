@@ -58,6 +58,7 @@ import type { ManufacturingPickProgressStatus } from "@/lib/manufacturing/types"
 import type { PurchaseOrderDetailLine } from "@/lib/purchasing/types";
 import type { ManufacturingOrderStatus } from "@/lib/schemas/manufacturing-orders";
 import type { PurchaseOrderStatus } from "@/lib/schemas/purchase-orders";
+import { queryKeys } from "@/lib/client/query-keys";
 
 export type SalesOrderStatusFields = SalesOrderListRow | SalesOrderDetail;
 export type SalesOrderStatusContext = { order: SalesOrderStatusFields };
@@ -544,7 +545,7 @@ function ReceiveConfirmDialog({
   onDone: (status?: PurchaseOrderStatus) => void;
 }) {
   const orderQuery = useQuery({
-    queryKey: ["purchase-order-receive", orderId],
+    queryKey: queryKeys.purchaseOrders.receive(orderId),
     queryFn: () => getPurchaseOrderDetail(orderId),
   });
   const order = orderQuery.data;

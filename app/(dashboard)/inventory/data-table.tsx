@@ -6,6 +6,7 @@ import { ERPDataGridList } from "@/components/erp-data-grid-list";
 import { appendSearchParams } from "@/lib/routing/search-params";
 import { getColumns } from "./columns";
 import type { ItemRow, ItemType } from "@/lib/inventory/types";
+import { queryKeys } from "@/lib/client/query-keys";
 
 interface DataTableProps {
   initialData: ItemRow[];
@@ -22,7 +23,7 @@ export function DataTable({
   const columns = useMemo(() => getColumns(itemType), [itemType]);
   const isProduct = itemType === "product";
   const queryKey = useMemo(
-    () => ["items", organizationId, itemType],
+    () => queryKeys.items.list(organizationId, itemType),
     [itemType, organizationId]
   );
 
@@ -43,7 +44,7 @@ export function DataTable({
       emptyMessage={isProduct ? "No items yet." : "No materials yet."}
       deleteAction={{
         endpoint: "/api/items",
-        invalidateQueryKeys: [["items"]],
+        invalidateQueryKeys: [queryKeys.items.root],
         defaultErrorMessage: "Failed to delete items.",
         confirmTitle: (count) =>
           `Delete ${count} item${count !== 1 ? "s" : ""}?`,

@@ -16,6 +16,7 @@ import {
   type QueuedDraftOp,
 } from "@/lib/hooks/use-draft-save-engine";
 import type { PatchSalesOrderHeader } from "@/lib/schemas/sales-orders";
+import { queryKeys } from "@/lib/client/query-keys";
 import type {
   SalesOrderDetail,
   SalesOrderDetailLine,
@@ -242,8 +243,8 @@ export function useSalesOrderDraftController({
       }),
     onPersisted,
     onResult: (result, draft) => {
-      queryClient.setQueryData(["sales-order", result.id], draft);
-      void queryClient.invalidateQueries({ queryKey: ["sales-orders"] });
+      queryClient.setQueryData(queryKeys.salesOrders.detail(result.id), draft);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.salesOrders.root });
     },
   });
 

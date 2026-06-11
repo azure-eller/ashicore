@@ -32,6 +32,7 @@ import type {
   ManufacturingReleaseWarningPayload,
 } from "@/lib/manufacturing/types";
 import { formatQuantity } from "@/lib/format";
+import { queryKeys } from "@/lib/client/query-keys";
 
 export type CompletionMode = "complete" | "output";
 
@@ -60,7 +61,7 @@ export function ManufacturingCompletionDialog({
   onDone: () => void;
 }) {
   const detailQuery = useQuery({
-    queryKey: ["manufacturing-order", orderId],
+    queryKey: queryKeys.manufacturingOrders.detail(orderId),
     queryFn: () => fetchManufacturingOrder(orderId),
   });
 

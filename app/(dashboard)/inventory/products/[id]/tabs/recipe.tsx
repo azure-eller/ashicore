@@ -45,6 +45,7 @@ import {
   type BomRevisionHistoryEntry,
 } from "./bom-revision-history-sheet";
 import styles from "@/components/card-page/card-page.module.css";
+import { queryKeys } from "@/lib/client/query-keys";
 
 type AvailableComponent = {
   id: string;
@@ -123,7 +124,7 @@ export function ProductRecipeTab({
 
   const loadRecipePayload = (variantId: string) =>
     queryClient.fetchQuery({
-      queryKey: ["product-recipe-tab", variantId],
+      queryKey: queryKeys.productTabs.recipe(variantId),
       queryFn: () => getProductRecipeTabPayload(variantId),
       staleTime: Infinity,
     });
@@ -144,14 +145,14 @@ export function ProductRecipeTab({
       setSaveDialogOpen(false);
       void (async () => {
         const nextData = await getProductRecipeTabPayload(activeFocusItemId);
-        queryClient.setQueryData(["product-recipe-tab", activeFocusItemId], nextData);
+        queryClient.setQueryData(queryKeys.productTabs.recipe(activeFocusItemId), nextData);
         setRecipeData(nextData);
         setRows(nextData.initialBomRows);
         setRecipeBasis(nextData.initialRecipeBasis);
         setExpectedBatchYield(
           nextData.initialExpectedBatchYield ?? nextData.initialOutputQuantity,
         );
-        await queryClient.invalidateQueries({ queryKey: ["item-card"] });
+        await queryClient.invalidateQueries({ queryKey: queryKeys.itemCards.root });
       })();
     },
   });

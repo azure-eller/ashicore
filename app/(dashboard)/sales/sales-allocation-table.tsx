@@ -64,6 +64,7 @@ import {
 import type { SalesOrderListLine, SalesOrderListRow } from "@/lib/sales/types";
 import { usePersistentViewState } from "@/lib/client/use-persistent-view-state";
 import styles from "./sales-allocation-table.module.css";
+import { queryKeys } from "@/lib/client/query-keys";
 
 const STANDALONE_FAMILY_LABEL = "Standalone Products";
 const ORDER_COL_WIDTH = 240;
@@ -1571,7 +1572,7 @@ export function SalesAllocationTable({
   }, []);
 
   const { data: orders = initialData, dataUpdatedAt: ordersUpdatedAt } = useQuery({
-    queryKey: ["sales-orders"],
+    queryKey: queryKeys.salesOrders.root,
     queryFn: () =>
       apiJson<SalesOrderListRow[]>("/api/sales-orders", {
         fallbackError: "Failed to fetch orders.",
@@ -1579,7 +1580,7 @@ export function SalesAllocationTable({
     initialData,
   });
   const { data: inventory = [] } = useQuery({
-    queryKey: ["items", organizationId, "allocation"],
+    queryKey: queryKeys.items.allocation(organizationId),
     queryFn: () =>
       apiJson<ItemRow[]>("/api/items", {
         fallbackError: "Failed to fetch item inventory.",
