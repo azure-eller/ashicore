@@ -270,8 +270,8 @@ export const STOCKTAKE_LINE_VARIANCE_TOOLTIP =
 export const STOCKTAKE_CURRENT_QTY_TOOLTIP =
   "Current available stock.";
 
-export const CUSTOMER_PRICING_TOOLTIP =
-  "Customer's assigned price tier.";
+export const CUSTOMER_CATEGORY_TOOLTIP =
+  "Customer segment used for pricing, reporting, or account workflows.";
 
 export const PRICING_CATEGORY_TOOLTIP =
   "Customer group used for pricing rules.";

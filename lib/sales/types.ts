@@ -4,9 +4,10 @@ import type {
   CustomerAccountState as CustomerState,
 } from "@/lib/schemas/customers";
 import type {
+  CUSTOMER_ACTIVITY_TYPES,
   CUSTOMER_CONTACT_ROLE_KEYS,
-  CUSTOMER_CORRESPONDENCE_TYPES,
   CUSTOMER_PROJECT_STATUSES,
+  CUSTOMER_TASK_STATUSES,
 } from "@/lib/schemas/customer-crm";
 import type { DemandQueueCoverageSegment } from "@/lib/inventory/allocation/demand-queue";
 import type { LotPickPlanEntry } from "@/lib/inventory/lot-pick-plan";
@@ -25,6 +26,9 @@ export type CustomerRow = {
   latestOrderDate: string | null;
   email: string | null;
   phone: string | null;
+  primaryContactName: string | null;
+  primaryContactEmail: string | null;
+  primaryContactPhone: string | null;
   billingLine1: string | null;
   billingLine2: string | null;
   billingCity: string | null;
@@ -38,15 +42,16 @@ export type CustomerRow = {
   shipPostcode: string | null;
   shipCountry: string | null;
   xeroContactId: string | null;
-  notes: string | null;
+  nextTaskId: string | null;
+  nextTaskTitle: string | null;
+  nextTaskDueDate: string | null;
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 };
 
 export type CustomerContactRole = (typeof CUSTOMER_CONTACT_ROLE_KEYS)[number];
-export type CustomerCorrespondenceType =
-  (typeof CUSTOMER_CORRESPONDENCE_TYPES)[number];
+export type CustomerActivityType = (typeof CUSTOMER_ACTIVITY_TYPES)[number];
 export type CustomerProjectStatus =
   (typeof CUSTOMER_PROJECT_STATUSES)[number];
 
@@ -58,46 +63,32 @@ export type CustomerContactRow = {
   phone: string | null;
   addressEntryId: string | null;
   roles: CustomerContactRole[];
-  notes: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
 
-export type CustomerCorrespondenceAttendeeRow = {
+export type CustomerActivityAttendeeRow = {
   id: string;
   contactId: string | null;
   contactName: string;
 };
 
-export type CustomerCorrespondenceRow = {
+export type CustomerTaskStatus = (typeof CUSTOMER_TASK_STATUSES)[number];
+
+export type CustomerActivityRow = {
   id: string;
-  type: CustomerCorrespondenceType;
+  type: CustomerActivityType;
   occurredAt: Date;
   title: string | null;
-  body: string;
+  body: string | null;
+  dueDate: string | null;
+  status: CustomerTaskStatus | null;
+  completedAt: Date | null;
+  customerProjectId: string | null;
+  projectName: string | null;
   createdByUserId: string;
   createdByName: string | null;
-  attendees: CustomerCorrespondenceAttendeeRow[];
-  createdAt: Date;
-  updatedAt: Date;
-};
-
-export type CustomerProjectFileRow = {
-  id: string;
-  filename: string;
-  contentType: string;
-  sizeBytes: number;
-  uploadedByUserId: string;
-  uploadedByName: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-};
-
-export type CustomerProjectNoteRow = {
-  id: string;
-  body: string;
-  createdByUserId: string;
-  createdByName: string | null;
+  attendees: CustomerActivityAttendeeRow[];
   createdAt: Date;
   updatedAt: Date;
 };
@@ -109,8 +100,6 @@ export type CustomerProjectRow = {
   startDate: string | null;
   targetEndDate: string | null;
   summary: string | null;
-  notes: CustomerProjectNoteRow[];
-  files: CustomerProjectFileRow[];
   salesOrders: CustomerLinkedSalesOrderRow[];
   orderCount: number;
   orderValue: string;
@@ -120,7 +109,7 @@ export type CustomerProjectRow = {
 
 export type CustomerDetailData = CustomerRow & {
   contacts: CustomerContactRow[];
-  correspondence: CustomerCorrespondenceRow[];
+  activities: CustomerActivityRow[];
   projects: CustomerProjectRow[];
   salesOrders: CustomerLinkedSalesOrderRow[];
 };

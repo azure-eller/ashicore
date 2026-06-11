@@ -1,17 +1,17 @@
 import type {
+  CustomerActivityRow,
   CustomerContactRow,
   CustomerDetailData,
-  CustomerProjectFileRow,
-  CustomerProjectNoteRow,
   CustomerProjectRow,
 } from "@/lib/sales/types";
 import type { AddressEntry } from "@/lib/dal/addresses";
 import { ApiClientError, createApiJsonRequester } from "@/lib/client/api";
 import type { CreateAddressEntry, UpdateAddressEntry } from "@/lib/schemas/addresses";
 import type {
+  CustomerActivityInput,
+  CustomerActivityPatch,
   CustomerContactInput,
   CustomerProjectInput,
-  CustomerProjectNoteInput,
 } from "@/lib/schemas/customer-crm";
 import type { InsertCustomer, PatchCustomer } from "@/lib/schemas/customers";
 
@@ -110,6 +110,48 @@ export async function deleteCustomerContact(customerId: string, contactId: strin
   );
 }
 
+export async function createCustomerActivity(
+  customerId: string,
+  input: CustomerActivityInput
+) {
+  return json<CustomerActivityRow>(
+    `/api/customers/${customerId}/activities`,
+    {
+      method: "POST",
+      headers: jsonHeaders,
+      body: input,
+    },
+    "Failed to add activity."
+  );
+}
+
+export async function patchCustomerActivity(
+  customerId: string,
+  activityId: string,
+  input: CustomerActivityPatch
+) {
+  return json<CustomerActivityRow>(
+    `/api/customers/${customerId}/activities/${activityId}`,
+    {
+      method: "PATCH",
+      headers: jsonHeaders,
+      body: input,
+    },
+    "Failed to update activity."
+  );
+}
+
+export async function deleteCustomerActivity(
+  customerId: string,
+  activityId: string
+) {
+  return json<{ success: boolean }>(
+    `/api/customers/${customerId}/activities/${activityId}`,
+    { method: "DELETE" },
+    "Failed to remove activity."
+  );
+}
+
 export async function createCustomerProject(
   customerId: string,
   input: CustomerProjectInput
@@ -146,63 +188,6 @@ export async function deleteCustomerProject(customerId: string, projectId: strin
     `/api/customers/${customerId}/projects/${projectId}`,
     { method: "DELETE" },
     "Failed to delete project."
-  );
-}
-
-export async function createCustomerProjectNote(
-  customerId: string,
-  projectId: string,
-  input: CustomerProjectNoteInput
-) {
-  return json<CustomerProjectNoteRow>(
-    `/api/customers/${customerId}/projects/${projectId}/notes`,
-    {
-      method: "POST",
-      headers: jsonHeaders,
-      body: input,
-    },
-    "Failed to add project note."
-  );
-}
-
-export async function deleteCustomerProjectNote(
-  customerId: string,
-  projectId: string,
-  noteId: string
-) {
-  return json<{ success: boolean }>(
-    `/api/customers/${customerId}/projects/${projectId}/notes/${noteId}`,
-    { method: "DELETE" },
-    "Failed to delete project note."
-  );
-}
-
-export async function uploadCustomerProjectFile(
-  customerId: string,
-  projectId: string,
-  file: File
-) {
-  const formData = new FormData();
-  formData.append("file", file);
-  return json<CustomerProjectFileRow>(
-    `/api/customers/${customerId}/projects/${projectId}/files`,
-    {
-      method: "POST",
-      body: formData,
-    },
-    "Failed to upload file."
-  );
-}
-
-export async function deleteCustomerProjectFile(
-  customerId: string,
-  projectId: string,
-  fileId: string
-) {
-  return json<{ success: boolean }>(
-    `/api/customers/${customerId}/projects/${projectId}/files/${fileId}`,
-    { method: "DELETE" },
-    "Failed to delete file."
   );
 }
 

@@ -196,7 +196,6 @@ async function findCustomerIdInTx(tx: Tx, orgId: string, order: ShopifyOrder) {
       shipRegion: cleanString(order.shipping_address?.province),
       shipPostcode: cleanString(order.shipping_address?.zip),
       shipCountry: cleanString(order.shipping_address?.country),
-      notes: "Created from Shopify order import.",
     }),
   ]);
 

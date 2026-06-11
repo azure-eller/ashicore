@@ -14,6 +14,7 @@ Sales v1 includes:
 
 - customer CRUD
 - account state and priority for landed-customer management
+- customer contacts, unified activity stream (notes/calls/emails/meetings/tasks), and project tags on the customer card
 - customer-category and selected-item pricing schedules with quantity breaks
 - customer projects/jobs as optional sales-order context
 - multi-line sales orders
@@ -36,6 +37,32 @@ Sales v1 does not include:
 - landed cost
 - Xero freight invoice lines
 - AP matching or GL postings
+
+## Customer CRM model
+
+The customer surface mirrors HubSpot's engagement model without becoming a CRM:
+
+- the **customer** is the account; its email/phone are the organization's main
+  channel (used for documents and accounting sync), not a person's. There is
+  **no notes field anywhere** — anything written down is an activity entry
+  (the old customer/contact notes columns were migrated into the stream)
+- **contacts** are people; person-level email/phone/roles live there, and
+  `is_primary` marks the default person to reach
+- **`customer_activities`** is the single engagement stream: `note`, `call`,
+  `email`, `meeting`, and `task`. A task is the only forward-pointing type —
+  task-only columns (`due_date`, `status` `open`/`done`, `completed_at` set
+  exactly when done) are enforced by CHECK constraints. Soft delete throughout.
+  Open tasks render as "Upcoming" above the timeline; completed tasks live in
+  the timeline and can be reopened.
+- **the stream is singular; scoping is an association.** A narrower context
+  (project, order) gets an optional FK column on `customer_activities` — never
+  its own parallel notes/tasks/activity table. `customer_project_id` exists
+  today; record pages render the stream filtered to their scope.
+- the customers list "Due" view is the task queue: customers whose soonest open
+  task has `due_date <= today` (org timezone); tasks without a due date stay
+  out of the queue
+- no leads, deals, pipelines, or sales-status fields — quotes (future) take the
+  deal role; field additions require a view that acts on them
 
 ## Detail page UI
 

@@ -1,13 +1,22 @@
 "use client";
 
 import Link from "next/link";
+import { useMemo, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ICellRendererParams } from "ag-grid-community";
+import { Checkbox } from "@/components/ui/checkbox";
+import { patchCustomerActivity } from "@/lib/api/clients/customers";
 import { ERPDataGridList } from "@/components/erp-data-grid-list";
 import type { ColDef } from "@/components/erp-data-grid";
-import { CUSTOMER_PRICING_TOOLTIP } from "@/lib/tooltip-copy";
+import { SegmentedCountFilter } from "@/components/segmented-count-filter";
+import { apiJson } from "@/lib/client/api";
+import { formatDate } from "@/lib/format";
+import { CUSTOMER_CATEGORY_TOOLTIP } from "@/lib/tooltip-copy";
 import type { CustomerRow } from "@/lib/sales/types";
 
-const columns: ColDef<CustomerRow>[] = [
+type CustomerView = "all" | "due";
+
+const baseColumns: ColDef<CustomerRow>[] = [
   {
     field: "name",
     headerName: "Name",
@@ -23,10 +32,33 @@ const columns: ColDef<CustomerRow>[] = [
   },
   {
     field: "customerCategoryName",
-    headerName: "Pricing",
-    headerTooltip: CUSTOMER_PRICING_TOOLTIP,
+    headerName: "Category",
+    headerTooltip: CUSTOMER_CATEGORY_TOOLTIP,
     width: 170,
-    valueFormatter: ({ value }) => value ?? "Everyone",
+    valueFormatter: ({ value }) => value ?? "Uncategorized",
+  },
+  {
+    field: "nextTaskDueDate",
+    headerName: "Due",
+    width: 130,
+    valueFormatter: ({ value }) => (value ? formatDate(value) : "—"),
+  },
+  {
+    field: "nextTaskTitle",
+    headerName: "Next task",
+    width: 280,
+    minWidth: 180,
+    flex: 1,
+    valueFormatter: ({ value }) => value ?? "—",
+    tooltipValueGetter: ({ data }) => data?.nextTaskTitle ?? "",
+  },
+  {
+    field: "primaryContactName",
+    headerName: "Primary contact",
+    width: 220,
+    minWidth: 160,
+    valueFormatter: ({ data }) => formatPrimaryContact(data),
+    tooltipValueGetter: ({ data }) => formatPrimaryContact(data),
   },
   {
     field: "email",
@@ -49,29 +81,92 @@ const columns: ColDef<CustomerRow>[] = [
     valueFormatter: ({ value }) => value ?? "—",
     tooltipValueGetter: ({ data }) => data?.xeroContactId ?? "",
   },
-  {
-    field: "notes",
-    headerName: "Comment",
-    width: 280,
-    minWidth: 180,
-    flex: 1,
-    valueFormatter: ({ value }) => value ?? "—",
-    tooltipValueGetter: ({ data }) => data?.notes ?? "",
-  },
 ];
 
-export function CustomersTable({ initialData }: { initialData: CustomerRow[] }) {
+export function CustomersTable({
+  initialData,
+  today,
+}: {
+  initialData: CustomerRow[];
+  today: string;
+}) {
+  const [view, setView] = useState<CustomerView>("all");
+  const queryClient = useQueryClient();
+  const completeTask = useMutation({
+    mutationFn: ({ customerId, taskId }: { customerId: string; taskId: string }) =>
+      patchCustomerActivity(customerId, taskId, { status: "done" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["customers"] }),
+  });
+  const columns = useMemo<ColDef<CustomerRow>[]>(() => {
+    const checkColumn: ColDef<CustomerRow> = {
+      colId: "completeTask",
+      headerName: "",
+      width: 56,
+      minWidth: 56,
+      cellRenderer: ({ data }: ICellRendererParams<CustomerRow>) => {
+        if (!data?.nextTaskId || !data.nextTaskTitle) return null;
+        return (
+          <Checkbox
+            aria-label={`Complete "${data.nextTaskTitle}"`}
+            checked={false}
+            disabled={completeTask.isPending}
+            onCheckedChange={() =>
+              completeTask.mutate({
+                customerId: data.id,
+                taskId: data.nextTaskId as string,
+              })
+            }
+          />
+        );
+      },
+    };
+    const [nameColumn, ...rest] = baseColumns;
+    return [nameColumn, checkColumn, ...rest];
+  }, [completeTask]);
+  const filteredRows = useMemo(
+    () => filterCustomersForView(initialData, view, today),
+    [initialData, today, view]
+  );
+  const dueCount = useMemo(
+    () => initialData.filter((row) => hasDueTask(row, today)).length,
+    [initialData, today]
+  );
+
   return (
     <ERPDataGridList
-      rows={initialData}
+      rows={filteredRows}
       columns={columns}
-      queryKey={["customers"]}
-      queryEndpoint="/api/customers"
+      queryKey={["customers", view]}
+      queryFn={async () => {
+        const rows = await apiJson<CustomerRow[]>("/api/customers");
+        return filterCustomersForView(rows, view, today);
+      }}
       queryErrorMessage="Failed to fetch customers"
       searchAriaLabel="Search customers"
       addHref="/sales/customer"
       addAriaLabel="New Customer"
       emptyMessage="No customers yet."
+      toolbarContent={
+        <SegmentedCountFilter
+          value={view}
+          ariaLabel="Customer task view"
+          options={[
+            {
+              value: "all",
+              label: "All",
+              count: initialData.length,
+              ariaLabel: "Show all customers",
+            },
+            {
+              value: "due",
+              label: "Due",
+              count: dueCount,
+              ariaLabel: "Show customers with a task due today or overdue",
+            },
+          ]}
+          onValueChange={(value) => setView(value || "all")}
+        />
+      }
       deleteAction={{
         endpoint: "/api/customers",
         invalidateQueryKeys: [["customers"]],
@@ -83,4 +178,28 @@ export function CustomersTable({ initialData }: { initialData: CustomerRow[] }) 
       }}
     />
   );
+}
+
+function filterCustomersForView(
+  rows: CustomerRow[],
+  view: CustomerView,
+  today: string
+) {
+  if (view === "due") {
+    return rows.filter((row) => hasDueTask(row, today));
+  }
+  return rows;
+}
+
+function hasDueTask(row: CustomerRow, today: string) {
+  return Boolean(row.nextTaskDueDate && row.nextTaskDueDate <= today);
+}
+
+function formatPrimaryContact(row: CustomerRow | null | undefined) {
+  if (!row?.primaryContactName) return "—";
+
+  const contactDetails = [row.primaryContactEmail, row.primaryContactPhone]
+    .filter(Boolean)
+    .join(" · ");
+  return contactDetails ? `${row.primaryContactName} · ${contactDetails}` : row.primaryContactName;
 }

@@ -25,7 +25,6 @@ const customerCategoryIdSchema = nullableString.refine(
   (value) => value == null || z.string().uuid().safeParse(value).success,
   "Invalid customer category"
 );
-
 const baseCustomerSchema = createInsertSchema(customers, {
   name: z.string().trim().min(1, "Name is required"),
   customerCategoryId: customerCategoryIdSchema,
@@ -45,7 +44,6 @@ const baseCustomerSchema = createInsertSchema(customers, {
   shipRegion: nullableString,
   shipPostcode: nullableString,
   shipCountry: nullableString,
-  notes: nullableString,
 }).omit({
   id: true,
   organizationId: true,
@@ -80,7 +78,6 @@ export const patchCustomerSchema = z
     shipRegion: nullableStringStrict.optional(),
     shipPostcode: nullableStringStrict.optional(),
     shipCountry: nullableStringStrict.optional(),
-    notes: nullableStringStrict.optional(),
   })
   .refine(
   (value) => Object.keys(value).length > 0,
@@ -107,5 +104,4 @@ export const customerDefaultValues: InsertCustomer = {
   shipRegion: null,
   shipPostcode: null,
   shipCountry: DEFAULT_COUNTRY,
-  notes: null,
 };

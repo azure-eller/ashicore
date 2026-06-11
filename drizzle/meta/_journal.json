@@ -1107,6 +1107,20 @@
       "when": 1781140991756,
       "tag": "0157_agent_base_table_access",
       "breakpoints": true
+    },
+    {
+      "idx": 158,
+      "version": "7",
+      "when": 1781141948048,
+      "tag": "0158_bright_black_panther",
+      "breakpoints": true
+    },
+    {
+      "idx": 159,
+      "version": "7",
+      "when": 1781141972766,
+      "tag": "0159_abnormal_talos",
+      "breakpoints": true
     }
   ]
 }

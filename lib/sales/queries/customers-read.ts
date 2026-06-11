@@ -2,7 +2,7 @@ import "server-only";
 
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { normalizeMoney } from "@/lib/format";
-import { customerCategories, customerProjects, customers, integrationExternalRecords, salesOrders } from "@/lib/db/schema";
+import { customerActivities, customerCategories, customerContacts, customerProjects, customers, integrationExternalRecords, salesOrders } from "@/lib/db/schema";
 import { ACCOUNTING_PROVIDER_XERO } from "@/lib/accounting/sync-state";
 import { trimScale } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
@@ -11,7 +11,7 @@ import { documentNumberSortSql } from "@/lib/document-numbers";
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import type { CustomerDetailData, CustomerProjectRow, CustomerOption, CustomerRow, SalesOrderListRow } from "../types";
 import { parseMoneyValue } from "./shared";
-import { getCustomerContactsInTx, getCustomerCorrespondenceInTx, getCustomerProjectsInTx } from "./crm";
+import { getCustomerActivitiesInTx, getCustomerContactsInTx, getCustomerProjectsInTx } from "./crm";
 
 const customerRowSelect = {
   id: customers.id,
@@ -42,6 +42,33 @@ const customerRowSelect = {
   )`.as("latestOrderDate"),
   email: customers.email,
   phone: customers.phone,
+  primaryContactName: sql<string | null>`(
+    SELECT cc.name
+    FROM ${customerContacts} cc
+    WHERE cc.customer_id = ${customers.id}
+      AND cc.deleted_at IS NULL
+      AND cc.is_primary = true
+    ORDER BY cc.created_at ASC, cc.name ASC
+    LIMIT 1
+  )`.as("primaryContactName"),
+  primaryContactEmail: sql<string | null>`(
+    SELECT cc.email
+    FROM ${customerContacts} cc
+    WHERE cc.customer_id = ${customers.id}
+      AND cc.deleted_at IS NULL
+      AND cc.is_primary = true
+    ORDER BY cc.created_at ASC, cc.name ASC
+    LIMIT 1
+  )`.as("primaryContactEmail"),
+  primaryContactPhone: sql<string | null>`(
+    SELECT cc.phone
+    FROM ${customerContacts} cc
+    WHERE cc.customer_id = ${customers.id}
+      AND cc.deleted_at IS NULL
+      AND cc.is_primary = true
+    ORDER BY cc.created_at ASC, cc.name ASC
+    LIMIT 1
+  )`.as("primaryContactPhone"),
   billingLine1: customers.billingLine1,
   billingLine2: customers.billingLine2,
   billingCity: customers.billingCity,
@@ -62,7 +89,36 @@ const customerRowSelect = {
       AND ${integrationExternalRecords.localRecordId} = ${customers.id}
     LIMIT 1
   )`,
-  notes: customers.notes,
+  nextTaskId: sql<string | null>`(
+    SELECT ca.id::text
+    FROM ${customerActivities} ca
+    WHERE ca.customer_id = ${customers.id}
+      AND ca.type = 'task'
+      AND ca.status = 'open'
+      AND ca.deleted_at IS NULL
+    ORDER BY ca.due_date ASC NULLS LAST, ca.created_at ASC, ca.id ASC
+    LIMIT 1
+  )`.as("nextTaskId"),
+  nextTaskTitle: sql<string | null>`(
+    SELECT ca.title
+    FROM ${customerActivities} ca
+    WHERE ca.customer_id = ${customers.id}
+      AND ca.type = 'task'
+      AND ca.status = 'open'
+      AND ca.deleted_at IS NULL
+    ORDER BY ca.due_date ASC NULLS LAST, ca.created_at ASC, ca.id ASC
+    LIMIT 1
+  )`.as("nextTaskTitle"),
+  nextTaskDueDate: sql<string | null>`(
+    SELECT ca.due_date
+    FROM ${customerActivities} ca
+    WHERE ca.customer_id = ${customers.id}
+      AND ca.type = 'task'
+      AND ca.status = 'open'
+      AND ca.deleted_at IS NULL
+    ORDER BY ca.due_date ASC NULLS LAST, ca.created_at ASC, ca.id ASC
+    LIMIT 1
+  )`.as("nextTaskDueDate"),
   deletedAt: customers.deletedAt,
   createdAt: customers.createdAt,
   updatedAt: customers.updatedAt,
@@ -255,7 +311,7 @@ export async function getCustomerDetail(
     if (!customer) return null;
 
     const contacts = await getCustomerContactsInTx(tx, id);
-    const correspondence = await getCustomerCorrespondenceInTx(tx, id);
+    const activities = await getCustomerActivitiesInTx(tx, id);
     const projects = await getCustomerProjectsInTx(tx, id);
     const salesOrderRows = await getCustomerSalesOrdersInTx(tx, id);
     const salesOrdersByProjectId = new Map<
@@ -273,7 +329,7 @@ export async function getCustomerDetail(
     return {
       ...customer,
       contacts,
-      correspondence,
+      activities,
       projects: projects.map((project) => ({
         ...project,
         salesOrders: salesOrdersByProjectId.get(project.id) ?? [],
@@ -289,3 +345,4 @@ export async function getCustomerDetail(
     };
   });
 }
+

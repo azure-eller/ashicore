@@ -1,7 +1,7 @@
 import "server-only";
 
 import { and, eq, inArray, isNull } from "drizzle-orm";
-import { customerContacts, customerCorrespondence, customerProjectFiles, customerProjects, customers } from "@/lib/db/schema";
+import { customerActivities, customerContacts, customerProjects, customers } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import type { InsertCustomer, PatchCustomer, UpdateCustomer } from "@/lib/schemas/customers";
@@ -113,25 +113,12 @@ async function softDeleteCustomerCrmArtifactsInTx(tx: Tx, customerIds: string[])
     );
 
   await tx
-    .update(customerCorrespondence)
+    .update(customerActivities)
     .set({ deletedAt: now, updatedAt: now })
     .where(
       and(
-        inArray(customerCorrespondence.customerId, customerIds),
-        isNull(customerCorrespondence.deletedAt)
-      )
-    );
-
-  const files = await tx
-    .select({
-      id: customerProjectFiles.id,
-      blobUrl: customerProjectFiles.blobUrl,
-    })
-    .from(customerProjectFiles)
-    .where(
-      and(
-        inArray(customerProjectFiles.customerId, customerIds),
-        isNull(customerProjectFiles.deletedAt)
+        inArray(customerActivities.customerId, customerIds),
+        isNull(customerActivities.deletedAt)
       )
     );
 
@@ -145,19 +132,7 @@ async function softDeleteCustomerCrmArtifactsInTx(tx: Tx, customerIds: string[])
       )
     );
 
-  if (files.length > 0) {
-    await tx
-      .update(customerProjectFiles)
-      .set({ deletedAt: now, updatedAt: now })
-      .where(
-        inArray(
-          customerProjectFiles.id,
-          files.map((file) => file.id)
-        )
-      );
-  }
-
-  return files.map((file) => file.blobUrl);
+  return [];
 }
 
 export async function deleteCustomer(id: string) {

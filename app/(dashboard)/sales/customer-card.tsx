@@ -9,22 +9,22 @@ import type { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ICellRendererParams, ValueSetterParams } from "ag-grid-community";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { StarIcon } from "@hugeicons/core-free-icons";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+  Call02Icon,
+  Cancel01Icon,
+  Delete02Icon,
+  Folder01Icon,
+  Mail01Icon,
+  StarIcon,
+  StickyNote02Icon,
+  Tick02Icon,
+  UserIcon,
+  UserMultiple02Icon,
+} from "@hugeicons/core-free-icons";
+import type { IconSvgElement } from "@hugeicons/react";
 import { Button } from "@/components/ui/button";
-import { AttachmentListItem } from "@/components/attachment-list";
 import { AddressBookFields } from "@/components/address-book-fields";
 import { EmptyState } from "@/components/empty-state";
-import { FileDropzone } from "@/components/file-dropzone";
 import {
   Combobox,
   ComboboxContent,
@@ -44,16 +44,27 @@ import {
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetFooter,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
 import { FieldError } from "@/components/ui/field";
 import { DatePicker } from "@/components/ui/date-picker";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
-  StatusBadge,
-  type StatusBadgeConfig,
-} from "@/components/status-badge";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
 import {
   MutableLines,
@@ -68,7 +79,6 @@ import {
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import {
   CardField,
-  CardSelectField,
   CardTextField,
 } from "@/components/card-page/card-field";
 import {
@@ -77,15 +87,7 @@ import {
   underlineControlClass,
 } from "@/components/card-page/form-cell";
 import { CommitInput } from "@/components/card-page/commit-input";
-import { NotesField } from "@/components/card-page/notes-field";
 import { ListFrameItem } from "@/components/list-frame";
-import { SurfacePanel } from "@/components/surface-panel";
-import {
-  FramedTable,
-  FramedTableCell,
-  FramedTableRow,
-  TableFrame,
-} from "@/components/table-frame";
 import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
 import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
 import {
@@ -96,19 +98,16 @@ import {
   createAddressEntry,
   createCustomer,
   createCustomerContact,
-  createCustomerProjectNote,
+  createCustomerActivity,
   createCustomerProject,
+  deleteCustomerActivity,
+  patchCustomerActivity,
   deleteCustomer,
   deleteCustomerContact,
-  deleteCustomerProjectFile,
-  deleteCustomerProjectNote,
-  deleteCustomerProject,
   getCustomerCard,
   patchCustomer,
-  uploadCustomerProjectFile,
   updateAddressEntry,
   updateCustomerContact,
-  updateCustomerProject,
 } from "@/lib/api/clients/customers";
 import { makeUniqueAddressLabel } from "@/lib/address-label";
 import { useDraftSaveEngine } from "@/lib/hooks/use-draft-save-engine";
@@ -136,11 +135,13 @@ import {
   type PatchCustomer,
 } from "@/lib/schemas/customers";
 import type {
+  CustomerActivityRow,
+  CustomerActivityType,
+  CustomerCategoryOption,
   CustomerContactRole,
   CustomerContactRow,
   CustomerDetailData,
   CustomerLinkedSalesOrderRow,
-  CustomerProjectFileRow,
   CustomerProjectRow,
 } from "@/lib/sales/types";
 import { SalesOrderStatusBadge } from "./status-badge";
@@ -150,17 +151,16 @@ type CustomerCardProps = {
   initialCustomerId: string | null;
   initialCustomer: CustomerDetailData | null;
   addresses: AddressEntry[];
+  categories: CustomerCategoryOption[];
 };
 
 type ContactGridRow = CustomerContactRow & { isNew?: boolean };
-type ProjectGridRow = CustomerProjectRow & { isNew?: boolean };
 type OpenOrderGridRow = CustomerLinkedSalesOrderRow;
 type CustomerDraftOp =
   | { type: "patch"; patch: PatchCustomer }
   | { type: "upsertContact"; row: ContactGridRow }
   | { type: "deleteContact"; contactId: string }
-  | { type: "upsertProject"; row: ProjectGridRow }
-  | { type: "deleteProject"; projectId: string };
+;
 type AddressTarget = "billing" | "shipping";
 type CustomerAddressFields = {
   line1: string | null;
@@ -201,24 +201,60 @@ const emptyAddressDialogValues: AddressDialogValues = {
   deliveryInstructions: null,
   notes: null,
 };
+const noCustomerCategoryValue = "__no_customer_category__";
 
-const projectStatusMeta: Record<
-  ProjectGridRow["status"],
-  StatusBadgeConfig<ProjectGridRow["status"]>[ProjectGridRow["status"]]
-> = {
-  planning: { label: "Planning", tone: "neutral" },
-  active: { label: "In Progress", tone: "warning" },
-  hold: { label: "On Hold", tone: "warning" },
-  done: { label: "Done", tone: "success" },
+const accountStateOptions = [
+  { value: "active", label: "Active" },
+  { value: "growth", label: "Growth" },
+  { value: "at_risk", label: "At risk" },
+  { value: "former", label: "Former" },
+];
+
+const accountPriorityOptions = [
+  { value: "strategic", label: "Strategic" },
+  { value: "high", label: "High" },
+  { value: "standard", label: "Standard" },
+  { value: "low", label: "Low" },
+];
+
+const noActivityProjectValue = "__no_activity_project__";
+const newProjectSentinel = "__new_project__";
+
+const accountStateDots: Record<string, string> = {
+  active: "bg-[var(--color-success)]",
+  growth: "bg-[var(--color-accent)]",
+  at_risk: "bg-[var(--color-warning)]",
+  former: "bg-[var(--color-ink-faint)]",
 };
+
+const accountPriorityDots: Record<string, string> = {
+  strategic: "bg-[var(--color-accent)]",
+  high: "bg-[var(--color-warning)]",
+  standard: "bg-[var(--color-ink-faint)]",
+  low: "bg-[var(--color-line)]",
+};
+
+type ActivityStreamFilter =
+  | { kind: "project"; id: string; name: string }
+  | { kind: "contact"; id: string; name: string }
+  | null;
+
+
 export function CustomerCard({
   initialCustomerId,
   initialCustomer,
   addresses,
+  categories,
 }: CustomerCardProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [addressBook, setAddressBook] = useState(addresses);
+  const [activityFilter, setActivityFilter] = useState<ActivityStreamFilter>(null);
+  const activityAnchorRef = useRef<HTMLDivElement | null>(null);
+  const openContactStream = useCallback((contact: { id: string; name: string }) => {
+    setActivityFilter({ kind: "contact", id: contact.id, name: contact.name });
+    activityAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
   const [addressDialogState, setAddressDialogState] =
     useState<AddressDialogState | null>(null);
   const engine = useDraftSaveEngine<
@@ -281,7 +317,6 @@ export function CustomerCard({
           ...serverCustomer,
           ...customerEditableSnapshot(engine.draft),
           contacts: engine.draft.contacts,
-          projects: engine.draft.projects,
         }
       : engine.draft;
   const readOnly = Boolean(display.deletedAt);
@@ -405,6 +440,16 @@ export function CustomerCard({
         .filter((option): option is CustomerAddressOption => option != null),
     [addressBook]
   );
+  const categoryOptions = useMemo(
+    () => [
+      { value: noCustomerCategoryValue, label: "Uncategorized" },
+      ...categories.map((category) => ({
+        value: category.id,
+        label: category.name,
+      })),
+    ],
+    [categories]
+  );
 
   const cardSaveState: CardSaveState = readOnly
     ? "readonly"
@@ -426,6 +471,47 @@ export function CustomerCard({
     <CardPage>
       <CardPageHeader
         title={display.name.trim() || "New customer"}
+        meta={
+          <div className="flex flex-wrap items-center gap-(--space-2)">
+            <HeaderMetaPill
+              label="State"
+              value={display.accountState}
+              options={accountStateOptions}
+              dotClassName={accountStateDots[display.accountState]}
+              disabled={readOnly}
+              onSelect={(accountState) =>
+                commitCustomerPatch({
+                  accountState: accountState as PatchCustomer["accountState"],
+                })
+              }
+            />
+            <HeaderMetaPill
+              label="Priority"
+              value={display.accountPriority}
+              options={accountPriorityOptions}
+              dotClassName={accountPriorityDots[display.accountPriority]}
+              disabled={readOnly}
+              onSelect={(accountPriority) =>
+                commitCustomerPatch({
+                  accountPriority:
+                    accountPriority as PatchCustomer["accountPriority"],
+                })
+              }
+            />
+            <HeaderMetaPill
+              label="Category"
+              value={display.customerCategoryId ?? noCustomerCategoryValue}
+              options={categoryOptions}
+              disabled={readOnly}
+              onSelect={(value) =>
+                commitCustomerPatch({
+                  customerCategoryId:
+                    value === noCustomerCategoryValue ? null : value,
+                })
+              }
+            />
+          </div>
+        }
         saveState={cardSaveState}
         saveMessage={cardSaveMessage}
         fallbackHref="/sales/customers"
@@ -469,7 +555,7 @@ export function CustomerCard({
                 }}
               />
             </CardField>
-            <CardField label="Email" htmlFor="customer-email">
+            <CardField label="Main email" htmlFor="customer-email">
               <CommitInput
                 id="customer-email"
                 label="Email"
@@ -479,7 +565,7 @@ export function CustomerCard({
                 onCommit={(email) => commitCustomerPatch({ email })}
               />
             </CardField>
-            <CardField label="Phone" htmlFor="customer-phone">
+            <CardField label="Main phone" htmlFor="customer-phone">
               <CommitInput
                 id="customer-phone"
                 label="Phone"
@@ -524,6 +610,7 @@ export function CustomerCard({
 
         <ContactsSection
           rows={display.contacts}
+          onOpenStream={openContactStream}
           readOnly={readOnly || isDraft}
           onSave={(row) => {
             if (readOnly || isDraft) return;
@@ -535,53 +622,23 @@ export function CustomerCard({
           }}
         />
 
-        <ProjectsSection
-          customerId={currentCustomerId}
-          rows={display.projects}
-          readOnly={readOnly || isDraft}
-          error={engine.error}
-          onSave={(row, options) => {
-            if (readOnly || isDraft) return;
-            engine.applyLocalOp(
-              { type: "upsertProject", row },
-              Number.POSITIVE_INFINITY,
-            );
-            void engine
-              .flush()
-              .then(() => options?.onSuccess?.())
-              .catch(reportCustomerSaveError);
-          }}
-          onDelete={(projectId, options) => {
-            if (readOnly || isDraft) return;
-            engine.applyLocalOp(
-              { type: "deleteProject", projectId },
-              Number.POSITIVE_INFINITY,
-            );
-            void engine
-              .flush()
-              .then(() => options?.onSuccess?.())
-              .catch(reportCustomerSaveError);
-          }}
-        />
+        <div ref={activityAnchorRef}>
+          <ActivitySection
+            customerId={currentCustomerId}
+            rows={display.activities}
+            projects={display.projects}
+            contacts={display.contacts}
+            filter={activityFilter}
+            onFilterChange={setActivityFilter}
+            readOnly={readOnly || isDraft}
+          />
+        </div>
 
         <OpenOrdersSection
           customerId={currentCustomerId}
           rows={openOrders}
         />
 
-        <CardSection title="Notes">
-          <NotesField
-            hideLabel
-            value={display.notes ?? ""}
-            disabled={readOnly}
-            readOnlyValue={readOnly}
-            commitUnchangedValue={isDraft}
-            onDraftChange={(notes) => {
-              if (isDraft) engine.applyLocalOp({ type: "patch", patch: { notes } }, Number.POSITIVE_INFINITY);
-            }}
-            onCommit={(notes) => commitCustomerPatch({ notes })}
-          />
-        </CardSection>
       </CardPageBody>
 
       {deleteConfirm.dialog}
@@ -645,12 +702,14 @@ export function CustomerCard({
 
 function ContactsSection({
   rows: sourceRows,
+  onOpenStream,
   readOnly,
   onSave,
   onDelete,
 }: {
   rows: CustomerContactRow[];
   readOnly: boolean;
+  onOpenStream: (contact: { id: string; name: string }) => void;
   onSave: (row: ContactGridRow) => void;
   onDelete: (contactId: string) => void;
 }) {
@@ -697,12 +756,29 @@ function ContactsSection({
           );
         },
       },
-      textColumn("name", "Name", !readOnly),
+      {
+        ...textColumn<ContactGridRow>("name", "Name", !readOnly),
+        cellRenderer: (params: ICellRendererParams<ContactGridRow>) => {
+          const row = params.data;
+          if (!row) return null;
+          if (row.isNew || !row.name.trim()) return row.name ?? "";
+          return (
+            <button
+              type="button"
+              className="font-medium text-[var(--color-ink)] hover:underline"
+              aria-label={`View activity for "${row.name}"`}
+              onClick={() => onOpenStream({ id: row.id, name: row.name })}
+            >
+              {row.name}
+            </button>
+          );
+        },
+      },
       textColumn("title", "Role", !readOnly),
       textColumn("email", "Email", !readOnly),
       textColumn("phone", "Phone", !readOnly),
     ],
-    [onSave, readOnly, setRows]
+    [onOpenStream, onSave, readOnly, setRows]
   );
 
   const onRowsChange = useCallback(
@@ -735,566 +811,6 @@ function ContactsSection({
         emptyMessage="No contacts yet."
       />
     </CardSection>
-  );
-}
-
-function ProjectsSection({
-  customerId,
-  rows: sourceRows,
-  readOnly,
-  error,
-  onSave,
-  onDelete,
-}: {
-  customerId: string | null;
-  rows: CustomerProjectRow[];
-  readOnly: boolean;
-  error: string | null;
-  onSave: (row: ProjectGridRow, options?: { onSuccess?: () => void }) => void;
-  onDelete: (projectId: string, options?: { onSuccess?: () => void }) => void;
-}) {
-  const [activeProject, setActiveProject] = useState<CustomerProjectRow | null>(null);
-  const [creatingProject, setCreatingProject] = useState(false);
-
-  return (
-    <CardSection
-      title="Projects"
-      count={`· ${sourceRows.length}`}
-      aria-label={`Projects ${sourceRows.length}`}
-    >
-      <div className="grid gap-(--space-4)">
-        {sourceRows.length > 0 ? (
-          sourceRows.map((project) => (
-            <SurfacePanel
-              as="button"
-              key={project.id}
-              type="button"
-              interactive
-              className="grid p-(--space-5) text-left"
-              onClick={() => setActiveProject(project)}
-            >
-              <span className="flex min-w-0 items-center justify-between gap-(--space-4)">
-                <span className="truncate text-[length:var(--text-sm)] font-medium">
-                  {project.name}
-                </span>
-                <StatusBadge status={project.status} config={projectStatusMeta} />
-              </span>
-              <span className="mt-(--space-2) text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-                {formatProjectDateRange(project)} · {project.orderCount} order{project.orderCount === 1 ? "" : "s"} · {formatPrice(project.orderValue) ?? "$0.00"} · {project.files.length} attachment{project.files.length === 1 ? "" : "s"}
-              </span>
-            </SurfacePanel>
-          ))
-        ) : (
-          <EmptyState>No projects yet.</EmptyState>
-        )}
-      </div>
-
-      {!readOnly ? (
-        <button
-          type="button"
-          className={styles.addRow}
-          onClick={() => setCreatingProject(true)}
-          disabled={!customerId}
-        >
-          + Add project
-        </button>
-      ) : null}
-
-      {activeProject ? (
-        <CustomerProjectDialog
-          key={activeProject.id}
-          customerId={customerId}
-          project={activeProject}
-          open
-          readOnly={readOnly}
-          saveError={error}
-          onSave={onSave}
-          onDelete={onDelete}
-          onClose={() => setActiveProject(null)}
-        />
-      ) : null}
-      {creatingProject ? (
-        <CustomerProjectDialog
-          key="new-project"
-          customerId={customerId}
-          project={null}
-          open
-          readOnly={readOnly}
-          saveError={error}
-          onSave={onSave}
-          onDelete={onDelete}
-          onClose={() => setCreatingProject(false)}
-        />
-      ) : null}
-    </CardSection>
-  );
-}
-
-function CustomerProjectDialog({
-  customerId,
-  project,
-  open,
-  readOnly,
-  saveError,
-  onSave,
-  onDelete,
-  onClose,
-}: {
-  customerId: string | null;
-  project: CustomerProjectRow | null;
-  open: boolean;
-  readOnly: boolean;
-  saveError: string | null;
-  onSave: (row: ProjectGridRow, options?: { onSuccess?: () => void }) => void;
-  onDelete: (projectId: string, options?: { onSuccess?: () => void }) => void;
-  onClose: () => void;
-}) {
-  const queryClient = useQueryClient();
-  const [draft, setDraft] = useState<ProjectGridRow>(() =>
-    project ? { ...project } : newProjectRow()
-  );
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [noteDraft, setNoteDraft] = useState("");
-
-  const fileUploadMutation = useMutation({
-    mutationKey: cardSaveMutationKey("customer", customerId ?? "__draft__", "project-file"),
-    mutationFn: ({ projectId, file }: { projectId: string; file: File }) =>
-      uploadCustomerProjectFile(customerId as string, projectId, file),
-    onSuccess: async (file) => {
-      setDraft((current) => ({ ...current, files: [...(current.files ?? []), file] }));
-      if (customerId) {
-        await queryClient.invalidateQueries({ queryKey: ["customer-card", customerId] });
-      }
-    },
-  });
-  const fileDeleteMutation = useMutation({
-    mutationKey: cardSaveMutationKey("customer", customerId ?? "__draft__", "project-file-delete"),
-    mutationFn: (file: CustomerProjectFileRow) =>
-      deleteCustomerProjectFile(customerId as string, draft.id, file.id),
-    onSuccess: async (_result, file) => {
-      setDraft((current) => ({
-        ...current,
-        files: (current.files ?? []).filter((candidate) => candidate.id !== file.id),
-      }));
-      if (customerId) {
-        await queryClient.invalidateQueries({ queryKey: ["customer-card", customerId] });
-      }
-    },
-  });
-  const noteCreateMutation = useMutation({
-    mutationKey: cardSaveMutationKey("customer", customerId ?? "__draft__", "project-note-create"),
-    mutationFn: ({ projectId, body }: { projectId: string; body: string }) =>
-      createCustomerProjectNote(customerId as string, projectId, { body }),
-    onSuccess: async (note) => {
-      setDraft((current) => ({
-        ...current,
-        notes: [note, ...(current.notes ?? [])],
-      }));
-      setNoteDraft("");
-      if (customerId) {
-        await queryClient.invalidateQueries({ queryKey: ["customer-card", customerId] });
-      }
-    },
-  });
-  const noteDeleteMutation = useMutation({
-    mutationKey: cardSaveMutationKey("customer", customerId ?? "__draft__", "project-note-delete"),
-    mutationFn: (noteId: string) =>
-      deleteCustomerProjectNote(customerId as string, draft.id, noteId),
-    onSuccess: async (_result, noteId) => {
-      setDraft((current) => ({
-        ...current,
-        notes: (current.notes ?? []).filter((note) => note.id !== noteId),
-      }));
-      if (customerId) {
-        await queryClient.invalidateQueries({ queryKey: ["customer-card", customerId] });
-      }
-    },
-  });
-
-  const linkedOrders = draft.salesOrders ?? [];
-  const files = draft.files ?? [];
-  const notes = draft.notes ?? [];
-  const canUploadFiles = Boolean(customerId && !draft.isNew && !readOnly);
-  const canAddNotes = Boolean(customerId && !draft.isNew && !readOnly);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  function uploadFirstFile(filesToUpload: FileList | null) {
-    const file = filesToUpload?.[0];
-    if (!file || !customerId) return;
-    fileUploadMutation.mutate({ projectId: draft.id, file });
-  }
-
-  function submitNote() {
-    const body = noteDraft.trim();
-    if (!body || !canAddNotes) return;
-    noteCreateMutation.mutate({ projectId: draft.id, body });
-  }
-
-  return (
-    <Sheet
-      open={open}
-      onOpenChange={(nextOpen) => {
-        if (!nextOpen) {
-          setConfirmDelete(false);
-          onClose();
-        }
-      }}
-    >
-      <SheetContent
-        side="right"
-        className="gap-0 overflow-hidden p-0 data-[side=right]:w-[min(560px,94vw)] data-[side=right]:sm:max-w-[min(560px,94vw)]"
-      >
-        <SheetHeader>
-          <SheetTitle>{project ? "Project" : "Add project"}</SheetTitle>
-        </SheetHeader>
-        <div className="grid min-h-0 flex-1 gap-(--space-8) overflow-y-auto p-(--space-8)">
-          {project ? (
-            <div
-              className={styles.summaryGrid}
-              style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}
-            >
-              <div className={styles.summaryTile}>
-                <p className={styles.eyebrow}>Orders</p>
-                <span className={styles.val}>{project.orderCount}</span>
-              </div>
-              <div className={styles.summaryTile}>
-                <p className={styles.eyebrow}>Open value</p>
-                <span className={styles.val}>
-                  {formatPrice(project.orderValue) ?? "$0.00"}
-                </span>
-              </div>
-              <div className={styles.summaryTile}>
-                <p className={styles.eyebrow}>Created</p>
-                <span className={styles.val}>
-                  {formatDate(toDateOnlyString(project.createdAt))}
-                </span>
-              </div>
-            </div>
-          ) : null}
-
-          <CardFormRow columns="three">
-            <CardTextField
-              label="Project name"
-              value={draft.name}
-              required
-              disabled={readOnly}
-              controlStyle="dialog"
-              onChange={(event) =>
-                setDraft((current) => ({ ...current, name: event.target.value }))
-              }
-            />
-            <CardSelectField
-              label="Status"
-              value={draft.status}
-              disabled={readOnly}
-              controlStyle="dialog"
-              onValueChange={(status) =>
-                setDraft((current) => ({ ...current, status: status as ProjectGridRow["status"] }))
-              }
-              options={[
-                { value: "planning", label: "Planning" },
-                { value: "active", label: "In Progress" },
-                { value: "hold", label: "On Hold" },
-                { value: "done", label: "Done" },
-              ]}
-            />
-          </CardFormRow>
-
-          <CardFormRow columns="three">
-            <CardField label="Start date" controlStyle="dialog">
-              <DatePicker
-                value={draft.startDate ?? ""}
-                disabled={readOnly}
-                placeholder="Start date"
-                onChange={(value) =>
-                  setDraft((current) => ({
-                    ...current,
-                    startDate: value || null,
-                  }))
-                }
-              />
-            </CardField>
-            <CardField label="Target date" controlStyle="dialog">
-              <DatePicker
-                value={draft.targetEndDate ?? ""}
-                disabled={readOnly}
-                placeholder="Target date"
-                onChange={(value) =>
-                  setDraft((current) => ({
-                    ...current,
-                    targetEndDate: value || null,
-                  }))
-                }
-              />
-            </CardField>
-          </CardFormRow>
-
-          <CardField
-            label="Summary"
-            htmlFor="customer-project-summary"
-            controlStyle="dialog"
-          >
-            <Textarea
-              id="customer-project-summary"
-              value={draft.summary ?? ""}
-              disabled={readOnly}
-              rows={5}
-              className="text-[length:var(--text-md)] leading-[var(--leading-md)]"
-              onChange={(event) =>
-                setDraft((current) => ({
-                  ...current,
-                  summary: event.target.value || null,
-                }))
-              }
-            />
-          </CardField>
-
-          <div className="grid gap-(--space-4)">
-            <h3 className={styles.sectionHeading}>Notes</h3>
-            <ul className="grid gap-(--space-3)">
-              {notes.length > 0 ? (
-                notes.map((note) => (
-                  <li
-                    key={note.id}
-                    className="rounded-(--radius-md) border border-[var(--color-line)] bg-[var(--color-surface)] p-(--space-5)"
-                  >
-                    <div className="flex items-start justify-between gap-(--space-4)">
-                      <div className="min-w-0">
-                        <p className="text-[length:var(--text-sm)] leading-[var(--leading-md)] text-[var(--color-ink)]">
-                          {note.body}
-                        </p>
-                        <p className="mt-(--space-2) font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-                          {note.createdByName || "Team member"} · {formatDate(toDateOnlyString(note.createdAt))}
-                        </p>
-                      </div>
-                      {!readOnly ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => noteDeleteMutation.mutate(note.id)}
-                          disabled={noteDeleteMutation.isPending}
-                        >
-                          Delete
-                        </Button>
-                      ) : null}
-                    </div>
-                  </li>
-                ))
-              ) : (
-                <EmptyState as="li" density="compact">
-                  {draft.isNew
-                    ? "Save the project before adding notes."
-                    : "No notes yet."}
-                </EmptyState>
-              )}
-            </ul>
-            {!readOnly ? (
-              <div className="grid gap-(--space-3)">
-                <Textarea
-                  value={noteDraft}
-                  disabled={!canAddNotes || noteCreateMutation.isPending}
-                  rows={3}
-                  placeholder={
-                    draft.isNew
-                      ? "Save the project before adding notes."
-                      : "Add a project note..."
-                  }
-                  className="text-[length:var(--text-md)] leading-[var(--leading-md)]"
-                  onChange={(event) => setNoteDraft(event.target.value)}
-                />
-                <div className="flex items-center justify-end gap-(--space-4)">
-                  {noteCreateMutation.error ? (
-                    <FieldError>
-                      {(noteCreateMutation.error as Error).message}
-                    </FieldError>
-                  ) : null}
-                  {noteDeleteMutation.error ? (
-                    <FieldError>
-                      {(noteDeleteMutation.error as Error).message}
-                    </FieldError>
-                  ) : null}
-                  <Button
-                    type="button"
-                    disabled={
-                      !canAddNotes ||
-                      !noteDraft.trim() ||
-                      noteCreateMutation.isPending
-                    }
-                    onClick={submitNote}
-                  >
-                    {noteCreateMutation.isPending ? "Adding..." : "Add note"}
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="grid gap-(--space-4)">
-            <h3 className={styles.sectionHeading}>Linked sales orders</h3>
-            <TableFrame>
-              <FramedTable>
-                <tbody>
-                  {linkedOrders.length > 0 ? (
-                    linkedOrders.map((order) => (
-                      <FramedTableRow key={order.id}>
-                        <FramedTableCell className="p-(--space-4)">
-                          <Link href={`/sales/order/${order.id}`} className="font-mono font-medium text-[var(--color-accent-ink)]">
-                            {order.orderNumber}
-                          </Link>
-                        </FramedTableCell>
-                        <FramedTableCell className="p-(--space-4)">
-                          {formatDate(order.shipDate ?? order.orderDate)}
-                        </FramedTableCell>
-                        <FramedTableCell className="p-(--space-4)">
-                          <SalesOrderStatusBadge status={order.status} />
-                        </FramedTableCell>
-                        <FramedTableCell align="right" numeric className="p-(--space-4)">
-                          {formatPrice(order.totalAmount) ?? "$0.00"}
-                        </FramedTableCell>
-                      </FramedTableRow>
-                    ))
-                  ) : (
-                    <tr>
-                      <FramedTableCell
-                        colSpan={4}
-                        align="center"
-                        muted
-                        className="p-(--space-8)"
-                      >
-                        No linked sales orders.
-                      </FramedTableCell>
-                    </tr>
-                  )}
-                </tbody>
-              </FramedTable>
-            </TableFrame>
-          </div>
-
-          <div className="grid gap-(--space-4)">
-            <div className="grid gap-(--space-4)">
-              <h3 className={styles.sectionHeading}>Attachments</h3>
-              <input
-                ref={fileInputRef}
-                type="file"
-                className="sr-only"
-                disabled={!canUploadFiles || fileUploadMutation.isPending}
-                onChange={(event) => {
-                  uploadFirstFile(event.target.files);
-                  event.target.value = "";
-                }}
-              />
-              <FileDropzone
-                label={fileUploadMutation.isPending ? "Uploading..." : "Upload attachment"}
-                disabled={!canUploadFiles || fileUploadMutation.isPending}
-                onBrowse={() => fileInputRef.current?.click()}
-                onFiles={uploadFirstFile}
-              />
-            </div>
-            <ul className="grid gap-(--space-2)">
-              {draft.isNew ? (
-                <EmptyState as="li" density="compact">
-                  Save the project before adding attachments.
-                </EmptyState>
-              ) : files.length > 0 ? (
-                files.map((file) => (
-                  <AttachmentListItem
-                    as="li"
-                    key={file.id}
-                    filename={file.filename}
-                    sizeBytes={file.sizeBytes}
-                    href={`/api/customers/${customerId}/projects/${draft.id}/files/${file.id}`}
-                    layout="inline"
-                    actions={!readOnly ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => fileDeleteMutation.mutate(file)}
-                        disabled={fileDeleteMutation.isPending}
-                      >
-                        Delete
-                      </Button>
-                    ) : null}
-                  />
-                ))
-              ) : (
-                <EmptyState as="li" density="compact">No attachments yet.</EmptyState>
-              )}
-            </ul>
-            {fileUploadMutation.error ? (
-              <FieldError>{(fileUploadMutation.error as Error).message}</FieldError>
-            ) : null}
-            {fileDeleteMutation.error ? (
-              <FieldError>{(fileDeleteMutation.error as Error).message}</FieldError>
-            ) : null}
-          </div>
-        </div>
-
-        <SheetFooter className="flex-row items-center justify-end gap-(--space-4)">
-          {project && !readOnly ? (
-            <Button
-              type="button"
-              variant="destructive"
-              className="mr-auto"
-              onClick={() => setConfirmDelete(true)}
-            >
-              Delete project
-            </Button>
-          ) : null}
-          <Button type="button" variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          {!readOnly ? (
-            <Button
-              type="button"
-              disabled={!draft.name.trim()}
-              onClick={() => {
-                onSave(draft, {
-                  onSuccess: () => onClose(),
-                });
-              }}
-            >
-              {project ? "Save changes" : "Add project"}
-            </Button>
-          ) : null}
-          {saveError ? <FieldError>{saveError}</FieldError> : null}
-        </SheetFooter>
-      </SheetContent>
-
-      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete project?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This project will be removed from the customer workspace.
-              {saveError ? (
-                <span className="mt-(--space-2) block text-[var(--status-danger-ink)]">
-                  {saveError}
-                </span>
-              ) : null}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="danger"
-              onClick={(event) => {
-                event.preventDefault();
-                onDelete(draft.id, {
-                  onSuccess: () => {
-                    setConfirmDelete(false);
-                    onClose();
-                  },
-                });
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </Sheet>
   );
 }
 
@@ -1357,6 +873,819 @@ function OpenOrdersSection({
       )}
     </CardSection>
   );
+}
+
+const activityComposerMeta: Record<
+  CustomerActivityType,
+  { label: string; submitLabel: string; placeholder: string }
+> = {
+  note: { label: "Note", submitLabel: "Add note", placeholder: "Add a customer note..." },
+  call: { label: "Call", submitLabel: "Log call", placeholder: "What was discussed?" },
+  email: { label: "Email", submitLabel: "Log email", placeholder: "What was discussed?" },
+  meeting: { label: "Meeting", submitLabel: "Log meeting", placeholder: "What was discussed?" },
+  task: { label: "Task", submitLabel: "Create task", placeholder: "What needs to happen next?" },
+};
+
+const activityTimelineIcons: Record<CustomerActivityType, IconSvgElement> = {
+  note: StickyNote02Icon,
+  call: Call02Icon,
+  email: Mail01Icon,
+  meeting: UserMultiple02Icon,
+  task: Tick02Icon,
+};
+
+function ActivitySection({
+  customerId,
+  rows: allRows,
+  projects,
+  contacts,
+  filter,
+  onFilterChange,
+  readOnly,
+}: {
+  customerId: string | null;
+  rows: CustomerActivityRow[];
+  projects: CustomerProjectRow[];
+  contacts: CustomerContactRow[];
+  filter: ActivityStreamFilter;
+  onFilterChange: (filter: ActivityStreamFilter) => void;
+  readOnly: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const [type, setType] = useState<CustomerActivityType>("note");
+  const [body, setBody] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [projectId, setProjectId] = useState(noActivityProjectValue);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [streamSheetOpen, setStreamSheetOpen] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [newProjectStatus, setNewProjectStatus] = useState<"planning" | "active">("planning");
+  const [newProjectTargetDate, setNewProjectTargetDate] = useState("");
+
+  const rows = !filter
+    ? allRows
+    : filter.kind === "project"
+      ? allRows.filter((row) => row.customerProjectId === filter.id)
+      : allRows.filter((row) =>
+          row.attendees.some((attendee) => attendee.contactId === filter.id)
+        );
+  const mentionMatches =
+    mentionQuery === null
+      ? []
+      : contacts.filter(
+          (contact) =>
+            contact.name.trim() &&
+            contact.name.toLowerCase().startsWith(mentionQuery.toLowerCase())
+        );
+  const isTask = type === "task";
+  const openTasks = rows
+    .filter((row) => row.type === "task" && row.status === "open")
+    .sort((a, b) => {
+      if (a.dueDate !== b.dueDate) {
+        if (a.dueDate == null) return 1;
+        if (b.dueDate == null) return -1;
+        return a.dueDate < b.dueDate ? -1 : 1;
+      }
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+  const timeline = rows
+    .filter((row) => !(row.type === "task" && row.status === "open"))
+    .sort((a, b) => timelineDate(b).getTime() - timelineDate(a).getTime());
+  const timelineMonths = groupTimelineByMonth(timeline);
+  const today = toDateOnlyString(new Date()) ?? "";
+
+  const invalidate = async () => {
+    if (customerId) {
+      await queryClient.invalidateQueries({
+        queryKey: ["customer-card", customerId],
+      });
+    }
+  };
+
+  const createMutation = useMutation({
+    mutationKey: cardSaveMutationKey(
+      "customer",
+      customerId ?? "__draft__",
+      "activity-create"
+    ),
+    mutationFn: () =>
+      createCustomerActivity(customerId as string, {
+        type,
+        occurredAt: undefined,
+        title: isTask ? body.trim().replace(/\s+/g, " ") : null,
+        body: isTask ? null : body.trim() || null,
+        dueDate: isTask && dueDate ? dueDate : null,
+        customerProjectId:
+          projectId === noActivityProjectValue ? null : projectId,
+        attendeeContactIds: contacts
+          .filter(
+            (contact) =>
+              contact.name.trim() && body.includes(`@${contact.name}`)
+          )
+          .map((contact) => contact.id),
+      }),
+    onSuccess: async () => {
+      setBody("");
+      setDueDate("");
+      setMentionQuery(null);
+      await invalidate();
+    },
+  });
+
+  const patchMutation = useMutation({
+    mutationKey: cardSaveMutationKey(
+      "customer",
+      customerId ?? "__draft__",
+      "activity-patch"
+    ),
+    mutationFn: ({
+      activityId,
+      status,
+    }: {
+      activityId: string;
+      status: "open" | "done";
+    }) => patchCustomerActivity(customerId as string, activityId, { status }),
+    onSuccess: invalidate,
+  });
+
+  const deleteMutation = useMutation({
+    mutationKey: cardSaveMutationKey(
+      "customer",
+      customerId ?? "__draft__",
+      "activity-delete"
+    ),
+    mutationFn: (activityId: string) =>
+      deleteCustomerActivity(customerId as string, activityId),
+    onSuccess: invalidate,
+  });
+
+  const newProjectMutation = useMutation({
+    mutationKey: cardSaveMutationKey(
+      "customer",
+      customerId ?? "__draft__",
+      "activity-new-project"
+    ),
+    mutationFn: () =>
+      createCustomerProject(customerId as string, {
+        name: newProjectName.trim(),
+        status: newProjectStatus,
+        startDate: null,
+        targetEndDate: newProjectTargetDate || null,
+        summary: null,
+      }),
+    onSuccess: async (project) => {
+      setNewProjectOpen(false);
+      setNewProjectName("");
+      setNewProjectStatus("planning");
+      setNewProjectTargetDate("");
+      if (project) setProjectId(project.id);
+      await invalidate();
+    },
+  });
+
+  const pending = patchMutation.isPending || deleteMutation.isPending;
+  const error =
+    createMutation.error ??
+    patchMutation.error ??
+    deleteMutation.error ??
+    newProjectMutation.error;
+
+  return (
+    <CardSection
+      title="Activity"
+      count={`· ${rows.length}`}
+      actions={
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setStreamSheetOpen(true)}
+        >
+          View all →
+        </Button>
+      }
+    >
+      <div className="grid gap-(--space-5)">
+        {!readOnly ? (
+          <div className="grid gap-0 rounded-(--radius-md) border border-[var(--color-line)]">
+            <div className="flex flex-wrap items-center gap-(--space-2) p-(--space-4) pb-0">
+              {(Object.keys(activityComposerMeta) as CustomerActivityType[]).map(
+                (option) => (
+                  <Button
+                    key={option}
+                    type="button"
+                    size="sm"
+                    variant={type === option ? "default" : "outline"}
+                    aria-pressed={type === option}
+                    onClick={() => setType(option)}
+                  >
+                    {activityComposerMeta[option].label}
+                  </Button>
+                )
+              )}
+            </div>
+            <div className="relative">
+              <Textarea
+                value={body}
+                rows={3}
+                disabled={createMutation.isPending}
+                aria-label={isTask ? "Task title" : "Activity notes"}
+                placeholder={activityComposerMeta[type].placeholder}
+                className="border-0 shadow-none focus-visible:ring-0 text-[length:var(--text-md)] leading-[var(--leading-md)]"
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setBody(value);
+                  const caret = event.target.selectionStart ?? value.length;
+                  const match = value.slice(0, caret).match(/@([A-Za-z]*)$/);
+                  setMentionQuery(match ? match[1] : null);
+                }}
+              />
+              {mentionMatches.length > 0 ? (
+                <div className="absolute top-full left-(--space-4) z-10 mt-(--space-1) grid min-w-56 rounded-(--radius-md) border border-[var(--color-line)] bg-[var(--color-surface)] py-(--space-2) shadow-md">
+                  {mentionMatches.slice(0, 6).map((contact) => (
+                    <button
+                      key={contact.id}
+                      type="button"
+                      className="flex items-center gap-(--space-3) px-(--space-4) py-(--space-2) text-left text-[length:var(--text-sm)] hover:bg-[var(--color-surface-2)]"
+                      onClick={() => {
+                        setBody((current) => {
+                          const match = current.match(/@[A-Za-z]*$/);
+                          const base = match
+                            ? current.slice(0, match.index)
+                            : current;
+                          return `${base}@${contact.name} `;
+                        });
+                        setMentionQuery(null);
+                      }}
+                    >
+                      <span className="flex size-(--space-9) items-center justify-center rounded-full border border-[var(--color-line)] text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                        {contactInitials(contact.name)}
+                      </span>
+                      {contact.name}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap items-center gap-(--space-3) border-t border-[var(--color-line)] bg-[var(--color-surface-2)] p-(--space-3)">
+              <Select
+                value={projectId}
+                onValueChange={(value) => {
+                  if (value === newProjectSentinel) {
+                    setNewProjectOpen(true);
+                    return;
+                  }
+                  setProjectId(value);
+                }}
+              >
+                <SelectTrigger aria-label="Project" size="sm">
+                  <SelectValue>
+                    {projectId === noActivityProjectValue
+                      ? "No project"
+                      : projects.find((project) => project.id === projectId)
+                          ?.name ?? "No project"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={noActivityProjectValue}>
+                    No project
+                  </SelectItem>
+                  {projects.map((project) => (
+                    <SelectItem key={project.id} value={project.id}>
+                      {project.name}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value={newProjectSentinel}>
+                    New project…
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              {filter ? (
+                <span className="flex items-center gap-(--space-2) rounded-full border border-[var(--color-line)] bg-[var(--color-surface-2)] px-(--space-3) py-(--space-1) font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                  <HugeiconsIcon
+                    icon={filter.kind === "project" ? Folder01Icon : UserIcon}
+                    className="size-(--space-5)"
+                  />
+                  {filter.name}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="Clear filter"
+                    onClick={() => onFilterChange(null)}
+                  >
+                    <HugeiconsIcon icon={Cancel01Icon} />
+                  </Button>
+                </span>
+              ) : null}
+              {isTask ? (
+                <div className="w-52">
+                  <DatePicker
+                    value={dueDate}
+                    placeholder="Due date"
+                    disabled={createMutation.isPending}
+                    onChange={(value) => setDueDate(value ?? "")}
+                  />
+                </div>
+              ) : null}
+              <div className="ml-auto flex items-center gap-(--space-4)">
+                {error ? <FieldError>{error.message}</FieldError> : null}
+                <Button
+                  type="button"
+                  disabled={!body.trim() || createMutation.isPending}
+                  onClick={() => {
+                    if (!customerId || readOnly) return;
+                    createMutation.mutate();
+                  }}
+                >
+                  {createMutation.isPending
+                    ? "Adding..."
+                    : activityComposerMeta[type].submitLabel}
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        <ActivityStreamLists
+          openTasks={openTasks}
+          timelineMonths={timelineMonths}
+          readOnly={readOnly}
+          pending={pending}
+          today={today}
+          onToggle={(args) => patchMutation.mutate(args)}
+          onDelete={(activityId) => deleteMutation.mutate(activityId)}
+          onFilterChange={onFilterChange}
+        />
+      </div>
+
+      <Sheet open={streamSheetOpen} onOpenChange={setStreamSheetOpen}>
+        <SheetContent
+          side="right"
+          className="gap-0 overflow-hidden p-0 data-[side=right]:w-[min(560px,94vw)] data-[side=right]:sm:max-w-[min(560px,94vw)]"
+        >
+          <SheetHeader>
+            <SheetTitle>Activity · {rows.length}</SheetTitle>
+            <SheetDescription className="sr-only">
+              The full activity stream for this customer.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="grid min-h-0 flex-1 content-start gap-(--space-5) overflow-y-auto p-(--space-8)">
+            <ActivityStreamLists
+              openTasks={openTasks}
+              timelineMonths={timelineMonths}
+              readOnly={readOnly}
+              pending={pending}
+              today={today}
+              onToggle={(args) => patchMutation.mutate(args)}
+              onDelete={(activityId) => deleteMutation.mutate(activityId)}
+              onFilterChange={onFilterChange}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={newProjectOpen} onOpenChange={setNewProjectOpen}>
+        <SheetContent
+          side="right"
+          className="gap-0 overflow-hidden p-0 data-[side=right]:w-[min(420px,94vw)] data-[side=right]:sm:max-w-[min(420px,94vw)]"
+        >
+          <SheetHeader>
+            <SheetTitle>New project</SheetTitle>
+            <SheetDescription className="sr-only">
+              Create a project to tag activities and orders with.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="grid min-h-0 flex-1 content-start gap-(--space-6) overflow-y-auto p-(--space-8)">
+            <CardTextField
+              label="Project name"
+              value={newProjectName}
+              autoFocus
+              controlStyle="dialog"
+              onChange={(event) => setNewProjectName(event.target.value)}
+            />
+            <div className="grid gap-(--space-3)">
+              <h3 className={styles.sectionHeading}>Status</h3>
+              <div className="flex gap-(--space-2)">
+                {(["planning", "active"] as const).map((status) => (
+                  <Button
+                    key={status}
+                    type="button"
+                    size="sm"
+                    variant={newProjectStatus === status ? "default" : "outline"}
+                    aria-pressed={newProjectStatus === status}
+                    onClick={() => setNewProjectStatus(status)}
+                  >
+                    {status === "planning" ? "Planning" : "Active"}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div className="grid gap-(--space-3)">
+              <h3 className={styles.sectionHeading}>Target date</h3>
+              <DatePicker
+                value={newProjectTargetDate}
+                placeholder="Target date"
+                onChange={(value) => setNewProjectTargetDate(value ?? "")}
+              />
+            </div>
+          </div>
+          <SheetFooter className="flex-row items-center justify-end gap-(--space-4)">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setNewProjectOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={!newProjectName.trim() || newProjectMutation.isPending}
+              onClick={() => newProjectMutation.mutate()}
+            >
+              {newProjectMutation.isPending ? "Creating..." : "Create project"}
+            </Button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
+    </CardSection>
+  );
+}
+
+function ActivityStreamLists({
+  openTasks,
+  timelineMonths,
+  readOnly,
+  pending,
+  today,
+  onToggle,
+  onDelete,
+  onFilterChange,
+}: {
+  openTasks: CustomerActivityRow[];
+  timelineMonths: Array<{ label: string; entries: CustomerActivityRow[] }>;
+  readOnly: boolean;
+  pending: boolean;
+  today: string;
+  onToggle: (args: { activityId: string; status: "open" | "done" }) => void;
+  onDelete: (activityId: string) => void;
+  onFilterChange: (filter: ActivityStreamFilter) => void;
+}) {
+  return (
+    <>
+        {!readOnly || openTasks.length > 0 ? (
+          <div className="grid gap-(--space-2)">
+            <h3 className={styles.sectionHeading}>
+              Upcoming · {openTasks.length}
+            </h3>
+            {openTasks.length === 0 ? (
+              <p className="rounded-(--radius-md) border border-dashed border-[var(--color-line)] px-(--space-4) py-(--space-3) text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
+                Nothing scheduled — create a task above.
+              </p>
+            ) : null}
+            <ul className="grid gap-(--space-2)">
+              {openTasks.map((task) => {
+                return (
+                  <li
+                    key={task.id}
+                    className="flex items-center gap-(--space-3) py-(--space-2)"
+                  >
+                    <Checkbox
+                      aria-label={`Complete "${task.title}"`}
+                      checked={false}
+                      disabled={readOnly || pending}
+                      onCheckedChange={() =>
+                        onToggle({
+                          activityId: task.id,
+                          status: "done",
+                        })
+                      }
+                    />
+                    <span className="min-w-0 flex-1 truncate text-[length:var(--text-sm)]">
+                      {renderWithMentions(task.title ?? "", task.attendees, onFilterChange)}
+                    </span>
+                    {task.projectName && task.customerProjectId ? (
+                      <ActivityProjectChip
+                        name={task.projectName}
+                        onSelect={() =>
+                          onFilterChange({
+                            kind: "project",
+                            id: task.customerProjectId as string,
+                            name: task.projectName as string,
+                          })
+                        }
+                      />
+                    ) : null}
+                    <span
+                      className={cn(
+                        "whitespace-nowrap rounded-full border px-(--space-4) py-(--space-1) text-[length:var(--text-xs)]",
+                        !task.dueDate &&
+                          "border-dashed border-[var(--color-line)] text-[var(--color-ink-faint)]",
+                        task.dueDate && task.dueDate < today
+                          ? "border-transparent bg-[var(--color-danger-soft)] text-[var(--color-danger)]"
+                          : task.dueDate === today
+                            ? "border-transparent bg-[var(--color-warning-soft)] text-[var(--color-ink)]"
+                            : task.dueDate
+                              ? "border-[var(--color-line)] text-[var(--color-ink-faint)]"
+                              : undefined
+                      )}
+                    >
+                      {task.dueDate
+                        ? `Due ${formatDate(task.dueDate)}${
+                            task.dueDate < today
+                              ? " · Overdue"
+                              : task.dueDate === today
+                                ? " · Today"
+                                : ""
+                          }`
+                        : "No due date"}
+                    </span>
+                    {!readOnly ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Delete "${task.title}"`}
+                        disabled={pending}
+                        onClick={() => onDelete(task.id)}
+                      >
+                        <HugeiconsIcon icon={Delete02Icon} />
+                      </Button>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : null}
+
+        {timelineMonths.length > 0 ? (
+          <div className="grid gap-(--space-5)">
+            {timelineMonths.map((month) => (
+              <div key={month.label} className="grid gap-(--space-3)">
+                <div className="flex items-center gap-(--space-4)">
+                  <h3 className={styles.sectionHeading}>{month.label}</h3>
+                  <div className="h-px flex-1 bg-[var(--color-line)]" />
+                </div>
+                <ul className="grid gap-(--space-4)">
+                  {month.entries.map((entry) => (
+                    <li key={entry.id} className="flex gap-(--space-4)">
+                      {entry.type === "task" ? (
+                        <Checkbox
+                          aria-label={`Reopen "${entry.title}"`}
+                          checked
+                          disabled={readOnly || pending}
+                          className="mt-(--space-1)"
+                          onCheckedChange={() =>
+                            onToggle({
+                              activityId: entry.id,
+                              status: "open",
+                            })
+                          }
+                        />
+                      ) : (
+                        <span className="mt-(--space-1) flex size-(--space-9) shrink-0 items-center justify-center rounded-full border border-[var(--color-line)] text-[var(--color-ink-faint)]">
+                          <HugeiconsIcon
+                            icon={activityTimelineIcons[entry.type]}
+                            className="size-(--space-6)"
+                          />
+                        </span>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-(--space-3)">
+                          <span className="text-[length:var(--text-xs)] font-medium uppercase tracking-wide text-[var(--color-ink-faint)]">
+                            {activityComposerMeta[entry.type].label}
+                            {entry.type === "task" ? " · Done" : ""}
+                          </span>
+                          {entry.createdByName ? (
+                            <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                              {entry.createdByName}
+                            </span>
+                          ) : null}
+                          <span className="font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                            {relativeDayLabel(timelineDate(entry))}
+                          </span>
+                          {entry.projectName && entry.customerProjectId ? (
+                            <ActivityProjectChip
+                              name={entry.projectName}
+                              onSelect={() =>
+                                onFilterChange({
+                                  kind: "project",
+                                  id: entry.customerProjectId as string,
+                                  name: entry.projectName as string,
+                                })
+                              }
+                            />
+                          ) : null}
+                        </div>
+                        {entry.title ? (
+                          <p className="mt-(--space-2) text-[length:var(--text-sm)]">
+                            {renderWithMentions(entry.title, entry.attendees, onFilterChange)}
+                          </p>
+                        ) : null}
+                        {entry.body ? (
+                          <p className="mt-(--space-2) whitespace-pre-wrap text-[length:var(--text-sm)] leading-[var(--leading-md)] text-[var(--color-ink)]">
+                            {renderWithMentions(entry.body, entry.attendees, onFilterChange)}
+                          </p>
+                        ) : null}
+                        {entry.attendees.some(
+                          (attendee) =>
+                            !`${entry.title ?? ""} ${entry.body ?? ""}`.includes(
+                              `@${attendee.contactName}`
+                            )
+                        ) ? (
+                          <p className="mt-(--space-2) flex flex-wrap gap-(--space-3) text-[length:var(--text-xs)]">
+                            {entry.attendees
+                              .filter(
+                                (attendee) =>
+                                  !`${entry.title ?? ""} ${entry.body ?? ""}`.includes(
+                                    `@${attendee.contactName}`
+                                  )
+                              )
+                              .map((attendee) => (
+                                <MentionToken
+                                  key={attendee.id}
+                                  name={attendee.contactName}
+                                  contactId={attendee.contactId}
+                                  onFilterChange={onFilterChange}
+                                />
+                              ))}
+                          </p>
+                        ) : null}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        ) : openTasks.length === 0 ? (
+          <EmptyState density="compact">No activity yet.</EmptyState>
+        ) : null}
+    </>
+  );
+}
+
+function HeaderMetaPill({
+  label,
+  value,
+  options,
+  dotClassName,
+  disabled,
+  onSelect,
+}: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  dotClassName?: string;
+  disabled: boolean;
+  onSelect: (value: string) => void;
+}) {
+  const current = options.find((option) => option.value === value);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="rounded-full"
+          aria-label={`${label}: ${current?.label ?? value}`}
+          disabled={disabled}
+        >
+          {dotClassName ? (
+            <span className={cn("size-(--space-4) rounded-full", dotClassName)} />
+          ) : null}
+          <span className="text-[var(--color-ink-faint)]">{label}</span>
+          {current?.label ?? value}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        {options.map((option) => (
+          <DropdownMenuCheckboxItem
+            key={option.value}
+            checked={option.value === value}
+            onCheckedChange={() => onSelect(option.value)}
+          >
+            {option.label}
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function contactInitials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+function MentionToken({
+  name,
+  contactId,
+  onFilterChange,
+}: {
+  name: string;
+  contactId: string | null;
+  onFilterChange: (filter: ActivityStreamFilter) => void;
+}) {
+  if (!contactId) {
+    return <span className="text-[var(--color-ink-faint)]">@{name}</span>;
+  }
+  return (
+    <button
+      type="button"
+      className="font-medium text-[var(--color-ink)] hover:underline"
+      onClick={() => onFilterChange({ kind: "contact", id: contactId, name })}
+    >
+      @{name}
+    </button>
+  );
+}
+
+function renderWithMentions(
+  text: string,
+  attendees: CustomerActivityRow["attendees"],
+  onFilterChange: (filter: ActivityStreamFilter) => void
+) {
+  const named = attendees.filter((attendee) => attendee.contactName.trim());
+  if (named.length === 0 || !text.includes("@")) return text;
+
+  const pattern = new RegExp(
+    `@(${named
+      .map((attendee) =>
+        attendee.contactName.replace(/[.*+?^$()|[\]{}\\]/g, "\\$&")
+      )
+      .join("|")})`,
+    "g"
+  );
+  const parts = text.split(pattern);
+  return parts.map((part, index) => {
+    const attendee = named.find((candidate) => candidate.contactName === part);
+    if (index % 2 === 1 && attendee) {
+      return (
+        <MentionToken
+          key={`${attendee.id}-${index}`}
+          name={attendee.contactName}
+          contactId={attendee.contactId}
+          onFilterChange={onFilterChange}
+        />
+      );
+    }
+    return part;
+  });
+}
+
+function ActivityProjectChip({
+  name,
+  onSelect,
+}: {
+  name: string;
+  onSelect?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="max-w-56 truncate whitespace-nowrap rounded-full border border-[var(--color-line)] bg-[var(--color-surface-2)] px-(--space-3) py-(--space-1) text-[length:var(--text-xs)] text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]"
+      onClick={onSelect}
+    >
+      {name}
+    </button>
+  );
+}
+
+function groupTimelineByMonth(entries: CustomerActivityRow[]) {
+  const months: Array<{ label: string; entries: CustomerActivityRow[] }> = [];
+  for (const entry of entries) {
+    const label = timelineDate(entry)
+      .toLocaleDateString(undefined, { month: "long", year: "numeric" })
+      .toUpperCase();
+    const current = months[months.length - 1];
+    if (current && current.label === label) {
+      current.entries.push(entry);
+    } else {
+      months.push({ label, entries: [entry] });
+    }
+  }
+  return months;
+}
+
+function timelineDate(entry: CustomerActivityRow) {
+  return new Date(entry.completedAt ?? entry.occurredAt);
+}
+
+function relativeDayLabel(date: Date) {
+  const day = toDateOnlyString(date);
+  const today = toDateOnlyString(new Date());
+  const yesterday = toDateOnlyString(new Date(Date.now() - 86_400_000));
+  if (day && day === today) return "Today";
+  if (day && day === yesterday) return "Yesterday";
+  return day ? formatDate(day) : "";
 }
 
 function CustomerAddressInput({
@@ -1527,17 +1856,6 @@ function contactPayload(row: ContactGridRow) {
     phone: row.phone || null,
     addressEntryId: row.addressEntryId || null,
     roles: row.roles,
-    notes: row.notes || null,
-  };
-}
-
-function projectPayload(row: ProjectGridRow) {
-  return {
-    name: row.name.trim(),
-    status: row.status,
-    startDate: row.startDate || null,
-    targetEndDate: row.targetEndDate || null,
-    summary: row.summary || null,
   };
 }
 
@@ -1552,27 +1870,6 @@ function newContactRow(): ContactGridRow {
     phone: null,
     addressEntryId: null,
     roles: [],
-    notes: null,
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-
-function newProjectRow(): ProjectGridRow {
-  const now = new Date();
-  return {
-    id: `new-${crypto.randomUUID()}`,
-    isNew: true,
-    name: "",
-    status: "planning",
-    startDate: null,
-    targetEndDate: null,
-    summary: null,
-    notes: [],
-    files: [],
-    salesOrders: [],
-    orderCount: 0,
-    orderValue: "0",
     createdAt: now,
     updatedAt: now,
   };
@@ -1587,12 +1884,18 @@ function makeDraftCustomer(draft: InsertCustomer): CustomerDetailData {
     openOrderCount: 0,
     openOrderValue: "0",
     latestOrderDate: null,
+    primaryContactName: null,
+    primaryContactEmail: null,
+    primaryContactPhone: null,
+    nextTaskId: null,
+    nextTaskTitle: null,
+    nextTaskDueDate: null,
     xeroContactId: null,
     deletedAt: null,
     createdAt: now,
     updatedAt: now,
     contacts: [],
-    correspondence: [],
+    activities: [],
     projects: [],
     salesOrders: [],
   };
@@ -1625,20 +1928,9 @@ function applyCustomerDraftOp(
     const contacts = upsertById(customer.contacts, op.row);
     return { ...customer, contacts, updatedAt: new Date() };
   }
-  if (op.type === "deleteContact") {
-    return {
-      ...customer,
-      contacts: customer.contacts.filter((contact) => contact.id !== op.contactId),
-      updatedAt: new Date(),
-    };
-  }
-  if (op.type === "upsertProject") {
-    const projects = upsertById(customer.projects, op.row);
-    return { ...customer, projects, updatedAt: new Date() };
-  }
   return {
     ...customer,
-    projects: customer.projects.filter((project) => project.id !== op.projectId),
+    contacts: customer.contacts.filter((contact) => contact.id !== op.contactId),
     updatedAt: new Date(),
   };
 }
@@ -1670,17 +1962,6 @@ async function saveCustomerOps(
     } else if (op.type === "deleteContact") {
       await deleteCustomerContact(customerId, op.contactId);
       changed = true;
-    } else if (op.type === "upsertProject") {
-      if (!op.row.name.trim()) continue;
-      if (op.row.isNew) {
-        await createCustomerProject(customerId, projectPayload(op.row));
-      } else {
-        await updateCustomerProject(customerId, op.row.id, projectPayload(op.row));
-      }
-      changed = true;
-    } else if (op.type === "deleteProject") {
-      await deleteCustomerProject(customerId, op.projectId);
-      changed = true;
     }
   }
 
@@ -1707,7 +1988,6 @@ function customerToInsertInput(customer: CustomerDetailData): InsertCustomer {
     shipRegion: customer.shipRegion,
     shipPostcode: customer.shipPostcode,
     shipCountry: customer.shipCountry,
-    notes: customer.notes,
   });
 }
 
@@ -1731,7 +2011,6 @@ function customerEditableSnapshot(customer: CustomerDetailData): PatchCustomer {
     shipRegion: customer.shipRegion,
     shipPostcode: customer.shipPostcode,
     shipCountry: customer.shipCountry,
-    notes: customer.notes,
   };
 }
 
@@ -1753,16 +2032,6 @@ function upsertById<TRow extends { id: string }>(rows: TRow[], next: TRow) {
 
 function replaceRow<TRow extends { id: string }>(rows: TRow[], next: TRow) {
   return rows.map((row) => (row.id === next.id ? next : row));
-}
-
-function formatProjectDateRange(project: CustomerProjectRow) {
-  const start = project.startDate ? formatDate(project.startDate) : "No start";
-  const target = project.targetEndDate ? formatDate(project.targetEndDate) : "No target";
-  return `${start} -> ${target}`;
-}
-
-function reportCustomerSaveError(error: unknown) {
-  console.error("Customer save failed:", error);
 }
 
 export function addressEntryLabel(address: AddressEntry) {

@@ -33,7 +33,6 @@ export async function loadExistingCustomersInTx(
       name: customers.name,
       address: customers.billingLine1,
       phone: customers.phone,
-      notes: customers.notes,
       deletedAt: customers.deletedAt,
     })
     .from(customers);
@@ -70,22 +69,18 @@ export function buildExistingCustomersByKey(
 
 export function buildCustomerPlans(
   customerSeedsByKey: Map<string, CustomerSeed>,
-  existingCustomersByKey: Map<string, ExistingCustomer>,
-  defaultNotes: string
+  existingCustomersByKey: Map<string, ExistingCustomer>
 ): CustomerPlan[] {
   const plans: CustomerPlan[] = [];
   for (const [key, seed] of customerSeedsByKey) {
     const existing = existingCustomersByKey.get(key) ?? null;
     const nextAddress = existing?.address ?? seed.address ?? null;
     const nextPhone = existing?.phone ?? seed.phone ?? null;
-    const nextNotes = existing?.notes ?? seed.notes ?? defaultNotes;
     let action: CustomerPlan["action"] = "create";
 
     if (existing) {
       const hasFieldChanges =
-        nextAddress !== existing.address ||
-        nextPhone !== existing.phone ||
-        nextNotes !== existing.notes;
+        nextAddress !== existing.address || nextPhone !== existing.phone;
 
       if (existing.deletedAt) {
         action = "reactivate";
@@ -103,7 +98,6 @@ export function buildCustomerPlans(
       action,
       nextAddress,
       nextPhone,
-      nextNotes,
     });
   }
   return plans;
@@ -127,7 +121,6 @@ export async function applyCustomerPlansInTx(
             name: plan.seed.name,
             billingLine1: plan.nextAddress,
             phone: plan.nextPhone,
-            notes: plan.nextNotes,
           })
           .returning({ id: customers.id });
         customerIdByKey.set(plan.key, created.id);
@@ -150,7 +143,6 @@ export async function applyCustomerPlansInTx(
           .set({
             billingLine1: plan.nextAddress,
             phone: plan.nextPhone,
-            notes: plan.nextNotes,
             deletedAt: null,
             updatedAt: new Date(),
           })
