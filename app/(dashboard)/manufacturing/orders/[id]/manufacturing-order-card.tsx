@@ -49,6 +49,7 @@ import { CardField } from "@/components/card-page/card-field";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
 import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
+import { useDuplicateEntity } from "@/components/card-page/use-duplicate-entity";
 import {
   CardFormRow,
   DisabledFieldTooltip,
@@ -141,7 +142,7 @@ export function ManufacturingOrderCard({
     }
   }, [controller, currentOrderId, queryClient]);
 
-  const duplicateMutation = useMutation({
+  const duplicateMutation = useDuplicateEntity({
     mutationKey: ["mo-action", currentOrderId ?? "__draft__", "duplicate"],
     onMutate: () => setActionError(null),
     mutationFn: async () => {
@@ -155,10 +156,8 @@ export function ManufacturingOrderCard({
         },
       );
     },
-    onSuccess: (created) => {
-      void queryClient.invalidateQueries({ queryKey: queryKeys.manufacturingOrders.root });
-      router.push(`/manufacturing/order/${created.id}`);
-    },
+    invalidateQueryKeys: [queryKeys.manufacturingOrders.root],
+    onDuplicated: (created) => router.push(`/manufacturing/order/${created.id}`),
     onError: (error) => setActionError((error as Error).message),
   });
 

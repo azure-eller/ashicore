@@ -16,6 +16,7 @@ Prefer existing primitives. Props and implementation details live in the linked 
 | `Field` | [components/ui/field.tsx](../../components/ui/field.tsx) | Form label, error, hint, and accessible field grouping |
 | `CardPage` | [components/card-page/card-page.tsx](../../components/card-page/card-page.tsx) | Full-page/detail-card editing surfaces |
 | `CardField` / `FormCell` | [components/card-page](../../components/card-page) | Card-page field layout and inline editing |
+| `AddressBookInput` / `useAddressBookDialog` | [components/card-page/address-book.tsx](../../components/card-page/address-book.tsx) | Org address-book pickers on cards: saved-address combobox plus the add/edit dialog lifecycle |
 | `ERPDataGrid` | [components/erp-data-grid.tsx](../../components/erp-data-grid.tsx) | Large operational lists backed by AG Grid |
 | `EditableLineDataGrid` / `MutableLines` | [components/editable-line-data-grid.tsx](../../components/editable-line-data-grid.tsx), [components/editable-lines.tsx](../../components/editable-lines.tsx) | Editable line tables inside cards |
 | `StatusBlock` | [components/ui/status-block.tsx](../../components/ui/status-block.tsx) | Full-cell status states in grids and line tables |

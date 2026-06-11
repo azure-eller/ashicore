@@ -2,29 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import type { z } from "zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AddressBookFields } from "@/components/address-book-fields";
-import {
-  Combobox,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxSeparator,
-} from "@/components/ui/combobox";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { FieldError } from "@/components/ui/field";
+import { useQueryClient } from "@tanstack/react-query";
 import { TooltipHeader } from "@/components/tooltip-header";
 import {
   CardPage,
@@ -40,15 +18,12 @@ import {
 import { CommitInput } from "@/components/card-page/commit-input";
 import { NotesField } from "@/components/card-page/notes-field";
 import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
+import type { CardSaveState } from "@/components/card-page/card-save-status";
 import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
 import {
-  cardSaveMutationKey,
-  type CardSaveState,
-} from "@/components/card-page/card-save-status";
-import {
-  createAddressEntry,
-  updateAddressEntry,
-} from "@/lib/api/clients/customers";
+  AddressBookInput,
+  useAddressBookDialog,
+} from "@/components/card-page/address-book";
 import {
   createSupplier,
   deleteSupplier,
@@ -60,14 +35,10 @@ import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-
 import type { AddressEntry } from "@/lib/dal/addresses";
 import {
   addressEntryToAddressOption,
-  addressKey,
   emptyAddressFields,
-  formatAddressInline,
-  makeUniqueAddressLabel,
   normalizeAddressFields,
   type AddressEntryOption,
 } from "@/lib/addresses";
-import { createAddressEntrySchema } from "@/lib/schemas/addresses";
 import {
   supplierDefaultValues,
   type InsertSupplier,
@@ -78,7 +49,6 @@ import {
   SUPPLIER_CODE_TOOLTIP,
 } from "@/lib/tooltip-copy";
 import type { SupplierRow } from "@/lib/purchasing/types";
-import styles from "@/components/card-page/card-page.module.css";
 import { queryKeys } from "@/lib/client/query-keys";
 
 type SupplierCardProps = {
@@ -98,31 +68,6 @@ type SupplierAddressFields = {
 
 type SupplierAddressOption = AddressEntryOption;
 
-type AddressDialogValues = z.input<typeof createAddressEntrySchema>;
-
-const addAddressValue = "__add_address__";
-const editAddressValue = "__edit_address__";
-const addressFieldNames = {
-  line1: "line1",
-  line2: "line2",
-  city: "city",
-  region: "region",
-  postcode: "postcode",
-  country: "country",
-} as const;
-const emptyAddressDialogValues: AddressDialogValues = {
-  label: "",
-  contactName: null,
-  contactPhone: null,
-  line1: null,
-  line2: null,
-  city: null,
-  region: null,
-  postcode: null,
-  country: null,
-  deliveryInstructions: null,
-  notes: null,
-};
 
 export function SupplierCard({
   initialSupplierId,
@@ -132,9 +77,6 @@ export function SupplierCard({
   const router = useRouter();
   const queryClient = useQueryClient();
   const [addressBook, setAddressBook] = useState(addresses);
-  const [addressDialogOption, setAddressDialogOption] =
-    useState<SupplierAddressOption | null>(null);
-  const [addressDialogOpen, setAddressDialogOpen] = useState(false);
   const engine = useDraftSaveEngine<
     SupplierRow,
     { type: "patch"; patch: PatchSupplier },
@@ -213,30 +155,6 @@ export function SupplierCard({
     mutation: deleteMutation,
   });
 
-  const addressForm = useForm<AddressDialogValues>({
-    resolver: zodResolver(createAddressEntrySchema),
-    defaultValues: emptyAddressDialogValues,
-  });
-
-  const addressMutation = useMutation({
-    mutationKey: cardSaveMutationKey("supplier", currentSupplierId ?? "__draft__", "address-book"),
-    mutationFn: ({ id, values }: { id: string | null; values: AddressDialogValues }) => {
-      const data = createAddressEntrySchema.parse(values);
-      return id ? updateAddressEntry(id, data) : createAddressEntry(data);
-    },
-    onSuccess: (entry) => {
-      const option = addressEntryToAddressOption(entry);
-      if (!option) return;
-      setAddressBook((current) => {
-        const next = current.filter((address) => address.id !== entry.id);
-        return [...next, entry].sort((a, b) => a.label.localeCompare(b.label));
-      });
-      applySupplierAddress(option);
-      setAddressDialogOpen(false);
-      setAddressDialogOption(null);
-      addressForm.reset(emptyAddressDialogValues);
-    },
-  });
 
   const commitSupplierPatch = useCallback(
     (patch: PatchSupplier) => {
@@ -253,48 +171,14 @@ export function SupplierCard({
     [commitSupplierPatch]
   );
 
-  const openAddressDialog = useCallback(() => {
-    addressMutation.reset();
-    addressForm.reset(emptyAddressDialogValues);
-    setAddressDialogOption(null);
-    setAddressDialogOpen(true);
-  }, [addressForm, addressMutation]);
-
-  const openEditAddressDialog = useCallback(
-    (option: SupplierAddressOption) => {
-      addressMutation.reset();
-      addressForm.reset({
-        label: option.label,
-        contactName: option.contactName,
-        contactPhone: option.contactPhone,
-        line1: option.line1,
-        line2: option.line2,
-        city: option.city,
-        region: option.region,
-        postcode: option.postcode,
-        country: option.country,
-        notes: option.notes,
-        deliveryInstructions: option.deliveryInstructions,
-      });
-      setAddressDialogOption(option);
-      setAddressDialogOpen(true);
-    },
-    [addressForm, addressMutation]
-  );
-
-  const handleAddressDialogSubmit = useCallback(
-    (values: AddressDialogValues) => {
-      const label = makeUniqueAddressLabel(
-        values,
-        addressBook.map((address) => address.label),
-      );
-      addressMutation.mutate({
-        id: addressDialogOption?.addressEntryId ?? null,
-        values: { ...values, label },
-      });
-    },
-    [addressBook, addressDialogOption, addressMutation]
-  );
+  const addressDialog = useAddressBookDialog({
+    entity: "supplier",
+    entityId: currentSupplierId,
+    idPrefix: "supplier",
+    addressBook,
+    setAddressBook,
+    onSaved: (option) => applySupplierAddress(option),
+  });
 
   const billingAddress = getSupplierBillingAddress(display);
   const addressOptions = useMemo(
@@ -419,14 +303,15 @@ export function SupplierCard({
               />
             </CardField>
             <CardField label="Billing address" htmlFor="supplier-billing-address">
-              <SupplierAddressInput
+              <AddressBookInput
                 id="supplier-billing-address"
                 value={billingAddress}
                 options={addressOptions}
+                placeholder="Billing address"
                 disabled={readOnly}
                 onChange={applySupplierAddress}
-                onAddNew={openAddressDialog}
-                onEdit={openEditAddressDialog}
+                onAddNew={() => addressDialog.openNew()}
+                onEdit={(option) => addressDialog.openEdit(option)}
               />
             </CardField>
           </CardFormRow>
@@ -449,159 +334,8 @@ export function SupplierCard({
 
       {deleteConfirm.dialog}
 
-      <Dialog
-        open={addressDialogOpen}
-        onOpenChange={(open) => {
-          setAddressDialogOpen(open);
-          if (!open) setAddressDialogOption(null);
-        }}
-      >
-        <DialogContent size="2xl">
-          <DialogHeader>
-            <DialogTitle>
-              {addressDialogOption ? "Edit address" : "Add address"}
-            </DialogTitle>
-          </DialogHeader>
-          <form
-            id="supplier-address-form"
-            onSubmit={addressForm.handleSubmit(handleAddressDialogSubmit)}
-          >
-            {addressMutation.error ? (
-              <FieldError>
-                {(addressMutation.error as Error).message || "Failed to save address."}
-              </FieldError>
-            ) : null}
-            <AddressBookFields
-              control={addressForm.control}
-              addressNames={addressFieldNames}
-              idPrefix="supplier-address"
-              labelName="label"
-              contactNameName="contactName"
-              contactPhoneName="contactPhone"
-              notesName="notes"
-            />
-          </form>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setAddressDialogOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              form="supplier-address-form"
-              disabled={addressMutation.isPending}
-            >
-              {addressMutation.isPending
-                ? "Saving..."
-                : addressDialogOption
-                  ? "Save address"
-                  : "Add address"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {addressDialog.dialog}
     </CardPage>
-  );
-}
-
-function SupplierAddressInput({
-  id,
-  value,
-  options,
-  disabled,
-  onChange,
-  onAddNew,
-  onEdit,
-}: {
-  id: string;
-  value: SupplierAddressFields | null;
-  options: SupplierAddressOption[];
-  disabled?: boolean;
-  onChange: (address: SupplierAddressFields | null) => void;
-  onAddNew: () => void;
-  onEdit: (option: SupplierAddressOption) => void;
-}) {
-  const currentAddressId = addressKey(value);
-  const canEditCurrent = currentAddressId !== "";
-  const optionIds = options.map((option) => option.id);
-  const optionMap = new Map(options.map((option) => [option.id, option]));
-  const items = [
-    ...optionIds,
-    ...(canEditCurrent ? [editAddressValue] : []),
-    addAddressValue,
-  ];
-
-  return (
-    <Combobox
-      items={items}
-      value={currentAddressId}
-      onValueChange={(nextValue) => {
-        if (!nextValue) {
-          onChange(null);
-          return;
-        }
-        if (nextValue === addAddressValue) {
-          onAddNew();
-          return;
-        }
-        if (nextValue === editAddressValue) {
-          const option = optionMap.get(currentAddressId);
-          if (option) onEdit(option);
-          return;
-        }
-        onChange(optionMap.get(nextValue) ?? null);
-      }}
-      itemToStringLabel={(itemId) => {
-        if (itemId === addAddressValue) return "Add new address";
-        if (itemId === editAddressValue) return "Edit selected address";
-        return optionMap.get(itemId)?.label ?? "";
-      }}
-    >
-      <ComboboxInput
-        id={id}
-        placeholder="Billing address"
-        disabled={disabled}
-        showClear={currentAddressId !== ""}
-        className={styles.underlineControl}
-      />
-      <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))] bg-[var(--color-surface)] text-[var(--color-ink)]">
-        <ComboboxEmpty>No addresses found</ComboboxEmpty>
-        <ComboboxList>
-          {(itemId: string) => {
-            if (itemId === addAddressValue) {
-              return (
-                <ComboboxItem key={itemId} value={itemId}>
-                  Add new address
-                </ComboboxItem>
-              );
-            }
-            if (itemId === editAddressValue) {
-              return (
-                <ComboboxItem key={itemId} value={itemId}>
-                  Edit selected address
-                </ComboboxItem>
-              );
-            }
-
-            const option = optionMap.get(itemId);
-            return (
-              <ComboboxItem key={itemId} value={itemId}>
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate">{option?.label}</span>
-                  <span className="truncate text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-                    {option ? formatAddressInline(option) : ""}
-                  </span>
-                </span>
-              </ComboboxItem>
-            );
-          }}
-        </ComboboxList>
-        {optionIds.length > 0 ? <ComboboxSeparator /> : null}
-      </ComboboxContent>
-    </Combobox>
   );
 }
 

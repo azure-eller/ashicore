@@ -4,9 +4,7 @@ import type {
   CustomerDetailData,
   CustomerProjectRow,
 } from "@/lib/sales/types";
-import type { AddressEntry } from "@/lib/dal/addresses";
 import { apiClientJson } from "@/lib/client/api";
-import type { CreateAddressEntry, UpdateAddressEntry } from "@/lib/schemas/addresses";
 import type {
   CustomerActivityInput,
   CustomerActivityPatch,
@@ -179,26 +177,3 @@ export async function deleteCustomerProject(customerId: string, projectId: strin
   );
 }
 
-export async function createAddressEntry(input: CreateAddressEntry) {
-  return json<AddressEntry>(
-    "/api/addresses",
-    {
-      method: "POST",
-      headers: jsonHeaders,
-      body: input,
-    },
-    "Failed to create address."
-  );
-}
-
-export async function updateAddressEntry(id: string, input: UpdateAddressEntry) {
-  return json<AddressEntry>(
-    `/api/addresses/${id}`,
-    {
-      method: "PUT",
-      headers: jsonHeaders,
-      body: input,
-    },
-    "Failed to update address."
-  );
-}

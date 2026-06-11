@@ -48,6 +48,7 @@ import {
 } from "@/components/table-frame";
 import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
 import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
+import { useDuplicateEntity } from "@/components/card-page/use-duplicate-entity";
 import type { CardSaveState } from "@/components/card-page/card-save-status";
 import { makeDraftOrder } from "./order-draft";
 import { useSalesOrderDraftController } from "./use-sales-order-draft-controller";
@@ -171,7 +172,7 @@ export function OrderCard({
     mutation: deleteMutation,
   });
 
-  const duplicateMutation = useMutation({
+  const duplicateMutation = useDuplicateEntity({
     mutationKey: ["sales-order-action", currentOrderId ?? "draft", "duplicate"],
     mutationFn: async () => {
       await controller.flush();
@@ -182,10 +183,8 @@ export function OrderCard({
       });
     },
     onMutate: () => setActionError(null),
-    onSuccess: async (created) => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.salesOrders.root });
-      router.push(`/sales/order/${created.id}`);
-    },
+    invalidateQueryKeys: [queryKeys.salesOrders.root],
+    onDuplicated: (created) => router.push(`/sales/order/${created.id}`),
     onError: (error) => setActionError((error as Error).message),
   });
 

@@ -76,6 +76,7 @@ import { TotalsSummary } from "@/components/card-page/totals-summary";
 import { type CardSaveState } from "@/components/card-page/card-save-status";
 import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
 import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
+import { useDuplicateEntity } from "@/components/card-page/use-duplicate-entity";
 import {
   ReadOnlyFieldValue,
   underlineControlClass,
@@ -1640,8 +1641,8 @@ export function PurchaseOrderCard({
     onError: (error: Error) => setFileActionError(error.message),
   });
 
-  const duplicateMutation = useApiMutation({
-    invalidates: [queryKeys.purchaseOrders.root],
+  const duplicateMutation = useDuplicateEntity({
+    invalidateQueryKeys: [queryKeys.purchaseOrders.root],
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "duplicate"],
     mutationFn: async () => {
       if (!savedOrderId) throw new Error("Save the purchase order first.");
@@ -1653,7 +1654,7 @@ export function PurchaseOrderCard({
         },
       );
     },
-    onSuccess: (order) => {
+    onDuplicated: (order) => {
       router.push(`/purchasing/order/${order.id}`);
     },
     onError: (error: Error) => setFormError(error.message),

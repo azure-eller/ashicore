@@ -38,7 +38,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { createAddressEntry, updateAddressEntry } from "@/lib/api/clients/customers";
+import { createAddressEntry, updateAddressEntry } from "@/lib/api/clients/addresses";
 import { formatAddressLines, makeUniqueAddressLabel } from "@/lib/addresses";
 import { createAddressEntrySchema } from "@/lib/schemas/addresses";
 import type {
