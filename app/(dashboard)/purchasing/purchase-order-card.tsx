@@ -1,37 +1,26 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { Controller, useForm } from "react-hook-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type {
-  CellClassParams,
-  ICellRendererParams,
-  ValueFormatterParams,
-  ValueSetterParams,
-} from "ag-grid-community";
 import { Mail01Icon } from "@hugeicons/core-free-icons";
 import {
   type InsertPurchaseOrder,
   type PurchaseOrderStatus,
-  type PurchaseOrderAdditionalCostDistributionMethod,
-  type PurchaseOrderAdditionalCostType,
-  insertPurchaseOrderSchema,
   purchaseOrderDefaultValues,
 } from "@/lib/schemas/purchase-orders";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
-import { formatAddressLines, normalizeAddressFields } from "@/lib/addresses";
+import { formatAddressLines } from "@/lib/addresses";
 import {
   formatPrice,
   formatDate,
   getFieldArrayError,
-  normalizeMoney,
   parsePositive,
 } from "@/lib/format";
 import {
   calculatePurchaseOrderLandedCosts,
-  normalizeLandedStockUnitCost,
   type LandedCostLineResult,
 } from "@/lib/purchasing/landed-cost";
 import { groupPurchaseOrderByResolvedSupplier } from "@/lib/purchasing/resolved-supplier-groups";
@@ -48,15 +37,6 @@ import {
 } from "@/components/editable-lines";
 import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
-import {
-  Combobox,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxSeparator,
-} from "@/components/ui/combobox";
 import {
   Dialog,
   DialogContent,
@@ -82,17 +62,6 @@ import {
   underlineControlClass,
 } from "@/components/card-page/form-cell";
 import { CardField } from "@/components/card-page/card-field";
-import {
-  PO_LINE_TOTAL_TOOLTIP,
-  PURCHASE_ADDITIONAL_COST_TYPE_TOOLTIP,
-  PURCHASE_COST_AMOUNT_TOOLTIP,
-  PURCHASE_COST_DISTRIBUTION_TOOLTIP,
-  PURCHASE_COST_REFERENCE_TOOLTIP,
-  PURCHASE_MATERIAL_TOOLTIP,
-  PO_ORDERED_QTY_TOOLTIP,
-  PURCHASE_UNIT_COST_TOOLTIP,
-  PURCHASE_UNIT_TOOLTIP,
-} from "@/lib/tooltip-copy";
 import type {
   PurchaseOrderAccountingGroupState,
   PurchaseOrderDetail,
@@ -117,613 +86,56 @@ import {
   purchaseOrderDefaultDraft,
   purchaseOrderEditDataToDraft,
   usePurchaseOrderDraftController,
-  type PurchaseOrderAdditionalCostDraftRow,
   type PurchaseOrderDraft,
   type PurchaseOrderFormValues,
-  type PurchaseOrderLineDraftRow,
 } from "./use-purchase-order-draft-controller";
 import styles from "@/components/card-page/card-page.module.css";
 import { ApiJsonError, apiJson } from "@/lib/client/api";
 import { useApiMutation } from "@/lib/client/use-api-mutation";
 import { queryKeys } from "@/lib/client/query-keys";
 
-type ApiError = {
-  error?: string;
-  errors?: Record<string, string[]>;
-};
-
-type FieldErrorState = Record<string, unknown>;
-type FieldErrorShape = { message: string };
-
-type XeroAccountOption = {
-  code: string;
-  name: string;
-  type: string | null;
-  class: string | null;
-};
-
-type PurchaseOrderFormAttachment = {
-  id: string;
-  filename: string;
-  contentType: string;
-  sizeBytes: number;
-  uploadedByName: string | null;
-  createdAt: Date | string;
-  syncStatus: "synced" | "failed" | null;
-  syncError: string | null;
-  syncedAt: Date | string | null;
-};
-
-export type XeroBillSetupStatus =
-  | "not_connected"
-  | "provider_conflict"
-  | "ready";
-
-const ACCOUNTING_NOT_CONNECTED_MESSAGE =
-  "Connect accounting software before creating supplier bills.";
-const ADD_DELIVERY_ADDRESS_VALUE = "__add_delivery_address__";
-const EDIT_DELIVERY_ADDRESS_VALUE = "__edit_delivery_address__";
-const EMPTY_DELIVERY_ADDRESS = {
-  shipAddressEntryId: null,
-  shipContactName: null,
-  shipContactPhone: null,
-  shipLine1: null,
-  shipLine2: null,
-  shipCity: null,
-  shipRegion: null,
-  shipPostcode: null,
-  shipCountry: null,
-  shipDeliveryInstructions: null,
-};
-const LAST_SUPPLIER_BY_MATERIAL_STORAGE_KEY =
-  "purchasing.purchaseOrder.lastSupplierByMaterial";
-const LEGACY_LAST_SUPPLIER_BY_MATERIAL_STORAGE_KEY =
-  "purchasing.purchaseOrder.lastCarrierByMaterial";
-
-const ADDITIONAL_COST_TYPE_LABELS: Record<
-  PurchaseOrderAdditionalCostType,
-  string
-> = {
-  shipping: "Shipping",
-  customs: "Customs",
-  other: "Other",
-};
-
-const ADDITIONAL_COST_DISTRIBUTION_LABELS: Record<
-  PurchaseOrderAdditionalCostDistributionMethod,
-  string
-> = {
-  by_value: "By value",
-  not_distributed: "Not distributed",
-};
-
-const blankPurchaseOrderLine = {
-  itemId: "",
-  quantityOrdered: null,
-  unitCost: null,
-  taxRateId: null,
-  accountingPurchaseAccountCode: null,
-  ...EMPTY_DELIVERY_ADDRESS,
-};
-
-const blankPurchaseOrderAdditionalCost = {
-  costType: "shipping" as const,
-  reference: null,
-  supplierId: null,
-  distributionMethod: "by_value" as const,
-  accountingPurchaseAccountCode: null,
-  amount: null,
-};
-
-type PurchaseOrderAdditionalCostPayloadRow = NonNullable<
-  PurchaseOrderFormValues["additionalCosts"]
->[number];
-type PurchaseOrderAdditionalCostGridRow = PurchaseOrderAdditionalCostDraftRow;
-type PurchaseOrderAdditionalCostColumnKey =
-  keyof PurchaseOrderAdditionalCostPayloadRow;
-type PurchaseOrderLinePayloadRow = PurchaseOrderFormValues["lines"][number];
-type PurchaseOrderLineGridRow = PurchaseOrderLineDraftRow;
-type PurchaseOrderLineColumnKey =
-  | "itemId"
-  | "quantityOrdered"
-  | "unitCost";
-
-function isBlankPurchaseOrderLine(
-  line: PurchaseOrderFormValues["lines"][number] | undefined,
-) {
-  const itemId = line?.itemId?.trim() ?? "";
-  const quantityOrdered = line?.quantityOrdered?.trim() ?? "";
-  const unitCost = line?.unitCost?.trim() ?? "";
-  return itemId === "" && quantityOrdered === "" && unitCost === "";
-}
-
-function createPurchaseOrderLineRow(
-  values?: Partial<PurchaseOrderLinePayloadRow>,
-): PurchaseOrderLineGridRow {
-  return {
-    ...blankPurchaseOrderLine,
-    ...values,
-    id: "id" in (values ?? {}) ? ((values as PurchaseOrderLineGridRow).id ?? null) : null,
-    itemId: values?.itemId ?? "",
-    clientRowId:
-      "clientRowId" in (values ?? {})
-        ? ((values as PurchaseOrderLineGridRow).clientRowId ?? crypto.randomUUID())
-        : crypto.randomUUID(),
-  };
-}
-
-function isBlankPurchaseOrderAdditionalCost(
-  cost:
-    | NonNullable<PurchaseOrderFormValues["additionalCosts"]>[number]
-    | undefined,
-) {
-  const reference = cost?.reference?.trim() ?? "";
-  const amount = cost?.amount?.trim() ?? "";
-  return (
-    (cost?.costType == null || cost.costType === "shipping") &&
-    (cost?.distributionMethod == null ||
-      cost.distributionMethod === "by_value") &&
-    reference === "" &&
-    amount === ""
-  );
-}
-
-function createPurchaseOrderAdditionalCostRow(
-  values?: Partial<PurchaseOrderAdditionalCostPayloadRow>,
-): PurchaseOrderAdditionalCostGridRow {
-  return {
-    clientRowId:
-      "clientRowId" in (values ?? {})
-        ? ((values as PurchaseOrderAdditionalCostGridRow).clientRowId ??
-          crypto.randomUUID())
-        : crypto.randomUUID(),
-    id:
-      "id" in (values ?? {})
-        ? ((values as PurchaseOrderAdditionalCostGridRow).id ?? null)
-        : null,
-    costType: values?.costType ?? blankPurchaseOrderAdditionalCost.costType,
-    reference: values?.reference ?? blankPurchaseOrderAdditionalCost.reference,
-    supplierId:
-      values?.supplierId ??
-      blankPurchaseOrderAdditionalCost.supplierId,
-    distributionMethod:
-      values?.distributionMethod ??
-      blankPurchaseOrderAdditionalCost.distributionMethod,
-    accountingPurchaseAccountCode:
-      values?.accountingPurchaseAccountCode ??
-      blankPurchaseOrderAdditionalCost.accountingPurchaseAccountCode,
-    amount: values?.amount ?? blankPurchaseOrderAdditionalCost.amount,
-  };
-}
-
-function normalizeGridText(value: unknown) {
-  if (value == null) return "";
-  return String(value).trim();
-}
-
-function normalizeNullableGridText(value: unknown) {
-  const text = normalizeGridText(value);
-  return text === "" ? null : text;
-}
-
-function validateNonNegativeMoneyCell(value: unknown, message: string) {
-  const text = normalizeGridText(value);
-  if (text === "") return [message];
-  const parsed = Number(text);
-  return Number.isFinite(parsed) && parsed >= 0 ? null : [message];
-}
-
-function getPurchaseOrderAdditionalCostCellError(
-  error: unknown,
-  rowIndex: number,
-  key: PurchaseOrderAdditionalCostColumnKey,
-) {
-  if (!error || typeof error !== "object") return null;
-  const rowError = (error as Record<string, unknown>)[rowIndex];
-  if (!rowError || typeof rowError !== "object") return null;
-  const cellError = (rowError as Record<string, unknown>)[key];
-  if (!cellError || typeof cellError !== "object") return null;
-  return "message" in cellError && typeof cellError.message === "string"
-    ? cellError.message
-    : null;
-}
-
-function getPurchaseOrderLineCellError(
-  error: unknown,
-  rowIndex: number,
-  key: PurchaseOrderLineColumnKey,
-) {
-  if (!error || typeof error !== "object") return null;
-  const rowError = (error as Record<string, unknown>)[rowIndex];
-  if (!rowError || typeof rowError !== "object") return null;
-  const cellError = (rowError as Record<string, unknown>)[key];
-  if (!cellError || typeof cellError !== "object") return null;
-  return "message" in cellError && typeof cellError.message === "string"
-    ? cellError.message
-    : null;
-}
-
-function parseNonNegative(value: string | null | undefined) {
-  if (value == null || value.trim() === "") return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-}
-
-function lineTotalLabel(
-  quantityOrdered: string | null | undefined,
-  unitCost: string | null | undefined,
-  taxRateId: string | null | undefined,
-  taxRateMap: Map<string, PurchaseOrderTaxRateOption>,
-) {
-  const subtotal = lineTotalBeforeTax(quantityOrdered, unitCost);
-  if (subtotal == null) return "\u2014";
-  const taxRate = taxRateId ? taxRateMap.get(taxRateId) : null;
-  const taxAmount = subtotal * (Number(taxRate?.ratePercent ?? 0) / 100);
-  return formatPrice((subtotal + taxAmount).toFixed(4)) ?? "\u2014";
-}
-
-function lineTotalBeforeTax(
-  quantityOrdered: string | null | undefined,
-  unitCost: string | null | undefined,
-) {
-  const quantity = parsePositive(quantityOrdered);
-  const cost = parseNonNegative(unitCost);
-  if (quantity == null || cost == null) return null;
-  return quantity * cost;
-}
-
-function todayIsoDate() {
-  const today = new Date();
-  const month = String(today.getMonth() + 1).padStart(2, "0");
-  const day = String(today.getDate()).padStart(2, "0");
-  return `${today.getFullYear()}-${month}-${day}`;
-}
-
-type DeliveryAddressFields = {
-  shipAddressEntryId?: string | null;
-  shipContactName?: string | null;
-  shipContactPhone?: string | null;
-  shipLine1?: string | null;
-  shipLine2?: string | null;
-  shipCity?: string | null;
-  shipRegion?: string | null;
-  shipPostcode?: string | null;
-  shipCountry?: string | null;
-  shipDeliveryInstructions?: string | null;
-};
-
-type DeliveryAddressOption = Required<DeliveryAddressFields> & {
-  id: string;
-  label: string;
-  addressEntryId: string | null;
-  notes: string | null;
-};
-
-type AddressEntry = {
-  id: string;
-  label: string;
-  contactName: string | null;
-  contactPhone: string | null;
-  line1: string | null;
-  line2: string | null;
-  city: string | null;
-  region: string | null;
-  postcode: string | null;
-  country: string | null;
-  deliveryInstructions: string | null;
-  notes: string | null;
-};
-
-type AddressDialogValues = {
-  label: string;
-  contactName: string | null;
-  contactPhone: string | null;
-  line1: string | null;
-  line2: string | null;
-  city: string | null;
-  region: string | null;
-  postcode: string | null;
-  country: string | null;
-  deliveryInstructions: string | null;
-  notes: string | null;
-};
-
-type AdditionalCostSupplierDialogValues = {
-  name: string;
-  contactName: string | null;
-  email: string | null;
-};
-
-const ADDRESS_DIALOG_FIELD_NAMES = {
-  line1: "line1",
-  line2: "line2",
-  city: "city",
-  region: "region",
-  postcode: "postcode",
-  country: "country",
-} as const;
-
-const EMPTY_ADDRESS_DIALOG_VALUES: AddressDialogValues = {
-  label: "",
-  contactName: null,
-  contactPhone: null,
-  line1: null,
-  line2: null,
-  city: null,
-  region: null,
-  postcode: null,
-  country: null,
-  deliveryInstructions: null,
-  notes: null,
-};
-
-const EMPTY_ADDITIONAL_COST_SUPPLIER_DIALOG_VALUES: AdditionalCostSupplierDialogValues = {
-  name: "",
-  contactName: null,
-  email: null,
-};
-
-function normalizeDeliveryAddress(
-  address: DeliveryAddressFields | undefined,
-): Required<DeliveryAddressFields> {
-  const normalized = normalizeAddressFields({
-    line1: address?.shipLine1,
-    line2: address?.shipLine2,
-    city: address?.shipCity,
-    region: address?.shipRegion,
-    postcode: address?.shipPostcode,
-    country: address?.shipCountry,
-  });
-
-  return {
-    shipAddressEntryId: address?.shipAddressEntryId ?? null,
-    shipContactName: address?.shipContactName?.trim() || null,
-    shipContactPhone: address?.shipContactPhone?.trim() || null,
-    shipLine1: normalized.line1,
-    shipLine2: normalized.line2,
-    shipCity: normalized.city,
-    shipRegion: normalized.region,
-    shipPostcode: normalized.postcode,
-    shipCountry: normalized.country,
-    shipDeliveryInstructions: address?.shipDeliveryInstructions?.trim() || null,
-  };
-}
-
-function deliveryAddressKey(address: DeliveryAddressFields | undefined) {
-  const normalized = normalizeDeliveryAddress(address);
-  if (normalized.shipAddressEntryId)
-    return `address:${normalized.shipAddressEntryId}`;
-  return deliveryAddressContentKey(normalized);
-}
-
-function deliveryAddressContentKey(address: DeliveryAddressFields | undefined) {
-  const normalized = normalizeDeliveryAddress(address);
-  return [
-    normalized.shipLine1,
-    normalized.shipLine2,
-    normalized.shipCity,
-    normalized.shipRegion,
-    normalized.shipPostcode,
-    normalized.shipCountry,
-  ]
-    .map((part) => part ?? "")
-    .join("\u001f")
-    .replace(/^\u001f+|\u001f+$/g, "");
-}
-
-function deliveryAddressLabel(address: DeliveryAddressFields) {
-  const lines = formatAddressLines({
-    line1: address.shipLine1,
-    line2: address.shipLine2,
-    city: address.shipCity,
-    region: address.shipRegion,
-    postcode: address.shipPostcode,
-    country: address.shipCountry,
-  });
-  return lines.join(", ");
-}
-
-function makeDeliveryAddressOption(
-  address: DeliveryAddressFields | undefined,
-  label?: string | null,
-  notes?: string | null,
-): DeliveryAddressOption | null {
-  const normalized = normalizeDeliveryAddress(address);
-  const id = deliveryAddressKey(normalized);
-  if (id === "") return null;
-
-  return {
-    ...normalized,
-    id,
-    addressEntryId: normalized.shipAddressEntryId,
-    label: label?.trim() || deliveryAddressLabel(normalized),
-    notes: notes ?? null,
-  };
-}
-
-function addressEntryToOption(
-  entry: AddressEntry,
-): DeliveryAddressOption | null {
-  return makeDeliveryAddressOption(
-    {
-      shipAddressEntryId: entry.id,
-      shipContactName: entry.contactName,
-      shipContactPhone: entry.contactPhone,
-      shipLine1: entry.line1,
-      shipLine2: entry.line2,
-      shipCity: entry.city,
-      shipRegion: entry.region,
-      shipPostcode: entry.postcode,
-      shipCountry: entry.country,
-      shipDeliveryInstructions: entry.deliveryInstructions,
-    },
-    entry.label,
-    entry.notes,
-  );
-}
-
-function collectDeliveryAddressOptions(values: PurchaseOrderFormValues) {
-  const options = new Map<string, DeliveryAddressOption>();
-  const candidates: DeliveryAddressFields[] = [values, ...(values.lines ?? [])];
-
-  for (const candidate of candidates) {
-    const option = makeDeliveryAddressOption(candidate);
-    if (option) options.set(option.id, option);
-  }
-
-  return [...options.values()];
-}
-
-function deliveryInfoNote(instructions: string) {
-  const value = instructions.trim();
-  if (!value) return null;
-  if (/^delivery info:/i.test(value)) return value;
-  return `Delivery info:\n${value}`;
-}
-
-function PurchaseMaterialCell({
-  data,
-  materialMap,
-}: ICellRendererParams<PurchaseOrderLineGridRow> & {
-  materialMap: Map<string, PurchaseOrderMaterialOption>;
-}) {
-  if (!data?.itemId) {
-    return <span className="text-[var(--color-ink-faint)]">Search items...</span>;
-  }
-
-  return (
-    <span className="block truncate">
-      {materialMap.get(data.itemId)?.name ?? data.itemId}
-    </span>
-  );
-}
-
-function PurchaseUnitCell({
-  data,
-  materialMap,
-}: ICellRendererParams<PurchaseOrderLineGridRow> & {
-  materialMap: Map<string, PurchaseOrderMaterialOption>;
-}) {
-  const material = data?.itemId ? materialMap.get(data.itemId) : undefined;
-
-  return (
-    <span className="text-[var(--color-ink-faint)]">
-      {material?.purchaseUnitName ?? material?.stockingUnitName ?? "\u2014"}
-    </span>
-  );
-}
-
-function PurchaseLineTotalCell({
-  data,
-  taxRateMap,
-}: ICellRendererParams<PurchaseOrderLineGridRow> & {
-  taxRateMap: Map<string, PurchaseOrderTaxRateOption>;
-}) {
-  return (
-    <span className="font-medium">
-      {lineTotalLabel(
-        data?.quantityOrdered,
-        data?.unitCost,
-        data?.taxRateId,
-        taxRateMap,
-      )}
-    </span>
-  );
-}
-
-function PurchaseLandedCostCell({
-  data,
-  materialMap,
-  landedCostByRowId,
-}: ICellRendererParams<PurchaseOrderLineGridRow> & {
-  materialMap: Map<string, PurchaseOrderMaterialOption>;
-  landedCostByRowId: Map<string, LandedCostLineResult>;
-}) {
-  const result = data?.clientRowId
-    ? landedCostByRowId.get(data.clientRowId)
-    : null;
-  const unitCost = normalizeLandedStockUnitCost(result?.landedStockUnitCost ?? null);
-  const material = data?.itemId ? materialMap.get(data.itemId) : undefined;
-
-  if (!unitCost) {
-    return <span className="text-[var(--color-ink-faint)]">—</span>;
-  }
-
-  return (
-    <span className="block truncate font-medium">
-      {formatPrice(unitCost) ?? "$0.00"}
-      <span className="text-[var(--color-ink-faint)]">
-        {" / "}
-        {material?.stockingUnitName ?? "unit"}
-      </span>
-    </span>
-  );
-}
-
-function setFieldErrorPath(
-  target: FieldErrorState,
-  path: Array<string | number>,
-  message: string,
-) {
-  let current: Record<string, unknown> = target;
-  path.forEach((part, index) => {
-    const key = String(part);
-    if (index === path.length - 1) {
-      current[key] = { message } satisfies FieldErrorShape;
-      return;
-    }
-    const next = current[key];
-    if (!next || typeof next !== "object") {
-      current[key] = {};
-    }
-    current = current[key] as Record<string, unknown>;
-  });
-}
-
-function purchaseOrderValidationErrors(values: PurchaseOrderFormValues) {
-  const parsed = insertPurchaseOrderSchema.safeParse(values);
-  if (parsed.success) return null;
-
-  const errors: FieldErrorState = {};
-  parsed.error.issues.forEach((issue) => {
-    setFieldErrorPath(
-      errors,
-      issue.path.filter((part): part is string | number => typeof part !== "symbol"),
-      issue.message,
-    );
-  });
-  return errors;
-}
-
-function purchaseOrderApiFieldErrors(error: ApiError) {
-  if (!error.errors) return {};
-  const errors: FieldErrorState = {};
-  Object.entries(error.errors).forEach(([field, messages]) => {
-    setFieldErrorPath(errors, field.split("."), messages[0] ?? "Invalid value");
-  });
-  return errors;
-}
-
-function fieldErrorMessage(error: unknown) {
-  return error &&
-    typeof error === "object" &&
-    "message" in error &&
-    typeof error.message === "string"
-    ? error.message
-    : null;
-}
-
-function firstFieldErrorMessage(errors: FieldErrorState): string | null {
-  for (const value of Object.values(errors)) {
-    const message = fieldErrorMessage(value);
-    if (message) return message;
-    if (value && typeof value === "object") {
-      const nested = firstFieldErrorMessage(value as FieldErrorState);
-      if (nested) return nested;
-    }
-  }
-  return null;
-}
+import {
+  buildPurchaseOrderAdditionalCostColumns,
+  buildPurchaseOrderLineColumns,
+  DeliveryAddressInput,
+} from "./purchase-order-card-grids";
+import {
+  ACCOUNTING_NOT_CONNECTED_MESSAGE,
+  ADDRESS_DIALOG_FIELD_NAMES,
+  EMPTY_ADDITIONAL_COST_SUPPLIER_DIALOG_VALUES,
+  EMPTY_ADDRESS_DIALOG_VALUES,
+  EMPTY_DELIVERY_ADDRESS,
+  LAST_SUPPLIER_BY_MATERIAL_STORAGE_KEY,
+  LEGACY_LAST_SUPPLIER_BY_MATERIAL_STORAGE_KEY,
+  addressEntryToOption,
+  collectDeliveryAddressOptions,
+  createPurchaseOrderAdditionalCostRow,
+  createPurchaseOrderLineRow,
+  deliveryInfoNote,
+  fieldErrorMessage,
+  firstFieldErrorMessage,
+  isBlankPurchaseOrderAdditionalCost,
+  isBlankPurchaseOrderLine,
+  lineTotalBeforeTax,
+  normalizeDeliveryAddress,
+  parseNonNegative,
+  purchaseOrderApiFieldErrors,
+  purchaseOrderValidationErrors,
+  todayIsoDate,
+  type AdditionalCostSupplierDialogValues,
+  type AddressDialogValues,
+  type AddressEntry,
+  type ApiError,
+  type DeliveryAddressFields,
+  type DeliveryAddressOption,
+  type FieldErrorState,
+  type PurchaseOrderAdditionalCostGridRow,
+  type PurchaseOrderLineGridRow,
+  type XeroAccountOption,
+  type PurchaseOrderFormAttachment,
+  type XeroBillSetupStatus,
+} from "./purchase-order-card-shared";
+export type { XeroBillSetupStatus } from "./purchase-order-card-shared";
 
 export function PurchaseOrderCard({
   suppliers,
@@ -1139,255 +551,33 @@ export function PurchaseOrderCard({
       setAdditionalCostSupplierDialogOpen(true);
     });
   }, [additionalCostSupplierForm]);
-  const lineColumns = useMemo<LineField<PurchaseOrderLineGridRow>[]>(() => {
-    const nonBlankRows = lineGridRows.filter(
-      (row) => !isBlankPurchaseOrderLine(row),
-    );
-    const rowErrorIndex = (row: PurchaseOrderLineGridRow) =>
-      nonBlankRows.findIndex(
-        (current) => current.clientRowId === row.clientRowId,
-      );
-    const hasCellError =
-      (key: PurchaseOrderLineColumnKey) =>
-      (params: CellClassParams<PurchaseOrderLineGridRow>) => {
-        if (!params.data) return false;
-        const index = rowErrorIndex(params.data);
-        return index >= 0
-          ? Boolean(
-              getPurchaseOrderLineCellError(
-                fieldErrors.lines,
-                index,
-                key,
-              ),
-            )
-          : false;
-      };
-    const cellTooltip =
-      (key: PurchaseOrderLineColumnKey) =>
-      ({ data }: { data?: PurchaseOrderLineGridRow }) => {
-        if (!data) return null;
-        if (key === "itemId" && receivedMaterialIds.has(data.itemId ?? "")) {
-          return "Received material lines cannot change item. Add another line for a different material.";
-        }
-        const index = rowErrorIndex(data);
-        return index >= 0
-          ? getPurchaseOrderLineCellError(
-              fieldErrors.lines,
-              index,
-              key,
-            )
-          : null;
-      };
-
-    const columns: LineField<PurchaseOrderLineGridRow>[] = [
-      {
-        field: "itemId",
-        kind: "inventory-item",
-        headerName: "Item",
-        headerTooltip: PURCHASE_MATERIAL_TOOLTIP,
-        minWidth: 300,
-        flex: 1.6,
-        editable: (data) => !materialLinesReadOnly && !receivedMaterialIds.has(data?.itemId ?? ""),
-        options: materialOptions,
-        placeholder: "Search or create item",
-        emptyMessage: "No materials found",
-        requiredMessage: "Material is required",
-        isRowBlank: isBlankPurchaseOrderLine,
-        getDraftRow: (row: PurchaseOrderLineGridRow, itemId: string) => ({
-          ...row,
-          itemId,
-        }),
-        createLinks: [
-          {
-            href: "/inventory/material",
-            label: "Create material",
-          },
-          {
-            href: "/inventory/product",
-            label: "Create product",
-          },
-        ],
-        getSecondaryText: (current) =>
-          [current.sku, (current as PurchaseOrderMaterialOption).stockingUnitName]
-            .filter((part): part is string => part != null && part !== "")
-            .join(" · "),
-        valueSetter: (
-          params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>,
-        ) => {
-          const materialId = normalizeGridText(params.newValue);
-          params.data.itemId = materialId;
-          params.data.unitCost =
-            materialMap.get(materialId)?.defaultPurchasePrice ?? "0";
-          return true;
-        },
-        cellRenderer: (
-          params: ICellRendererParams<PurchaseOrderLineGridRow>,
-        ) => <PurchaseMaterialCell {...params} materialMap={materialMap} />,
-        cellClassRules: {
-          "erp-editable-grid-cell-error": hasCellError("itemId"),
-        },
-        tooltipValueGetter: cellTooltip("itemId"),
-      },
-      {
-        colId: "supplierItemCode",
-        kind: "display",
-        headerName: "Supplier item code",
-        minWidth: 160,
-        flex: 0.8,
-        cellRenderer: () => <span className="text-[var(--color-ink-faint)]">—</span>,
-      },
-      {
-        colId: "internalBarcode",
-        kind: "display",
-        headerName: "Internal barcode",
-        minWidth: 160,
-        flex: 0.8,
-        cellRenderer: () => <span className="text-[var(--color-ink-faint)]">—</span>,
-      },
-      {
-        field: "quantityOrdered",
-        kind: "number",
-        headerName: "Quantity",
-        headerTooltip: PO_ORDERED_QTY_TOOLTIP,
-        minWidth: 104,
-        flex: 0.5,
-        editable: !materialLinesReadOnly,
-        valueSetter: (
-          params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>,
-        ) => {
-          params.data.quantityOrdered = normalizeNullableGridText(
-            params.newValue,
-          );
-          return true;
-        },
-        getValidationErrors: (value, row) => {
-          const nextRow = {
-            ...row,
-            quantityOrdered: normalizeNullableGridText(value),
-          };
-          if (isBlankPurchaseOrderLine(nextRow)) return null;
-          const parsed = Number(nextRow.quantityOrdered);
-          return Number.isFinite(parsed) && parsed > 0
-            ? null
-            : ["Quantity must be greater than 0"];
-        },
-        rightAligned: true,
-        cellClassRules: {
-          "erp-editable-grid-cell-error": hasCellError("quantityOrdered"),
-        },
-        tooltipValueGetter: cellTooltip("quantityOrdered"),
-      },
-      {
-        colId: "purchaseUnit",
-        kind: "display",
-        headerName: "UoM",
-        headerTooltip: PURCHASE_UNIT_TOOLTIP,
-        minWidth: 96,
-        flex: 0.4,
-        cellRenderer: (
-          params: ICellRendererParams<PurchaseOrderLineGridRow>,
-        ) => <PurchaseUnitCell {...params} materialMap={materialMap} />,
-      },
-      {
-        field: "unitCost",
-        kind: "number",
-        headerName: "Price per unit",
-        headerTooltip: PURCHASE_UNIT_COST_TOOLTIP,
-        minWidth: 132,
-        flex: 0.65,
-        editable: !materialLinesReadOnly,
-        valueSetter: (
-          params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>,
-        ) => {
-          params.data.unitCost = normalizeNullableGridText(params.newValue);
-          return true;
-        },
-        getValidationErrors: (value, row) => {
-          const nextRow = {
-            ...row,
-            unitCost: normalizeNullableGridText(value),
-          };
-          if (isBlankPurchaseOrderLine(nextRow)) return null;
-          const text = nextRow.unitCost?.trim() ?? "";
-          if (!text) return ["Unit cost is required"];
-          const parsed = Number(text);
-          return Number.isFinite(parsed) && parsed >= 0
-            ? null
-            : ["Unit cost must be 0 or greater"];
-        },
-        valueFormatter: ({ value }) =>
-          value == null || value === "" ? "" : (formatPrice(value) ?? value),
-        rightAligned: true,
-        cellClassRules: {
-          "erp-editable-grid-cell-error": hasCellError("unitCost"),
-        },
-        tooltipValueGetter: cellTooltip("unitCost"),
-      },
-      {
-        colId: "lineTotal",
-        kind: "display",
-        headerName: "Total price",
-        headerTooltip: PO_LINE_TOTAL_TOOLTIP,
-        minWidth: 136,
-        flex: 0.65,
-        cellRenderer: (
-          params: ICellRendererParams<PurchaseOrderLineGridRow>,
-        ) => <PurchaseLineTotalCell {...params} taxRateMap={taxRateMap} />,
-      },
-      {
-        field: "taxRateId",
-        kind: "select",
-        headerName: "Tax",
-        minWidth: 128,
-        flex: 0.5,
-        editable: !materialLinesReadOnly,
-        values: ["", ...taxRates.map((rate) => rate.id)],
-        valueFormatter: ({ value }) => {
-          if (!value) return "0%";
-          const rate = taxRateMap.get(String(value));
-          return rate ? `${rate.ratePercent}% - ${rate.name}` : "0%";
-        },
-        valueSetter: (
-          params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>,
-        ) => {
-          params.data.taxRateId = params.newValue ? String(params.newValue) : null;
-          return true;
-        },
-      },
-    ];
-
-    if (additionalCostsExpanded) {
-      columns.push({
-        colId: "landedCost",
-        kind: "display",
-        headerName: "Landed cost",
-        minWidth: 156,
-        flex: 0.7,
-        cellRenderer: (
-          params: ICellRendererParams<PurchaseOrderLineGridRow>,
-        ) => (
-          <PurchaseLandedCostCell
-            {...params}
-            materialMap={materialMap}
-            landedCostByRowId={landedCostByRowId}
-          />
-        ),
-      });
-    }
-
-    return columns;
-  }, [
-    additionalCostsExpanded,
-    fieldErrors.lines,
-    landedCostByRowId,
-    lineGridRows,
-    materialMap,
-    materialOptions,
-    receivedMaterialIds,
-    materialLinesReadOnly,
-    taxRates,
-    taxRateMap,
-  ]);
+  const lineColumns = useMemo<LineField<PurchaseOrderLineGridRow>[]>(
+    () =>
+      buildPurchaseOrderLineColumns({
+        additionalCostsExpanded,
+        fieldErrors,
+        landedCostByRowId,
+        lineGridRows,
+        materialMap,
+        materialOptions,
+        receivedMaterialIds,
+        materialLinesReadOnly,
+        taxRates,
+        taxRateMap,
+      }),
+    [
+      additionalCostsExpanded,
+      fieldErrors,
+      landedCostByRowId,
+      lineGridRows,
+      materialMap,
+      materialOptions,
+      receivedMaterialIds,
+      materialLinesReadOnly,
+      taxRates,
+      taxRateMap,
+    ],
+  );
   const handleLineRowsChange = useCallback(
     (rows: PurchaseOrderLineGridRow[]) => {
       purchaseOrderController.replaceLines(rows);
@@ -1404,194 +594,25 @@ export function PurchaseOrderCard({
   );
   const additionalCostColumns = useMemo<
     LineField<PurchaseOrderAdditionalCostGridRow>[]
-  >(() => {
-    const nonBlankRows = additionalCostGridRows.filter(
-      (row) => !isBlankPurchaseOrderAdditionalCost(row),
-    );
-    const rowErrorIndex = (row: PurchaseOrderAdditionalCostGridRow) =>
-      nonBlankRows.findIndex(
-        (current) => current.clientRowId === row.clientRowId,
-      );
-    const hasCellError =
-      (key: PurchaseOrderAdditionalCostColumnKey) =>
-      (params: CellClassParams<PurchaseOrderAdditionalCostGridRow>) => {
-        if (!params.data) return false;
-        const index = rowErrorIndex(params.data);
-        return index >= 0
-          ? Boolean(
-              getPurchaseOrderAdditionalCostCellError(
-                fieldErrors.additionalCosts,
-                index,
-                key,
-              ),
-            )
-          : false;
-      };
-    const cellTooltip =
-      (key: PurchaseOrderAdditionalCostColumnKey) =>
-      ({ data }: { data?: PurchaseOrderAdditionalCostGridRow }) => {
-        if (!data) return null;
-        const index = rowErrorIndex(data);
-        return index >= 0
-          ? getPurchaseOrderAdditionalCostCellError(
-              fieldErrors.additionalCosts,
-              index,
-              key,
-            )
-          : null;
-      };
-
-    return [
-      {
-        field: "costType",
-        kind: "select",
-        headerName: "Cost",
-        headerTooltip: PURCHASE_ADDITIONAL_COST_TYPE_TOOLTIP,
-        minWidth: 128,
-        flex: 0.75,
-        editable: !additionalCostsReadOnly,
-        values: Object.keys(ADDITIONAL_COST_TYPE_LABELS),
-        valueFormatter: ({
-          value,
-        }: ValueFormatterParams<
-          PurchaseOrderAdditionalCostGridRow,
-          PurchaseOrderAdditionalCostType
-        >) => ADDITIONAL_COST_TYPE_LABELS[value ?? "shipping"],
-        valueSetter: (
-          params: ValueSetterParams<
-            PurchaseOrderAdditionalCostGridRow,
-            PurchaseOrderAdditionalCostType
-          >,
-        ) => {
-          params.data.costType = params.newValue ?? "shipping";
-          return true;
-        },
-      },
-      {
-        field: "reference",
-        kind: "text",
-        headerName: "Reference",
-        headerTooltip: PURCHASE_COST_REFERENCE_TOOLTIP,
-        minWidth: 172,
-        flex: 1.25,
-        editable: !additionalCostsReadOnly,
-        valueSetter: (
-          params: ValueSetterParams<
-            PurchaseOrderAdditionalCostGridRow,
-            string | null
-          >,
-        ) => {
-          params.data.reference = normalizeNullableGridText(params.newValue);
-          return true;
-        },
-        valueFormatter: ({ value }) => value ?? "",
-      },
-      {
-        field: "supplierId",
-        kind: "select",
-        headerName: "Supplier",
-        minWidth: 180,
-        flex: 1,
-        editable: !additionalCostsReadOnly,
-        values: ["", ...supplierOptionsSorted.map((supplier) => supplier.id)],
-        createSelectOption: {
-          label: "Create supplier...",
-          onCreate: createAdditionalCostSupplier,
-        },
-        valueFormatter: ({ value }) => {
-          if (!value) return "(PO supplier)";
-          return (
-            supplierOptionsSorted.find((supplier) => supplier.id === value)?.name ??
-            "Supplier"
-          );
-        },
-        valueSetter: (
-          params: ValueSetterParams<
-            PurchaseOrderAdditionalCostGridRow,
-            string | null
-          >,
-        ) => {
-          params.data.supplierId = params.newValue
-            ? String(params.newValue)
-            : null;
-          rememberSupplierForCurrentMaterials(params.data.supplierId);
-          return true;
-        },
-      },
-      {
-        field: "distributionMethod",
-        kind: "select",
-        headerName: "Distribution",
-        headerTooltip: PURCHASE_COST_DISTRIBUTION_TOOLTIP,
-        minWidth: 148,
-        flex: 0.8,
-        editable: !additionalCostsReadOnly,
-        values: Object.keys(ADDITIONAL_COST_DISTRIBUTION_LABELS),
-        valueFormatter: ({
-          value,
-        }: ValueFormatterParams<
-          PurchaseOrderAdditionalCostGridRow,
-          PurchaseOrderAdditionalCostDistributionMethod
-        >) => ADDITIONAL_COST_DISTRIBUTION_LABELS[value ?? "by_value"],
-        valueSetter: (
-          params: ValueSetterParams<
-            PurchaseOrderAdditionalCostGridRow,
-            PurchaseOrderAdditionalCostDistributionMethod
-          >,
-        ) => {
-          params.data.distributionMethod = params.newValue ?? "by_value";
-          return true;
-        },
-      },
-      {
-        field: "amount",
-        kind: "number",
-        headerName: "Amount",
-        headerTooltip: PURCHASE_COST_AMOUNT_TOOLTIP,
-        minWidth: 128,
-        flex: 0.65,
-        editable: !additionalCostsReadOnly,
-        valueSetter: (
-          params: ValueSetterParams<
-            PurchaseOrderAdditionalCostGridRow,
-            string | null
-          >,
-        ) => {
-          const parsed = parseNonNegative(normalizeGridText(params.newValue));
-          params.data.amount =
-            parsed == null
-              ? normalizeNullableGridText(params.newValue)
-              : normalizeMoney(parsed);
-          return true;
-        },
-        getValidationErrors: (value, row) => {
-          const nextRow = {
-            ...row,
-            amount: normalizeNullableGridText(value),
-          };
-          if (isBlankPurchaseOrderAdditionalCost(nextRow)) return null;
-          return validateNonNegativeMoneyCell(
-            value,
-            nextRow.amount ? "Amount must be 0 or greater" : "Amount is required",
-          );
-        },
-        valueFormatter: ({ value }) =>
-          value == null || value === "" ? "" : (formatPrice(value) ?? value),
-        cellClass: "num",
-        cellClassRules: {
-          "erp-editable-grid-cell-error": hasCellError("amount"),
-        },
-        tooltipValueGetter: cellTooltip("amount"),
-      },
-    ];
-  }, [
-    additionalCostGridRows,
-    fieldErrors.additionalCosts,
-    additionalCostsReadOnly,
-    createAdditionalCostSupplier,
-    rememberSupplierForCurrentMaterials,
-    supplierOptionsSorted,
-  ]);
+  >(
+    () =>
+      buildPurchaseOrderAdditionalCostColumns({
+        additionalCostGridRows,
+        fieldErrors,
+        additionalCostsReadOnly,
+        createAdditionalCostSupplier,
+        rememberSupplierForCurrentMaterials,
+        supplierOptionsSorted,
+      }),
+    [
+      additionalCostGridRows,
+      fieldErrors,
+      additionalCostsReadOnly,
+      createAdditionalCostSupplier,
+      rememberSupplierForCurrentMaterials,
+      supplierOptionsSorted,
+    ],
+  );
   const handleAdditionalCostRowsChange = useCallback(
     (
       rows: PurchaseOrderAdditionalCostGridRow[],
@@ -3068,135 +2089,3 @@ export function PurchaseOrderCard({
   );
 }
 
-function DeliveryAddressInput({
-  id,
-  label,
-  value,
-  options,
-  onChange,
-  onAddNew,
-  onEdit,
-  inputClassName,
-  labelClassName,
-  readOnly = false,
-}: {
-  id: string;
-  label?: ReactNode;
-  value: DeliveryAddressFields | undefined;
-  options: DeliveryAddressOption[];
-  onChange: (address: DeliveryAddressFields | null) => void;
-  onAddNew: () => void;
-  onEdit: (address: DeliveryAddressOption) => void;
-  inputClassName?: string;
-  labelClassName?: string;
-  readOnly?: boolean;
-}) {
-  const currentAddressId = deliveryAddressKey(value);
-  const canEditCurrent = currentAddressId !== "";
-  const optionIds = options.map((option) => option.id);
-  const optionMap = new Map(options.map((option) => [option.id, option]));
-  const optionByContent = new Map(
-    options.map((option) => [deliveryAddressContentKey(option), option]),
-  );
-  const currentContentKey = deliveryAddressContentKey(value);
-  const matchedCurrentOption =
-    optionMap.get(currentAddressId) ?? optionByContent.get(currentContentKey) ?? null;
-  const currentComboboxValue = matchedCurrentOption?.id ?? currentAddressId;
-  const items = canEditCurrent
-    ? [...optionIds, EDIT_DELIVERY_ADDRESS_VALUE, ADD_DELIVERY_ADDRESS_VALUE]
-    : [...optionIds, ADD_DELIVERY_ADDRESS_VALUE];
-  const addressLines = formatAddressLines({
-    line1: value?.shipLine1 ?? null,
-    line2: value?.shipLine2 ?? null,
-    city: value?.shipCity ?? null,
-    region: value?.shipRegion ?? null,
-    postcode: value?.shipPostcode ?? null,
-    country: value?.shipCountry ?? null,
-  });
-
-  return (
-    <Field>
-      <FieldLabel className={labelClassName ?? (label ? undefined : "sr-only")} htmlFor={id}>
-        {label ?? "Delivery Address"}
-      </FieldLabel>
-      {readOnly ? (
-        <div className={styles.readOnlyFieldValue}>
-          {addressLines.length > 0
-            ? addressLines.map((line) => <div key={line}>{line}</div>)
-            : "No delivery address set"}
-        </div>
-      ) : (
-      <Combobox
-        items={items}
-        value={currentComboboxValue}
-        onValueChange={(nextValue) => {
-          if (!nextValue) {
-            onChange(null);
-            return;
-          }
-          if (nextValue === ADD_DELIVERY_ADDRESS_VALUE) {
-            onAddNew();
-            return;
-          }
-          if (nextValue === EDIT_DELIVERY_ADDRESS_VALUE) {
-            if (matchedCurrentOption) onEdit(matchedCurrentOption);
-            return;
-          }
-
-          onChange(optionMap.get(nextValue) ?? null);
-        }}
-        itemToStringLabel={(itemId) => {
-          if (itemId === ADD_DELIVERY_ADDRESS_VALUE) return "Add new address";
-          if (itemId === EDIT_DELIVERY_ADDRESS_VALUE)
-            return "Edit selected address";
-          return optionMap.get(itemId)?.label ?? "";
-        }}
-      >
-        <ComboboxInput
-          id={id}
-          placeholder="Address"
-          showClear={currentAddressId !== ""}
-          className={inputClassName ?? "w-full min-w-0"}
-        />
-        <ComboboxContent className="w-[min(28rem,calc(100vw-2rem))] bg-[var(--color-surface)] text-[var(--color-ink)]">
-          <ComboboxEmpty>No addresses found</ComboboxEmpty>
-          <ComboboxList>
-            {(itemId: string) => {
-              if (itemId === ADD_DELIVERY_ADDRESS_VALUE) {
-                return (
-                  <ComboboxItem key={itemId} value={itemId}>
-                    Add new address
-                  </ComboboxItem>
-                );
-              }
-              if (itemId === EDIT_DELIVERY_ADDRESS_VALUE) {
-                return (
-                  <ComboboxItem key={itemId} value={itemId}>
-                    Edit selected address
-                  </ComboboxItem>
-                );
-              }
-
-              return (
-                <ComboboxItem key={itemId} value={itemId}>
-                  <span className="flex min-w-0 flex-col">
-                    <span className="truncate">
-                      {optionMap.get(itemId)?.label}
-                    </span>
-                    {optionMap.get(itemId)?.shipContactName ? (
-                      <span className="truncate text-xs text-[var(--color-ink-faint)]">
-                        {optionMap.get(itemId)?.shipContactName}
-                      </span>
-                    ) : null}
-                  </span>
-                </ComboboxItem>
-              );
-            }}
-          </ComboboxList>
-          {optionIds.length > 0 ? <ComboboxSeparator /> : null}
-        </ComboboxContent>
-      </Combobox>
-      )}
-    </Field>
-  );
-}
