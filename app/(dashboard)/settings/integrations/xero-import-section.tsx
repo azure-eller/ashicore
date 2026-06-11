@@ -7,7 +7,7 @@ import {
   ConfiguredBadge,
   type ConfiguredBadgeConfig,
 } from "@/components/configured-badge";
-import { InsetPanel } from "@/components/inset-panel";
+import { Panel } from "@/components/panel";
 import { MetricTile } from "@/components/metric-tile";
 import { SurfacePanel } from "@/components/surface-panel";
 import { Button } from "@/components/ui/button";
@@ -456,7 +456,7 @@ function PurchaseOrderImportDialog({
             </AlertDialogDescription>
           </AlertDialogHeader>
 
-          <InsetPanel className="min-h-0 overflow-hidden rounded-md">
+          <Panel className="min-h-0 overflow-hidden rounded-md">
             {previewMutation.isPending ? (
               <div className="flex items-center gap-2 text-sm text-[var(--color-ink-faint)]">
                 <Spinner />
@@ -630,7 +630,7 @@ function PurchaseOrderImportDialog({
                 </SurfacePanel>
               </div>
             ) : null}
-          </InsetPanel>
+          </Panel>
 
           {applyMutation.error ? (
             <p className="text-sm text-[var(--status-danger-ink)]">
@@ -711,7 +711,7 @@ function ImportActionDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
 
-        <InsetPanel className="min-h-24 rounded-md">
+        <Panel className="min-h-24 rounded-md">
           {previewLoading ? (
             <div className="flex items-center gap-2 text-sm text-[var(--color-ink-faint)]">
               <Spinner />
@@ -722,7 +722,7 @@ function ImportActionDialog({
           ) : preview ? (
             <ImportPreviewDetails preview={preview} />
           ) : null}
-        </InsetPanel>
+        </Panel>
 
         {actionError ? <p className="text-sm text-[var(--status-danger-ink)]">{actionError}</p> : null}
 

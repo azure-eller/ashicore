@@ -13,7 +13,7 @@ import {
   Robot01Icon,
 } from "@hugeicons/core-free-icons";
 import { DateTimeText } from "@/components/date-time-text";
-import { InsetPanel } from "@/components/inset-panel";
+import { Panel } from "@/components/panel";
 import { SurfacePanel } from "@/components/surface-panel";
 import {
   FramedTable,
@@ -156,7 +156,7 @@ function AgentTokenDialog({
           ) : null}
 
           {createdToken ? (
-            <InsetPanel tone="subtle" padding="lg">
+            <Panel tone="subtle" padding="md">
               <div className="mb-(--space-4) flex items-center justify-between gap-(--space-4)">
                 <div className="text-[length:var(--text-sm)] font-medium">
                   Token
@@ -175,7 +175,7 @@ function AgentTokenDialog({
                 This token is shown once. Store it in ChatGPT, Claude, or your
                 local agent environment before closing this dialog.
               </p>
-            </InsetPanel>
+            </Panel>
           ) : null}
         </div>
 
@@ -230,14 +230,14 @@ function ClaudeConnectDialog({
             </ol>
           </div>
 
-          <InsetPanel tone="subtle" padding="md">
+          <Panel tone="subtle" padding="sm">
             <div className="mb-(--space-2) text-[length:var(--text-xs)] font-semibold uppercase tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)]">
               Server URL
             </div>
             <code className="break-all font-mono text-[length:var(--text-xs)]">
               {serverUrl}
             </code>
-          </InsetPanel>
+          </Panel>
         </div>
 
         <DialogFooter>
@@ -293,14 +293,14 @@ function ChatGptConnectDialog({
             <li>Test the production planning action.</li>
           </ol>
 
-          <InsetPanel tone="subtle" padding="md">
+          <Panel tone="subtle" padding="sm">
             <div className="mb-(--space-2) text-[length:var(--text-xs)] font-semibold uppercase tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)]">
               OpenAPI URL
             </div>
             <code className="break-all font-mono text-[length:var(--text-xs)]">
               {openApiUrl}
             </code>
-          </InsetPanel>
+          </Panel>
         </div>
 
         <DialogFooter>

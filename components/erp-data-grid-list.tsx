@@ -11,7 +11,7 @@ import { Add01Icon, Delete02Icon, MoreVerticalIcon } from "@hugeicons/core-free-
 import { HugeiconsIcon } from "@hugeicons/react";
 import { apiJson } from "@/lib/client/api";
 import { ERPDataGrid, type ColDef } from "@/components/erp-data-grid";
-import { NoticePanel } from "@/components/notice-panel";
+import { Panel } from "@/components/panel";
 import { SelectionCountBadge } from "@/components/selection-count-badge";
 import { cn } from "@/lib/utils";
 import {
@@ -323,14 +323,14 @@ function ERPDataGridListInner<TData extends { id: string }>({
                 {deleteAction.confirmDescription(deleteCount)}
               </AlertDialogDescription>
               {deleteError ? (
-                <NoticePanel
+                <Panel
                   role="alert"
                   tone="destructive"
-                  padding="md"
+                  padding="sm"
                   className="text-[length:var(--text-sm)] text-[var(--status-danger-ink)]"
                 >
                   {deleteError}
-                </NoticePanel>
+                </Panel>
               ) : null}
             </AlertDialogHeader>
             <AlertDialogFooter>

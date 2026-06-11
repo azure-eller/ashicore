@@ -1,6 +1,6 @@
 import { Upload01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { InsetPanel } from "@/components/inset-panel";
+import { Panel } from "@/components/panel";
 import { cn } from "@/lib/utils";
 
 type FileDropzoneProps = {
@@ -19,7 +19,7 @@ export function FileDropzone({
   onFiles,
 }: FileDropzoneProps) {
   return (
-    <InsetPanel
+    <Panel
       className={cn(
         "flex items-center justify-center gap-(--space-4) border-dashed bg-[var(--color-surface-alt)] px-(--space-6) py-(--space-10) text-[length:var(--text-sm)] text-[var(--color-ink-faint)] transition-colors duration-(--duration-1) ease-(--ease-out)",
         !disabled && "hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-soft)]",
@@ -44,6 +44,6 @@ export function FileDropzone({
       >
         {label}
       </button>
-    </InsetPanel>
+    </Panel>
   );
 }

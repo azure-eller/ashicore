@@ -40,7 +40,7 @@ import type {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/empty-state";
-import { InsetPanel } from "@/components/inset-panel";
+import { Panel } from "@/components/panel";
 import {
   ListFrame,
   SelectableListFrameItem,
@@ -767,7 +767,7 @@ export function PricingScheduleForm({
                       ? `${row?.minQuantity || "0"}-${row.maxQuantity} units`
                       : `${row?.minQuantity || "0"}+ units`;
                   return (
-                    <InsetPanel
+                    <Panel
                       key={index}
                       tone="muted"
                       className="grid gap-(--space-3) p-(--space-4)"
@@ -786,7 +786,7 @@ export function PricingScheduleForm({
                         readOnly
                         aria-label={`${range} effective price`}
                       />
-                    </InsetPanel>
+                    </Panel>
                   );
                 })}
               </div>

@@ -26,7 +26,7 @@ import {
   FramedTableRow,
 } from "@/components/table-frame";
 import { ManufacturingCompletionDialog } from "@/components/manufacturing/manufacturing-completion-dialog";
-import { NoticePanel } from "@/components/notice-panel";
+import { Panel } from "@/components/panel";
 import {
   shipSalesOrder,
   SalesOrderApiError,
@@ -101,7 +101,7 @@ export function isSalesOrderStatusDisabled(order: SalesOrderStatusFields) {
 
 function NegativeStockNotice({ items }: { items: NegativeStockWarningPayload[] }) {
   return (
-    <NoticePanel className="space-y-(--space-3)">
+    <Panel tone="warning" className="space-y-(--space-3)">
       <p className="text-[length:var(--text-sm)] font-medium text-[var(--status-warning-ink)]">
         {stockWarningTitle(items[0])}
       </p>
@@ -121,7 +121,7 @@ function NegativeStockNotice({ items }: { items: NegativeStockWarningPayload[] }
           </li>
         ))}
       </ul>
-    </NoticePanel>
+    </Panel>
   );
 }
 

@@ -24,13 +24,12 @@ import {
   ConfiguredBadge,
   type ConfiguredBadgeConfig,
 } from "@/components/configured-badge";
-import { InsetPanel } from "@/components/inset-panel";
 import {
   ListFrame,
   ListFrameItem,
   SelectableListFrameItem,
 } from "@/components/list-frame";
-import { NoticePanel } from "@/components/notice-panel";
+import { Panel } from "@/components/panel";
 import { ProviderIconFrame } from "@/components/provider-icon-frame";
 import { SurfacePanel } from "@/components/surface-panel";
 import {
@@ -519,9 +518,9 @@ function PostingDefaultsSummary({
             <DefaultChip>Open POs only</DefaultChip>
         </AutomationRow>
         {showPoSyncConfigWarning ? (
-          <NoticePanel
+          <Panel
             tone="destructive"
-            padding="md"
+            padding="sm"
             className="mt-(--space-4) flex gap-(--space-4) text-[length:var(--text-xs)] text-[var(--status-danger-ink)]"
           >
             <HugeiconsIcon
@@ -533,7 +532,7 @@ function PostingDefaultsSummary({
               Purchase order auto-sync is on, but the cron secret is not configured
               in this deployment.
             </p>
-          </NoticePanel>
+          </Panel>
         ) : null}
       </div>
     </ListFrameItem>
@@ -1443,9 +1442,9 @@ function PostingDefaultsDialog({
         </FieldGroup>
 
         {canManageSalesXero ? (
-          <InsetPanel
+          <Panel
             tone="muted"
-            padding="lg"
+            padding="md"
             className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-[var(--color-ink-faint)]"
           >
             <p>{TAX_DESCRIPTIONS[taxType] ?? "Xero tax code saved as entered."}</p>
@@ -1453,7 +1452,7 @@ function PostingDefaultsDialog({
               {STATUS_DESCRIPTIONS[invoiceStatus] ??
                 "Xero export status saved as selected."}
             </p>
-          </InsetPanel>
+          </Panel>
         ) : null}
 
         <DialogFooter justify="between">
@@ -1504,7 +1503,7 @@ function DisconnectDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <NoticePanel padding="lg" className="text-[length:var(--text-sm)] text-[var(--status-warning-ink)]">
+        <Panel tone="warning" padding="lg" className="text-[length:var(--text-sm)] text-[var(--status-warning-ink)]">
           <div className="flex gap-(--space-6)">
             <HugeiconsIcon icon={Alert02Icon} className="mt-(--space-1) size-(--space-8)" strokeWidth={2} />
             <div>
@@ -1517,7 +1516,7 @@ function DisconnectDialog({
               </ul>
             </div>
           </div>
-        </NoticePanel>
+        </Panel>
 
         {error ? <FieldError>{error}</FieldError> : null}
 
@@ -1777,7 +1776,7 @@ function ExportHistoryDialog({
         </DialogHeader>
 
         {!hasHistory ? (
-          <InsetPanel tone="muted" padding="xl" className="text-center">
+          <Panel tone="muted" padding="xl" className="text-center">
             <SurfacePanel
               tone="background"
               className="mx-auto flex size-(--space-20) items-center justify-center p-0 text-[var(--color-ink-faint)]"
@@ -1790,7 +1789,7 @@ function ExportHistoryDialog({
             <p className="mx-auto mt-(--space-2) max-w-md text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
               Xero imports and sent invoices will appear here.
             </p>
-          </InsetPanel>
+          </Panel>
         ) : (
           <div className="max-h-[420px] space-y-(--space-8) overflow-auto">
             {syncEvents.length > 0 ? (

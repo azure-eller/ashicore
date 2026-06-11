@@ -15,7 +15,7 @@ import {
   type LineField,
 } from "@/components/editable-lines";
 import { InventoryItemCombobox } from "@/components/inventory-item-combobox";
-import { InsetPanel } from "@/components/inset-panel";
+import { Panel } from "@/components/panel";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -457,7 +457,7 @@ function AlternatesCell({
               {alternates.map((alternate) => {
                 const item = componentMap.get(alternate.itemId);
                 return (
-                  <InsetPanel
+                  <Panel
                     key={alternate.itemId}
                     className="flex min-w-0 items-center justify-between gap-(--space-3) px-(--space-4) py-(--space-2)"
                   >
@@ -484,7 +484,7 @@ function AlternatesCell({
                     >
                       <HugeiconsIcon icon={Cancel01Icon} aria-hidden />
                     </Button>
-                  </InsetPanel>
+                  </Panel>
                 );
               })}
             </div>

@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState } from "react";
 
-import { InsetPanel } from "@/components/inset-panel";
+import { Panel } from "@/components/panel";
 import { CardField } from "@/components/card-page/card-field";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
@@ -47,7 +47,7 @@ export function NotesField({
   return (
     <CardField label={label} htmlFor={id} hideLabel={hideLabel}>
       {readOnlyValue ? (
-        <InsetPanel
+        <Panel
           aria-label={controlLabel}
           className={cn(
             "min-h-36 whitespace-pre-wrap p-(--space-4) text-[length:var(--text-md)] leading-[var(--leading-md)]",
@@ -55,7 +55,7 @@ export function NotesField({
           )}
         >
           {normalizedValue || "-"}
-        </InsetPanel>
+        </Panel>
       ) : (
         <Textarea
           id={id}
