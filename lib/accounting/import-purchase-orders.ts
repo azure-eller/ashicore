@@ -18,7 +18,7 @@ import {
 } from "@/lib/db/schema";
 import { db } from "@/lib/db";
 import { withOrgContext, type Tx } from "@/lib/db/with-org-context";
-import { normalizeAddressFields } from "@/lib/format";
+import { normalizeAddressFields } from "@/lib/addresses";
 import {
   ACCOUNTING_PROVIDER_XERO,
   type AccountingProvider,

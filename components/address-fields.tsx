@@ -35,7 +35,7 @@ import {
   getRegionOptions,
   normalizeCountry,
   normalizeRegion,
-} from "@/lib/address-options";
+} from "@/lib/addresses";
 
 export type AddressFieldNames<Prefix extends string> = {
   line1: `${Prefix}Line1`;

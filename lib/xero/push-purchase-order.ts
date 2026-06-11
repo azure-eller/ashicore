@@ -15,7 +15,7 @@ import {
   purchaseOrders,
   suppliers,
 } from "@/lib/db/schema";
-import { formatAddress } from "@/lib/format";
+import { formatAddress } from "@/lib/addresses";
 import { withOrgContext } from "@/lib/db/with-org-context";
 import {
   ACCOUNTING_DOCUMENT_PURCHASE_ORDER,

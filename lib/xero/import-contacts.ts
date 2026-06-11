@@ -13,7 +13,7 @@ import {
 } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
 import { withOrgContext } from "@/lib/db/with-org-context";
-import { normalizeAddressFields } from "@/lib/format";
+import { normalizeAddressFields } from "@/lib/addresses";
 import { getAuthedXeroClient } from "./client";
 import { XeroError, extractXeroMessage, redactXeroError } from "./errors";
 import { upsertExternalRecordInTx } from "@/lib/integrations/external-records";

@@ -49,7 +49,6 @@ import {
   createAddressEntry,
   updateAddressEntry,
 } from "@/lib/api/clients/customers";
-import { makeUniqueAddressLabel } from "@/lib/address-label";
 import {
   createSupplier,
   deleteSupplier,
@@ -61,20 +60,19 @@ import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-
 import type { AddressEntry } from "@/lib/dal/addresses";
 import {
   addressEntryToAddressOption,
+  addressKey,
+  emptyAddressFields,
+  formatAddressInline,
+  makeUniqueAddressLabel,
+  normalizeAddressFields,
   type AddressEntryOption,
-} from "@/lib/address-entry-options";
+} from "@/lib/addresses";
 import { createAddressEntrySchema } from "@/lib/schemas/addresses";
 import {
   supplierDefaultValues,
   type InsertSupplier,
   type PatchSupplier,
 } from "@/lib/schemas/suppliers";
-import {
-  addressKey,
-  emptyAddressFields,
-  formatAddressInline,
-  normalizeAddressFields,
-} from "@/lib/format";
 import {
   PAYMENT_TERMS_TOOLTIP,
   SUPPLIER_CODE_TOOLTIP,

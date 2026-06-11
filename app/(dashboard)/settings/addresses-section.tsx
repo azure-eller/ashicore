@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/dialog";
 import { FieldError } from "@/components/ui/field";
 import { apiJson } from "@/lib/client/api";
-import { DEFAULT_COUNTRY } from "@/lib/address-options";
+import { DEFAULT_COUNTRY } from "@/lib/addresses";
 import type { AddressEntry } from "@/lib/dal/addresses";
 import { createAddressEntrySchema } from "@/lib/schemas/addresses";
 import type { z } from "zod";

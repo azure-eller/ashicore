@@ -1,6 +1,6 @@
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-import { DEFAULT_COUNTRY } from "@/lib/address-options";
+import { DEFAULT_COUNTRY } from "@/lib/addresses";
 import { salesOrders } from "@/lib/db/schema";
 import { normalizeMoney } from "@/lib/format";
 import {

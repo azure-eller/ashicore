@@ -5,7 +5,8 @@ import {
   Text,
   View,
 } from "@react-pdf/renderer";
-import { formatAddressLines, formatDate, formatPrice } from "@/lib/format";
+import { formatAddressLines } from "@/lib/addresses";
+import { formatDate, formatPrice } from "@/lib/format";
 
 const styles = StyleSheet.create({
   page: {

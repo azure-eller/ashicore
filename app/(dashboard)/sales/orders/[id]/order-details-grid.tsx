@@ -39,8 +39,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { createAddressEntry, updateAddressEntry } from "@/lib/api/clients/customers";
-import { makeUniqueAddressLabel } from "@/lib/address-label";
-import { formatAddressLines } from "@/lib/format";
+import { formatAddressLines, makeUniqueAddressLabel } from "@/lib/addresses";
 import { createAddressEntrySchema } from "@/lib/schemas/addresses";
 import type {
   CustomerOption,

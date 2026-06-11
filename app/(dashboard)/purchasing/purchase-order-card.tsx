@@ -21,12 +21,11 @@ import {
   purchaseOrderDefaultValues,
 } from "@/lib/schemas/purchase-orders";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
+import { formatAddressLines, normalizeAddressFields } from "@/lib/addresses";
 import {
   formatPrice,
   formatDate,
-  formatAddressLines,
   getFieldArrayError,
-  normalizeAddressFields,
   normalizeMoney,
   parsePositive,
 } from "@/lib/format";

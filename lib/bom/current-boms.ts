@@ -12,8 +12,8 @@ import { normalizeRecipeBasis } from "@/lib/manufacturing/consumption";
 import {
   toPlanningComponentRequirement,
   type BomComponentConstraint,
+  type PlanningComponentRequirement,
 } from "./constraints";
-import type { PlanningComponentRequirement } from "./requirements";
 
 export type BomComponentRecord = {
   id: string;

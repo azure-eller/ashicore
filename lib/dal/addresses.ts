@@ -3,50 +3,27 @@ import "server-only";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { addressEntries } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
-import { normalizeAddressFields } from "@/lib/format";
+import {
+  normalizeAddressFields,
+  type AddressEntryFields,
+} from "@/lib/addresses";
 import type { Tx } from "@/lib/db/with-org-context";
 import type {
   CreateAddressEntry,
   UpdateAddressEntry,
 } from "@/lib/schemas/addresses";
 
-export type AddressEntry = {
-  id: string;
-  label: string;
-  contactName: string | null;
-  contactPhone: string | null;
-  line1: string | null;
-  line2: string | null;
-  city: string | null;
-  region: string | null;
-  postcode: string | null;
-  country: string | null;
-  deliveryInstructions: string | null;
-  notes: string | null;
+export type AddressEntry = AddressEntryFields & {
   createdAt: Date;
   updatedAt: Date;
 };
 
 function normalizeAddressEntryInput(data: CreateAddressEntry | UpdateAddressEntry) {
-  const address = normalizeAddressFields({
-    line1: data.line1,
-    line2: data.line2,
-    city: data.city,
-    region: data.region,
-    postcode: data.postcode,
-    country: data.country,
-  });
-
   return {
     label: data.label.trim(),
     contactName: data.contactName,
     contactPhone: data.contactPhone,
-    line1: address.line1,
-    line2: address.line2,
-    city: address.city,
-    region: address.region,
-    postcode: address.postcode,
-    country: address.country,
+    ...normalizeAddressFields(data),
     deliveryInstructions: data.deliveryInstructions,
     notes: data.notes,
   };

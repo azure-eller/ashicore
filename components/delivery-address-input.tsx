@@ -16,7 +16,7 @@ import {
   formatAddressInline,
   formatAddressLines,
   normalizeAddressFields,
-} from "@/lib/format";
+} from "@/lib/addresses";
 
 export type DeliveryAddressFields = {
   shipAddressEntryId?: string | null;

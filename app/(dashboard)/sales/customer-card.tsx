@@ -110,22 +110,22 @@ import {
   updateAddressEntry,
   updateCustomerContact,
 } from "@/lib/api/clients/customers";
-import { makeUniqueAddressLabel } from "@/lib/address-label";
 import { useDraftSaveEngine } from "@/lib/hooks/use-draft-save-engine";
 import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
 import type { AddressEntry } from "@/lib/dal/addresses";
 import {
   addressEntryToAddressOption,
-  type AddressEntryOption,
-} from "@/lib/address-entry-options";
-import {
   addressKey,
   emptyAddressFields,
   formatAddressInline,
+  isAddressBlank,
+  makeUniqueAddressLabel,
+  normalizeAddressFields,
+  type AddressEntryOption,
+} from "@/lib/addresses";
+import {
   formatDate,
   formatPrice,
-  isAddressBlank,
-  normalizeAddressFields,
   toDateOnlyString,
 } from "@/lib/format";
 import { cn } from "@/lib/utils";

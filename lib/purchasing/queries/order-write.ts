@@ -1,6 +1,7 @@
 import "server-only";
 
-import { normalizeAddressFields, normalizeNumeric } from "@/lib/format";
+import { normalizeAddressFields } from "@/lib/addresses";
+import { normalizeNumeric } from "@/lib/format";
 import {
   and,
   eq,

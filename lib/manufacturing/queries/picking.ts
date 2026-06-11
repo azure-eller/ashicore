@@ -234,13 +234,7 @@ export async function pickManufacturingIngredient(
       ) {
         const requirementViolation = lotAgeConstraint
           ? evaluateLotAgeMinDaysRequirement({
-              requirementId: lotAgeConstraint.id,
-              requirement: {
-                id: lotAgeConstraint.id,
-                requirementType: lotAgeConstraint.constraintType,
-                config: lotAgeConstraint.config,
-                sortOrder: lotAgeConstraint.sortOrder,
-              },
+              constraint: lotAgeConstraint,
               requiredQuantity: remainingQuantity,
               eligibleQuantity: ageAvailability.eligible,
               nextEligibleDate: ageAvailability.nextEligibleDate,
