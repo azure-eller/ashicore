@@ -30,6 +30,7 @@ export function getSettingsGroups({
   showAddresses,
   showBilling,
   showUnits,
+  showLocations,
 }: {
   showTeam: boolean;
   showAgentAccess: boolean;
@@ -38,6 +39,7 @@ export function getSettingsGroups({
   showAddresses: boolean;
   showBilling: boolean;
   showUnits: boolean;
+  showLocations: boolean;
 }): SettingsGroup[] {
   const groups: SettingsGroup[] = [
     {
@@ -68,6 +70,9 @@ export function getSettingsGroups({
           : []),
         ...(showUnits
           ? [{ id: "units", title: "Units", href: "/settings/units", icon: RulerIcon }]
+          : []),
+        ...(showLocations
+          ? [{ id: "locations", title: "Locations", href: "/settings/locations", icon: Location01Icon }]
           : []),
       ],
     },
