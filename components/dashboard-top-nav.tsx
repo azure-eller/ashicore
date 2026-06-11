@@ -114,7 +114,6 @@ function ModuleTab({
         <HugeiconsIcon
           icon={module.icon}
           strokeWidth={2}
-          className="size-(--space-9)"
         />
         {module.title}
       </NavigationLink>
@@ -213,7 +212,6 @@ function ModuleNav({
               <HugeiconsIcon
                 icon={MoreHorizontalIcon}
                 strokeWidth={2}
-                className="size-(--space-9)"
               />
               More
             </Button>
@@ -278,7 +276,6 @@ function ModuleNav({
             <HugeiconsIcon
               icon={MoreHorizontalIcon}
               strokeWidth={2}
-              className="size-(--space-9)"
             />
             More
           </Button>
@@ -415,7 +412,6 @@ export function DashboardTopNav({
                   <HugeiconsIcon
                     icon={Search01Icon}
                     strokeWidth={2}
-                    className="size-(--space-9)"
                   />
                   <span className="max-sm:sr-only">Search</span>
                   <kbd className="max-sm:hidden rounded-(--radius-sm) border border-[var(--chrome-line)] bg-[var(--chrome-line)] px-(--space-2) py-px font-mono text-[length:var(--text-2xs)] leading-none text-[var(--chrome-fg-soft)]">
@@ -505,7 +501,7 @@ export function DashboardTopNav({
                 setAgentChatOpen(true);
               }}
             >
-              <span className="flex size-(--space-9) items-center justify-center rounded-(--radius-sm) bg-[var(--chrome-fg)] text-[var(--color-accent)]">
+              <span className="flex items-center justify-center rounded-(--radius-sm) bg-[var(--chrome-fg)] text-[var(--color-accent)]">
                 <HugeiconsIcon
                   icon={ChatSparkIcon}
                   strokeWidth={2}
@@ -526,7 +522,6 @@ export function DashboardTopNav({
                     <HugeiconsIcon
                       icon={AddCircleIcon}
                       strokeWidth={2}
-                      className="size-(--space-9)"
                     />
                     <span className="max-sm:sr-only">Create</span>
                   </Button>

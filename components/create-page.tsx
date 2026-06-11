@@ -150,7 +150,7 @@ export function CreateSidebarCard({
 type CreateCardDensity = "default" | "compact";
 
 const createCardHeaderClass: Record<CreateCardDensity, string> = {
-  default: "border-b border-[var(--color-line-soft)] bg-[var(--color-surface-sunk)] px-(--space-12) py-(--space-9)",
+  default: "border-b border-[var(--color-line-soft)] bg-[var(--color-surface-sunk)] px-(--space-12)",
   compact: "border-b border-[var(--color-line-soft)] bg-[var(--color-surface-sunk)] px-(--space-10) py-(--space-7)",
 };
 
