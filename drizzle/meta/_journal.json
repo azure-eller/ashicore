@@ -1121,6 +1121,13 @@
       "when": 1781141972766,
       "tag": "0159_abnormal_talos",
       "breakpoints": true
+    },
+    {
+      "idx": 160,
+      "version": "7",
+      "when": 1781198366170,
+      "tag": "0160_default_tax_rate_rows",
+      "breakpoints": true
     }
   ]
 }
