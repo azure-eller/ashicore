@@ -759,6 +759,144 @@ test.describe("inventory mutation kernel heartbeat", () => {
     expect(lotRows[0]?.quantity).toBe("19.0000");
   });
 
+  test("stock transfer preserves lot identity, cost, and projection truth across locations", async ({
+    db,
+  }) => {
+    const item = await createItem({
+      itemType: "material",
+      name: `Fast Transfer ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-TRANSFER-${ts}`,
+      category: `Fast Transfer ${ts}`,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      lotTrackingMode: "tracked",
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(item.status).toBe(201);
+    const itemId = item.body.id as string;
+
+    const day = 24 * 60 * 60 * 1000;
+    for (const [offset, cost] of [
+      [2, "2"],
+      [1, "3"],
+    ] as const) {
+      const seeded = await testFetch(`/api/items/${itemId}/initial-stock`, {
+        method: "POST",
+        body: JSON.stringify({
+          quantity: "10",
+          costPerUnit: cost,
+          occurredAt: new Date(ts - offset * day).toISOString(),
+          note: null,
+        }),
+      });
+      expect(seeded.ok).toBe(true);
+    }
+
+    const [defaultLocation] = await db
+      .select({ id: inventoryLocations.id })
+      .from(inventoryLocations)
+      .where(
+        and(
+          eq(inventoryLocations.organizationId, orgId),
+          eq(inventoryLocations.isDefault, true)
+        )
+      );
+    const [otherLocation] = await db
+      .insert(inventoryLocations)
+      .values({
+        organizationId: orgId,
+        name: `Fast Transfer Target ${ts}`,
+        code: `fast-transfer-${ts}`,
+        isDefault: false,
+      })
+      .returning({ id: inventoryLocations.id });
+
+    const response = await testFetch("/api/inventory/transfers", {
+      method: "POST",
+      body: JSON.stringify({
+        fromLocationId: defaultLocation.id,
+        toLocationId: otherLocation.id,
+        lines: [{ itemId, quantity: "12" }],
+      }),
+    });
+    expect(response.status).toBe(201);
+    const transferId = (await response.json()).id as string;
+
+    const events = await db
+      .select()
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.referenceType, "inventory_transfer"),
+          eq(inventoryEvents.referenceId, transferId)
+        )
+      );
+    const outs = events.filter((event) => event.eventType === "transfer_out");
+    const ins = events.filter((event) => event.eventType === "transfer_in");
+    expect(outs).toHaveLength(2);
+    expect(ins).toHaveLength(2);
+    for (const inEvent of ins) {
+      const parent = outs.find((out) => out.id === inEvent.parentEventId);
+      expect(parent).toBeTruthy();
+      expect(parent!.locationId).toBe(defaultLocation.id);
+      expect(inEvent.locationId).toBe(otherLocation.id);
+      expect(parent!.lotId).toBe(inEvent.lotId);
+      expect(parent!.quantity).toBe(inEvent.quantity);
+      expect(parent!.extendedCost).toBe(inEvent.extendedCost);
+    }
+
+    // FIFO: the older 10 @ 2.00 lot drains first, then 2 @ 3.00; the
+    // destination balance keeps each lot's identity, cost, and received age.
+    const destBalances = await db
+      .select({
+        lotId: inventoryLotBalances.lotId,
+        quantity: inventoryLotBalances.quantity,
+        unitCost: inventoryLotBalances.unitCost,
+        receivedAt: inventoryLotBalances.receivedAt,
+      })
+      .from(inventoryLotBalances)
+      .where(
+        and(
+          eq(inventoryLotBalances.itemId, itemId),
+          eq(inventoryLotBalances.locationId, otherLocation.id)
+        )
+      )
+      .orderBy(inventoryLotBalances.receivedAt);
+    expect(destBalances).toHaveLength(2);
+    expect(destBalances[0]).toMatchObject({ quantity: "10.0000", unitCost: "2.000000" });
+    expect(destBalances[1]).toMatchObject({ quantity: "2.0000", unitCost: "3.000000" });
+
+    const sourceLots = await db
+      .select({ id: lots.id, quantity: lots.quantity, receivedAt: lots.receivedAt })
+      .from(lots)
+      .where(eq(lots.itemId, itemId));
+    // Org-wide lot quantity is location-invariant: a transfer nets to zero.
+    expect(sourceLots.map((lot) => lot.quantity).sort()).toEqual([
+      "10.0000",
+      "10.0000",
+    ]);
+    const olderLot = sourceLots.find((lot) => lot.id === destBalances[0].lotId);
+    expect(destBalances[0].receivedAt.getTime()).toBe(olderLot!.receivedAt!.getTime());
+
+    const itemBalances = await db
+      .select({
+        locationId: inventoryItemBalances.locationId,
+        onHandQty: inventoryItemBalances.onHandQty,
+      })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, itemId));
+    expect(
+      itemBalances.find((row) => row.locationId === defaultLocation.id)?.onHandQty
+    ).toBe("8.0000");
+    expect(
+      itemBalances.find((row) => row.locationId === otherLocation.id)?.onHandQty
+    ).toBe("12.0000");
+  });
+
   test("lot quantity edit cancel restores the UI draft without writing stock", async ({
     page,
     db,
