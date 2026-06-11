@@ -4,11 +4,6 @@ import Link from "next/link";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  Tag01Icon,
-} from "@hugeicons/core-free-icons";
-import type { IconSvgElement } from "@hugeicons/react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/empty-state";
 import {
@@ -73,6 +68,19 @@ import type {
   CustomerLinkedSalesOrderRow,
 } from "@/lib/sales/types";
 import { SalesOrderStatusBadge } from "./status-badge";
+import {
+  accountPriorityDots,
+  accountPriorityOptions,
+  accountStateDots,
+  accountStateOptions,
+} from "./customer-meta";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { queryKeys } from "@/lib/client/query-keys";
 
 import {
@@ -105,34 +113,6 @@ type CustomerCardProps = {
 
 type OpenOrderGridRow = CustomerLinkedSalesOrderRow;
 const noCustomerCategoryValue = "__no_customer_category__";
-
-const accountStateOptions = [
-  { value: "active", label: "Active" },
-  { value: "growth", label: "Growth" },
-  { value: "at_risk", label: "At risk" },
-  { value: "former", label: "Former" },
-];
-
-const accountPriorityOptions = [
-  { value: "strategic", label: "Strategic" },
-  { value: "high", label: "High" },
-  { value: "standard", label: "Standard" },
-  { value: "low", label: "Low" },
-];
-
-const accountStateDots: Record<string, string> = {
-  active: "bg-[var(--color-success)]",
-  growth: "bg-[var(--color-accent)]",
-  at_risk: "bg-[var(--color-danger)]",
-  former: "bg-[var(--color-ink-faint)]",
-};
-
-const accountPriorityDots: Record<string, string> = {
-  strategic: "bg-[var(--color-warning)]",
-  high: "bg-[var(--color-accent)]",
-  standard: "bg-[var(--color-ink-faint)]",
-  low: "bg-[var(--color-line)]",
-};
 
 export function CustomerCard({
   initialCustomerId,
@@ -323,7 +303,7 @@ export function CustomerCard({
       <CardPageHeader
         eyebrow="Customer"
         title={display.name.trim() || "New customer"}
-        meta={
+        statusControl={
           <div className="flex flex-wrap items-center gap-(--space-2)">
             <HeaderMetaPill
               label="State"
@@ -349,19 +329,6 @@ export function CustomerCard({
                 commitCustomerPatch({
                   accountPriority:
                     accountPriority as PatchCustomer["accountPriority"],
-                })
-              }
-            />
-            <HeaderMetaPill
-              label="Category"
-              value={display.customerCategoryId ?? noCustomerCategoryValue}
-              options={categoryOptions}
-              icon={Tag01Icon}
-              disabled={readOnly}
-              onSelect={(value) =>
-                commitCustomerPatch({
-                  customerCategoryId:
-                    value === noCustomerCategoryValue ? null : value,
                 })
               }
             />
@@ -433,6 +400,31 @@ export function CustomerCard({
               <ReadOnlyFieldValue>
                 {display.createdAt ? formatDate(toDateOnlyString(display.createdAt)) : "-"}
               </ReadOnlyFieldValue>
+            </CardField>
+          </CardFormRow>
+          <CardFormRow columns="four">
+            <CardField label="Category" htmlFor="customer-category">
+              <Select
+                value={display.customerCategoryId ?? noCustomerCategoryValue}
+                disabled={readOnly}
+                onValueChange={(value) =>
+                  commitCustomerPatch({
+                    customerCategoryId:
+                      value === noCustomerCategoryValue ? null : value,
+                  })
+                }
+              >
+                <SelectTrigger id="customer-category" aria-label="Category">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {categoryOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </CardField>
           </CardFormRow>
           <CardFormRow columns="halves">
@@ -571,7 +563,6 @@ function HeaderMetaPill({
   options,
   dotClassName,
   optionDots,
-  icon,
   disabled,
   onSelect,
 }: {
@@ -580,7 +571,6 @@ function HeaderMetaPill({
   options: Array<{ value: string; label: string }>;
   dotClassName?: string;
   optionDots?: Record<string, string>;
-  icon?: IconSvgElement;
   disabled: boolean;
   onSelect: (value: string) => void;
 }) {
@@ -601,12 +591,6 @@ function HeaderMetaPill({
           </span>
           {dotClassName ? (
             <span className={cn("size-(--space-4) rounded-full", dotClassName)} />
-          ) : null}
-          {icon ? (
-            <HugeiconsIcon
-              icon={icon}
-              className="size-(--space-5) text-[var(--color-ink-faint)]"
-            />
           ) : null}
           {current?.label ?? value}
         </Button>

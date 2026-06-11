@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { shortDayLabel } from "./customer-meta";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
@@ -877,14 +878,4 @@ function relativeDayLabel(date: Date) {
   return day ? shortDayLabel(day) : "";
 }
 
-function shortDayLabel(day: string) {
-  const [year, month, date] = day.split("-").map(Number);
-  if (!year || !month || !date) return day;
-  const value = new Date(year, month - 1, date);
-  return value.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    ...(year === new Date().getFullYear() ? {} : { year: "numeric" }),
-  });
-}
 

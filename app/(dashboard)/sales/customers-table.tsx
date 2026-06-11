@@ -10,8 +10,16 @@ import { ERPDataGridList } from "@/components/erp-data-grid-list";
 import type { ColDef } from "@/components/erp-data-grid";
 import { SegmentedCountFilter } from "@/components/segmented-count-filter";
 import { apiJson } from "@/lib/client/api";
-import { formatDate } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { CUSTOMER_CATEGORY_TOOLTIP } from "@/lib/tooltip-copy";
+import {
+  accountPriorityDots,
+  accountPriorityOptions,
+  accountStateDots,
+  accountStateOptions,
+  optionLabel,
+  shortDayLabel,
+} from "./customer-meta";
 import type { CustomerRow } from "@/lib/sales/types";
 import { queryKeys } from "@/lib/client/query-keys";
 
@@ -49,12 +57,15 @@ export function CustomersTable({
       {
         field: "nextTaskTitle",
         headerName: "Next action",
-        width: 280,
-        minWidth: 200,
-        flex: 1,
+        width: 320,
+        minWidth: 220,
+        flex: 1.2,
         tooltipValueGetter: ({ data }) => data?.nextTaskTitle ?? "",
         cellRenderer: ({ data }: ICellRendererParams<CustomerRow>) => {
           if (!data?.nextTaskId || !data.nextTaskTitle) return "—";
+          const due = data.nextTaskDueDate;
+          const overdue = Boolean(due && due < today);
+          const dueToday = due === today;
           return (
             <span className="flex min-w-0 items-center gap-(--space-3)">
               <Checkbox
@@ -68,30 +79,67 @@ export function CustomersTable({
                   })
                 }
               />
-              <span className="truncate">{data.nextTaskTitle}</span>
+              <span className="min-w-0 truncate">{data.nextTaskTitle}</span>
+              {due ? (
+                <span
+                  className={cn(
+                    "shrink-0 rounded-full border px-(--space-3) font-mono text-[length:var(--text-2xs)]",
+                    overdue
+                      ? "border-transparent bg-[var(--color-danger-soft)] text-[var(--color-danger)]"
+                      : dueToday
+                        ? "border-transparent bg-[var(--color-warning-soft)] text-[var(--color-accent-ink)]"
+                        : "border-[var(--color-line)] text-[var(--color-ink-faint)]"
+                  )}
+                >
+                  {overdue
+                    ? `Overdue · ${shortDayLabel(due)}`
+                    : dueToday
+                      ? "Today"
+                      : shortDayLabel(due)}
+                </span>
+              ) : null}
             </span>
           );
         },
       },
       {
-        field: "nextTaskDueDate",
-        headerName: "Due",
+        field: "accountState",
+        headerName: "State",
         width: 130,
-        valueFormatter: ({ value }) => (value ? formatDate(value) : "—"),
+        cellRenderer: ({ value }: ICellRendererParams<CustomerRow>) => (
+          <span className="flex items-center gap-(--space-3)">
+            <span
+              className={cn(
+                "size-(--space-4) shrink-0 rounded-full",
+                accountStateDots[value as string] ?? "bg-[var(--color-line)]"
+              )}
+            />
+            {optionLabel(accountStateOptions, value as string)}
+          </span>
+        ),
+      },
+      {
+        field: "accountPriority",
+        headerName: "Priority",
+        width: 130,
+        cellRenderer: ({ value }: ICellRendererParams<CustomerRow>) => (
+          <span className="flex items-center gap-(--space-3)">
+            <span
+              className={cn(
+                "size-(--space-4) shrink-0 rounded-full",
+                accountPriorityDots[value as string] ?? "bg-[var(--color-line)]"
+              )}
+            />
+            {optionLabel(accountPriorityOptions, value as string)}
+          </span>
+        ),
       },
       {
         field: "customerCategoryName",
         headerName: "Category",
         headerTooltip: CUSTOMER_CATEGORY_TOOLTIP,
-        width: 170,
+        width: 180,
         valueFormatter: ({ value }) => value ?? "Uncategorized",
-      },
-      {
-        field: "primaryContactName",
-        headerName: "Primary contact",
-        width: 190,
-        minWidth: 150,
-        valueFormatter: ({ value }) => value ?? "—",
       },
       {
         field: "email",
@@ -111,7 +159,7 @@ export function CustomersTable({
         valueFormatter: ({ value }) => value ?? "—",
       },
     ],
-    [completeTask]
+    [completeTask, today]
   );
   const filteredRows = useMemo(
     () => filterCustomersForView(initialData, view, today),
