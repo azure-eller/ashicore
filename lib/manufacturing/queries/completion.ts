@@ -8,6 +8,7 @@ import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
 import { lockManufacturingPriorityQueueInTx } from "@/lib/manufacturing-priority-lock";
 import { beginInventoryOperationInTx, deriveInventoryIdempotencyKey, finishInventoryOperationInTx, getManufacturingIngredientDemandRowsInTx, produceManufacturedStockInTx, reconcileIngredientActualsInTx, releaseIngredientDemandForManufacturingInTx } from "@/lib/inventory/kernel";
 import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
+import { notifyManufacturingOrderCompleted } from "@/lib/notifications/manufacturing";
 import type { CompleteManufacturingOrder } from "@/lib/schemas/manufacturing-orders";
 import { buildIngredientActualsMap, completeManufacturingBatch, getPickAllocationTotalsInTx, releaseRemainingExpectedOutputInTx } from "./batches";
 import { ManufacturingError } from "./errors";
@@ -22,6 +23,7 @@ async function getManufacturingOrderCompletionTarget(id: string) {
       .select({
         id: manufacturingOrders.id,
         manufacturingMode: manufacturingOrders.manufacturingMode,
+        status: manufacturingOrders.status,
       })
       .from(manufacturingOrders)
       .where(and(eq(manufacturingOrders.id, id), isNull(manufacturingOrders.deletedAt)));
@@ -31,6 +33,22 @@ async function getManufacturingOrderCompletionTarget(id: string) {
     }
 
     return order;
+  });
+}
+
+async function getCompletedManufacturingOrderNotificationTarget(id: string) {
+  return withAuthedOrgContext(async (tx) => {
+    const [order] = await tx
+      .select({
+        organizationId: manufacturingOrders.organizationId,
+        status: manufacturingOrders.status,
+      })
+      .from(manufacturingOrders)
+      .where(and(eq(manufacturingOrders.id, id), isNull(manufacturingOrders.deletedAt)))
+      .limit(1);
+
+    if (!order || order.status !== "done") return null;
+    return { orgId: order.organizationId };
   });
 }
 
@@ -443,8 +461,24 @@ export async function completeManufacturingOrder(
   const order = await getManufacturingOrderCompletionTarget(id);
 
   if (order.manufacturingMode === "batch") {
-    return completeBatchModeManufacturingOrder(id, payload, options);
+    const completed = await completeBatchModeManufacturingOrder(id, payload, options);
+    const notifyTarget =
+      order.status === "done"
+        ? null
+        : await getCompletedManufacturingOrderNotificationTarget(id);
+    if (notifyTarget) {
+      await notifyManufacturingOrderCompleted(notifyTarget.orgId, completed.id);
+    }
+    return completed;
   }
 
-  return completeDiscreteManufacturingOrder(id, payload, options);
+  const completed = await completeDiscreteManufacturingOrder(id, payload, options);
+  const notifyTarget =
+    order.status === "done"
+      ? null
+      : await getCompletedManufacturingOrderNotificationTarget(id);
+  if (notifyTarget) {
+    await notifyManufacturingOrderCompleted(notifyTarget.orgId, completed.id);
+  }
+  return completed;
 }

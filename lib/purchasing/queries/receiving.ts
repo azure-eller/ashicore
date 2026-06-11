@@ -7,6 +7,7 @@ import { trimScale } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
 import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
+import { notifyPurchaseOrderReceived } from "@/lib/notifications/purchasing";
 import { calculatePurchaseOrderLandedCosts, normalizeLandedMoney, normalizeLandedStockUnitCost } from "@/lib/purchasing/landed-cost";
 import { calculateTaxAmount, calculateTaxedLineTotal } from "@/lib/tax/calc";
 import {
@@ -25,7 +26,10 @@ export async function receivePurchaseOrder(
   data: ReceivePurchaseOrder,
   options?: { idempotencyKey?: string },
 ) {
-  return withAuthedOrgContext(async (tx, orgId, userId) => {
+  let notifyOrgId: string | null = null;
+  let receivedNow = false;
+  const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
+    notifyOrgId = orgId;
     const replay = await beginInventoryOperationInTx<{
       id: string;
       status: PurchaseOrderStatus;
@@ -376,6 +380,13 @@ export async function receivePurchaseOrder(
       result,
     });
 
+    receivedNow = true;
     return result;
   });
+
+  if (result && notifyOrgId && receivedNow) {
+    await notifyPurchaseOrderReceived(notifyOrgId, result.id);
+  }
+
+  return result;
 }

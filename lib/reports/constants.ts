@@ -7,6 +7,8 @@ export type ReportType = (typeof REPORT_TYPES)[keyof typeof REPORT_TYPES];
 export const NOTIFICATION_TYPES = {
   DAILY_MANUFACTURING_REPORT: "daily_manufacturing_report",
   MANUFACTURING_ORDER_CREATED: "manufacturing_order_created",
+  MANUFACTURING_ORDER_COMPLETED: "manufacturing_order_completed",
+  PURCHASE_ORDER_RECEIVED: "purchase_order_received",
 } as const;
 
 export type NotificationType =
@@ -15,6 +17,7 @@ export type NotificationType =
 export const NOTIFICATION_ENTITY_TYPES = {
   REPORT_RUN: "report_run",
   MANUFACTURING_ORDER: "manufacturing_order",
+  PURCHASE_ORDER: "purchase_order",
 } as const;
 
 export type NotificationEntityType =
@@ -26,6 +29,8 @@ export type NotificationEntityType =
  */
 export const SUBSCRIBABLE_EVENT_TYPES = [
   NOTIFICATION_TYPES.MANUFACTURING_ORDER_CREATED,
+  NOTIFICATION_TYPES.MANUFACTURING_ORDER_COMPLETED,
+  NOTIFICATION_TYPES.PURCHASE_ORDER_RECEIVED,
 ] as const;
 
 export type SubscribableEventType = (typeof SUBSCRIBABLE_EVENT_TYPES)[number];
@@ -55,6 +60,12 @@ export function notificationKindFor(
   }
   if (type === NOTIFICATION_TYPES.MANUFACTURING_ORDER_CREATED) {
     return NOTIFICATION_KINDS.MFG;
+  }
+  if (type === NOTIFICATION_TYPES.MANUFACTURING_ORDER_COMPLETED) {
+    return NOTIFICATION_KINDS.MFG;
+  }
+  if (type === NOTIFICATION_TYPES.PURCHASE_ORDER_RECEIVED) {
+    return NOTIFICATION_KINDS.RECEIVE;
   }
   // Keep these keyword sets in lockstep with the Android client fallback in
   // NotificationKind.kt (notificationKind). `po[_-]` matches po_/po-/_po_ (no

@@ -483,7 +483,7 @@ test.describe("manufacturing demand and completion heartbeat", () => {
     expect(saved.plannedDate).toBe("2026-06-15");
   });
 
-  test("MO creation fans out notifications to subscribed users only", async ({
+  test("MO lifecycle fans out notifications to subscribed users only", async ({
     db,
   }) => {
     const fixture = await createBomFixture("Notif Fanout");
@@ -499,11 +499,11 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       return order.body.id as string;
     }
 
-    async function setPreference(enabled: boolean) {
+    async function setPreference(eventType: string, enabled: boolean) {
       const res = await testFetch("/api/notification-preferences", {
         method: "PUT",
         body: JSON.stringify({
-          eventType: "manufacturing_order_created",
+          eventType,
           enabled,
         }),
       });
@@ -512,7 +512,8 @@ test.describe("manufacturing demand and completion heartbeat", () => {
 
     try {
       // Not subscribed -> no rows.
-      await setPreference(false);
+      await setPreference("manufacturing_order_created", false);
+      await setPreference("manufacturing_order_completed", false);
       const silentOrderId = await createOrder();
       const silentRows = await db
         .select({ id: notifications.id })
@@ -521,7 +522,8 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       expect(silentRows).toHaveLength(0);
 
       // Subscribed with a device -> row delivered + push in outbox.
-      await setPreference(true);
+      await setPreference("manufacturing_order_created", true);
+      await setPreference("manufacturing_order_completed", true);
       const token = `fast-fanout-${ts}`;
       const deviceRes = await testFetch("/api/push-devices", {
         method: "POST",
@@ -569,9 +571,43 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       expect(payload.data.organizationId).toBeTruthy();
       expect(payload.data.title).toBeTruthy();
       expect(payload.data.body).toBeTruthy();
+
+      const complete = await completeManufacturingOrder(orderId, "3");
+      expect(complete.status).toBe(200);
+      const [completedRow] = await db
+        .select({
+          id: notifications.id,
+          deliveryStatus: notifications.deliveryStatus,
+        })
+        .from(notifications)
+        .where(
+          and(
+            eq(notifications.entityId, orderId),
+            eq(notifications.type, "manufacturing_order_completed"),
+            eq(notifications.userId, testUser.id)
+          )
+        );
+      expect(completedRow.deliveryStatus).toBe("delivered");
+
+      const afterCompleteFiles = await fs.readdir(FCM_OUTBOX_DIR);
+      const afterCompletePayloads = await Promise.all(
+        afterCompleteFiles.map((f) =>
+          fs.readFile(path.join(FCM_OUTBOX_DIR, f), "utf8").then(JSON.parse)
+        )
+      );
+      const completedPayload = afterCompletePayloads.find(
+        (p) => p.token === token && p.data?.notificationId === completedRow.id
+      );
+      expect(completedPayload).toBeDefined();
+      expect(completedPayload.data).toMatchObject({
+        type: "manufacturing_order_completed",
+        entityType: "manufacturing_order",
+        entityId: orderId,
+      });
     } finally {
       // Leave the shared test user unsubscribed for other suites.
-      await setPreference(false);
+      await setPreference("manufacturing_order_created", false);
+      await setPreference("manufacturing_order_completed", false);
     }
   });
 });

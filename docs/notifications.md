@@ -25,6 +25,16 @@ Without `FIREBASE_SERVICE_ACCOUNT_KEY` set, `sendPush()` writes a JSON file to `
 - **`notify()` fires post-commit only.** Never call it inside an `...InTx` function or transaction callback. A notification must not reference uncommitted work.
 - **`notify()` never throws.** A push failure must never fail the business mutation.
 - **Every MO creation path must call `notifyManufacturingOrderCreated()`.** Currently: `createManufacturingOrder`, `createManufacturingOrdersFromSalesOrder`, `createManufacturingOrderDraftFromPlanning`.
+- **MO done and PO receipt notifications are ledger-backed lifecycle announcements.** Emit them from the post-commit wrappers around the domain mutations that write `manufacturing_output` and `purchase_receipt` inventory ledger events, not from a polling job and not inside the inventory transaction.
+- **PO received means any successful receipt.** Partial and full receipts both emit `purchase_order_received`; the body says whether the PO is now partially or fully received.
+
+## Subscribable events
+
+| Event type | Entity type | Fires when |
+|---|---|---|
+| `manufacturing_order_created` | `manufacturing_order` | An MO is created from direct create, sales-order create, or planning. |
+| `manufacturing_order_completed` | `manufacturing_order` | An MO transitions to `done` after production output is recorded. |
+| `purchase_order_received` | `purchase_order` | Any successful PO receipt records purchase inventory. |
 
 ## `deliveryStatus` semantics
 
