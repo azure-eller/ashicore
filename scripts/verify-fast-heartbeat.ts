@@ -3,7 +3,7 @@ import path from "node:path";
 
 const FAST_DIR = path.join(process.cwd(), "test/e2e/fast");
 const REGISTRY_PATH = path.join(FAST_DIR, "FAST_TEST_SEAMS.md");
-const MAX_FAST_SPEC_FILES = 9;
+const MAX_FAST_SPEC_FILES = 10;
 
 function listFastSpecs() {
   return fs

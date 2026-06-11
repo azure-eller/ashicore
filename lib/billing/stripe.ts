@@ -9,7 +9,12 @@ import {
   updateOrgBillingState,
 } from "./dal";
 import { sendFounderAlert } from "@/lib/internal-alerts";
-import type { BillingPlan, BillingStatus } from "./types";
+import {
+  pluginsFromLookupKeys,
+  type BillingPlan,
+  type BillingPlugin,
+  type BillingStatus,
+} from "./types";
 
 const STRIPE_API_VERSION = "2026-05-27.dahlia";
 
@@ -256,6 +261,39 @@ function periodEndDate(subscription: Stripe.Subscription) {
     : null;
 }
 
+// Plugin entitlements survive past_due/unpaid (grace period — dunning handles
+// recovery); they drop only when the subscription is truly gone.
+const ENTITLED_SUBSCRIPTION_STATUSES: Stripe.Subscription.Status[] = [
+  "active",
+  "trialing",
+  "paused",
+  "past_due",
+  "unpaid",
+];
+
+function entitlementsFromSubscription(
+  subscription: Stripe.Subscription
+): BillingPlugin[] {
+  if (!ENTITLED_SUBSCRIPTION_STATUSES.includes(subscription.status)) {
+    return [];
+  }
+
+  return pluginsFromLookupKeys(
+    subscription.items.data.map((item) => item.price?.lookup_key)
+  );
+}
+
+function canReplaceCurrentSubscription(
+  currentSubscriptionId: string | null,
+  subscription: Stripe.Subscription
+) {
+  if (!currentSubscriptionId || currentSubscriptionId === subscription.id) {
+    return true;
+  }
+
+  return ENTITLED_SUBSCRIPTION_STATUSES.includes(subscription.status);
+}
+
 function stateFromSubscription(subscription: Stripe.Subscription): {
   plan: BillingPlan;
   status: BillingStatus;
@@ -342,9 +380,23 @@ export async function applySubscriptionState({
   }
 
   const state = stateFromSubscription(subscription);
+  if (!canReplaceCurrentSubscription(org.stripeSubscriptionId, subscription)) {
+    console.warn("Ignoring stale Stripe subscription state for current organization.", {
+      orgId: org.id,
+      currentSubscriptionId: org.stripeSubscriptionId,
+      eventSubscriptionId: subscription.id,
+      stripeCustomerId,
+      stripeSubscriptionStatus: subscription.status,
+    });
+    return;
+  }
+
+  const entitlements = entitlementsFromSubscription(subscription);
   await updateOrgBillingState({
     orgId: org.id,
     stripeCustomerId,
+    stripeSubscriptionId: state.status === "canceled" ? null : subscription.id,
+    entitlements,
     ...state,
   });
 
@@ -416,6 +468,8 @@ export async function syncOrgBillingFromStripe(orgId: string) {
       plan: "free",
       status: "canceled",
       stripeCustomerId: billing.stripeCustomerId,
+      stripeSubscriptionId: null,
+      entitlements: [],
     });
     return getBillingStateByOrgId(orgId);
   }
@@ -485,6 +539,8 @@ export async function handleStripeWebhook(body: string, signature: string | null
         plan: "free",
         status: "canceled",
         stripeCustomerId: null,
+        stripeSubscriptionId: null,
+        entitlements: [],
         cancelAtPeriodEnd: false,
         currentPeriodEnd: null,
       });

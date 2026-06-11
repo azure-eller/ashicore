@@ -5,6 +5,7 @@ import { formatQuantity, normalizeNumeric, normalizeMoney, parsePositive } from 
 import { customerCategories, itemFamilies, itemVariantValues, items, pricingScheduleBreaks, pricingScheduleItems, pricingSchedules, variantOptions, variantOptionValues } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
+import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
 import type { Tx } from "@/lib/db/with-org-context";
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import type { InsertPricingSchedule, ResolveSalesLinePricingInput, UpdatePricingSchedule } from "@/lib/schemas/pricing-schedules";
@@ -793,6 +794,9 @@ export async function getPricingSchedule(
 
 export async function createPricingSchedule(data: InsertPricingSchedule) {
   return withAuthedOrgContext(async (tx, orgId) => {
+    await assertFeatureAccessInTx(tx, orgId, "wholesale_pricing", {
+      route: "POST /api/pricing-schedules",
+    });
     await ensureCustomerCategoryExistsInTx(tx, data.customerCategoryId);
     await ensurePricingScheduleItemCategoryExistsInTx(
       tx,
