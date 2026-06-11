@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { getEmailSenderConfig } from "@/lib/email/config";
 import { EMAIL_OUTBOX_DIR, EMAIL_OUTBOX_MODE_FLAG } from "@/lib/email/outbox";
+import { env } from "@/lib/env";
 
 export type TransactionalEmailAttachment = {
   filename: string;
@@ -42,7 +43,7 @@ function sanitizeFileSegment(value: string) {
 }
 
 async function shouldWriteEmailOutbox() {
-  if (process.env.EMAIL_OUTBOX_ONLY === "1") {
+  if (env.EMAIL_OUTBOX_ONLY === "1") {
     return true;
   }
 

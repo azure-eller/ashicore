@@ -30,6 +30,7 @@ import { db } from "@/lib/db";
 import { invitation, member, organization, user } from "@/lib/db/schema";
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import { withOrgContext, type Tx } from "@/lib/db/with-org-context";
+import { env } from "@/lib/env";
 
 type MemberContext = {
   userId: string;
@@ -120,7 +121,7 @@ function sortInvites(rows: PendingInviteRow[]) {
 
 export function isMfaDisabledForDevOrTest(): boolean {
   return (
-    process.env.AUTH_MFA_DISABLED === "1" &&
+    env.AUTH_MFA_DISABLED === "1" &&
     (process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test")
   );
 }

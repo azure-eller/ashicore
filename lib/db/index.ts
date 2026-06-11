@@ -2,13 +2,14 @@ import type { NeonDatabase } from "drizzle-orm/neon-serverless";
 import * as Sentry from "@sentry/nextjs";
 import { recordDbConnect, recordDbQuery } from "@/lib/observability/request-timing";
 import * as schema from "./schema";
+import { env } from "@/lib/env";
 
 const dbModuleInitStartedAt = performance.now();
 const dbModuleLoadedAt = Date.now();
 
 // App role (RLS enforced, no DDL). Falls back to DATABASE_URL for migration scripts.
 const connectionString =
-  process.env.DATABASE_URL_APP || process.env.DATABASE_URL;
+  env.DATABASE_URL_APP || env.DATABASE_URL;
 
 if (!connectionString) {
   throw new Error(

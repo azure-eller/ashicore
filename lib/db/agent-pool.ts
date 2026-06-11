@@ -1,6 +1,7 @@
 import "server-only";
 
 import { attachPoolErrorHandler } from "./index";
+import { env } from "@/lib/env";
 
 /**
  * Dedicated connection pool for the agent's read-only SQL surface, authenticated
@@ -22,7 +23,7 @@ type AgentPool = {
 let cachedPool: AgentPool | null = null;
 
 function createAgentPool(): AgentPool {
-  const connectionString = process.env.DATABASE_URL_AGENT;
+  const connectionString = env.DATABASE_URL_AGENT;
   if (!connectionString) {
     throw new Error(
       "DATABASE_URL_AGENT is required for the agent query tool. In a worktree, run `pnpm db:local:setup`."

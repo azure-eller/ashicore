@@ -6,6 +6,7 @@ import path from "node:path";
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getMessaging } from "firebase-admin/messaging";
 import { captureAppError } from "@/lib/observability/sentry";
+import { env } from "@/lib/env";
 
 export const FCM_OUTBOX_DIR = path.join(process.cwd(), ".tmp", "fcm-outbox");
 
@@ -24,7 +25,7 @@ let configError: string | null = null;
 
 function getFirebaseApp(): App | null {
   if (cachedApp || configError) return cachedApp;
-  const encoded = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+  const encoded = env.FIREBASE_SERVICE_ACCOUNT_KEY;
   if (!encoded) return null;
   try {
     const serviceAccount = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));

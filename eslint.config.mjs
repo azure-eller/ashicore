@@ -2,6 +2,24 @@ import { defineConfig, globalIgnores } from "eslint/config";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
 
+// NODE_ENV, NEXT_RUNTIME, and NEXT_PUBLIC_* must stay literal — bundlers
+// inline them at build time. Everything else goes through lib/env.ts.
+const restrictedProcessEnv = [
+  {
+    selector:
+      "MemberExpression[object.object.name='process'][object.property.name='env']:not([property.name=/^(NODE_ENV|NEXT_RUNTIME|NEXT_PUBLIC_)/])",
+    message: "Use env from lib/env.ts instead of raw process.env access.",
+  },
+  {
+    // Bare process.env (aliased, destructured, spread, or passed along)
+    // would bypass the member-access restriction above.
+    selector:
+      "MemberExpression[object.name='process'][property.name='env'][parent.type!='MemberExpression']",
+    message:
+      "Do not alias or pass process.env — read named values through env from lib/env.ts.",
+  },
+];
+
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
@@ -66,6 +84,7 @@ const eslintConfig = defineConfig([
           selector: "CallExpression[callee.property.name='setQueryData'] > ArrayExpression",
           message: "Use queryKeys from lib/client/query-keys.ts instead of inline setQueryData arrays.",
         },
+        ...restrictedProcessEnv,
       ],
     },
   },
@@ -89,6 +108,20 @@ const eslintConfig = defineConfig([
           ],
         },
       ],
+      "no-restricted-syntax": ["error", ...restrictedProcessEnv],
+    },
+  },
+  {
+    files: [
+      // The env module itself reads process.env dynamically.
+      "lib/env.ts",
+      // Edge-bundled via instrumentation.ts and client-bundled respectively —
+      // both need statically analyzable process.env access.
+      "lib/observability/sentry.ts",
+      "lib/observability/browser-sentry.ts",
+    ],
+    rules: {
+      "no-restricted-syntax": "off",
     },
   },
 ]);

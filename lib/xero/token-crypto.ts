@@ -4,6 +4,7 @@ import {
   randomBytes,
 } from "node:crypto";
 import { XeroError } from "./errors";
+import { env } from "@/lib/env";
 
 const CIPHER = "aes-256-gcm";
 const ENCRYPTED_PREFIX = "enc:v1";
@@ -74,10 +75,10 @@ function parseEncryptionKey(
 }
 
 function readMultiKeyRing(): EncryptionKeyRing | null {
-  const rawMap = process.env.XERO_TOKEN_ENCRYPTION_KEYS?.trim();
+  const rawMap = env.XERO_TOKEN_ENCRYPTION_KEYS?.trim();
   if (!rawMap) return null;
 
-  const activeKeyId = process.env.XERO_TOKEN_ENCRYPTION_KEY_ID?.trim();
+  const activeKeyId = env.XERO_TOKEN_ENCRYPTION_KEY_ID?.trim();
   assertValidKeyId(activeKeyId ?? "", "XERO_TOKEN_ENCRYPTION_KEY_ID");
 
   let parsed: unknown;
@@ -117,11 +118,11 @@ function readMultiKeyRing(): EncryptionKeyRing | null {
     );
   }
 
-  const legacyRaw = process.env.XERO_TOKEN_ENCRYPTION_KEY;
+  const legacyRaw = env.XERO_TOKEN_ENCRYPTION_KEY;
   const legacyFallbackKey = legacyRaw
     ? parseEncryptionKey(
         legacyRaw,
-        process.env.XERO_TOKEN_ENCRYPTION_KEY_ID?.trim() || "default",
+        env.XERO_TOKEN_ENCRYPTION_KEY_ID?.trim() || "default",
         "XERO_TOKEN_ENCRYPTION_KEY"
       )
     : null;
@@ -130,9 +131,9 @@ function readMultiKeyRing(): EncryptionKeyRing | null {
 }
 
 function readSingleKeyRing(): EncryptionKeyRing {
-  const keyId = process.env.XERO_TOKEN_ENCRYPTION_KEY_ID?.trim() || "default";
+  const keyId = env.XERO_TOKEN_ENCRYPTION_KEY_ID?.trim() || "default";
   const activeKey = parseEncryptionKey(
-    process.env.XERO_TOKEN_ENCRYPTION_KEY,
+    env.XERO_TOKEN_ENCRYPTION_KEY,
     keyId,
     "XERO_TOKEN_ENCRYPTION_KEY"
   );

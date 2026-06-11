@@ -15,6 +15,7 @@ import {
   type BillingPlugin,
   type BillingStatus,
 } from "./types";
+import { env } from "@/lib/env";
 
 const STRIPE_API_VERSION = "2026-05-27.dahlia";
 
@@ -55,9 +56,9 @@ export function getBillingConfig(options?: {
   requireWebhookSecret?: boolean;
   requireCorePriceId?: boolean;
 }): BillingConfig {
-  const secretKey = process.env.STRIPE_SECRET_KEY?.trim();
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET?.trim() || null;
-  const corePriceId = process.env.STRIPE_CORE_PRICE_ID?.trim() || null;
+  const secretKey = env.STRIPE_SECRET_KEY?.trim();
+  const webhookSecret = env.STRIPE_WEBHOOK_SECRET?.trim() || null;
+  const corePriceId = env.STRIPE_CORE_PRICE_ID?.trim() || null;
 
   if (
     !secretKey ||
@@ -81,12 +82,12 @@ export function getStripeClient(config = getBillingConfig()) {
 }
 
 export function isStripeConfigured() {
-  return Boolean(process.env.STRIPE_SECRET_KEY?.trim());
+  return Boolean(env.STRIPE_SECRET_KEY?.trim());
 }
 
 export function isCheckoutConfigured() {
   return Boolean(
-    process.env.STRIPE_SECRET_KEY?.trim() && process.env.STRIPE_CORE_PRICE_ID?.trim()
+    env.STRIPE_SECRET_KEY?.trim() && env.STRIPE_CORE_PRICE_ID?.trim()
   );
 }
 
@@ -95,7 +96,7 @@ function appUrl(path: string) {
 }
 
 function isLiveModeExpected() {
-  return process.env.STRIPE_LIVE_MODE === "1";
+  return env.STRIPE_LIVE_MODE === "1";
 }
 
 export function assertStripeMode(livemode: boolean) {

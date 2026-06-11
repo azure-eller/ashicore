@@ -14,6 +14,7 @@ import {
   onboardingModelPackageSchema,
   onboardingModelProvenanceSchema,
 } from "./agent-contract";
+import { env } from "@/lib/env";
 
 export type ImportExtractionFile = {
   id: string;
@@ -48,7 +49,7 @@ function textFromBytes(file: ImportExtractionFile) {
 }
 
 function assertExtractorConfigured() {
-  if (!process.env.OPENAI_API_KEY) {
+  if (!env.OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY is required for onboarding import extraction.");
   }
 }
@@ -692,13 +693,13 @@ export async function extractImportPackage(
 ): Promise<PartialImportPackage> {
   assertExtractorConfigured();
 
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
   let correctionErrors: string[] = [];
   let previousPackage: unknown = null;
 
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const response = await client.responses.parse({
-      model: process.env.OPENAI_IMPORT_MODEL ?? "gpt-5.4-mini",
+      model: env.OPENAI_IMPORT_MODEL ?? "gpt-5.4-mini",
       input: [
         {
           role: "user",

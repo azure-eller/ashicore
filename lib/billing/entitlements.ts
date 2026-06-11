@@ -12,6 +12,7 @@ import {
   type BillingSkuEntitlement,
   type BillingStatus,
 } from "./types";
+import { env } from "@/lib/env";
 
 type BillingEntitlementErrorExtra = {
   billing: {
@@ -43,7 +44,7 @@ export class BillingEntitlementError extends DomainError<BillingEntitlementError
 }
 
 function billingEnforcementEnabled() {
-  return process.env.BILLING_ENTITLEMENTS_ENFORCED !== "0";
+  return env.BILLING_ENTITLEMENTS_ENFORCED !== "0";
 }
 
 export class FeatureEntitlementError extends DomainError<{
@@ -65,7 +66,7 @@ export class FeatureEntitlementError extends DomainError<{
 // (would-be denials are logged, nothing blocks). Both are unset by default.
 function enforcedPlugins(): Set<string> {
   return new Set(
-    (process.env.BILLING_ENFORCED_PLUGINS ?? "")
+    (env.BILLING_ENFORCED_PLUGINS ?? "")
       .split(",")
       .map((value) => value.trim())
       .filter(Boolean)
@@ -76,7 +77,7 @@ function enforcedPlugins(): Set<string> {
 // shadow-logged. Unset means every org is exempt — enforcement cannot fire
 // anywhere until launch sets it.
 function enforcementLaunchAt(): Date | null {
-  const raw = process.env.BILLING_ENFORCEMENT_LAUNCH_AT?.trim();
+  const raw = env.BILLING_ENFORCEMENT_LAUNCH_AT?.trim();
   if (!raw) return null;
   const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? null : parsed;

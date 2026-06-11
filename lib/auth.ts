@@ -21,6 +21,7 @@ import * as schema from "@/lib/db/schema";
 import { withOrgContext } from "@/lib/db/with-org-context";
 import { initializeDefaultTaxSettingsInTx } from "@/lib/tax-settings/defaults";
 import { xeroSignupAuthPlugin } from "@/lib/xero/signup-auth-plugin";
+import { env } from "@/lib/env";
 
 const authModuleInitStartedAt = performance.now();
 const authModuleLoadedAt = Date.now();
@@ -39,12 +40,12 @@ const authAllowedHosts = (() => {
   ]);
 
   for (const url of [
-    process.env.BETTER_AUTH_URL,
+    env.BETTER_AUTH_URL,
     process.env.NEXT_PUBLIC_APP_URL,
     APP_URL,
-    process.env.VERCEL_PROJECT_PRODUCTION_URL,
-    process.env.VERCEL_BRANCH_URL,
-    process.env.VERCEL_URL,
+    env.VERCEL_PROJECT_PRODUCTION_URL,
+    env.VERCEL_BRANCH_URL,
+    env.VERCEL_URL,
   ]) {
     if (!url) {
       continue;
@@ -57,11 +58,11 @@ const authAllowedHosts = (() => {
     }
   }
 
-  if (process.env.VERCEL_ENV === "preview") {
+  if (env.VERCEL_ENV === "preview") {
     hosts.add("*.vercel.app");
   }
 
-  for (const host of process.env.BETTER_AUTH_ALLOWED_HOSTS?.split(",") ?? []) {
+  for (const host of env.BETTER_AUTH_ALLOWED_HOSTS?.split(",") ?? []) {
     const trimmedHost = host.trim();
 
     if (trimmedHost) {
@@ -84,7 +85,7 @@ const authTrustedOrigins = (() => {
     return [];
   }
 
-  return (process.env.BETTER_AUTH_TRUSTED_ORIGINS?.split(",") ?? [])
+  return (env.BETTER_AUTH_TRUSTED_ORIGINS?.split(",") ?? [])
     .map((origin) => origin.trim())
     .filter(Boolean);
 })();
@@ -524,7 +525,7 @@ export const auth = betterAuth({
   },
   trustedOrigins: authTrustedOrigins.length > 0 ? authTrustedOrigins : undefined,
   rateLimit:
-    process.env.BETTER_AUTH_RATE_LIMIT_DISABLED === "1"
+    env.BETTER_AUTH_RATE_LIMIT_DISABLED === "1"
       ? { enabled: false }
       : undefined,
   advanced: {

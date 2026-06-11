@@ -1,18 +1,19 @@
 import "server-only";
 import { getCanonicalAppUrl } from "@/lib/app-url";
 import { APP_NAME, DEFAULT_EMAIL_FROM } from "@/lib/app-brand";
+import { env } from "@/lib/env";
 
 export { getCanonicalAppUrl };
 
 export function getEmailSenderConfig() {
-  const resendApiKey = process.env.RESEND_API_KEY?.trim();
+  const resendApiKey = env.RESEND_API_KEY?.trim();
   const from = getConfiguredEmailFrom();
 
   if (resendApiKey) {
     return { resendApiKey, from };
   }
 
-  if (process.env.EMAIL_OUTBOX_ONLY === "1") {
+  if (env.EMAIL_OUTBOX_ONLY === "1") {
     return null;
   }
 
@@ -26,7 +27,7 @@ export function getEmailSenderConfig() {
 }
 
 export function getConfiguredEmailFrom() {
-  return process.env.EMAIL_FROM?.trim() || DEFAULT_EMAIL_FROM;
+  return env.EMAIL_FROM?.trim() || DEFAULT_EMAIL_FROM;
 }
 
 export function formatEmailFromDisplayName(
@@ -45,5 +46,5 @@ export function formatEmailFromDisplayName(
 }
 
 export function getAppName(): string {
-  return process.env.APP_NAME?.trim() || APP_NAME;
+  return env.APP_NAME?.trim() || APP_NAME;
 }

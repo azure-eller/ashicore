@@ -5,6 +5,7 @@ import { parseOptionalJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess, getAuthedMemberContext } from "@/lib/dal/auth";
 import { importPaidShopifyOrders } from "@/lib/shopify/import-orders";
 import { ShopifyError } from "@/lib/shopify/client";
+import { env } from "@/lib/env";
 
 const bodySchema = z
   .object({
@@ -15,7 +16,7 @@ const bodySchema = z
 function allowShopifyBaseUrlOverride() {
   return (
     process.env.NODE_ENV !== "production" ||
-    process.env.PLAYWRIGHT_FAST_WORKERS != null
+    env.PLAYWRIGHT_FAST_WORKERS != null
   );
 }
 

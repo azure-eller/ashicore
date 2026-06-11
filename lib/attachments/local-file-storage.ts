@@ -2,12 +2,13 @@ import "server-only";
 
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { env } from "@/lib/env";
 
 const LOCAL_ATTACHMENT_SCHEME = "local://";
 
 function localAttachmentRoot() {
-  return process.env.LOCAL_ATTACHMENT_DIR
-    ? path.resolve(process.env.LOCAL_ATTACHMENT_DIR)
+  return env.LOCAL_ATTACHMENT_DIR
+    ? path.resolve(env.LOCAL_ATTACHMENT_DIR)
     : path.join(process.cwd(), ".local-attachments");
 }
 
@@ -21,7 +22,7 @@ function localAttachmentPath(storageKey: string) {
 }
 
 export function canUseLocalAttachmentStorage() {
-  return process.env.NODE_ENV !== "production" || process.env.CI === "true";
+  return process.env.NODE_ENV !== "production" || env.CI === "true";
 }
 
 export function isLocalAttachmentUrl(value: string) {

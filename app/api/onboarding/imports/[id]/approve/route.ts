@@ -15,6 +15,7 @@ import {
   updateCurrentOnboardingProgress,
 } from "@/lib/onboarding/session";
 import { getBillingStateByOrgId } from "@/lib/billing/dal";
+import { env } from "@/lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,7 +39,7 @@ export const POST = apiHandler(async (request: Request, context: unknown) => {
   // Free intent (or already-paid org): commit now. The inventory kernel enforces
   // the free SKU ceiling, so a free org can never commit past the limit.
   const result = await approveImportSession(id, data);
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
+  if (env.BLOB_READ_WRITE_TOKEN) {
     await deletePrivateBlobsIfConfigured(result.storageKeysToDelete);
   } else {
     await Promise.all(

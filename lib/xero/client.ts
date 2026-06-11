@@ -4,6 +4,7 @@ import { XeroClient } from "xero-node";
 import { and, eq } from "drizzle-orm";
 import { integrationConnections } from "@/lib/db/schema";
 import { withOrgContext, type Tx } from "@/lib/db/with-org-context";
+import { env } from "@/lib/env";
 import { XeroError, redactXeroError } from "./errors";
 import {
   decryptXeroToken,
@@ -33,8 +34,10 @@ export function getXeroSignupScopes() {
   return [...XERO_SIGNUP_IDENTITY_SCOPES, ...REQUIRED_SCOPES];
 }
 
-function requireEnv(name: string): string {
-  const value = process.env[name];
+function requireEnv(
+  name: "XERO_CLIENT_ID" | "XERO_CLIENT_SECRET" | "XERO_REDIRECT_URI",
+): string {
+  const value = env[name];
   if (!value) {
     throw new XeroError(`${name} is not configured.`, 500);
   }

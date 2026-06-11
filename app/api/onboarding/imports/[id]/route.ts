@@ -12,6 +12,7 @@ import {
   updateImportSessionPackage,
 } from "@/lib/onboarding/import/sessions";
 import { updateCurrentOnboardingProgress } from "@/lib/onboarding/session";
+import { env } from "@/lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,7 +49,7 @@ export const DELETE = apiHandler(async (request: Request, context: unknown) => {
   if (!result) {
     return NextResponse.json({ error: "Import session not found." }, { status: 404 });
   }
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
+  if (env.BLOB_READ_WRITE_TOKEN) {
     await deletePrivateBlobsIfConfigured(result.storageKeys);
   } else {
     await Promise.all(

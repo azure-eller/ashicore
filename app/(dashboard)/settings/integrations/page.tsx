@@ -10,6 +10,7 @@ import {
   getXeroConnection,
 } from "@/lib/dal/xero";
 import { IntegrationsSection } from "../integrations-section";
+import { env } from "@/lib/env";
 
 export default async function SettingsIntegrationsPage({
   searchParams,
@@ -33,9 +34,9 @@ export default async function SettingsIntegrationsPage({
   }
 
   const purchaseOrderSyncConfigured = Boolean(
-    process.env.ACCOUNTING_PURCHASE_ORDER_SYNC_SECRET ??
-      process.env.XERO_RETRY_SECRET ??
-      process.env.CRON_SECRET
+    env.ACCOUNTING_PURCHASE_ORDER_SYNC_SECRET ??
+      env.XERO_RETRY_SECRET ??
+      env.CRON_SECRET
   );
 
   const [

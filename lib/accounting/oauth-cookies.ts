@@ -1,7 +1,9 @@
-export function getAccountingOAuthCookieDomain() {
-  if (process.env.VERCEL_ENV !== "production") return undefined;
+import { env } from "@/lib/env";
 
-  const appUrl = process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL;
+export function getAccountingOAuthCookieDomain() {
+  if (env.VERCEL_ENV !== "production") return undefined;
+
+  const appUrl = env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL;
   if (!appUrl) return undefined;
 
   try {

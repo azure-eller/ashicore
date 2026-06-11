@@ -13,6 +13,7 @@ import {
   encryptAccountingToken,
   getAccountingTokenEncryptionKeyId,
 } from "@/lib/accounting/token-crypto";
+import { env } from "@/lib/env";
 
 const QUICKBOOKS_PROVIDER: AccountingProvider = ACCOUNTING_PROVIDER_QUICKBOOKS;
 const QUICKBOOKS_SCOPE = "com.intuit.quickbooks.accounting";
@@ -37,8 +38,10 @@ export class QuickBooksError extends Error {
   }
 }
 
-function requireEnv(name: string) {
-  const value = process.env[name]?.trim();
+function requireEnv(
+  name: "QUICKBOOKS_CLIENT_ID" | "QUICKBOOKS_CLIENT_SECRET" | "QUICKBOOKS_REDIRECT_URI",
+) {
+  const value = env[name]?.trim();
   if (!value) {
     throw new QuickBooksError(`${name} is not configured.`, 500);
   }
@@ -46,7 +49,7 @@ function requireEnv(name: string) {
 }
 
 function getQuickBooksEnvironment() {
-  return process.env.QUICKBOOKS_ENVIRONMENT === "production"
+  return env.QUICKBOOKS_ENVIRONMENT === "production"
     ? "production"
     : "sandbox";
 }

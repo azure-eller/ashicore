@@ -2,13 +2,14 @@ import { apiHandler } from "@/lib/api/handler";
 import { jsonOk } from "@/lib/api/responses";
 import { AuthorizationError } from "@/lib/authz";
 import { cleanupXeroSignupIntents } from "@/lib/xero/signup-intents";
+import { env } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 function assertCronAccess(request: Request) {
   const secret =
-    process.env.XERO_SIGNUP_CLEANUP_SECRET ?? process.env.CRON_SECRET;
+    env.XERO_SIGNUP_CLEANUP_SECRET ?? env.CRON_SECRET;
 
   if (!secret) {
     throw new Error(

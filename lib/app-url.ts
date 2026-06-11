@@ -1,6 +1,7 @@
 import "server-only";
 
 import { APP_URL } from "@/lib/app-brand";
+import { env } from "@/lib/env";
 
 function normalizeUrl(value: string | undefined) {
   if (!value) {
@@ -21,17 +22,17 @@ function normalizeUrl(value: string | undefined) {
 
 export function getCanonicalAppUrl() {
   const explicitUrl =
-    normalizeUrl(process.env.BETTER_AUTH_URL) ??
+    normalizeUrl(env.BETTER_AUTH_URL) ??
     normalizeUrl(process.env.NEXT_PUBLIC_APP_URL);
 
   if (explicitUrl) {
     return explicitUrl;
   }
 
-  if (process.env.VERCEL_ENV === "preview") {
+  if (env.VERCEL_ENV === "preview") {
     const vercelPreviewUrl =
-      normalizeUrl(process.env.VERCEL_BRANCH_URL) ??
-      normalizeUrl(process.env.VERCEL_URL);
+      normalizeUrl(env.VERCEL_BRANCH_URL) ??
+      normalizeUrl(env.VERCEL_URL);
 
     if (vercelPreviewUrl) {
       return vercelPreviewUrl;
@@ -42,8 +43,8 @@ export function getCanonicalAppUrl() {
     return APP_URL;
   }
 
-  if (process.env.PORT) {
-    return `http://localhost:${process.env.PORT}`;
+  if (env.PORT) {
+    return `http://localhost:${env.PORT}`;
   }
 
   return "http://localhost:3000";

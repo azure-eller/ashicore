@@ -3,13 +3,14 @@ import { jsonOk } from "@/lib/api/responses";
 import { AuthorizationError } from "@/lib/authz";
 import { diffInventoryStateForOrganizations } from "@/lib/inventory/kernel";
 import { requestSearchParams } from "@/lib/routing/search-params";
+import { env } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 function assertInventoryReconciliationAccess(request: Request) {
   const secret =
-    process.env.INVENTORY_RECONCILIATION_SECRET ?? process.env.CRON_SECRET;
+    env.INVENTORY_RECONCILIATION_SECRET ?? env.CRON_SECRET;
 
   if (!secret) {
     throw new Error(

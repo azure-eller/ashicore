@@ -14,10 +14,11 @@ import {
   deleteLocalAttachment,
   writeLocalAttachment,
 } from "@/lib/attachments/local-file-storage";
+import { env } from "@/lib/env";
 
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   const authContext = await assertModuleWriteAccess("purchasing", request.headers);
-  const useBlobStorage = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+  const useBlobStorage = Boolean(env.BLOB_READ_WRITE_TOKEN);
 
   if (!useBlobStorage && !canUseLocalAttachmentStorage()) {
     throw new DomainError("Private file storage is not configured.", 503);

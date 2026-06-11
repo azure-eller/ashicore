@@ -3,6 +3,7 @@ import type { Tx } from "@/lib/db/with-org-context";
 import { onboardingSessions } from "@/lib/db/schema";
 import { organization } from "@/lib/db/schema/auth";
 import { FREE_SKU_LIMIT } from "@/lib/billing/types";
+import { env } from "@/lib/env";
 
 // The SKU ceiling that applies to an in-progress import preview.
 //
@@ -20,7 +21,7 @@ import { FREE_SKU_LIMIT } from "@/lib/billing/types";
 //
 // `ONBOARDING_IMPORT_SKU_LIMIT` remains an explicit override for ops/tests.
 export async function getSkuImportLimitInTx(tx: Tx, orgId: string): Promise<number | null> {
-  const raw = process.env.ONBOARDING_IMPORT_SKU_LIMIT;
+  const raw = env.ONBOARDING_IMPORT_SKU_LIMIT;
   if (raw) {
     const parsed = Number(raw);
     if (Number.isFinite(parsed) && parsed >= 0) return Math.trunc(parsed);

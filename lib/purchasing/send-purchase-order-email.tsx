@@ -40,6 +40,7 @@ import { escapeHtml } from "@/lib/format";
 import type { SendPurchaseOrderEmail } from "@/lib/schemas/purchase-orders";
 import { DomainError } from "@/lib/errors/domain-error";
 import { groupPurchaseOrderByResolvedSupplier } from "@/lib/purchasing/resolved-supplier-groups";
+import { env } from "@/lib/env";
 
 const additionalCostSuppliers = alias(
   suppliers,
@@ -351,7 +352,7 @@ async function attachmentContentBase64(blobUrl: string) {
     return buffer?.toString("base64") ?? null;
   }
 
-  if (!process.env.BLOB_READ_WRITE_TOKEN) return null;
+  if (!env.BLOB_READ_WRITE_TOKEN) return null;
 
   const blob = await getPrivateBlobForDownload(blobUrl);
   if (!blob?.stream) return null;

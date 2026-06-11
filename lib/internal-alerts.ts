@@ -1,6 +1,7 @@
 import "server-only";
 
 import { sendTransactionalEmail } from "@/lib/email/send";
+import { env } from "@/lib/env";
 
 type AlertField = {
   label: string;
@@ -19,7 +20,7 @@ type FounderAlertInput = {
 };
 
 function alertRecipients() {
-  return (process.env.ASHICORE_ALERT_EMAILS ?? process.env.INTERNAL_ALERT_EMAILS ?? "")
+  return (env.ASHICORE_ALERT_EMAILS ?? env.INTERNAL_ALERT_EMAILS ?? "")
     .split(",")
     .map((email) => email.trim())
     .filter(Boolean);

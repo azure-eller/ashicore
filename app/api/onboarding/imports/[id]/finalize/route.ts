@@ -12,6 +12,7 @@ import {
 import { updateCurrentOnboardingProgress } from "@/lib/onboarding/session";
 import { getBillingStateByOrgId } from "@/lib/billing/dal";
 import { syncOrgBillingFromStripe } from "@/lib/billing/stripe";
+import { env } from "@/lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,7 +52,7 @@ export const POST = apiHandler(async (request: Request, context: unknown) => {
   }
 
   const result = await approveImportSession(id, {});
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
+  if (env.BLOB_READ_WRITE_TOKEN) {
     await deletePrivateBlobsIfConfigured(result.storageKeysToDelete);
   } else {
     await Promise.all(

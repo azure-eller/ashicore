@@ -1,5 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import { env } from "@/lib/env";
+
 const DEFAULT_WEB_REPO = "azure-eller/erp";
 const DEFAULT_ANDROID_REPO = "azure-eller/erp-android";
 const BASE_BRANCH = "main";
@@ -187,16 +189,28 @@ export class SentryAutofixError extends Error {
   }
 }
 
-export function getSentryAutofixConfig(env: NodeJS.ProcessEnv = process.env): AutofixConfig {
+type SentryAutofixConfigEnv = Pick<
+  typeof env,
+  | "SENTRY_AUTOFIX_WEBHOOK_SECRET"
+  | "SENTRY_AUTH_TOKEN"
+  | "SENTRY_ORG"
+  | "SENTRY_WEB_PROJECT"
+  | "SENTRY_ANDROID_PROJECT"
+  | "GITHUB_AUTOFIX_TOKEN"
+  | "GITHUB_WEB_REPO"
+  | "GITHUB_ANDROID_REPO"
+>;
+
+export function getSentryAutofixConfig(configEnv: SentryAutofixConfigEnv = env): AutofixConfig {
   const config = {
-    sentryWebhookSecret: env.SENTRY_AUTOFIX_WEBHOOK_SECRET,
-    sentryAuthToken: env.SENTRY_AUTH_TOKEN,
-    sentryOrg: env.SENTRY_ORG,
-    sentryWebProject: env.SENTRY_WEB_PROJECT,
-    sentryAndroidProject: env.SENTRY_ANDROID_PROJECT,
-    githubToken: env.GITHUB_AUTOFIX_TOKEN,
-    githubWebRepo: env.GITHUB_WEB_REPO ?? DEFAULT_WEB_REPO,
-    githubAndroidRepo: env.GITHUB_ANDROID_REPO ?? DEFAULT_ANDROID_REPO,
+    sentryWebhookSecret: configEnv.SENTRY_AUTOFIX_WEBHOOK_SECRET,
+    sentryAuthToken: configEnv.SENTRY_AUTH_TOKEN,
+    sentryOrg: configEnv.SENTRY_ORG,
+    sentryWebProject: configEnv.SENTRY_WEB_PROJECT,
+    sentryAndroidProject: configEnv.SENTRY_ANDROID_PROJECT,
+    githubToken: configEnv.GITHUB_AUTOFIX_TOKEN,
+    githubWebRepo: configEnv.GITHUB_WEB_REPO ?? DEFAULT_WEB_REPO,
+    githubAndroidRepo: configEnv.GITHUB_ANDROID_REPO ?? DEFAULT_ANDROID_REPO,
   };
 
   const missing = Object.entries(config)

@@ -2,15 +2,16 @@ import { apiHandler } from "@/lib/api/handler";
 import { jsonOk } from "@/lib/api/responses";
 import { AuthorizationError } from "@/lib/authz";
 import { autoSyncAccountingPurchaseOrders } from "@/lib/accounting/import-purchase-orders";
+import { env } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 function assertCronAccess(request: Request) {
   const secret =
-    process.env.ACCOUNTING_PURCHASE_ORDER_SYNC_SECRET ??
-    process.env.XERO_RETRY_SECRET ??
-    process.env.CRON_SECRET;
+    env.ACCOUNTING_PURCHASE_ORDER_SYNC_SECRET ??
+    env.XERO_RETRY_SECRET ??
+    env.CRON_SECRET;
 
   if (!secret) {
     throw new Error(

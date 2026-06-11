@@ -20,6 +20,7 @@ import {
   serializeImportSession,
 } from "@/lib/onboarding/import/sessions";
 import { attachImportSessionToCurrentOnboarding } from "@/lib/onboarding/session";
+import { env } from "@/lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,7 +48,7 @@ function formFileToPrivateFile(value: FormDataEntryValue): PrivateFormFile | nul
 
 export const POST = apiHandler(async (request) => {
   await assertOnboardingImportAccess(request.headers);
-  const useBlobStorage = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+  const useBlobStorage = Boolean(env.BLOB_READ_WRITE_TOKEN);
   if (!useBlobStorage && !canUseLocalAttachmentStorage()) {
     throw new DomainError("Private file storage is not configured.", 503);
   }

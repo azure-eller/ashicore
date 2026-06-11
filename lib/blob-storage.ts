@@ -1,5 +1,6 @@
 import { del, get, put, type GetBlobResult } from "@vercel/blob";
 import { DomainError } from "@/lib/errors/domain-error";
+import { env } from "@/lib/env";
 
 type PrivateBlobRead = Extract<GetBlobResult, { statusCode: 200 }>;
 
@@ -25,7 +26,7 @@ function wait(ms: number) {
 }
 
 export function assertPrivateBlobStorageConfigured() {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+  if (!env.BLOB_READ_WRITE_TOKEN) {
     throw new DomainError("Private file storage is not configured.", 503);
   }
 }
@@ -102,12 +103,12 @@ export async function deletePrivateBlobQuietly(urlOrPathname: string) {
 }
 
 export async function deletePrivateBlobIfConfigured(urlOrPathname: string) {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) return;
+  if (!env.BLOB_READ_WRITE_TOKEN) return;
   await deletePrivateBlobQuietly(urlOrPathname);
 }
 
 export async function deletePrivateBlobsIfConfigured(urlsOrPathnames: string[]) {
-  if (!process.env.BLOB_READ_WRITE_TOKEN || urlsOrPathnames.length === 0) return;
+  if (!env.BLOB_READ_WRITE_TOKEN || urlsOrPathnames.length === 0) return;
   await Promise.all(urlsOrPathnames.map((url) => deletePrivateBlobQuietly(url)));
 }
 

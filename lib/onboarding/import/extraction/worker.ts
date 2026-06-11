@@ -9,6 +9,7 @@ import { readLocalAttachment } from "@/lib/attachments/local-file-storage";
 import { extractImportPackage } from "./extractor";
 import { importPackageSchema, type ImportPackage, type PartialImportPackage } from "../types";
 import { normalizeImportPackageInTx, validateImportPackageInTx } from "../sessions";
+import { env } from "@/lib/env";
 
 const DEFAULT_FILES_PER_TICK = 3;
 const LEASE_MS = 4 * 60 * 1000;
@@ -381,7 +382,7 @@ async function finishSessionIfReady(orgId: string, sessionId: string) {
 }
 
 export async function processOnboardingImports(options: { filesPerTick?: number } = {}) {
-  const filesPerTick = options.filesPerTick ?? Number(process.env.IMPORT_EXTRACTION_FILES_PER_TICK ?? DEFAULT_FILES_PER_TICK);
+  const filesPerTick = options.filesPerTick ?? Number(env.IMPORT_EXTRACTION_FILES_PER_TICK ?? DEFAULT_FILES_PER_TICK);
   const orgIds = await listOrgIds();
   const summary = { claimed: 0, processedFiles: 0, completedSessions: 0 };
 

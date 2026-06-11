@@ -14,6 +14,7 @@ import {
   readLocalAttachment,
 } from "@/lib/attachments/local-file-storage";
 import { DomainError } from "@/lib/errors/domain-error";
+import { env } from "@/lib/env";
 
 type PurchaseOrderFileRouteContext = {
   params: Promise<{ id: string; fileId: string }>;
@@ -45,7 +46,7 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
     });
   }
 
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+  if (!env.BLOB_READ_WRITE_TOKEN) {
     throw new DomainError("Private file storage is not configured.", 503);
   }
 
@@ -75,7 +76,7 @@ export const DELETE = apiHandler(async (request: Request, ctx: unknown) => {
 
   if (isLocalAttachmentUrl(file.blobUrl)) {
     await deleteLocalAttachment(file.blobUrl).catch(() => undefined);
-  } else if (process.env.BLOB_READ_WRITE_TOKEN) {
+  } else if (env.BLOB_READ_WRITE_TOKEN) {
     await del(file.blobUrl).catch(() => undefined);
   }
 
