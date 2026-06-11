@@ -884,16 +884,24 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
       throw new StocktakeError("Only draft stocktakes can be updated.", 400);
     }
 
-    // Counting expected lots and deleting found lines stay free; only
-    // recording newly discovered lots is a lot-tracking workflow.
-    if (data.foundLotLines.length > 0) {
+    const existingLines = await getStocktakeLinesInTx(tx, id);
+    const lineMap = new Map(existingLines.map((line) => [line.id, line]));
+
+    // Counting lots (including re-counts of already-recorded found lots) and
+    // deleting found lines stay free; only recording a newly discovered lot
+    // is a lot-tracking workflow.
+    const recordsNewFoundLot = data.foundLotLines.some((foundLot) => {
+      const ownerLine = lineMap.get(foundLot.stocktakeItemId);
+      if (!ownerLine) return false;
+      return !ownerLine.lots.some(
+        (lot) => lot.isFound && lot.lotNumber.trim() === foundLot.lotNumber
+      );
+    });
+    if (recordsNewFoundLot) {
       await assertFeatureAccessInTx(tx, orgId, "lot_tracking", {
         route: "PUT /api/stocktakes/[id]",
       });
     }
-
-    const existingLines = await getStocktakeLinesInTx(tx, id);
-    const lineMap = new Map(existingLines.map((line) => [line.id, line]));
 
     if (data.itemIds) {
       const uniqueItemIds = Array.from(new Set(data.itemIds));

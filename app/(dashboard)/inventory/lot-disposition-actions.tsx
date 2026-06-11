@@ -76,13 +76,16 @@ export function LotDispositionActions({
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  // Mirrors the server gate: releasing to the free default disposition
+  // stays free for locked orgs; everything else needs the plugin.
   const menuActions = balances
     .filter((balance) => Number(balance.quantity) > 0)
     .flatMap((balance) =>
       ACTIONS.filter(
         (action) =>
-          action.toDisposition == null ||
-          action.toDisposition !== balance.disposition,
+          (action.toDisposition == null ||
+            action.toDisposition !== balance.disposition) &&
+          (!locked || action.toDisposition === "available"),
       ).map((action) => ({
         action,
         fromDisposition: balance.disposition,
@@ -134,7 +137,7 @@ export function LotDispositionActions({
     setIdempotencyKey(null);
   };
 
-  if (locked) {
+  if (locked && menuActions.length === 0) {
     return (
       <Tooltip>
         <TooltipTrigger asChild>
