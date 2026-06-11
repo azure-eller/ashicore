@@ -25,6 +25,7 @@ import {
 } from "@/components/inventory-item-combobox";
 import { LocationSelect, type LocationOption } from "@/components/location-select";
 import { apiJson } from "@/lib/client/api";
+import { queryKeys } from "@/lib/client/query-keys";
 import { formatQuantity } from "@/lib/format";
 import { isPositiveNumberString } from "@/lib/schemas/shared";
 import type { ItemLocationBalance, ItemRow } from "@/lib/inventory/types";
@@ -37,7 +38,7 @@ type TransferLine = {
 
 export function useActiveLocations() {
   return useQuery({
-    queryKey: ["locations"],
+    queryKey: queryKeys.locations.root,
     queryFn: () => apiJson<LocationOption[]>("/api/locations"),
     staleTime: 60_000,
   });
@@ -90,7 +91,7 @@ function TransferStockDialogInner({
   const [lines, setLines] = useState<TransferLine[]>(initialLines);
 
   const itemsQuery = useQuery({
-    queryKey: ["transfer-item-options"],
+    queryKey: queryKeys.items.root,
     queryFn: () => apiJson<ItemRow[]>("/api/items"),
     enabled: open,
     staleTime: 60_000,
@@ -139,8 +140,10 @@ function TransferStockDialogInner({
         idempotencyKey: "inventory-transfer",
         fallbackError: "Failed to transfer stock.",
       });
-      queryClient.invalidateQueries({ queryKey: ["items"] });
-      queryClient.invalidateQueries({ queryKey: ["item-location-balances"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.items.root });
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.itemLocationBalances.root,
+      });
       setOpen(false);
       setPending(false);
       setLines(initialLines());
@@ -280,7 +283,7 @@ function LineAvailability({
   fromLocationId: string;
 }) {
   const balancesQuery = useQuery({
-    queryKey: ["item-location-balances", itemId],
+    queryKey: queryKeys.itemLocationBalances.byItem(itemId),
     queryFn: () =>
       apiJson<ItemLocationBalance[]>(`/api/items/${itemId}/location-balances`),
   });

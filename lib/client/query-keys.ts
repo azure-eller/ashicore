@@ -30,6 +30,13 @@ export const queryKeys = {
   itemLots: {
     byVariant: (variantId: string) => ["item-lots", variantId] as const,
   },
+  itemLocationBalances: {
+    root: ["item-location-balances"] as const,
+    byItem: (itemId: string | null) => ["item-location-balances", itemId] as const,
+  },
+  locations: {
+    root: ["locations"] as const,
+  },
   itemCategories: {
     byType: (itemType: string) => ["item-categories", itemType] as const,
   },

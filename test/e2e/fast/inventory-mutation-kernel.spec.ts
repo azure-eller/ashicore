@@ -6,6 +6,7 @@ import {
   inventoryItemBalances,
   inventoryLocations,
   inventoryLotBalances,
+  inventoryTransfers,
   bomRevisionComponents,
   bomRevisionOperationCosts,
   bomRevisions,
@@ -895,6 +896,124 @@ test.describe("inventory mutation kernel heartbeat", () => {
     expect(
       itemBalances.find((row) => row.locationId === otherLocation.id)?.onHandQty
     ).toBe("12.0000");
+  });
+
+  test("stock transfer API rejects replay drift and non-addressable inputs", async ({
+    db,
+  }) => {
+    const item = await createItem({
+      itemType: "material",
+      name: `Fast Transfer Boundary ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-TRANSFER-BOUNDARY-${ts}`,
+      category: `Fast Transfer Boundary ${ts}`,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      lotTrackingMode: "tracked",
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(item.status).toBe(201);
+    const itemId = item.body.id as string;
+
+    const seeded = await testFetch(`/api/items/${itemId}/initial-stock`, {
+      method: "POST",
+      body: JSON.stringify({
+        quantity: "5",
+        costPerUnit: "2.00",
+        occurredAt: new Date().toISOString(),
+        note: null,
+      }),
+    });
+    expect(seeded.status).toBe(200);
+
+    const [defaultLocation] = await db
+      .select({ id: inventoryLocations.id })
+      .from(inventoryLocations)
+      .where(
+        and(
+          eq(inventoryLocations.organizationId, orgId),
+          eq(inventoryLocations.isDefault, true)
+        )
+      );
+    const [otherLocation] = await db
+      .insert(inventoryLocations)
+      .values({
+        organizationId: orgId,
+        name: `Fast Transfer Boundary Target ${ts}`,
+        code: `fast-transfer-boundary-${ts}`,
+        isDefault: false,
+      })
+      .returning({ id: inventoryLocations.id });
+
+    async function postTransfer(body: unknown, idempotencyKey: string) {
+      const response = await fetch(`${getBaseUrl()}/api/inventory/transfers`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: getSessionCookie(),
+          Origin: getBaseUrl(),
+          "Idempotency-Key": idempotencyKey,
+        },
+        body: JSON.stringify(body),
+      });
+      return {
+        status: response.status,
+        body: await response.json().catch(() => null),
+      };
+    }
+
+    const payload = {
+      fromLocationId: defaultLocation.id,
+      toLocationId: otherLocation.id,
+      note: "first note",
+      lines: [{ itemId, quantity: "1" }],
+    };
+    const idempotencyKey = `fast-transfer-boundary:${randomUUID()}`;
+    const first = await postTransfer(payload, idempotencyKey);
+    expect(first.status, JSON.stringify(first.body)).toBe(201);
+    const changedNote = await postTransfer(
+      { ...payload, note: "changed note" },
+      idempotencyKey
+    );
+    expect(changedNote.status, JSON.stringify(changedNote.body)).toBe(409);
+
+    const tiny = await postTransfer(
+      {
+        fromLocationId: defaultLocation.id,
+        toLocationId: otherLocation.id,
+        lines: [{ itemId, quantity: "0.00001" }],
+      },
+      `fast-transfer-tiny:${randomUUID()}`
+    );
+    expect(tiny.status, JSON.stringify(tiny.body)).toBe(400);
+
+    await db
+      .update(items)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(eq(items.id, itemId));
+    const deletedTransfer = await postTransfer(
+      {
+        fromLocationId: defaultLocation.id,
+        toLocationId: otherLocation.id,
+        lines: [{ itemId, quantity: "1" }],
+      },
+      `fast-transfer-deleted:${randomUUID()}`
+    );
+    expect(deletedTransfer.status, JSON.stringify(deletedTransfer.body)).toBe(404);
+
+    const balances = await testFetch(`/api/items/${itemId}/location-balances`);
+    expect(balances.status, JSON.stringify(await balances.json().catch(() => null))).toBe(
+      404
+    );
+
+    const transferRows = await db
+      .select({ id: inventoryTransfers.id })
+      .from(inventoryTransfers)
+      .where(eq(inventoryTransfers.toLocationId, otherLocation.id));
+    expect(transferRows).toEqual([{ id: first.body.id }]);
   });
 
   test("lot quantity edit cancel restores the UI draft without writing stock", async ({

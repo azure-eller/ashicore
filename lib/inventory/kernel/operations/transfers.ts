@@ -2,10 +2,6 @@ import type { Tx } from "@/lib/db/with-org-context";
 import { resolveInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
 import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
 import {
-  beginInventoryOperationInTx,
-  finishInventoryOperationInTx,
-} from "./common";
-import {
   appendPositiveStockToExistingLotInTx,
   consumeStockFifoInTx,
 } from "./stock-core";
@@ -20,6 +16,9 @@ export type TransferStockResult = {
   eventIds: string[];
 };
 
+// Idempotency lives in the DAL (createInventoryTransfer), which claims the
+// client key before inserting the transfer document and calling this op —
+// the document insert and stock movement replay as one unit.
 export async function transferStockInTx(
   tx: Tx,
   params: {
@@ -29,27 +28,9 @@ export async function transferStockInTx(
     toLocationId: string;
     lines: TransferStockLine[];
     actorUserId?: string | null;
-    idempotencyKey?: string | null;
     occurredAt?: Date;
   }
 ): Promise<TransferStockResult> {
-  const replay = await beginInventoryOperationInTx<TransferStockResult>(tx, {
-    organizationId: params.organizationId,
-    operationName: "transferStock",
-    idempotencyKey: params.idempotencyKey ?? null,
-    payload: {
-      transferId: params.transferId,
-      fromLocationId: params.fromLocationId,
-      toLocationId: params.toLocationId,
-      lines: params.lines,
-      occurredAt: params.occurredAt?.toISOString() ?? null,
-    },
-  });
-
-  if (replay.replayed) {
-    return replay.result;
-  }
-
   if (params.fromLocationId === params.toLocationId) {
     throw new Error("Transfer source and destination must differ.");
   }
@@ -89,7 +70,6 @@ export async function transferStockInTx(
       referenceType: "inventory_transfer",
       referenceId: params.transferId,
       actorUserId: params.actorUserId ?? null,
-      idempotencyKey: eventIds.length === 0 ? params.idempotencyKey ?? null : null,
       occurredAt: params.occurredAt,
     });
 
@@ -114,17 +94,8 @@ export async function transferStockInTx(
     eventIds.push(...consumed.eventIds);
   }
 
-  const result: TransferStockResult = {
+  return {
     transferId: params.transferId,
     eventIds,
   };
-
-  await finishInventoryOperationInTx(tx, {
-    organizationId: params.organizationId,
-    idempotencyKey: params.idempotencyKey ?? null,
-    firstEventId: eventIds[0] ?? null,
-    result,
-  });
-
-  return result;
 }

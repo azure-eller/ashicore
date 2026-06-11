@@ -211,18 +211,26 @@ export async function updateInventoryLocation(locationId: string, data: UpdateLo
       await assertCodeAvailableInTx(tx, orgId, data.code, locationId);
     }
     if (data.isDefault && !existing.isDefault) {
-      const currentDefault = await getDefaultInventoryLocationInTx(tx, orgId);
-      await assertDefaultSwapSafeInTx(tx, orgId, currentDefault.id);
-      await tx
-        .update(inventoryLocations)
-        .set({ isDefault: false, updatedAt: new Date() })
+      // Lock the current default row first: serializes concurrent swaps and
+      // pins the row the safety checks run against.
+      const [currentDefault] = await tx
+        .select({ id: inventoryLocations.id })
+        .from(inventoryLocations)
         .where(
           and(
             eq(inventoryLocations.organizationId, orgId),
             eq(inventoryLocations.isDefault, true),
             isNull(inventoryLocations.deletedAt)
           )
-        );
+        )
+        .for("update");
+      if (currentDefault) {
+        await assertDefaultSwapSafeInTx(tx, orgId, currentDefault.id);
+        await tx
+          .update(inventoryLocations)
+          .set({ isDefault: false, updatedAt: new Date() })
+          .where(eq(inventoryLocations.id, currentDefault.id));
+      }
     }
 
     const [row] = await tx
@@ -255,7 +263,20 @@ export async function updateInventoryLocation(locationId: string, data: UpdateLo
 
 export async function deleteInventoryLocation(locationId: string): Promise<boolean> {
   return withAuthedOrgContext(async (tx, orgId) => {
-    const existing = await getActiveLocationInTx(tx, orgId, locationId);
+    // FOR UPDATE pairs with the FOR SHARE taken by transfer location
+    // resolution: an in-flight transfer blocks the delete until it commits,
+    // so stock cannot land in a location deleted under it.
+    const [existing] = await tx
+      .select({ id: inventoryLocations.id, isDefault: inventoryLocations.isDefault })
+      .from(inventoryLocations)
+      .where(
+        and(
+          eq(inventoryLocations.id, locationId),
+          eq(inventoryLocations.organizationId, orgId),
+          isNull(inventoryLocations.deletedAt)
+        )
+      )
+      .for("update");
     if (!existing) {
       return false;
     }

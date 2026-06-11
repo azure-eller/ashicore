@@ -27,13 +27,20 @@ export async function resolveInventoryLocationInTx(
     return getDefaultInventoryLocationInTx(tx, organizationId);
   }
 
-  const location = await tx.query.inventoryLocations.findFirst({
-    where: and(
-      eq(inventoryLocations.id, locationId),
-      eq(inventoryLocations.organizationId, organizationId),
-      isNull(inventoryLocations.deletedAt)
-    ),
-  });
+  // FOR SHARE pairs with deleteInventoryLocation's FOR UPDATE: a delete
+  // cannot commit while an operation that resolved this location is in
+  // flight, so stock cannot land in a location deleted under it.
+  const [location] = await tx
+    .select()
+    .from(inventoryLocations)
+    .where(
+      and(
+        eq(inventoryLocations.id, locationId),
+        eq(inventoryLocations.organizationId, organizationId),
+        isNull(inventoryLocations.deletedAt)
+      )
+    )
+    .for("share");
 
   if (!location) {
     throw new Error("Inventory location not found for this organization.");

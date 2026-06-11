@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Badge } from "@/components/ui/badge";
 import { CardSection } from "@/components/card-page/card-page";
 import { apiJson } from "@/lib/client/api";
+import { queryKeys } from "@/lib/client/query-keys";
 import { formatQuantity } from "@/lib/format";
 import type { ItemLocationBalance } from "@/lib/inventory/types";
 import {
@@ -22,7 +23,7 @@ export function StockByLocationSection({
   const multiLocation = (locationsQuery.data?.length ?? 0) > 1;
 
   const balancesQuery = useQuery({
-    queryKey: ["item-location-balances", itemId],
+    queryKey: queryKeys.itemLocationBalances.byItem(itemId),
     queryFn: () =>
       apiJson<ItemLocationBalance[]>(`/api/items/${itemId}/location-balances`),
     enabled: itemId != null && multiLocation,

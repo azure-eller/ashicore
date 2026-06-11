@@ -1,10 +1,11 @@
 import "server-only";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   inventoryItemBalances,
   inventoryLocations,
   inventoryTransferLines,
   inventoryTransfers,
+  items,
 } from "@/lib/db/schema";
 import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
@@ -16,10 +17,56 @@ import {
 } from "@/lib/inventory/kernel/operations";
 import type { ItemLocationBalance } from "@/lib/inventory/types";
 import type { CreateTransfer } from "@/lib/schemas/transfers";
+import type { Tx } from "@/lib/db/with-org-context";
+import { InventoryError } from "./errors";
 
 export type CreateTransferResult = {
   id: string;
 };
+
+async function assertActiveLocationsInTx(
+  tx: Tx,
+  orgId: string,
+  locationIds: string[]
+) {
+  const uniqueLocationIds = [...new Set(locationIds)];
+  const rows = await tx
+    .select({ id: inventoryLocations.id })
+    .from(inventoryLocations)
+    .where(
+      and(
+        eq(inventoryLocations.organizationId, orgId),
+        inArray(inventoryLocations.id, uniqueLocationIds),
+        isNull(inventoryLocations.deletedAt)
+      )
+    );
+
+  if (rows.length !== uniqueLocationIds.length) {
+    throw new InventoryError("Inventory location not found.", 404);
+  }
+}
+
+async function assertActiveTransferItemsInTx(
+  tx: Tx,
+  orgId: string,
+  itemIds: string[]
+) {
+  const uniqueItemIds = [...new Set(itemIds)];
+  const rows = await tx
+    .select({ id: items.id })
+    .from(items)
+    .where(
+      and(
+        eq(items.organizationId, orgId),
+        inArray(items.id, uniqueItemIds),
+        isNull(items.deletedAt)
+      )
+    );
+
+  if (rows.length !== uniqueItemIds.length) {
+    throw new InventoryError("Item not found.", 404);
+  }
+}
 
 export async function createInventoryTransfer(
   data: CreateTransfer,
@@ -35,6 +82,7 @@ export async function createInventoryTransfer(
       payload: {
         fromLocationId: data.fromLocationId,
         toLocationId: data.toLocationId,
+        note: data.note ?? null,
         lines: data.lines,
       },
     });
@@ -45,6 +93,15 @@ export async function createInventoryTransfer(
     await assertFeatureAccessInTx(tx, orgId, "multi_location", {
       route: "/api/inventory/transfers",
     });
+    await assertActiveLocationsInTx(tx, orgId, [
+      data.fromLocationId,
+      data.toLocationId,
+    ]);
+    await assertActiveTransferItemsInTx(
+      tx,
+      orgId,
+      data.lines.map((line) => line.itemId)
+    );
 
     const [header] = await tx
       .insert(inventoryTransfers)
@@ -95,6 +152,8 @@ export async function getItemLocationBalances(
   itemId: string
 ): Promise<ItemLocationBalance[]> {
   return withAuthedOrgContext(async (tx, orgId) => {
+    await assertActiveTransferItemsInTx(tx, orgId, [itemId]);
+
     return tx
       .select({
         locationId: inventoryLocations.id,
