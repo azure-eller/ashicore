@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Mail01Icon } from "@hugeicons/core-free-icons";
 import { AutosaveStatus, type AutosaveState } from "@/components/autosave-status";
 import { CommitInput } from "@/components/card-page/commit-input";
 import { Button } from "@/components/ui/button";
@@ -16,7 +18,6 @@ import {
 } from "@/components/settings-panel";
 import { apiJson } from "@/lib/client/api";
 import type { AccountPageData } from "./types";
-import { ChangeEmailDialog } from "./account/change-email-dialog";
 import { ChangePasswordDialog } from "./account/change-password-dialog";
 
 export function AccountSection({ initialData }: { initialData: AccountPageData }) {
@@ -61,12 +62,21 @@ export function AccountSection({ initialData }: { initialData: AccountPageData }
             </Field>
             <Field>
               <FieldLabel htmlFor="account-email">Email</FieldLabel>
-              <Input
-                id="account-email"
-                value={initialData.email}
-                readOnly
-                className="border-transparent bg-[var(--color-surface-sunk)] text-[var(--color-ink-soft)]"
-              />
+              <div className="relative">
+                <HugeiconsIcon
+                  icon={Mail01Icon}
+                  size={16}
+                  strokeWidth={1.8}
+                  className="pointer-events-none absolute top-1/2 left-(--space-6) -translate-y-1/2 text-[var(--color-ink-faint)]"
+                  aria-hidden
+                />
+                <Input
+                  id="account-email"
+                  value={initialData.email}
+                  readOnly
+                  className="bg-[var(--color-bg)] ps-(--space-16) font-mono text-[length:var(--text-xs)] text-[var(--color-ink-soft)]"
+                />
+              </div>
             </Field>
           </div>
         </SettingsBlock>
@@ -81,17 +91,6 @@ export function AccountSection({ initialData }: { initialData: AccountPageData }
                     Change password
                   </Button>
                 </ChangePasswordDialog>
-              }
-            />
-            <SettingsQuietRow
-              title="Email"
-              sub="Changing your email requires verification from the new address."
-              action={
-                <ChangeEmailDialog currentEmail={initialData.email}>
-                  <Button variant="outline" size="sm">
-                    Change email
-                  </Button>
-                </ChangeEmailDialog>
               }
             />
           </div>

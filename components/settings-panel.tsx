@@ -42,7 +42,12 @@ export function SettingsCard({
   className?: string;
 }) {
   return (
-    <SurfacePanel as="section" padding="sm" className={cn("p-0", className)}>
+    <SurfacePanel
+      as="section"
+      padding="sm"
+      className={cn("p-0", className)}
+      style={{ backgroundColor: "var(--color-bg)" }}
+    >
       {children}
     </SurfacePanel>
   );

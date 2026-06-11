@@ -42,8 +42,14 @@ export default async function SettingsLayout({
   });
 
   return (
-    <DashboardModuleShell>
-      <div className="mx-auto grid w-full max-w-6xl gap-(--space-8) lg:grid-cols-[218px_minmax(0,1fr)] lg:gap-(--space-16)">
+    <DashboardModuleShell className="bg-[var(--color-surface-alt)]">
+      <div
+        className="grid w-full max-w-6xl gap-(--space-8) lg:grid-cols-[218px_minmax(0,1fr)] lg:gap-(--space-16)"
+        style={{
+          marginInlineStart:
+            "clamp(0px, calc((100vw - 72rem) / 2), calc(var(--space-24) * 3 + var(--space-8)))",
+        }}
+      >
         <SettingsNav groups={groups} />
         <div className="min-w-0">{children}</div>
       </div>
