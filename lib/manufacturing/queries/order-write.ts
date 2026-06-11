@@ -15,6 +15,7 @@ import type { BomComponentConstraint } from "@/lib/bom/constraints";
 import { calculateIngredientPlannedQuantity, normalizeRecipeBasis, type RecipeBasis } from "@/lib/manufacturing/consumption";
 import { getBomRevisionOperationCostsInTx } from "@/lib/bom/operation-costs";
 import { calculatePlannedOperationCost } from "@/lib/manufacturing/operation-costs";
+import { notifyManufacturingOrderCreated } from "@/lib/notifications/manufacturing";
 import type { CreateManufacturingOrdersFromSalesOrder, InsertManufacturingOrder, PatchManufacturingOrder, PatchManufacturingOrderIngredient, UpdateManufacturingOrder } from "@/lib/schemas/manufacturing-orders";
 import type { ManufacturingOrdersFromSalesOrderResult } from "../types";
 import { ManufacturingError } from "./errors";
@@ -1147,9 +1148,13 @@ export async function createManufacturingOrderInTx(
 export async function createManufacturingOrder(
   payload: InsertManufacturingOrder
 ): Promise<{ id: string }> {
-  return withAuthedOrgContext((tx, orgId, userId) =>
-    createManufacturingOrderInTx(tx, orgId, payload, userId)
-  );
+  let notifyOrgId = "";
+  const created = await withAuthedOrgContext((tx, orgId, userId) => {
+    notifyOrgId = orgId;
+    return createManufacturingOrderInTx(tx, orgId, payload, userId);
+  });
+  await notifyManufacturingOrderCreated(notifyOrgId, created.id);
+  return created;
 }
 
 export async function duplicateManufacturingOrder(
@@ -1330,15 +1335,21 @@ export async function createManufacturingOrdersFromSalesOrder(
   salesOrderId: string,
   payload: CreateManufacturingOrdersFromSalesOrder
 ): Promise<ManufacturingOrdersFromSalesOrderResult> {
-  return withAuthedOrgContext(async (tx, orgId, userId) =>
-    createManufacturingOrdersFromSalesOrderInTx(
+  let notifyOrgId = "";
+  const result = await withAuthedOrgContext((tx, orgId, userId) => {
+    notifyOrgId = orgId;
+    return createManufacturingOrdersFromSalesOrderInTx(
       tx,
       orgId,
       salesOrderId,
       payload,
       userId
-    )
-  );
+    );
+  });
+  for (const order of result.created) {
+    await notifyManufacturingOrderCreated(notifyOrgId, order.manufacturingOrderId);
+  }
+  return result;
 }
 
 export async function updateManufacturingOrder(

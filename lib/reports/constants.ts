@@ -6,6 +6,7 @@ export type ReportType = (typeof REPORT_TYPES)[keyof typeof REPORT_TYPES];
 
 export const NOTIFICATION_TYPES = {
   DAILY_MANUFACTURING_REPORT: "daily_manufacturing_report",
+  MANUFACTURING_ORDER_CREATED: "manufacturing_order_created",
 } as const;
 
 export type NotificationType =
@@ -13,10 +14,21 @@ export type NotificationType =
 
 export const NOTIFICATION_ENTITY_TYPES = {
   REPORT_RUN: "report_run",
+  MANUFACTURING_ORDER: "manufacturing_order",
 } as const;
 
 export type NotificationEntityType =
   (typeof NOTIFICATION_ENTITY_TYPES)[keyof typeof NOTIFICATION_ENTITY_TYPES];
+
+/**
+ * Event types a user can subscribe to via notification_preferences. The daily
+ * report is excluded: it has its own recipients model (report_recipients).
+ */
+export const SUBSCRIBABLE_EVENT_TYPES = [
+  NOTIFICATION_TYPES.MANUFACTURING_ORDER_CREATED,
+] as const;
+
+export type SubscribableEventType = (typeof SUBSCRIBABLE_EVENT_TYPES)[number];
 
 export const NOTIFICATION_KINDS = {
   MFG: "mfg",
@@ -39,6 +51,9 @@ export function notificationKindFor(
   entityType?: string | null
 ): NotificationKind {
   if (type === NOTIFICATION_TYPES.DAILY_MANUFACTURING_REPORT) {
+    return NOTIFICATION_KINDS.MFG;
+  }
+  if (type === NOTIFICATION_TYPES.MANUFACTURING_ORDER_CREATED) {
     return NOTIFICATION_KINDS.MFG;
   }
   // Keep these keyword sets in lockstep with the Android client fallback in
