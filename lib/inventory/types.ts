@@ -89,6 +89,13 @@ export type ItemRow = {
   subRows?: ItemRow[];
 };
 
+export type ItemLocationBalance = {
+  locationId: string;
+  locationName: string;
+  isDefault: boolean;
+  onHandQty: string;
+};
+
 export const REPLENISHMENT_STATUS_VALUES = [
   "order-now",
   "order-soon",

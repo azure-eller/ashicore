@@ -14,6 +14,7 @@ import {
   finishInventoryOperationInTx,
   transferStockInTx,
 } from "@/lib/inventory/kernel/operations";
+import type { ItemLocationBalance } from "@/lib/inventory/types";
 import type { CreateTransfer } from "@/lib/schemas/transfers";
 
 export type CreateTransferResult = {
@@ -90,14 +91,6 @@ export async function createInventoryTransfer(
   });
 }
 
-export type ItemLocationBalance = {
-  locationId: string;
-  locationName: string;
-  isDefault: boolean;
-  onHandQty: string;
-  committedQty: string;
-};
-
 export async function getItemLocationBalances(
   itemId: string
 ): Promise<ItemLocationBalance[]> {
@@ -110,9 +103,6 @@ export async function getItemLocationBalances(
         onHandQty: trimScale(
           sql`COALESCE(${inventoryItemBalances.onHandQty}, 0)`
         ).as("onHandQty"),
-        committedQty: trimScale(
-          sql`COALESCE(${inventoryItemBalances.committedQty}, 0)`
-        ).as("committedQty"),
       })
       .from(inventoryLocations)
       .leftJoin(
