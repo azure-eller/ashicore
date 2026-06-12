@@ -102,7 +102,7 @@ function ModuleTab({
       variant="ghost"
       size="default"
       className={cn(
-        "relative h-(--height-header-control) shrink-0 rounded-(--radius-md) px-(--space-6) text-[var(--chrome-fg)] transition-colors duration-100 hover:bg-[var(--chrome-line)] hover:text-[var(--chrome-fg)]",
+        "relative h-(--height-header-control) shrink-0 rounded-(--radius-md) px-(--space-6) text-[length:var(--text-md)] leading-[var(--leading-sm)] text-[var(--chrome-fg)] transition-colors duration-100 hover:bg-[var(--chrome-line)] hover:text-[var(--chrome-fg)]",
         (showingSubNav || active) &&
           "bg-transparent font-semibold text-[var(--chrome-fg)] shadow-[inset_0_0_0_1.5px_var(--chrome-fg)] hover:bg-transparent hover:text-[var(--chrome-fg)]"
       )}
