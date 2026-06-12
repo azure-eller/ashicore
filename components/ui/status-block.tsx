@@ -157,7 +157,7 @@ export function StatusBlock({
   const framed = Boolean(footer || marker);
   const baseClassName = cn(
     framed
-      ? "inline-flex min-h-(--height-input-sm) h-full w-full shrink-0 items-stretch overflow-hidden rounded-(--radius-none)"
+      ? "inline-flex min-h-(--height-header-control) h-full w-full shrink-0 items-stretch overflow-hidden rounded-(--radius-none)"
       : "inline-flex h-auto w-fit shrink-0 items-center overflow-hidden rounded-(--radius-full)",
     "font-mono text-[length:var(--text-xs)] leading-none font-bold uppercase tracking-[0.03em]",
     "text-[color:var(--status-block-fg)]",

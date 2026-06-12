@@ -84,7 +84,7 @@ export const erpGridTheme = themeQuartz.withParams({
   dataBackgroundColor: "var(--color-surface)",
   fontFamily: "var(--font-sans)",
   foregroundColor: "var(--color-ink)",
-  headerBackgroundColor: "var(--color-surface-sunk)",
+  headerBackgroundColor: "var(--color-surface-alt)",
   headerColumnBorder: true,
   headerColumnResizeHandleColor: "var(--color-line)",
   headerTextColor: "var(--grid-header-fg)",

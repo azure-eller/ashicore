@@ -210,7 +210,6 @@
 
 .headerRight {
   margin-left: auto;
-  align-self: flex-start;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -339,8 +338,8 @@
 
 .iconBtn {
   position: relative;
-  width: var(--height-input-sm);
-  height: var(--height-input-sm);
+  width: var(--height-header-control);
+  height: var(--height-header-control);
   border: 1px solid var(--color-line);
   background: var(--color-surface);
   color: var(--color-muted);

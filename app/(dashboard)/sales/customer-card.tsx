@@ -583,7 +583,7 @@ function HeaderMetaPill({
           type="button"
           variant="outline"
           size="sm"
-          className="rounded-full"
+          className="h-(--height-header-control) rounded-full"
           aria-label={`${label}: ${current?.label ?? value}`}
           disabled={disabled}
         >

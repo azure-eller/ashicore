@@ -194,7 +194,7 @@ export function EditableLineDataGrid<TData>({
   className,
   minHeight,
   rowHeight = 44,
-  headerHeight = 36,
+  headerHeight = 40,
   defaultColDef: defaultColDefOverrides,
   enableReorder = true,
   enableDelete = true,
