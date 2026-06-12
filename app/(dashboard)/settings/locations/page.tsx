@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { hasModuleAccess } from "@/lib/authz";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
+import { getFeatureAccessForCurrentOrg } from "@/lib/billing/dal";
 import { getInventoryLocations } from "@/lib/inventory/queries/locations";
 import { LocationsSection } from "../locations-section";
 
@@ -10,6 +11,14 @@ export default async function SettingsLocationsPage() {
     redirect("/settings/account");
   }
 
-  const locations = await getInventoryLocations();
-  return <LocationsSection initialLocations={locations} />;
+  const [locations, multiLocationAccess] = await Promise.all([
+    getInventoryLocations(),
+    getFeatureAccessForCurrentOrg("multi_location"),
+  ]);
+  return (
+    <LocationsSection
+      initialLocations={locations}
+      multiLocationLocked={multiLocationAccess.locked}
+    />
+  );
 }

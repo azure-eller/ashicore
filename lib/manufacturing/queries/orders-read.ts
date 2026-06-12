@@ -7,6 +7,7 @@ import { normalizeNumeric, normalizeQuantityNumber } from "@/lib/format";
 import { inferItemVisual } from "@/components/inventory-visuals/infer-item-visual";
 import { getBomRevisionComponentsInTx, getCurrentBomCoverageInTx } from "@/lib/bom/revisions";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
+import { getFeatureAccessInTx } from "@/lib/billing/entitlements";
 import type { Tx } from "@/lib/db/with-org-context";
 import { documentNumberSortSql } from "@/lib/document-numbers";
 import { projectedLotUnitCost } from "@/lib/inventory/kernel";
@@ -885,7 +886,7 @@ export async function getManufacturingSalesLineOptions(
 export async function getManufacturingOrder(
   id: string
 ): Promise<ManufacturingOrderDetail | null> {
-  return withAuthedOrgContext(async (tx) => {
+  return withAuthedOrgContext(async (tx, orgId) => {
     const [order] = await tx
       .select({
         id: manufacturingOrders.id,
@@ -1159,11 +1160,16 @@ export async function getManufacturingOrder(
               }))
             );
 
+    const lotTrackingAccess = await getFeatureAccessInTx(tx, orgId, "lot_tracking");
+
     return {
       ...order,
       productName: canonicalItemName(itemDisplayById, order.productId, order.productName),
       productLotTrackingMode:
         order.productLotTrackingMode === "untracked" ? "untracked" : "tracked",
+      // Producing into a non-available disposition is gated under lot_tracking;
+      // clients (web dialog, app) hide the disposition choice off this flag.
+      outputDispositionLocked: lotTrackingAccess.locked,
       status: order.status as ManufacturingOrderDetail["status"],
       pickProgressStatus:
         order.manufacturingMode === "batch" && batches.length > 0

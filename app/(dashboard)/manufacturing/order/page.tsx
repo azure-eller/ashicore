@@ -1,4 +1,5 @@
 import { requireModuleAccess } from "@/lib/dal/auth";
+import { getFeatureAccessForCurrentOrg } from "@/lib/billing/dal";
 import { getManufacturingProductTemplates } from "@/lib/manufacturing/queries/orders-read";
 import { ManufacturingOrderCard } from "../orders/[id]/manufacturing-order-card";
 
@@ -10,7 +11,14 @@ import { ManufacturingOrderCard } from "../orders/[id]/manufacturing-order-card"
  */
 export default async function ManufacturingOrderDraftPage() {
   await requireModuleAccess("manufacturing", "operate");
-  const templates = await getManufacturingProductTemplates();
+  const [allTemplates, batchAccess] = await Promise.all([
+    getManufacturingProductTemplates(),
+    getFeatureAccessForCurrentOrg("batch_production"),
+  ]);
+  // Hidden when off: batch products aren't creatable MOs for locked orgs.
+  const templates = batchAccess.locked
+    ? allTemplates.filter((template) => template.manufacturingMode !== "batch")
+    : allTemplates;
 
   return (
     <ManufacturingOrderCard

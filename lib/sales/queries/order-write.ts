@@ -423,6 +423,7 @@ async function prepareOrderPayload(
     : new Map<string, SalesItemValidationRow>();
   const pricingLookup = await getPricingScheduleLookupForProductsInTx(
     tx,
+    orgId,
     [...itemsById.values()],
     customer.customerCategoryId
   );

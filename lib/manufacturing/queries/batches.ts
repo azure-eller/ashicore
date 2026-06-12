@@ -5,6 +5,7 @@ import { inventoryExpectedSummary, manufacturingOrderBatches, manufacturingOrder
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { normalizeNumeric, normalizeNumericScale, normalizeQuantityNumber } from "@/lib/format";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
+import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
 import type { Tx } from "@/lib/db/with-org-context";
 import { lockManufacturingPriorityQueueInTx } from "@/lib/manufacturing-priority-lock";
 import { applyExpectedReferenceDeltasInTx, beginInventoryOperationInTx, deriveInventoryIdempotencyKey, finishInventoryOperationInTx, getDefaultInventoryLocationInTx, produceManufacturedStockInTx, reconcileIngredientActualsInTx, releaseIngredientDemandForManufacturingInTx } from "@/lib/inventory/kernel";
@@ -391,6 +392,14 @@ export async function completeManufacturingBatch(
 
     if (payload.actualQuantity == null) {
       throw new ManufacturingError("Actual quantity is required.", 400);
+    }
+
+    // Producing into a non-available disposition creates a blocked lot — the
+    // lot_tracking paid state. Completing as available is always free.
+    if (payload.outputDisposition !== "available") {
+      await assertFeatureAccessInTx(tx, orgId, "lot_tracking", {
+        route: "POST /api/manufacturing-orders/[id]/complete",
+      });
     }
 
     const actualQuantity = Number(payload.actualQuantity);

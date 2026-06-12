@@ -293,6 +293,7 @@ export type ManufacturingOrderDetail = {
   productName: string;
   productSku: string | null;
   productLotTrackingMode: "tracked" | "untracked";
+  outputDispositionLocked: boolean;
   unitName: string;
   salesOrderId: string | null;
   salesOrderLineId: string | null;

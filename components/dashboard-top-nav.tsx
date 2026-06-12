@@ -69,6 +69,8 @@ type DashboardTopNavProps = {
     slug: string | null;
   }>;
   assignedRoles: string[];
+  /** Nav/search hrefs hidden for this org (locked plugin surfaces). */
+  hiddenNavHrefs?: string[];
 };
 
 const DOCS_URL =
@@ -291,6 +293,7 @@ export function DashboardTopNav({
   organizationName,
   organizations,
   assignedRoles,
+  hiddenNavHrefs = [],
 }: DashboardTopNavProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -306,9 +309,17 @@ export function DashboardTopNav({
   // Mounted lazily on first open, then kept mounted so the conversation
   // survives closing the sheet.
   const [agentChatMounted, setAgentChatMounted] = useState(false);
-  const modules = getDashboardNavModules(assignedRoles);
-  const createActions = getDashboardCreateActions(assignedRoles);
-  const searchActions = getDashboardSearchActions(assignedRoles);
+  const hiddenHrefs = new Set(hiddenNavHrefs);
+  const modules = getDashboardNavModules(assignedRoles).map((module) => ({
+    ...module,
+    items: module.items.filter((item) => !hiddenHrefs.has(item.href)),
+  }));
+  const createActions = getDashboardCreateActions(assignedRoles).filter(
+    (action) => !hiddenHrefs.has(action.href)
+  );
+  const searchActions = getDashboardSearchActions(assignedRoles).filter(
+    (action) => !hiddenHrefs.has(action.href)
+  );
   const activeModule = getActiveDashboardModule(visiblePathname, modules);
   const visibleModule = activeModule;
   const normalizedPageSearch = pageSearch.trim().toLowerCase();

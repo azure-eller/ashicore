@@ -34,8 +34,10 @@ type LocationPayload = {
 
 export function LocationsSection({
   initialLocations,
+  multiLocationLocked,
 }: {
   initialLocations: LocationRow[];
+  multiLocationLocked: boolean;
 }) {
   const router = useRouter();
   const [rows, setRows] = useState<LocationRow[]>(initialLocations);
@@ -196,6 +198,7 @@ export function LocationsSection({
               mutation.mutate({ row });
             }}
             addLabel="Add location"
+            enableAddRow={!multiLocationLocked}
             initializeBlankRow={false}
             enableReorder={false}
             getDeleteDisabledReason={(row) =>

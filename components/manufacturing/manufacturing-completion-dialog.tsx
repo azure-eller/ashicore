@@ -123,7 +123,9 @@ function CompletionDialogForm({
   const [shortage, setShortage] = useState<ManufacturingReleaseWarningPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const dispositionOptions: OutputDisposition[] =
-    order.productLotTrackingMode === "untracked" ? ["available"] : ["available", "blocked"];
+    order.productLotTrackingMode === "untracked" || order.outputDispositionLocked
+      ? ["available"]
+      : ["available", "blocked"];
 
   const quantity = useMemo(() => {
     return rawQuantity.trim();

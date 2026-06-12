@@ -835,6 +835,13 @@ async function insertManufacturingOrderInTx(
     ingredients: ValidatedIngredient[];
   }
 ) {
+  // Creating a new batch-mode MO is the batch_production workflow; in-flight
+  // batch MOs always execute and complete regardless of entitlement.
+  if (values.manufacturingMode === "batch") {
+    await assertFeatureAccessInTx(tx, orgId, "batch_production", {
+      route: "POST /api/manufacturing-orders",
+    });
+  }
   const orderNumber = await generateMONumber(tx, orgId);
   const [order] = await tx
     .insert(manufacturingOrders)
@@ -1436,6 +1443,16 @@ export async function updateManufacturingOrder(
           ingredients: result,
         }));
     const scalingPlan = deriveScalingPlan(plannedQuantity, ingredients);
+    // Editing re-derives the mode from the BOM; entering batch is the
+    // batch_production workflow. Already-batch MOs stay editable (in-flight rule).
+    if (
+      existing.manufacturingMode !== "batch" &&
+      scalingPlan.manufacturingMode === "batch"
+    ) {
+      await assertFeatureAccessInTx(tx, orgId, "batch_production", {
+        route: "PUT /api/manufacturing-orders/[id]",
+      });
+    }
     const existingIngredientRows = await tx
       .select({ id: manufacturingOrderIngredients.id })
       .from(manufacturingOrderIngredients)

@@ -109,6 +109,7 @@ type CustomerCardProps = {
   initialCustomer: CustomerDetailData | null;
   addresses: AddressEntry[];
   categories: CustomerCategoryOption[];
+  crmLocked: boolean;
 };
 
 type OpenOrderGridRow = CustomerLinkedSalesOrderRow;
@@ -119,6 +120,7 @@ export function CustomerCard({
   initialCustomer,
   addresses,
   categories,
+  crmLocked,
 }: CustomerCardProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -457,36 +459,40 @@ export function CustomerCard({
           </CardFormRow>
         </CardSection>
 
-        <ContactsSection
-          rows={display.contacts}
-          onOpenStream={openContactStream}
-          readOnly={readOnly || isDraft}
-          onSave={(row) => {
-            if (readOnly || isDraft) return;
-            engine.applyLocalOp({ type: "upsertContact", row });
-          }}
-          onDelete={(contactId) => {
-            if (readOnly || isDraft) return;
-            engine.applyLocalOp({ type: "deleteContact", contactId });
-          }}
-        />
+        {crmLocked ? null : (
+          <ContactsSection
+            rows={display.contacts}
+            onOpenStream={openContactStream}
+            readOnly={readOnly || isDraft}
+            onSave={(row) => {
+              if (readOnly || isDraft) return;
+              engine.applyLocalOp({ type: "upsertContact", row });
+            }}
+            onDelete={(contactId) => {
+              if (readOnly || isDraft) return;
+              engine.applyLocalOp({ type: "deleteContact", contactId });
+            }}
+          />
+        )}
 
         <OpenOrdersSection
           customerId={currentCustomerId}
           rows={openOrders}
         />
 
-        <div ref={activityAnchorRef}>
-          <ActivitySection
-            customerId={currentCustomerId}
-            rows={display.activities}
-            projects={display.projects}
-            contacts={display.contacts}
-            filter={activityFilter}
-            onFilterChange={setActivityFilter}
-            readOnly={readOnly || isDraft}
-          />
-        </div>
+        {crmLocked ? null : (
+          <div ref={activityAnchorRef}>
+            <ActivitySection
+              customerId={currentCustomerId}
+              rows={display.activities}
+              projects={display.projects}
+              contacts={display.contacts}
+              filter={activityFilter}
+              onFilterChange={setActivityFilter}
+              readOnly={readOnly || isDraft}
+            />
+          </div>
+        )}
       </CardPageBody>
 
       {deleteConfirm.dialog}

@@ -5,6 +5,7 @@ import { type InventoryDisposition, manufacturingOrderBatches, manufacturingOrde
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { normalizeNumeric, normalizeNumericScale, normalizeQuantityNumber } from "@/lib/format";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
+import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
 import type { Tx } from "@/lib/db/with-org-context";
 import { applyDemandReferenceDeltasInTx, applyExpectedReferenceDeltasInTx, beginInventoryOperationInTx, consumeStockFifoInTx, decrementExistingLotStockInTx, deriveInventoryIdempotencyKey, finishInventoryOperationInTx, getDefaultInventoryLocationInTx, produceManufacturedStockInTx, restockExistingLotInTx } from "@/lib/inventory/kernel";
 import { calculatePlannedOperationCost } from "@/lib/manufacturing/operation-costs";
@@ -582,6 +583,14 @@ export async function recordManufacturingOutput(
         "Untracked items can only be produced as available.",
         400
       );
+    }
+
+    // Producing into a non-available disposition creates a blocked lot — the
+    // lot_tracking paid state. Recording output as available is always free.
+    if (payload.outputDisposition !== "available") {
+      await assertFeatureAccessInTx(tx, orgId, "lot_tracking", {
+        route: "POST /api/manufacturing-orders/[id]/outputs",
+      });
     }
 
     const outputQuantity = Number(payload.quantity);

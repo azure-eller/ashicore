@@ -6,6 +6,7 @@ import {
   getAuthedMemberContext,
   getAuthedOrganizations,
 } from "@/lib/dal/auth";
+import { getFeatureAccessForCurrentOrg } from "@/lib/billing/dal";
 import {
   getRequestLogContext,
   logObservedEvent,
@@ -24,7 +25,10 @@ export default async function DashboardLayout({
   });
 
   const context = await getAuthedMemberContext();
-  const organizations = await getAuthedOrganizations();
+  const [organizations, wholesaleAccess] = await Promise.all([
+    getAuthedOrganizations(),
+    getFeatureAccessForCurrentOrg("wholesale_pricing"),
+  ]);
   const user = {
     name: context.name,
     email: context.email,
@@ -44,6 +48,7 @@ export default async function DashboardLayout({
             name: organization.name,
             slug: organization.slug,
           }))}
+          hiddenNavHrefs={wholesaleAccess.locked ? ["/sales/pricing"] : []}
         />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
           <DashboardNavigationContent>{children}</DashboardNavigationContent>

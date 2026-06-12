@@ -387,6 +387,7 @@ export function makeDraftManufacturingOrder(): ManufacturingOrderDetail {
     productName: "",
     productSku: null,
     productLotTrackingMode: "tracked",
+    outputDispositionLocked: false,
     unitName: "",
     salesOrderId: null,
     salesOrderLineId: null,

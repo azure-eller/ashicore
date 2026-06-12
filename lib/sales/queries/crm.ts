@@ -9,6 +9,7 @@ import {
   customers,
 } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
+import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
 import type { Tx } from "@/lib/db/with-org-context";
 import type {
   CustomerActivityInput,
@@ -240,6 +241,11 @@ export async function createCustomerContact(
   data: CustomerContactInput
 ): Promise<CustomerContactRow | null> {
   return withAuthedOrgContext(async (tx, orgId) => {
+    // Recording new CRM data is the crm workflow; editing/deleting existing
+    // records stays free (same boundary as lot tracking's existing-data rule).
+    await assertFeatureAccessInTx(tx, orgId, "crm", {
+      route: "POST /api/customers/[id]/contacts",
+    });
     const customer = await ensureActiveCustomerInTx(tx, customerId);
     if (!customer) return null;
     await ensureAddressEntryForContactInTx(tx, orgId, data.addressEntryId);
@@ -323,6 +329,9 @@ export async function createCustomerActivity(
   actor: { userId: string; name: string }
 ): Promise<CustomerActivityRow | null> {
   return withAuthedOrgContext(async (tx, orgId) => {
+    await assertFeatureAccessInTx(tx, orgId, "crm", {
+      route: "POST /api/customers/[id]/activities",
+    });
     const customer = await ensureActiveCustomerInTx(tx, customerId);
     if (!customer) return null;
 
@@ -488,6 +497,9 @@ export async function createCustomerProject(
   data: CustomerProjectInput
 ): Promise<CustomerProjectRow | null> {
   return withAuthedOrgContext(async (tx, orgId) => {
+    await assertFeatureAccessInTx(tx, orgId, "crm", {
+      route: "POST /api/customers/[id]/projects",
+    });
     const customer = await ensureActiveCustomerInTx(tx, customerId);
     if (!customer) return null;
 

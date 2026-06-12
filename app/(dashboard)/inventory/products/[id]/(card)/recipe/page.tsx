@@ -9,6 +9,7 @@ import {
   hasModuleAccess,
 } from "@/lib/authz";
 import { getItemCard } from "@/lib/inventory/item-cards";
+import { getFeatureAccessForCurrentOrg } from "@/lib/billing/dal";
 import { ProductRecipeTab } from "../../tabs/recipe";
 
 export default async function ProductRecipePage({
@@ -20,10 +21,11 @@ export default async function ProductRecipePage({
 }) {
   const { id } = await params;
   const { variant } = await searchParams;
-  const [context, item, card] = await Promise.all([
+  const [context, item, card, batchAccess] = await Promise.all([
     getAuthedMemberContext(),
     getItem(id),
     getItemCard(id),
+    getFeatureAccessForCurrentOrg("batch_production"),
   ]);
 
   if (!item || item.itemType !== "product") redirect("/inventory/products");
@@ -78,6 +80,7 @@ export default async function ProductRecipePage({
       }))}
       canViewBom={canViewBom}
       canEditProduct={canEditProduct}
+      batchProductionLocked={batchAccess.locked}
     />
   );
 }

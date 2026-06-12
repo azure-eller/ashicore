@@ -66,6 +66,7 @@ export type ProductRecipeTabProps = {
   availableComponents: AvailableComponent[];
   canViewBom: boolean;
   canEditProduct: boolean;
+  batchProductionLocked: boolean;
 };
 
 export function ProductRecipeTab({
@@ -79,6 +80,7 @@ export function ProductRecipeTab({
   availableComponents,
   canViewBom,
   canEditProduct,
+  batchProductionLocked,
 }: ProductRecipeTabProps) {
   const queryClient = useQueryClient();
   const itemCard = useItemCardContext();
@@ -258,21 +260,25 @@ export function ProductRecipeTab({
           onChange={handleVariantChange}
           hideWhenSingle={false}
         />
-        <div className="flex items-center gap-(--space-2) lg:h-(--height-input-md)">
-          <Checkbox
-            id="recipe-basis-batch"
-            checked={recipeBasis === "batch"}
-            disabled={!recipeData?.canEditProduct || tabLoading}
-            onCheckedChange={(checked) => {
-              if (!recipeData?.canEditProduct || tabLoading) return;
-              setRecipeBasis(checked === true ? "batch" : "unit");
-              setDirty(true);
-            }}
-          />
-          <Label htmlFor="recipe-basis-batch" className="whitespace-nowrap">
-            This product is produced in batches
-          </Label>
-        </div>
+        {/* Hidden when off: batch basis is the batch_production entry point.
+            Existing batch recipes keep the control so unticking stays free. */}
+        {batchProductionLocked && recipeBasis !== "batch" ? null : (
+          <div className="flex items-center gap-(--space-2) lg:h-(--height-input-md)">
+            <Checkbox
+              id="recipe-basis-batch"
+              checked={recipeBasis === "batch"}
+              disabled={!recipeData?.canEditProduct || tabLoading}
+              onCheckedChange={(checked) => {
+                if (!recipeData?.canEditProduct || tabLoading) return;
+                setRecipeBasis(checked === true ? "batch" : "unit");
+                setDirty(true);
+              }}
+            />
+            <Label htmlFor="recipe-basis-batch" className="whitespace-nowrap">
+              This product is produced in batches
+            </Label>
+          </div>
+        )}
       </div>
 
       <p className={`${styles.helper} mt-(--space-2)`}>

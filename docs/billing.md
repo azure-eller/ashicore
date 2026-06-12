@@ -43,7 +43,7 @@ downgrade safe: data stays intact, paid workflows lock, and nothing an org did
 while entitled can strand it. Every gate must define its free default and leave
 the path back to it ungated.
 
-Existing examples (all `lot_tracking`):
+Existing examples:
 
 | Gated (entering paid state) | Free (returning to / staying in default) |
 | --- | --- |
@@ -52,13 +52,21 @@ Existing examples (all `lot_tracking`):
 | New lot via stock adjustment | Adjusting existing lots |
 | New lot from a positive aggregate count at stocktake completion | Zero/negative aggregate counts; untracked items |
 | Non-FIFO ingredient `lotStrategy` | Reverting to `fifo`; execution always picks FIFO |
+| MO output into a blocked disposition (complete/outputs/batch paths) | Completing or recording output as `available` |
+| Creating a new batch-mode MO; switching a recipe or an MO onto batch basis | In-flight batch MOs always execute and complete; editing already-batch MOs and recipes; reverting a recipe to unit; discrete MOs at any quantity |
+| Creating new CRM contacts/activities/projects | Editing/deleting existing CRM records; customer CRUD and order snapshots |
+| Creating/updating pricing schedules; schedule-based price resolution (computation gate) | Manual per-line price and discount overrides; existing lines keep their pricing snapshots |
+| Adding a second location, transfers | Everything at the single default location; deleting extra locations |
 
 A gate that locks an exit (e.g. gating `release`) traps customer data behind a
 paywall — treat that as a bug. Watch for sibling write paths that reach the
 same state: the stocktake found-lot gate also required gating new-lot creation
 via stock adjustments/reconciliations AND stocktake completion (a positive
 aggregate count on a tracked item with no lot lines makes the kernel generate
-a lot) — each unguarded door was a bypass.
+a lot) — each unguarded door was a bypass. Likewise the batch gate needed the
+MO-update and BOM-revision transitions, and the blocked-disposition gate needed
+all three MO output paths (complete, outputs, batch complete) — sweep every
+caller of the state, not just the obvious create.
 
 Downgrade data semantics: toggling never deletes, migrates, or rewrites data.
 Kernel data (lots, dispositions, ledger history) stays visible always because
@@ -138,8 +146,8 @@ with the enforcement vars set on the dev server (see step 3). Without them
 
 | Plugin | Status | Gates |
 | --- | --- | --- |
-| `lot_tracking` | shipped (ERP-192) | disposition to non-available, new found lots, new lots via adjustment/reconciliation/stocktake completion, non-FIFO lotStrategy |
-| `batch_production` | ERP-193 | batch-mode MO creation (planned); `outputDisposition` belongs here |
-| `crm` | ERP-195 | activity create/edit; customer records stay free (planned) |
-| `wholesale_pricing` | partial (ERP-189) | `createPricingSchedule`; **`updatePricingSchedule` and price-resolution computation still ungated, no UI hiding** — close in ERP-195/196 |
-| `multi_location` | ERP-190 | second location / transfers (planned); single default location free |
+| `lot_tracking` | shipped (ERP-192/195) | disposition to non-available, new found lots, new lots via adjustment/reconciliation/stocktake completion, non-FIFO lotStrategy, MO output into a blocked disposition (complete/outputs/batch paths; `outputDispositionLocked` on the MO detail drives the dialog hide) |
+| `batch_production` | shipped (ERP-195) | new batch-mode MO creation (`insertManufacturingOrderInTx`, covers direct/duplicate/from-sales-order) plus batch-entering transitions on MO update and BOM revisions; in-flight batch MOs always execute; UI hides the batch recipe basis and batch products in MO pickers |
+| `crm` | shipped (ERP-195) | new contacts/activities/projects (`lib/sales/queries/crm.ts` creates); edits/deletes of existing records free; UI hides the Contacts and Activity sections and the customers-list Next action column/filter |
+| `wholesale_pricing` | shipped (ERP-189/195) | `createPricingSchedule` + `updatePricingSchedule`; resolution computation gate in `getPricingScheduleLookupForProductsInTx`; UI hides the Pricing nav item and redirects `/sales/pricing` |
+| `multi_location` | shipped (ERP-190/195) | location create/transfers (server, ERP-190); UI hides the add-location row |

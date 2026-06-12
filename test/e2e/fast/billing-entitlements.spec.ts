@@ -13,7 +13,9 @@ import {
 } from "../../../lib/billing/entitlements";
 import { withOrgContext } from "../../../lib/db/with-org-context";
 import {
+  createCustomer,
   createItem,
+  createPricingSchedule,
   getBaseUrl,
   getSessionCookie,
   getUnitId,
@@ -387,4 +389,54 @@ test("shadow mode never blocks a gated mutation for an unentitled org", async ({
     .where(eq(pricingSchedules.id, schedule.id))
     .limit(1);
   expect(row?.id).toBe(schedule.id);
+});
+
+test("shadow mode keeps schedule pricing applied for unentitled orgs", async () => {
+  // The wholesale computation gate keys off `locked`, never `entitled`: in
+  // shadow, an unentitled org must still resolve schedule pricing. A
+  // regression to entitlement-keyed resolution would silently change prices
+  // before launch.
+  const ts = Date.now();
+  const product = await createItem({
+    itemType: "product",
+    name: `Shadow Pricing Probe ${ts}`,
+    sellable: true,
+    unitDefinitionId: getUnitId(),
+    sku: `SHADOW-PRICE-${ts}`,
+    category: `Entitlement Probe ${ts}`,
+    description: null,
+    defaultPurchasePrice: null,
+    defaultSellingPrice: "20.00",
+    stock: "0",
+    safetyStock: "0",
+    bom: [],
+  });
+  expect(product.status).toBe(201);
+  const productId = (product.body as { id: string }).id;
+
+  const schedule = await createPricingSchedule({
+    name: `Shadow Pricing Probe ${ts}`,
+    itemIds: [productId],
+    breaks: [{ minQuantity: "1", discountPercent: "10" }],
+  });
+  expect(schedule.status).toBe(201);
+
+  const customer = await createCustomer({ name: `Shadow Pricing Probe ${ts}` });
+  expect(customer.status).toBe(201);
+
+  const price = await testFetch("/api/sales-orders/price", {
+    method: "POST",
+    body: JSON.stringify({
+      customerId: (customer.body as { id: string }).id,
+      itemId: productId,
+      quantity: "5",
+    }),
+  });
+  expect(price.status).toBe(200);
+  const pricing = (await price.json()) as {
+    suggestedUnitPrice: string | null;
+    pricingSourceType: string;
+  };
+  expect(Number(pricing.suggestedUnitPrice)).toBe(18);
+  expect(pricing.pricingSourceType).toBe("schedule_break");
 });

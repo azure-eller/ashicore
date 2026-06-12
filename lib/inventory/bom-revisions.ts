@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { items } from "@/lib/db/schema";
 import { withAuthedOrgContext, getAuthedMemberContext } from "@/lib/dal/auth";
+import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
 import { isPositiveNumberString } from "@/lib/schemas/shared";
 import { createBomRevisionInTx, type BomInputRow } from "@/lib/inventory/queries/bom-write";
 import { getCurrentBomOperationCostsInTx } from "@/lib/bom/operation-costs";
@@ -84,6 +85,19 @@ export async function createBomRevision(
   const { userId } = await getAuthedMemberContext();
   return withAuthedOrgContext(async (tx, orgId) => {
     const recipeBasis = data.recipeBasis ?? "unit";
+    // Switching a recipe onto batch basis enters the batch_production
+    // workflow; editing an already-batch recipe or reverting to unit is free.
+    if (recipeBasis === "batch") {
+      const [current] = await tx
+        .select({ manufacturingMode: items.manufacturingMode })
+        .from(items)
+        .where(eq(items.id, productId));
+      if (current?.manufacturingMode !== "batch") {
+        await assertFeatureAccessInTx(tx, orgId, "batch_production", {
+          route: "POST /api/items/[id]/bom-revisions",
+        });
+      }
+    }
     const expectedBatchYield =
       recipeBasis === "batch"
         ? data.expectedBatchYield ?? data.outputQuantity ?? null

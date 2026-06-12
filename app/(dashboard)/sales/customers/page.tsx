@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { CustomersTable } from "@/app/(dashboard)/sales/customers-table";
+import { getFeatureAccessForCurrentOrg } from "@/lib/billing/dal";
 import { requireModuleReadAccess } from "@/lib/dal/auth";
 import { todayInTimeZone } from "@/lib/format";
 import { getCustomers } from "@/lib/sales/queries/customers-read";
@@ -14,12 +15,16 @@ export default function CustomersPage() {
 }
 
 async function CustomersData() {
-  const context = await requireModuleReadAccess("sales");
-  const customers = await getCustomers();
+  const [context, customers, crmAccess] = await Promise.all([
+    requireModuleReadAccess("sales"),
+    getCustomers(),
+    getFeatureAccessForCurrentOrg("crm"),
+  ]);
   return (
     <CustomersTable
       initialData={customers}
       today={todayInTimeZone(context.organizationTimeZone)}
+      crmLocked={crmAccess.locked}
     />
   );
 }

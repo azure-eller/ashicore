@@ -28,9 +28,11 @@ type CustomerView = "all" | "due";
 export function CustomersTable({
   initialData,
   today,
+  crmLocked,
 }: {
   initialData: CustomerRow[];
   today: string;
+  crmLocked: boolean;
 }) {
   const [view, setView] = useState<CustomerView>("all");
   const queryClient = useQueryClient();
@@ -39,8 +41,8 @@ export function CustomersTable({
       patchCustomerActivity(customerId, taskId, { status: "done" }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.customers.root }),
   });
-  const columns = useMemo<ColDef<CustomerRow>[]>(
-    () => [
+  const columns = useMemo<ColDef<CustomerRow>[]>(() => {
+    const defs: ColDef<CustomerRow>[] = [
       {
         field: "name",
         headerName: "Name",
@@ -158,9 +160,9 @@ export function CustomersTable({
         valueGetter: ({ data }) => data?.primaryContactPhone ?? data?.phone ?? null,
         valueFormatter: ({ value }) => value ?? "—",
       },
-    ],
-    [completeTask, today]
-  );
+    ];
+    return defs.filter((column) => !crmLocked || column.field !== "nextTaskTitle");
+  }, [completeTask, crmLocked, today]);
   const filteredRows = useMemo(
     () => filterCustomersForView(initialData, view, today),
     [initialData, today, view]
@@ -185,25 +187,27 @@ export function CustomersTable({
       addAriaLabel="New Customer"
       emptyMessage="No customers yet."
       toolbarContent={
-        <SegmentedCountFilter
-          value={view}
-          ariaLabel="Customer task view"
-          options={[
-            {
-              value: "all",
-              label: "All",
-              count: initialData.length,
-              ariaLabel: "Show all customers",
-            },
-            {
-              value: "due",
-              label: "Due",
-              count: dueCount,
-              ariaLabel: "Show customers with a task due today or overdue",
-            },
-          ]}
-          onValueChange={(value) => setView(value || "all")}
-        />
+        crmLocked ? undefined : (
+          <SegmentedCountFilter
+            value={view}
+            ariaLabel="Customer task view"
+            options={[
+              {
+                value: "all",
+                label: "All",
+                count: initialData.length,
+                ariaLabel: "Show all customers",
+              },
+              {
+                value: "due",
+                label: "Due",
+                count: dueCount,
+                ariaLabel: "Show customers with a task due today or overdue",
+              },
+            ]}
+            onValueChange={(value) => setView(value || "all")}
+          />
+        )
       }
       deleteAction={{
         endpoint: "/api/customers",

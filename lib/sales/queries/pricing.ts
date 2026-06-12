@@ -5,7 +5,7 @@ import { formatQuantity, normalizeNumeric, normalizeMoney, parsePositive } from 
 import { customerCategories, itemFamilies, itemVariantValues, items, pricingScheduleBreaks, pricingScheduleItems, pricingSchedules, variantOptions, variantOptionValues } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
-import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
+import { assertFeatureAccessInTx, getFeatureAccessInTx } from "@/lib/billing/entitlements";
 import type { Tx } from "@/lib/db/with-org-context";
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import type { InsertPricingSchedule, ResolveSalesLinePricingInput, UpdatePricingSchedule } from "@/lib/schemas/pricing-schedules";
@@ -327,6 +327,7 @@ async function getPricingScheduleBreaksInTx(
 
 export async function getPricingScheduleLookupForProductsInTx(
   tx: Tx,
+  orgId: string,
   products: Array<
     Pick<
       SalesItemValidationRow,
@@ -335,6 +336,13 @@ export async function getPricingScheduleLookupForProductsInTx(
   >,
   customerCategoryId: string | null
 ): Promise<PricingScheduleLookup> {
+  // Computation gate: schedule-based resolution is the wholesale_pricing paid
+  // behavior. Locked orgs get standard pricing on new lines; existing lines
+  // keep their pricing snapshots.
+  const access = await getFeatureAccessInTx(tx, orgId, "wholesale_pricing");
+  if (access.locked) {
+    return { schedules: [], breaksByScheduleId: new Map() };
+  }
   const itemIds = [
     ...new Set(
       products
@@ -579,6 +587,7 @@ export function resolvePricingForProduct(
 
 async function resolvePricingForProductInTx(
   tx: Tx,
+  orgId: string,
   values: {
     customerCategoryId: string | null;
     customerCategoryName: string | null;
@@ -591,6 +600,7 @@ async function resolvePricingForProductInTx(
 ): Promise<Omit<SalesLinePricingResult, "estimatedUnitCost">> {
   const lookup = await getPricingScheduleLookupForProductsInTx(
     tx,
+    orgId,
     [values.product],
     values.customerCategoryId
   );
@@ -863,7 +873,10 @@ export async function updatePricingSchedule(
   id: string,
   data: UpdatePricingSchedule
 ) {
-  return withAuthedOrgContext(async (tx) => {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    await assertFeatureAccessInTx(tx, orgId, "wholesale_pricing", {
+      route: "PUT /api/pricing-schedules/[id]",
+    });
     const [existingSchedule] = await tx
       .select({
         id: pricingSchedules.id,
@@ -997,7 +1010,7 @@ export async function deletePricingSchedules(ids: string[]) {
 export async function resolveSalesLinePricing(
   values: ResolveSalesLinePricingInput
 ): Promise<SalesLinePricingResult> {
-  return withAuthedOrgContext(async (tx) => {
+  return withAuthedOrgContext(async (tx, orgId) => {
     const customer = await getValidatedCustomerInTx(tx, values.customerId);
     const itemsById = await getValidatedSalesItemsInTx(tx, [values.itemId]);
     const item = itemsById.get(values.itemId);
@@ -1007,7 +1020,7 @@ export async function resolveSalesLinePricing(
     }
 
     const [pricing, estimatedUnitCosts] = await Promise.all([
-      resolvePricingForProductInTx(tx, {
+      resolvePricingForProductInTx(tx, orgId, {
         customerCategoryId: customer.customerCategoryId,
         customerCategoryName: customer.customerCategoryName,
         product: item,

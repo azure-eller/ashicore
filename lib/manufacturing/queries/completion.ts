@@ -4,6 +4,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { manufacturingOrderIngredients, manufacturingOrders } from "@/lib/db/schema";
 import { normalizeNumeric, normalizeNumericScale, normalizeQuantityNumber } from "@/lib/format";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
+import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
 import { lockManufacturingPriorityQueueInTx } from "@/lib/manufacturing-priority-lock";
 import { beginInventoryOperationInTx, deriveInventoryIdempotencyKey, finishInventoryOperationInTx, getManufacturingIngredientDemandRowsInTx, produceManufacturedStockInTx, reconcileIngredientActualsInTx, releaseIngredientDemandForManufacturingInTx } from "@/lib/inventory/kernel";
 import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
@@ -225,6 +226,14 @@ async function completeDiscreteManufacturingOrder(
 
     if (payload.actualQuantity == null) {
       throw new ManufacturingError("Actual quantity is required.", 400);
+    }
+
+    // Producing into a non-available disposition creates a blocked lot — the
+    // lot_tracking paid state. Completing as available is always free.
+    if (payload.outputDisposition !== "available") {
+      await assertFeatureAccessInTx(tx, orgId, "lot_tracking", {
+        route: "POST /api/manufacturing-orders/[id]/complete",
+      });
     }
 
     const actualQuantity = Number(payload.actualQuantity);
