@@ -1,9 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { TooltipHeader } from "@/components/tooltip-header";
 import {
   CardPage,
   CardPageBody,
@@ -11,15 +9,11 @@ import {
 } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { CardField } from "@/components/card-page/card-field";
-import {
-  CardFormRow,
-  underlineControlClass,
-} from "@/components/card-page/form-cell";
-import { CommitInput } from "@/components/card-page/commit-input";
+import { CardFormRow } from "@/components/card-page/form-cell";
+import { createCardFields } from "@/components/card-page/bound-fields";
 import { NotesField } from "@/components/card-page/notes-field";
-import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
+import { useCardEntityActions } from "@/components/card-page/use-card-entity-actions";
 import type { CardSaveState } from "@/components/card-page/card-save-status";
-import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
 import {
   AddressBookInput,
   useAddressBookDialog,
@@ -51,6 +45,8 @@ import {
 import type { SupplierRow } from "@/lib/purchasing/types";
 import { queryKeys } from "@/lib/client/query-keys";
 
+const SupplierFields = createCardFields<PatchSupplier>();
+
 type SupplierCardProps = {
   initialSupplierId: string | null;
   initialSupplier: SupplierRow | null;
@@ -74,7 +70,6 @@ export function SupplierCard({
   initialSupplier,
   addresses,
 }: SupplierCardProps) {
-  const router = useRouter();
   const queryClient = useQueryClient();
   const [addressBook, setAddressBook] = useState(addresses);
   const engine = useDraftSaveEngine<
@@ -91,18 +86,17 @@ export function SupplierCard({
       {
         op: {
           type: "patch",
-          patch: existing.reduce<PatchSupplier>(
+          patch: [...existing, next].reduce<PatchSupplier>(
             (patch, queued) => ({ ...patch, ...queued.op.patch }),
-            next.op.patch,
+            {},
           ),
         },
         revision: next.revision,
       },
     ],
-    create: async (draft) => {
-      const created = await createSupplier(supplierToInsertInput(draft));
-      return getSupplierCard(created.id);
-    },
+    // Single request: a follow-up GET that failed would re-queue the ops and
+    // make the next flush create a second supplier.
+    create: (draft) => createSupplier(supplierToInsertInput(draft)),
     save: async (supplierId, draft, ops) => {
       if (ops.length === 0) return null;
       const patch = ops.reduce<PatchSupplier>(
@@ -136,23 +130,25 @@ export function SupplierCard({
   const display = engine.draft;
   const readOnly = Boolean(display.deletedAt);
 
-  const deleteMutation = useDeleteEntity({
-    mutationKey: ["supplier-action", currentSupplierId ?? "__draft__", "delete"],
-    mutationFn: () => deleteSupplier(currentSupplierId as string),
+  const actions = useCardEntityActions({
+    entity: "supplier-action",
+    getId: () => engine.currentId,
+    flush: engine.flush,
     invalidateQueryKeys: [queryKeys.suppliers.root],
-    onDeleted: () => router.push("/purchasing/suppliers"),
-  });
-  const deleteConfirm = useConfirmMutation<void>({
-    title: "Delete supplier?",
-    description: (
-      <>
-        This supplier will be soft-deleted. Suppliers with active draft,
-        ordered, or partially received purchase orders cannot be deleted.
-      </>
-    ),
-    confirmLabel: "Delete",
-    pendingLabel: "Deleting...",
-    mutation: deleteMutation,
+    delete: {
+      label: "Delete supplier",
+      run: (id) => deleteSupplier(id),
+      navigateTo: "/purchasing/suppliers",
+      confirm: {
+        title: "Delete supplier?",
+        description: (
+          <>
+            This supplier will be soft-deleted. Suppliers with active draft,
+            ordered, or partially received purchase orders cannot be deleted.
+          </>
+        ),
+      },
+    },
   });
 
 
@@ -220,88 +216,37 @@ export function SupplierCard({
                   label: "Print",
                   onClick: () => window.print(),
                 },
-                {
-                  label: "Delete supplier",
-                  destructive: true,
-                  onClick: () => deleteConfirm.trigger(undefined),
-                },
+                ...(actions.deleteAction ? [actions.deleteAction] : []),
               ]
         }
       />
       <CardPageBody>
         <CardSection>
           <CardFormRow columns="three">
-            <CardField
-              label="Name"
-              htmlFor="supplier-name"
-              required
-              invalid={isDraft && !display.name.trim()}
+            <SupplierFields.Provider
+              values={display}
+              commit={commitSupplierPatch}
+              readOnly={readOnly}
+              idPrefix="supplier"
+              errors={engine.fieldErrors}
             >
-              <CommitInput
-                id="supplier-name"
+              <SupplierFields.Text
+                name="name"
                 label="Name"
-                value={display.name}
-                disabled={readOnly}
-                autoFocus={isDraft}
                 required
-                className={underlineControlClass(isDraft && !display.name.trim())}
-                onCommit={(name) => {
-                  if (name) commitSupplierPatch({ name });
-                }}
+                autoFocus={isDraft}
+                invalid={isDraft && !display.name.trim()}
               />
-            </CardField>
-            <CardField
-              label={<TooltipHeader label="Code" tooltip={SUPPLIER_CODE_TOOLTIP} />}
-              htmlFor="supplier-code"
-            >
-              <CommitInput
-                id="supplier-code"
-                label="Code"
-                value={display.code ?? ""}
-                disabled={readOnly}
-                onCommit={(code) => commitSupplierPatch({ code })}
-              />
-            </CardField>
-            <CardField label="Contact name" htmlFor="supplier-contact-name">
-              <CommitInput
-                id="supplier-contact-name"
-                label="Contact name"
-                value={display.contactName ?? ""}
-                disabled={readOnly}
-                onCommit={(contactName) => commitSupplierPatch({ contactName })}
-              />
-            </CardField>
-            <CardField label="Email" htmlFor="supplier-email">
-              <CommitInput
-                id="supplier-email"
-                label="Email"
-                type="email"
-                value={display.email ?? ""}
-                disabled={readOnly}
-                onCommit={(email) => commitSupplierPatch({ email })}
-              />
-            </CardField>
-            <CardField label="Phone" htmlFor="supplier-phone">
-              <CommitInput
-                id="supplier-phone"
-                label="Phone"
-                value={display.phone ?? ""}
-                disabled={readOnly}
-                onCommit={(phone) => commitSupplierPatch({ phone })}
-              />
-            </CardField>
-            <CardField
-              label={<TooltipHeader label="Payment terms" tooltip={PAYMENT_TERMS_TOOLTIP} />}
-              htmlFor="supplier-payment-terms"
-            >
-              <CommitInput
-                id="supplier-payment-terms"
+              <SupplierFields.Text name="code" label="Code" tooltip={SUPPLIER_CODE_TOOLTIP} />
+              <SupplierFields.Text name="contactName" label="Contact name" />
+              <SupplierFields.Text name="email" label="Email" type="email" />
+              <SupplierFields.Text name="phone" label="Phone" />
+              <SupplierFields.Text
+                name="paymentTerms"
                 label="Payment terms"
-                value={display.paymentTerms ?? ""}
-                disabled={readOnly}
-                onCommit={(paymentTerms) => commitSupplierPatch({ paymentTerms })}
+                tooltip={PAYMENT_TERMS_TOOLTIP}
               />
-            </CardField>
+            </SupplierFields.Provider>
             <CardField label="Billing address" htmlFor="supplier-billing-address">
               <AddressBookInput
                 id="supplier-billing-address"
@@ -332,7 +277,7 @@ export function SupplierCard({
         </CardSection>
       </CardPageBody>
 
-      {deleteConfirm.dialog}
+      {actions.dialogs}
 
       {addressDialog.dialog}
     </CardPage>

@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiJson } from "@/lib/client/api";
@@ -46,9 +45,7 @@ import {
   FramedTableRow,
   TableFrame,
 } from "@/components/table-frame";
-import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
-import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
-import { useDuplicateEntity } from "@/components/card-page/use-duplicate-entity";
+import { useCardEntityActions } from "@/components/card-page/use-card-entity-actions";
 import type { CardSaveState } from "@/components/card-page/card-save-status";
 import { makeDraftOrder } from "./order-draft";
 import { useSalesOrderDraftController } from "./use-sales-order-draft-controller";
@@ -88,7 +85,6 @@ export function OrderCard({
   taxRates = initialOrder?.taxRates ?? [],
   defaultTaxRateId = initialOrder?.defaultTaxRateId ?? null,
 }: OrderCardProps) {
-  const router = useRouter();
   const queryClient = useQueryClient();
   const timeZone = useOrganizationTimeZone();
   const handleClose = useSmartBack("/sales/orders");
@@ -149,43 +145,37 @@ export function OrderCard({
       : null;
 
   // ---- Live mutations ----------------------------------------------------
-  const deleteMutation = useDeleteEntity({
-    mutationKey: ["sales-order-action", currentOrderId ?? "draft", "delete"],
-    mutationFn: async () => {
-      await controller.flush();
-      await apiJson<void>(`/api/sales-orders/${currentOrderId}`, {
-        method: "DELETE",
-        idempotencyKey: "sales-order-delete",
-        fallbackError: "Failed to delete order.",
-      });
-    },
-    onMutate: () => setActionError(null),
+  const actions = useCardEntityActions({
+    entity: "sales-order-action",
+    getId: () => controller.currentOrderId,
+    flush: controller.flush,
+    hasPendingOps: controller.hasPendingOps,
     invalidateQueryKeys: [queryKeys.salesOrders.root],
-    onDeleted: () => router.push("/sales/orders"),
-    onError: (error) => setActionError((error as Error).message),
-  });
-  const deleteConfirm = useConfirmMutation<void>({
-    title: "Delete sales order?",
-    description: <>Order {order.orderNumber} will be removed. This cannot be undone.</>,
-    confirmLabel: "Delete",
-    pendingLabel: "Deleting...",
-    mutation: deleteMutation,
-  });
-
-  const duplicateMutation = useDuplicateEntity({
-    mutationKey: ["sales-order-action", currentOrderId ?? "draft", "duplicate"],
-    mutationFn: async () => {
-      await controller.flush();
-      return apiJson<{ id: string }>(`/api/sales-orders/${currentOrderId}/duplicate`, {
-        method: "POST",
-        idempotencyKey: "sales-order-duplicate",
-        fallbackError: "Failed to duplicate order.",
-      });
-    },
     onMutate: () => setActionError(null),
-    invalidateQueryKeys: [queryKeys.salesOrders.root],
-    onDuplicated: (created) => router.push(`/sales/order/${created.id}`),
-    onError: (error) => setActionError((error as Error).message),
+    onError: (error) => setActionError(error.message),
+    duplicate: {
+      run: (id) =>
+        apiJson<{ id: string }>(`/api/sales-orders/${id}/duplicate`, {
+          method: "POST",
+          idempotencyKey: "sales-order-duplicate",
+          fallbackError: "Failed to duplicate order.",
+        }),
+      navigateTo: (id) => `/sales/order/${id}`,
+    },
+    delete: {
+      label: "Delete order",
+      run: (id) =>
+        apiJson<void>(`/api/sales-orders/${id}`, {
+          method: "DELETE",
+          idempotencyKey: "sales-order-delete",
+          fallbackError: "Failed to delete order.",
+        }),
+      navigateTo: "/sales/orders",
+      confirm: {
+        title: "Delete sales order?",
+        description: <>Order {order.orderNumber} will be removed. This cannot be undone.</>,
+      },
+    },
   });
 
   const orderXeroPushMutation = useMutation({
@@ -251,7 +241,7 @@ export function OrderCard({
         primaryAction={undefined}
         showPrint={false}
         menuActions={[
-          ...(!isDraft ? [{ label: "Duplicate", onClick: () => duplicateMutation.mutate() }] : []),
+          ...(!isDraft && actions.duplicateAction ? [actions.duplicateAction] : []),
           ...(!isDraft ? [{ label: "Print", onClick: () => window.print() }] : []),
           ...(!isDraft && xeroInvoiceSetupStatus === "ready"
             ? [
@@ -292,15 +282,7 @@ export function OrderCard({
                 },
               ]
             : []),
-          ...(!isDraft
-            ? [
-                {
-                  label: "Delete order",
-                  onClick: () => deleteConfirm.trigger(undefined),
-                  destructive: true,
-                },
-              ]
-            : []),
+          ...(!isDraft && actions.deleteAction ? [actions.deleteAction] : []),
         ]}
         onClose={handleCloseAfterFlush}
         fallbackHref="/sales/orders"
@@ -371,7 +353,7 @@ export function OrderCard({
         </>
       )}
 
-      {deleteConfirm.dialog}
+      {actions.dialogs}
     </CardPage>
   );
 }

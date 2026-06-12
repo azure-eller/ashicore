@@ -76,6 +76,7 @@ This file is a constitution + map. Deep reference lives in `docs/` — read the 
 | Testing lanes, CI labels, fixtures | `docs/testing.md` |
 | Worktrees, multi-agent safety | `docs/worktrees.md` |
 | Feature planning | `docs/architecture.md` |
+| Card pages, draft/auto-save lifecycle | `docs/card-kernel.md` |
 | Linear workflow / PR tracking | `docs/linear-workflow.md` |
 | ERP agent reactivation / overhead | `docs/erp-agent.md` |
 | MRP-lite planning | `docs/planning.md` |

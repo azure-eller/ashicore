@@ -4,6 +4,7 @@ import { useCallback, useMemo, useRef, type RefObject } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { queryKeys } from "@/lib/client/query-keys";
+import type { FieldErrorRecord } from "@/lib/api/field-errors";
 import {
   insertPurchaseOrderSchema,
   type InsertPurchaseOrder,
@@ -16,6 +17,7 @@ import type {
   PurchaseOrderDetail,
   PurchaseOrderEditData,
 } from "@/lib/purchasing/types";
+import { hasPurchaseOrderAdditionalCostAmount } from "./purchase-order-card-shared";
 
 export type PurchaseOrderFormValues = z.input<typeof insertPurchaseOrderSchema>;
 
@@ -56,6 +58,7 @@ export type PurchaseOrderDraftController = {
   hasPersistedOrder: boolean;
   status: "idle" | "dirty" | "saving" | "saved" | "error";
   error: string | null;
+  fieldErrors: FieldErrorRecord | null;
   patchHeader: (
     patch: Partial<Omit<PurchaseOrderDraft, "lines" | "additionalCosts">>,
     delayMs?: number,
@@ -157,12 +160,6 @@ export function isBlankPurchaseOrderAdditionalCost(
     reference === "" &&
     amount === ""
   );
-}
-
-function hasPurchaseOrderAdditionalCostAmount(
-  cost: PurchaseOrderAdditionalCostPayloadRow | undefined,
-) {
-  return Boolean(cost?.amount?.trim());
 }
 
 export function createPurchaseOrderAdditionalCostRow(
@@ -441,8 +438,7 @@ export function usePurchaseOrderDraftController({
       onResult?.(result, draft);
     },
     getErrorMessage: (error) =>
-      (error as { error?: string })?.error ??
-      (error instanceof Error ? error.message : "Failed to save purchase order."),
+      error instanceof Error ? error.message : "Failed to save purchase order.",
   });
 
   const patchHeader = useCallback(
@@ -479,6 +475,7 @@ export function usePurchaseOrderDraftController({
       hasPersistedOrder: engine.hasPersistedEntity,
       status: engine.status,
       error: engine.error,
+      fieldErrors: engine.fieldErrors,
       patchHeader,
       replaceLines,
       replaceAdditionalCosts,

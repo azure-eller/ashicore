@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/empty-state";
@@ -28,8 +27,7 @@ import {
 } from "@/components/card-page/form-cell";
 import { CommitInput } from "@/components/card-page/commit-input";
 import { ListFrameItem } from "@/components/list-frame";
-import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
-import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
+import { useCardEntityActions } from "@/components/card-page/use-card-entity-actions";
 import {
   type CardSaveState,
 } from "@/components/card-page/card-save-status";
@@ -122,7 +120,6 @@ export function CustomerCard({
   categories,
   crmLocked,
 }: CustomerCardProps) {
-  const router = useRouter();
   const queryClient = useQueryClient();
   const [addressBook, setAddressBook] = useState(addresses);
   const [activityFilter, setActivityFilter] = useState<ActivityStreamFilter>(null);
@@ -215,22 +212,24 @@ export function CustomerCard({
       : engine.draft;
   const readOnly = Boolean(display.deletedAt);
 
-  const deleteMutation = useDeleteEntity({
-    mutationKey: ["customer-action", currentCustomerId ?? "__draft__", "delete"],
-    mutationFn: () => deleteCustomer(currentCustomerId as string),
+  const actions = useCardEntityActions({
+    entity: "customer-action",
+    getId: () => engine.currentId,
+    flush: engine.flush,
     invalidateQueryKeys: [queryKeys.customers.root],
-    onDeleted: () => router.push("/sales/customers"),
-  });
-  const deleteConfirm = useConfirmMutation<void>({
-    title: "Delete customer?",
-    description: (
-      <>
-        This customer will be soft-deleted. Existing sales orders keep their customer snapshot.
-      </>
-    ),
-    confirmLabel: "Delete",
-    pendingLabel: "Deleting...",
-    mutation: deleteMutation,
+    delete: {
+      label: "Delete customer",
+      run: (id) => deleteCustomer(id),
+      navigateTo: "/sales/customers",
+      confirm: {
+        title: "Delete customer?",
+        description: (
+          <>
+            This customer will be soft-deleted. Existing sales orders keep their customer snapshot.
+          </>
+        ),
+      },
+    },
   });
 
   const commitCustomerPatch = useCallback(
@@ -348,11 +347,7 @@ export function CustomerCard({
                   label: "Print",
                   onClick: () => window.print(),
                 },
-                {
-                  label: "Delete customer",
-                  onClick: () => deleteConfirm.trigger(undefined),
-                  destructive: true,
-                },
+                ...(actions.deleteAction ? [actions.deleteAction] : []),
               ]
         }
       />
@@ -495,7 +490,7 @@ export function CustomerCard({
         )}
       </CardPageBody>
 
-      {deleteConfirm.dialog}
+      {actions.dialogs}
 
       {addressDialog.dialog}
     </CardPage>

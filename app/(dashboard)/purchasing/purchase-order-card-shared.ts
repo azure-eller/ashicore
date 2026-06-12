@@ -4,6 +4,7 @@ import {
   insertPurchaseOrderSchema,
 } from "@/lib/schemas/purchase-orders";
 import { formatAddressLines, normalizeAddressFields } from "@/lib/addresses";
+import { fieldErrorsFromIssues, type FieldErrorRecord } from "@/lib/api/field-errors";
 import {
   formatPrice,
   parsePositive,
@@ -21,9 +22,6 @@ export type ApiError = {
   error?: string;
   errors?: Record<string, string[]>;
 };
-
-export type FieldErrorState = Record<string, unknown>;
-export type FieldErrorShape = { message: string };
 
 export type XeroAccountOption = {
   code: string;
@@ -158,6 +156,14 @@ export function isBlankPurchaseOrderAdditionalCost(
   );
 }
 
+// Mirrors the payload filter in toPurchaseOrderAdditionalCostPayloadRows, so
+// error paths (additionalCosts.N.*) index the same rows the validator saw.
+export function hasPurchaseOrderAdditionalCostAmount(
+  cost: { amount?: string | null } | null | undefined,
+) {
+  return Boolean(cost?.amount?.trim());
+}
+
 export function createPurchaseOrderAdditionalCostRow(
   values?: Partial<PurchaseOrderAdditionalCostPayloadRow>,
 ): PurchaseOrderAdditionalCostGridRow {
@@ -201,36 +207,6 @@ export function validateNonNegativeMoneyCell(value: unknown, message: string) {
   if (text === "") return [message];
   const parsed = Number(text);
   return Number.isFinite(parsed) && parsed >= 0 ? null : [message];
-}
-
-export function getPurchaseOrderAdditionalCostCellError(
-  error: unknown,
-  rowIndex: number,
-  key: PurchaseOrderAdditionalCostColumnKey,
-) {
-  if (!error || typeof error !== "object") return null;
-  const rowError = (error as Record<string, unknown>)[rowIndex];
-  if (!rowError || typeof rowError !== "object") return null;
-  const cellError = (rowError as Record<string, unknown>)[key];
-  if (!cellError || typeof cellError !== "object") return null;
-  return "message" in cellError && typeof cellError.message === "string"
-    ? cellError.message
-    : null;
-}
-
-export function getPurchaseOrderLineCellError(
-  error: unknown,
-  rowIndex: number,
-  key: PurchaseOrderLineColumnKey,
-) {
-  if (!error || typeof error !== "object") return null;
-  const rowError = (error as Record<string, unknown>)[rowIndex];
-  if (!rowError || typeof rowError !== "object") return null;
-  const cellError = (rowError as Record<string, unknown>)[key];
-  if (!cellError || typeof cellError !== "object") return null;
-  return "message" in cellError && typeof cellError.message === "string"
-    ? cellError.message
-    : null;
 }
 
 export function parseNonNegative(value: string | null | undefined) {
@@ -472,68 +448,11 @@ export function deliveryInfoNote(instructions: string) {
 }
 
 
-export function setFieldErrorPath(
-  target: FieldErrorState,
-  path: Array<string | number>,
-  message: string,
-) {
-  let current: Record<string, unknown> = target;
-  path.forEach((part, index) => {
-    const key = String(part);
-    if (index === path.length - 1) {
-      current[key] = { message } satisfies FieldErrorShape;
-      return;
-    }
-    const next = current[key];
-    if (!next || typeof next !== "object") {
-      current[key] = {};
-    }
-    current = current[key] as Record<string, unknown>;
-  });
-}
-
-export function purchaseOrderValidationErrors(values: PurchaseOrderFormValues) {
+export function purchaseOrderValidationErrors(
+  values: PurchaseOrderFormValues,
+): FieldErrorRecord | null {
   const parsed = insertPurchaseOrderSchema.safeParse(values);
   if (parsed.success) return null;
-
-  const errors: FieldErrorState = {};
-  parsed.error.issues.forEach((issue) => {
-    setFieldErrorPath(
-      errors,
-      issue.path.filter((part): part is string | number => typeof part !== "symbol"),
-      issue.message,
-    );
-  });
-  return errors;
-}
-
-export function purchaseOrderApiFieldErrors(error: ApiError) {
-  if (!error.errors) return {};
-  const errors: FieldErrorState = {};
-  Object.entries(error.errors).forEach(([field, messages]) => {
-    setFieldErrorPath(errors, field.split("."), messages[0] ?? "Invalid value");
-  });
-  return errors;
-}
-
-export function fieldErrorMessage(error: unknown) {
-  return error &&
-    typeof error === "object" &&
-    "message" in error &&
-    typeof error.message === "string"
-    ? error.message
-    : null;
-}
-
-export function firstFieldErrorMessage(errors: FieldErrorState): string | null {
-  for (const value of Object.values(errors)) {
-    const message = fieldErrorMessage(value);
-    if (message) return message;
-    if (value && typeof value === "object") {
-      const nested = firstFieldErrorMessage(value as FieldErrorState);
-      if (nested) return nested;
-    }
-  }
-  return null;
+  return fieldErrorsFromIssues(parsed.error.issues);
 }
 

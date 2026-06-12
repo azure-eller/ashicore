@@ -7,8 +7,7 @@ import { CardPage } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { CardTabs, type CardTab } from "@/components/card-page/card-tabs";
 import { useCardSaveStatus } from "@/components/card-page/use-card-save-status";
-import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
-import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
+import { useCardEntityActions } from "@/components/card-page/use-card-entity-actions";
 import {
   cloneItemCard,
   deleteItemCard,
@@ -171,22 +170,24 @@ export function ProductCard({
     }
   }, [currentItemId, router, searchParams]);
 
-  const deleteCardMutation = useDeleteEntity({
-    mutationKey: ["item-card-action", currentItemId ?? "__draft__", "delete-card"],
-    mutationFn: () => deleteItemCard(currentItemId as string),
+  const actions = useCardEntityActions({
+    entity: "item-card-action",
+    getId: () => controller.currentItemId,
+    flush: controller.flush,
     invalidateQueryKeys: [queryKeys.itemCards.root],
-    onDeleted: () => router.push("/inventory/products"),
-  });
-  const deleteConfirm = useConfirmMutation<void>({
-    title: "Delete product card?",
-    description: (
-      <>
-        {card.family.name} and all its variants will be removed. This cannot be undone.
-      </>
-    ),
-    confirmLabel: "Delete",
-    pendingLabel: "Deleting...",
-    mutation: deleteCardMutation,
+    delete: {
+      label: "Delete product",
+      run: (id) => deleteItemCard(id),
+      navigateTo: "/inventory/products",
+      confirm: {
+        title: "Delete product card?",
+        description: (
+          <>
+            {card.family.name} and all its variants will be removed. This cannot be undone.
+          </>
+        ),
+      },
+    },
   });
   const cloneCardMutation = useMutation({
     mutationKey: ["item-card-action", currentItemId ?? "__draft__", "clone-card"],
@@ -312,11 +313,7 @@ export function ProductCard({
                   onClick: () => cloneCardMutation.mutate(),
                   disabled: cloneCardMutation.isPending,
                 },
-                {
-                  label: "Delete product",
-                  onClick: () => deleteConfirm.trigger(undefined),
-                  destructive: true,
-                },
+                ...(actions.deleteAction ? [actions.deleteAction] : []),
               ]),
         ]}
       />
@@ -381,7 +378,7 @@ export function ProductCard({
         </>
       )}
 
-      {deleteConfirm.dialog}
+      {actions.dialogs}
     </CardPage>
   );
 }

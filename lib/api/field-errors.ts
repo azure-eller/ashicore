@@ -27,6 +27,15 @@ export function fieldErrorsFromIssues(issues: ValidationIssue[]): FieldErrorReco
   return errors;
 }
 
+export function fieldErrorAt(
+  errors: FieldErrorRecord | null | undefined,
+  path: string | ReadonlyArray<string | number>,
+): string | null {
+  if (!errors) return null;
+  const key = typeof path === "string" ? path : path.map(String).join(".");
+  return errors[key]?.[0] ?? null;
+}
+
 export function firstFieldErrorMessage(
   errors: FieldErrorRecord,
   fallback = "Invalid request.",

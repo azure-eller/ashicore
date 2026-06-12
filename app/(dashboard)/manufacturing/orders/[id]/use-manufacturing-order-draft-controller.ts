@@ -46,6 +46,7 @@ export type ManufacturingOrderDraftController = {
   removeIngredient: (ingredientId: string) => void;
   reorderIngredients: (ingredientIds: string[]) => void;
   flush: () => Promise<void>;
+  hasPendingOps: () => boolean;
   refreshFromServer: () => Promise<void>;
 };
 
@@ -362,6 +363,7 @@ export function useManufacturingOrderDraftController({
       removeIngredient,
       reorderIngredients,
       flush: engine.flush,
+      hasPendingOps: engine.hasPendingOps,
       refreshFromServer,
     }),
     [

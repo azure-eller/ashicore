@@ -17,6 +17,8 @@ Prefer existing primitives. Props and implementation details live in the linked 
 | `CardPage` | [components/card-page/card-page.tsx](../../components/card-page/card-page.tsx) | Full-page/detail-card editing surfaces |
 | `CardField` / `FormCell` | [components/card-page](../../components/card-page) | Card-page field layout and inline editing |
 | `AddressBookInput` / `useAddressBookDialog` | [components/card-page/address-book.tsx](../../components/card-page/address-book.tsx) | Org address-book pickers on cards: saved-address combobox plus the add/edit dialog lifecycle |
+| `createCardFields` | [components/card-page/bound-fields.tsx](../../components/card-page/bound-fields.tsx) | Typed bound header fields on card pages — bind by patch key instead of wiring value/onCommit per field (see `docs/card-kernel.md`) |
+| `useCardEntityActions` | [components/card-page/use-card-entity-actions.tsx](../../components/card-page/use-card-entity-actions.tsx) | Duplicate/delete header actions on cards: flush → endpoint → invalidate → navigate, with the delete confirm dialog |
 | `ERPDataGrid` | [components/erp-data-grid.tsx](../../components/erp-data-grid.tsx) | Large operational lists backed by AG Grid |
 | `EditableLineDataGrid` / `MutableLines` | [components/editable-line-data-grid.tsx](../../components/editable-line-data-grid.tsx), [components/editable-lines.tsx](../../components/editable-lines.tsx) | Editable line tables inside cards |
 | `StatusBlock` | [components/ui/status-block.tsx](../../components/ui/status-block.tsx) | Full-cell status states in grids and line tables |

@@ -54,11 +54,11 @@ import type {
 } from "@/lib/purchasing/types";
 import styles from "@/components/card-page/card-page.module.css";
 
+import { fieldErrorAt, type FieldErrorRecord } from "@/lib/api/field-errors";
 import {
   ADDITIONAL_COST_DISTRIBUTION_LABELS,
   ADDITIONAL_COST_TYPE_LABELS,
-  getPurchaseOrderAdditionalCostCellError,
-  getPurchaseOrderLineCellError,
+  hasPurchaseOrderAdditionalCostAmount,
   isBlankPurchaseOrderAdditionalCost,
   isBlankPurchaseOrderLine,
   lineTotalLabel,
@@ -72,7 +72,6 @@ import {
   deliveryAddressKey,
   type DeliveryAddressFields,
   type DeliveryAddressOption,
-  type FieldErrorState,
   type PurchaseOrderAdditionalCostGridRow,
   type PurchaseOrderAdditionalCostColumnKey,
   type PurchaseOrderLineColumnKey,
@@ -172,7 +171,7 @@ export function buildPurchaseOrderLineColumns({
   taxRateMap,
 }: {
   additionalCostsExpanded: boolean;
-  fieldErrors: FieldErrorState;
+  fieldErrors: FieldErrorRecord | null;
   landedCostByRowId: Map<string, LandedCostLineResult>;
   lineGridRows: PurchaseOrderLineGridRow[];
   materialMap: Map<string, PurchaseOrderMaterialOption>;
@@ -192,21 +191,14 @@ export function buildPurchaseOrderLineColumns({
       nonBlankRows.findIndex(
         (current) => current.clientRowId === row.clientRowId,
       );
+    const cellError = (row: PurchaseOrderLineGridRow, key: PurchaseOrderLineColumnKey) => {
+      const index = rowErrorIndex(row);
+      return index >= 0 ? fieldErrorAt(fieldErrors, ["lines", index, key]) : null;
+    };
     const hasCellError =
       (key: PurchaseOrderLineColumnKey) =>
-      (params: CellClassParams<PurchaseOrderLineGridRow>) => {
-        if (!params.data) return false;
-        const index = rowErrorIndex(params.data);
-        return index >= 0
-          ? Boolean(
-              getPurchaseOrderLineCellError(
-                fieldErrors.lines,
-                index,
-                key,
-              ),
-            )
-          : false;
-      };
+      (params: CellClassParams<PurchaseOrderLineGridRow>) =>
+        params.data ? cellError(params.data, key) != null : false;
     const cellTooltip =
       (key: PurchaseOrderLineColumnKey) =>
       ({ data }: { data?: PurchaseOrderLineGridRow }) => {
@@ -214,14 +206,7 @@ export function buildPurchaseOrderLineColumns({
         if (key === "itemId" && receivedMaterialIds.has(data.itemId ?? "")) {
           return "Received material lines cannot change item. Add another line for a different material.";
         }
-        const index = rowErrorIndex(data);
-        return index >= 0
-          ? getPurchaseOrderLineCellError(
-              fieldErrors.lines,
-              index,
-              key,
-            )
-          : null;
+        return cellError(data, key);
       };
 
     const columns: LineField<PurchaseOrderLineGridRow>[] = [
@@ -432,47 +417,34 @@ export function buildPurchaseOrderAdditionalCostColumns({
   supplierOptionsSorted,
 }: {
   additionalCostGridRows: PurchaseOrderAdditionalCostGridRow[];
-  fieldErrors: FieldErrorState;
+  fieldErrors: FieldErrorRecord | null;
   additionalCostsReadOnly: boolean;
   createAdditionalCostSupplier: () => Promise<{ value: string } | null>;
   rememberSupplierForCurrentMaterials: (supplierId: string | null) => void;
   supplierOptionsSorted: SupplierOption[];
 }): LineField<PurchaseOrderAdditionalCostGridRow>[] {
-    const nonBlankRows = additionalCostGridRows.filter(
-      (row) => !isBlankPurchaseOrderAdditionalCost(row),
+    const payloadRows = additionalCostGridRows.filter(
+      hasPurchaseOrderAdditionalCostAmount,
     );
     const rowErrorIndex = (row: PurchaseOrderAdditionalCostGridRow) =>
-      nonBlankRows.findIndex(
+      payloadRows.findIndex(
         (current) => current.clientRowId === row.clientRowId,
       );
+    const cellError = (
+      row: PurchaseOrderAdditionalCostGridRow,
+      key: PurchaseOrderAdditionalCostColumnKey,
+    ) => {
+      const index = rowErrorIndex(row);
+      return index >= 0 ? fieldErrorAt(fieldErrors, ["additionalCosts", index, key]) : null;
+    };
     const hasCellError =
       (key: PurchaseOrderAdditionalCostColumnKey) =>
-      (params: CellClassParams<PurchaseOrderAdditionalCostGridRow>) => {
-        if (!params.data) return false;
-        const index = rowErrorIndex(params.data);
-        return index >= 0
-          ? Boolean(
-              getPurchaseOrderAdditionalCostCellError(
-                fieldErrors.additionalCosts,
-                index,
-                key,
-              ),
-            )
-          : false;
-      };
+      (params: CellClassParams<PurchaseOrderAdditionalCostGridRow>) =>
+        params.data ? cellError(params.data, key) != null : false;
     const cellTooltip =
       (key: PurchaseOrderAdditionalCostColumnKey) =>
-      ({ data }: { data?: PurchaseOrderAdditionalCostGridRow }) => {
-        if (!data) return null;
-        const index = rowErrorIndex(data);
-        return index >= 0
-          ? getPurchaseOrderAdditionalCostCellError(
-              fieldErrors.additionalCosts,
-              index,
-              key,
-            )
-          : null;
-      };
+      ({ data }: { data?: PurchaseOrderAdditionalCostGridRow }) =>
+        data ? cellError(data, key) : null;
 
     return [
       {

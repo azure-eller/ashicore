@@ -156,9 +156,15 @@ export async function getSupplier(
   });
 }
 
-export async function createSupplier(data: InsertSupplier) {
+export async function createSupplier(data: InsertSupplier): Promise<SupplierRow> {
   return withAuthedOrgContext(async (tx, orgId) => {
-    return createSupplierInTx(tx, orgId, data);
+    const created = await createSupplierInTx(tx, orgId, data);
+    const [supplier] = await tx
+      .select(supplierRowSelect)
+      .from(suppliers)
+      .where(eq(suppliers.id, created.id));
+
+    return supplier;
   });
 }
 

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { isFieldErrorRecord, type FieldErrorRecord } from "@/lib/api/field-errors";
+
 export type DraftSaveStatus = "idle" | "dirty" | "saving" | "saved" | "error";
 
 export type QueuedDraftOp<TOp> = {
@@ -43,6 +45,7 @@ export type DraftSaveEngineConfig<TEntity, TOp, TResult> = {
   onPersisted?: (id: string) => void;
   onResult?: (result: TResult, draft: TEntity) => void;
   getErrorMessage?: (error: unknown) => string;
+  getFieldErrors?: (error: unknown) => FieldErrorRecord | null;
 };
 
 export type DraftSaveEngine<TEntity, TOp, TResult> = {
@@ -51,6 +54,7 @@ export type DraftSaveEngine<TEntity, TOp, TResult> = {
   hasPersistedEntity: boolean;
   status: DraftSaveStatus;
   error: string | null;
+  fieldErrors: FieldErrorRecord | null;
   applyLocalOp: (op: TOp, delayMs?: number) => void;
   flush: () => Promise<void>;
   resetToServer: () => void;
@@ -76,11 +80,13 @@ export function useDraftSaveEngine<TEntity, TOp, TResult>({
   onPersisted,
   onResult,
   getErrorMessage = defaultErrorMessage,
+  getFieldErrors = defaultFieldErrors,
 }: DraftSaveEngineConfig<TEntity, TOp, TResult>): DraftSaveEngine<TEntity, TOp, TResult> {
   const [draft, setDraft] = useState<TEntity>(initialDraft);
   const [currentId, setCurrentId] = useState<string | null>(initialId);
   const [status, setStatus] = useState<DraftSaveStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrorRecord | null>(null);
 
   const draftRef = useRef(draft);
   const serverSnapshotRef = useRef<TEntity | null>(initialServerSnapshot);
@@ -177,6 +183,7 @@ export function useDraftSaveEngine<TEntity, TOp, TResult>({
     savingRef.current = true;
     setStatus("saving");
     setError(null);
+    setFieldErrors(null);
     let activeOps: Array<QueuedDraftOp<TOp>> = [];
 
     try {
@@ -206,13 +213,14 @@ export function useDraftSaveEngine<TEntity, TOp, TResult>({
       pendingOpsRef.current = [...activeOps, ...pendingOpsRef.current];
       const message = getErrorMessage(flushError);
       setError(message);
+      setFieldErrors(getFieldErrors(flushError));
       setStatus("error");
       throw flushError;
     } finally {
       savingRef.current = false;
       flushPromiseRef.current = null;
     }
-  }, [applyResult, create, getErrorMessage, isSaveable, save]);
+  }, [applyResult, create, getErrorMessage, getFieldErrors, isSaveable, save]);
 
   const flush = useCallback(() => {
     if (timerRef.current) {
@@ -238,6 +246,7 @@ export function useDraftSaveEngine<TEntity, TOp, TResult>({
     setDraftState(snapshot);
     setStatus("saved");
     setError(null);
+    setFieldErrors(null);
   }, [setDraftState]);
 
   const mergeServerResult = useCallback(
@@ -263,6 +272,7 @@ export function useDraftSaveEngine<TEntity, TOp, TResult>({
       hasPersistedEntity: currentId != null,
       status,
       error,
+      fieldErrors,
       applyLocalOp,
       flush,
       resetToServer,
@@ -274,6 +284,7 @@ export function useDraftSaveEngine<TEntity, TOp, TResult>({
       currentId,
       draft,
       error,
+      fieldErrors,
       flush,
       hasPendingOps,
       mergeServerResult,
@@ -285,4 +296,12 @@ export function useDraftSaveEngine<TEntity, TOp, TResult>({
 
 function defaultErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Save failed";
+}
+
+function defaultFieldErrors(error: unknown): FieldErrorRecord | null {
+  if (typeof error !== "object" || error == null) return null;
+  const candidate =
+    (error as { errors?: unknown }).errors ??
+    (error as { fieldErrors?: unknown }).fieldErrors;
+  return isFieldErrorRecord(candidate) ? candidate : null;
 }

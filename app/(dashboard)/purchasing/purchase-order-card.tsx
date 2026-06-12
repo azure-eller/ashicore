@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { Controller, useForm } from "react-hook-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -12,11 +11,11 @@ import {
   purchaseOrderDefaultValues,
 } from "@/lib/schemas/purchase-orders";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
+import { fieldErrorAt, firstFieldErrorMessage } from "@/lib/api/field-errors";
 import { formatAddressLines } from "@/lib/addresses";
 import {
   formatPrice,
   formatDate,
-  getFieldArrayError,
   parsePositive,
 } from "@/lib/format";
 import {
@@ -54,9 +53,7 @@ import { DetailHeaderTitle } from "@/components/card-page/detail-header-title";
 import { NotesField } from "@/components/card-page/notes-field";
 import { TotalsSummary } from "@/components/card-page/totals-summary";
 import { type CardSaveState } from "@/components/card-page/card-save-status";
-import { useConfirmMutation } from "@/components/card-page/use-confirm-mutation";
-import { useDeleteEntity } from "@/components/card-page/use-delete-entity";
-import { useDuplicateEntity } from "@/components/card-page/use-duplicate-entity";
+import { useCardEntityActions } from "@/components/card-page/use-card-entity-actions";
 import {
   ReadOnlyFieldValue,
   underlineControlClass,
@@ -112,14 +109,11 @@ import {
   createPurchaseOrderAdditionalCostRow,
   createPurchaseOrderLineRow,
   deliveryInfoNote,
-  fieldErrorMessage,
-  firstFieldErrorMessage,
   isBlankPurchaseOrderAdditionalCost,
   isBlankPurchaseOrderLine,
   lineTotalBeforeTax,
   normalizeDeliveryAddress,
   parseNonNegative,
-  purchaseOrderApiFieldErrors,
   purchaseOrderValidationErrors,
   todayIsoDate,
   type AdditionalCostSupplierDialogValues,
@@ -128,7 +122,6 @@ import {
   type ApiError,
   type DeliveryAddressFields,
   type DeliveryAddressOption,
-  type FieldErrorState,
   type PurchaseOrderAdditionalCostGridRow,
   type PurchaseOrderLineGridRow,
   type XeroAccountOption,
@@ -172,7 +165,6 @@ export function PurchaseOrderCard({
   taxRates?: PurchaseOrderTaxRateOption[];
   defaultTaxRateId?: string | null;
 }) {
-  const router = useRouter();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const detachFileInputRef = useRef<(() => void) | null>(null);
@@ -182,7 +174,6 @@ export function PurchaseOrderCard({
     ? `/purchasing/order/${initialData.id}`
     : "/purchasing/orders";
   const [formError, setFormError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<FieldErrorState>({});
   const [fileActionError, setFileActionError] = useState<string | null>(null);
   const savedOrderIdRef = useRef<string | null>(initialData?.id ?? null);
   const [savedOrderId, setSavedOrderId] = useState<string | null>(
@@ -327,14 +318,14 @@ export function PurchaseOrderCard({
     async (orderId: string | null, values: InsertPurchaseOrder) => {
       const validationErrors = purchaseOrderValidationErrors(values);
       if (validationErrors) {
-        setFieldErrors(validationErrors);
-        throw {
-          error: firstFieldErrorMessage(validationErrors) ?? "Fix highlighted fields.",
-        } satisfies ApiError;
+        const message = firstFieldErrorMessage(validationErrors, "Fix highlighted fields.");
+        throw new ApiJsonError(message, 400, {
+          error: message,
+          errors: validationErrors,
+        });
       }
 
       setFormError(null);
-      setFieldErrors({});
       try {
         return await apiJson<PurchaseOrderDetail>(
           orderId ? `/api/purchase-orders/${orderId}` : "/api/purchase-orders",
@@ -346,14 +337,8 @@ export function PurchaseOrderCard({
           },
         );
       } catch (error) {
-        if (!(error instanceof ApiJsonError)) throw error;
-        const apiError = {
-          error: error.message,
-          errors: error.errors,
-        } satisfies ApiError;
-        setFieldErrors(purchaseOrderApiFieldErrors(apiError));
-        setFormError(apiError.error);
-        throw apiError;
+        if (error instanceof ApiJsonError) setFormError(error.message);
+        throw error;
       }
     },
     [],
@@ -379,6 +364,7 @@ export function PurchaseOrderCard({
     },
   });
   const draftValues = purchaseOrderController.draft;
+  const fieldErrors = purchaseOrderController.fieldErrors;
   const commitPurchaseOrderDraft = useCallback(
     (
       patch: Partial<Omit<PurchaseOrderDraft, "lines" | "additionalCosts">>,
@@ -662,51 +648,41 @@ export function PurchaseOrderCard({
     onError: (error: Error) => setFileActionError(error.message),
   });
 
-  const duplicateMutation = useDuplicateEntity({
+  const actions = useCardEntityActions({
+    entity: "purchase-order-action",
+    getId: () => savedOrderIdRef.current,
+    flush: purchaseOrderController.flush,
+    hasPendingOps: purchaseOrderController.hasPendingOps,
     invalidateQueryKeys: [queryKeys.purchaseOrders.root],
-    mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "duplicate"],
-    mutationFn: async () => {
-      if (!savedOrderId) throw new Error("Save the purchase order first.");
-      return apiJson<{ id: string }>(
-        `/api/purchase-orders/${savedOrderId}/duplicate`,
-        {
+    missingIdError: "Save the purchase order first.",
+    onMutate: () => setFormError(null),
+    onError: (error) => setFormError(error.message),
+    duplicate: {
+      run: (id) =>
+        apiJson<{ id: string }>(`/api/purchase-orders/${id}/duplicate`, {
           method: "POST",
           fallbackError: "Failed to duplicate purchase order.",
-        },
-      );
+        }),
+      navigateTo: (id) => `/purchasing/order/${id}`,
     },
-    onDuplicated: (order) => {
-      router.push(`/purchasing/order/${order.id}`);
+    delete: {
+      label: "Delete purchase order",
+      run: (id) =>
+        apiJson<void>(`/api/purchase-orders/${id}`, {
+          method: "DELETE",
+          fallbackError: "Failed to delete purchase order.",
+        }),
+      navigateTo: "/purchasing/orders",
+      confirm: {
+        title: "Delete purchase order?",
+        description: (
+          <>
+            Purchase order {savedOrderNumber ?? "this order"} will be removed. This
+            cannot be undone.
+          </>
+        ),
+      },
     },
-    onError: (error: Error) => setFormError(error.message),
-  });
-  const deleteMutation = useDeleteEntity({
-    mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "delete"],
-    mutationFn: async () => {
-      await purchaseOrderController.flush();
-      const orderId = savedOrderIdRef.current;
-      if (!orderId) throw new Error("Save the purchase order first.");
-      await apiJson<void>(`/api/purchase-orders/${orderId}`, {
-        method: "DELETE",
-        fallbackError: "Failed to delete purchase order.",
-      });
-    },
-    onMutate: () => setFormError(null),
-    invalidateQueryKeys: [queryKeys.purchaseOrders.root],
-    onDeleted: () => router.push("/purchasing/orders"),
-    onError: (error) => setFormError(error.message),
-  });
-  const deleteConfirm = useConfirmMutation<void>({
-    title: "Delete purchase order?",
-    description: (
-      <>
-        Purchase order {savedOrderNumber ?? "this order"} will be removed. This
-        cannot be undone.
-      </>
-    ),
-    confirmLabel: "Delete",
-    pendingLabel: "Deleting...",
-    mutation: deleteMutation,
   });
   const statusMutation = useApiMutation({
     invalidates: [queryKeys.purchaseOrders.root],
@@ -903,10 +879,10 @@ export function PurchaseOrderCard({
     await purchaseOrderController.flush();
     const orderId = savedOrderIdRef.current;
     if (!orderId) {
+      const firstError = fieldErrors ? firstFieldErrorMessage(fieldErrors, "") : "";
       const message =
         purchaseOrderController.error ??
-        firstFieldErrorMessage(fieldErrors) ??
-        "Choose a supplier before uploading files.";
+        (firstError || "Choose a supplier before uploading files.");
       setFormError(message);
       throw new Error(message);
     }
@@ -1179,10 +1155,12 @@ export function PurchaseOrderCard({
     });
   };
 
-  const linesError = getFieldArrayError(fieldErrors.lines);
-  const additionalCostsError = getFieldArrayError(
-    fieldErrors.additionalCosts,
-  );
+  const linesError = fieldErrorAt(fieldErrors, "lines");
+  const additionalCostsError = fieldErrorAt(fieldErrors, "additionalCosts");
+  const supplierIdError = fieldErrorAt(fieldErrors, "supplierId");
+  const orderNumberError = fieldErrorAt(fieldErrors, "orderNumber");
+  const expectedDateError = fieldErrorAt(fieldErrors, "expectedDate");
+  const notesError = fieldErrorAt(fieldErrors, "notes");
   const selectedSupplier = supplierOptionsSorted.find(
     (supplier) => supplier.id === watchedSupplierId,
   );
@@ -1515,15 +1493,7 @@ export function PurchaseOrderCard({
                   },
                 ]
               : []),
-            ...(savedOrderId
-              ? [
-                  {
-                    label: "Duplicate",
-                    onClick: () => duplicateMutation.mutate(),
-                    disabled: duplicateMutation.isPending,
-                  },
-                ]
-              : []),
+            ...(savedOrderId && actions.duplicateAction ? [actions.duplicateAction] : []),
             ...(savedOrderId
               ? [
                   {
@@ -1532,15 +1502,8 @@ export function PurchaseOrderCard({
                   },
                 ]
               : []),
-            ...(savedOrderId && canDeletePurchaseOrder
-              ? [
-                  {
-                    label: "Delete purchase order",
-                    destructive: true,
-                    onClick: () => deleteConfirm.trigger(undefined),
-                    disabled: deleteMutation.isPending,
-                  },
-                ]
+            ...(savedOrderId && canDeletePurchaseOrder && actions.deleteAction
+              ? [actions.deleteAction]
               : []),
           ]}
           onClose={handleCancel}
@@ -1577,7 +1540,7 @@ export function PurchaseOrderCard({
                       }
                       commitPurchaseOrderDraft({ supplierId: nextValue ?? "" });
                     }}
-                    errorMessage={fieldErrorMessage(fieldErrors.supplierId) ?? undefined}
+                    errorMessage={supplierIdError ?? undefined}
                     inputClassName={underlineControlClass(
                       !savedOrderId && !draftValues.supplierId,
                     )}
@@ -1587,7 +1550,7 @@ export function PurchaseOrderCard({
                   />
                 </div>
                 <div className={styles.formField}>
-                  <Field data-invalid={Boolean(fieldErrors.orderNumber)}>
+                  <Field data-invalid={orderNumberError != null}>
                     <FieldLabel className={styles.formLabel} htmlFor="purchaseOrderNumber">
                       Purchase order
                     </FieldLabel>
@@ -1608,9 +1571,7 @@ export function PurchaseOrderCard({
                         className={styles.underlineControl}
                       />
                     )}
-                    {fieldErrors.orderNumber ? (
-                      <FieldError>{fieldErrorMessage(fieldErrors.orderNumber)}</FieldError>
-                    ) : null}
+                    {orderNumberError ? <FieldError>{orderNumberError}</FieldError> : null}
                   </Field>
                 </div>
                 <div className={styles.formField}>
@@ -1618,8 +1579,8 @@ export function PurchaseOrderCard({
                     label="Expected arrival"
                     htmlFor="expectedDate"
                     required
-                    invalid={Boolean(fieldErrors.expectedDate)}
-                    error={fieldErrorMessage(fieldErrors.expectedDate)}
+                    invalid={expectedDateError != null}
+                    error={expectedDateError}
                   >
                     {readOnly ? (
                       <ReadOnlyFieldValue mono>
@@ -1630,8 +1591,8 @@ export function PurchaseOrderCard({
                         id="expectedDate"
                         value={draftValues.expectedDate ?? ""}
                         onChange={(value) => commitPurchaseOrderDraft({ expectedDate: value || null })}
-                        aria-invalid={Boolean(fieldErrors.expectedDate)}
-                        className={underlineControlClass(Boolean(fieldErrors.expectedDate))}
+                        aria-invalid={expectedDateError != null}
+                        className={underlineControlClass(expectedDateError != null)}
                       />
                     )}
                   </CardField>
@@ -1724,7 +1685,7 @@ export function PurchaseOrderCard({
                     commitPurchaseOrderDraft({ notes: next });
                   }}
                 />
-                {fieldErrors.notes ? <FieldError>{fieldErrorMessage(fieldErrors.notes)}</FieldError> : null}
+                {notesError ? <FieldError>{notesError}</FieldError> : null}
               </CardSection>
               <CardSection title="Totals">
                 <TotalsSummary
@@ -1808,7 +1769,7 @@ export function PurchaseOrderCard({
         }
         onSend={() => purchaseOrderEmailMutation.mutate()}
       />
-      {deleteConfirm.dialog}
+      {actions.dialogs}
       <PurchaseBillDialog
         open={purchaseBillDialogOpen}
         values={purchaseBillDialogValues}

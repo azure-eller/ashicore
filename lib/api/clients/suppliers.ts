@@ -15,7 +15,7 @@ export async function getSupplierCard(supplierId: string) {
 }
 
 export async function createSupplier(input: InsertSupplier) {
-  return json<{ id: string; name: string }>(
+  return json<SupplierRow>(
     "/api/suppliers",
     {
       method: "POST",
