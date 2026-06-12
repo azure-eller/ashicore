@@ -137,7 +137,7 @@ export function CardPageHeader({
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button type="button" className={styles.iconBtn} aria-label="More actions">
-                <HugeiconsIcon icon={MoreVerticalIcon} size={14} />
+                <HugeiconsIcon icon={MoreVerticalIcon} size={18} />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -154,7 +154,7 @@ export function CardPageHeader({
             aria-label="Close"
             onClick={handleClose}
           >
-            <HugeiconsIcon icon={Cancel01Icon} size={14} />
+            <HugeiconsIcon icon={Cancel01Icon} size={18} />
           </button>
         ) : null}
       </div>
@@ -210,7 +210,7 @@ function IconActionButton({ action }: { action: CardHeaderIconAction }) {
       onClick={action.onClick}
       disabled={action.disabled}
     >
-      <HugeiconsIcon icon={action.icon} size={14} />
+      <HugeiconsIcon icon={action.icon} size={18} />
       {action.status && action.status !== "idle" ? (
         <span
           className={cn(
