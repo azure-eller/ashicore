@@ -1,11 +1,10 @@
 import { Fragment } from "react";
 import type { BillingPlanIntent } from "@/lib/billing/plan-intent";
-import { FREE_SKU_LIMIT } from "@/lib/billing/types";
 
 function planParts(plan: BillingPlanIntent) {
   return plan === "paid"
     ? { tier: "Paid", detail: "$199/mo" }
-    : { tier: "Free", detail: `${FREE_SKU_LIMIT} SKUs` };
+    : { tier: "Free", detail: "Unlimited SKUs" };
 }
 
 // One continuous progress model for the whole onboarding journey — shared by the

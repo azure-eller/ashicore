@@ -23,13 +23,8 @@ import {
   variantOptionValues,
   variantOptions,
 } from "../../../lib/db/schema";
-import {
-  assertCanCreateSkuInTx,
-  BillingEntitlementError,
-  getSkuEntitlementInTx,
-} from "../../../lib/billing/entitlements";
-import { FREE_SKU_LIMIT } from "../../../lib/billing/types";
 import { withOrgContext } from "../../../lib/db/with-org-context";
+import { readTestEnv } from "../../helpers/test-env";
 import {
   consumeStockFifoInTx,
   createPositiveStockEventInTx,
@@ -1640,79 +1635,56 @@ test.describe("inventory mutation kernel heartbeat", () => {
     ).toBe(true);
   });
 
-  test("billing entitlements count every item row and Core state controls the cap", async ({
+  test("item creation is unmetered: a free-plan org far past 50 SKUs keeps creating", async ({
     db,
   }) => {
-    const id = randomUUID();
-    const billingOrgId = `billing-fast-${id}`;
+    const id = randomUUID().slice(0, 8);
+    const orgId = readTestEnv().TEST_ORG_ID;
 
-    await db.insert(organization).values({
-      id: billingOrgId,
-      name: `Billing Fast ${id}`,
-      slug: `billing-fast-${id}`,
-      createdAt: new Date(),
-      plan: "free",
-      status: "active",
-    });
+    await db.update(organization).set({ plan: "free" }).where(eq(organization.id, orgId));
 
-    await withOrgContext(billingOrgId, async (tx) => {
-      const [unit] = await tx
-        .insert(unitDefinitions)
-        .values({
-          organizationId: billingOrgId,
-          name: "Each",
-          size: "1",
-          uom: "ea",
-        })
-        .returning({ id: unitDefinitions.id });
-
-      await tx.insert(items).values(
-        Array.from({ length: FREE_SKU_LIMIT }, (_, index) => ({
-          organizationId: billingOrgId,
-          name: `Billing Fast Item ${index}`,
-          sku: `BILL-FAST-${id}-${index}`,
-          itemType: "material",
-          unitDefinitionId: unit.id,
+    const probes = await db
+      .insert(items)
+      .values(
+        Array.from({ length: 51 }, (_, index) => ({
+          organizationId: orgId,
+          name: `Sku Meter Probe ${id} ${index}`,
+          sku: `SKU-METER-${id}-${index}`,
+          itemType: "material" as const,
+          unitDefinitionId: unitId,
           safetyStock: "0",
           defaultPurchasePrice: "1",
           currentStockUnitCost: "1",
           defaultSellingPrice: null,
           sellable: false,
-          manufacturingMode: "discrete",
-          deletedAt: index === 0 ? new Date() : null,
+          manufacturingMode: "discrete" as const,
         })),
-      );
+      )
+      .returning({ id: items.id });
 
-      const freeEntitlement = await getSkuEntitlementInTx(tx, billingOrgId);
-      expect(freeEntitlement.skuCount).toBe(FREE_SKU_LIMIT);
-      expect(freeEntitlement.canCreateSku).toBe(false);
-      await expect(assertCanCreateSkuInTx(tx, billingOrgId)).rejects.toBeInstanceOf(
-        BillingEntitlementError,
-      );
-    });
-
-    await db
-      .update(organization)
-      .set({
-        plan: "core",
-        status: "active",
-        stripeCustomerId: `cus_${id}`,
-        cancelAtPeriodEnd: true,
-        currentPeriodEnd: new Date(1_800_000_000 * 1000),
-      })
-      .where(eq(organization.id, billingOrgId));
-
-    await withOrgContext(billingOrgId, async (tx) => {
-      const coreEntitlement = await getSkuEntitlementInTx(tx, billingOrgId);
-      expect(coreEntitlement.plan).toBe("core");
-      expect(coreEntitlement.status).toBe("active");
-      expect(coreEntitlement.cancelAtPeriodEnd).toBe(true);
-      expect(coreEntitlement.currentPeriodEnd?.toISOString()).toBe(
-        "2027-01-15T08:00:00.000Z",
-      );
-      expect(coreEntitlement.skuLimit).toBeNull();
-      expect(coreEntitlement.canCreateSku).toBe(true);
-    });
+    try {
+      const created = await createItem({
+        itemType: "material",
+        name: `Sku Meter Probe Final ${id}`,
+        unitDefinitionId: unitId,
+        sku: `SKU-METER-FINAL-${id}`,
+        category: `Sku Meter ${id}`,
+        description: null,
+        sellable: false,
+        defaultPurchasePrice: "1.00",
+        defaultSellingPrice: null,
+        stock: "0",
+        safetyStock: "0",
+        bom: [],
+      });
+      expect(created.status).toBe(201);
+    } finally {
+      await db
+        .update(items)
+        .set({ deletedAt: new Date() })
+        .where(inArray(items.id, probes.map((probe) => probe.id)));
+      await db.update(organization).set({ plan: "core" }).where(eq(organization.id, orgId));
+    }
   });
 
   test("location management preserves API shape and blocks unsafe default swaps", async () => {

@@ -54,9 +54,6 @@ import type {
   UpdateItem,
 } from "@/lib/schemas/items";
 import {
-  assertCanCreateSkuInTx,
-} from "@/lib/billing/dal";
-import {
   hasBomChanged,
   hasBomOperationCostsChanged,
   type BomInputRow,
@@ -638,8 +635,6 @@ export async function createItemWithLot(
     if (replay.replayed) {
       return replay.result;
     }
-
-    await assertCanCreateSkuInTx(tx, orgId);
 
     const normalizedCurrentStockUnitCost =
       data.itemType === "material"

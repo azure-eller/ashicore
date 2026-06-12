@@ -8,23 +8,19 @@ import { captureAppError } from "@/lib/observability/sentry";
 import {
   asBillingPlugins,
   type BillingPlan,
+  type BillingOverview,
   type BillingPlugin,
-  type BillingSkuEntitlement,
   type BillingState,
   type BillingStatus,
 } from "./types";
 import {
+  getBillingOverviewInTx,
   getFeatureAccessInTx,
-  getSkuEntitlementInTx,
   type FeatureAccess,
 } from "./entitlements";
 export {
-  assertCanCreateSkuInTx,
-  assertCanCreateSkusInTx,
   assertFeatureAccessInTx,
-  BillingEntitlementError,
   FeatureEntitlementError,
-  getSkuEntitlementInTx,
   type FeatureAccess,
 } from "./entitlements";
 
@@ -48,8 +44,8 @@ function mapBillingState(row: {
   };
 }
 
-export async function getBillingStateForCurrentOrg(): Promise<BillingSkuEntitlement> {
-  return withAuthedOrgContext(async (tx, orgId) => getSkuEntitlementInTx(tx, orgId));
+export async function getBillingStateForCurrentOrg(): Promise<BillingOverview> {
+  return withAuthedOrgContext(async (tx, orgId) => getBillingOverviewInTx(tx, orgId));
 }
 
 export async function getFeatureAccessForCurrentOrg(

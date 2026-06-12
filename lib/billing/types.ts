@@ -4,8 +4,6 @@ export const BILLING_STATUSES = ["active", "past_due", "canceled"] as const;
 export type BillingPlan = (typeof BILLING_PLANS)[number];
 export type BillingStatus = (typeof BILLING_STATUSES)[number];
 
-export const FREE_SKU_LIMIT = 50;
-
 export const BILLING_PLUGINS = [
   "lot_tracking",
   "batch_production",
@@ -79,9 +77,6 @@ export type BillingState = {
   entitlements: BillingPlugin[];
 };
 
-export type BillingSkuEntitlement = BillingState & {
-  skuLimit: number | null;
+export type BillingOverview = BillingState & {
   skuCount: number;
-  canCreateSku: boolean;
-  enforcementEnabled: boolean;
 };

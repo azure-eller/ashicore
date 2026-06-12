@@ -14,7 +14,6 @@ import {
   SettingsQuietRow,
 } from "@/components/settings-panel";
 import { apiJson } from "@/lib/client/api";
-import { FREE_SKU_LIMIT } from "@/lib/billing/types";
 import type { BillingPageData } from "./types";
 
 type BillingActionResponse = {
@@ -121,10 +120,7 @@ export function BillingSection({
     void runBillingAction("checkout");
   }, [autoCheckout, checkoutSuccess, initialData.plan, runBillingAction]);
 
-  const skuUsage =
-    initialData.skuLimit == null
-      ? `Unlimited SKUs · ${initialData.skuCount} in use`
-      : `${initialData.skuCount} / ${initialData.skuLimit} SKUs in use`;
+  const skuUsage = `Unlimited SKUs · ${initialData.skuCount} in use`;
   const renewal = initialData.cancelAtPeriodEnd
     ? `ends ${periodEnd ?? "at period end"}`
     : periodEnd
@@ -187,9 +183,8 @@ export function BillingSection({
               <div>
                 <div className="font-medium">Core ends {periodEnd ?? "at period end"}</div>
                 <div className="mt-(--space-1) text-[var(--color-ink-faint)]">
-                  You will keep all current data, but will not be able to add new
-                  SKUs beyond the Free limit of {FREE_SKU_LIMIT}. You currently have{" "}
-                  {initialData.skuCount}.
+                  You keep all current data; paid plugin workflows pause when the
+                  subscription ends.
                 </div>
               </div>
             </div>

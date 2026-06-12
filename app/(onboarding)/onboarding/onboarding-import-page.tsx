@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { BillingPlanIntent } from "@/lib/billing/plan-intent";
-import { FREE_SKU_LIMIT } from "@/lib/billing/types";
 import type { CellValueChangedEvent, ColDef, ICellRendererParams } from "ag-grid-community";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
@@ -517,7 +516,7 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
   const [onboardingReady, setOnboardingReady] = useState(false);
   // The approve gate: a paid org pays here; a free org over the SKU cap is offered
   // the upgrade-or-trim choice. Null = no dialog (free + within cap commits directly).
-  const [approveDialog, setApproveDialog] = useState<null | "pay" | "upsell">(null);
+  const [approveDialog, setApproveDialog] = useState<null | "pay">(null);
   const [finalizing, setFinalizing] = useState(false);
 
   const startMutation = useMutation({
@@ -788,29 +787,17 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
     );
   }, [reviewPackage]);
 
-  // New SKUs this import would create (selected items marked "create").
-  const selectedNewSkuCount = useMemo(() => {
-    if (!reviewPackage) return 0;
-    return reviewPackage.items.filter(
-      (item) => item.review?.selected !== false && item.match.suggestion === "create",
-    ).length;
-  }, [reviewPackage]);
-
   const blockingIssues = useMemo(
     () => (preview?.issues ?? []).filter((issue) => issue.severity === "blocking"),
     [preview],
   );
-  // The SKU-cap "blocker" is handled by the approve dialog (upgrade/trim), not by
-  // disabling the button — so it must not count as a hard blocker here.
-  const skuLimitBlocking = blockingIssues.some((issue) => /SKU limit/i.test(issue.message));
-  const hasOtherBlocking = blockingIssues.some((issue) => !/SKU limit/i.test(issue.message));
-  const overFreeLimit = planIntent === "free" && (skuLimitBlocking || selectedNewSkuCount > FREE_SKU_LIMIT);
+  const hasBlocking = blockingIssues.length > 0;
   const approveDisabled =
     dirty ||
     approveMutation.isPending ||
     validateMutation.isPending ||
     !preview?.hash ||
-    hasOtherBlocking;
+    hasBlocking;
 
   const columns = useMemo<Array<ColDef<ReviewRow>>>(() => {
     const includeColumn: ColDef<ReviewRow> = {
@@ -960,32 +947,14 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
     uploadMutation.mutate(stagedFiles);
   }
 
-  // The approve gate: where payment / the SKU-cap choice happens, before anything
-  // is written to the DB.
+  // The approve gate: where payment happens, before anything is written to the DB.
   function handleApproveClick() {
     if (approveDisabled) return;
     if (planIntent === "paid") {
       setApproveDialog("pay");
       return;
     }
-    if (overFreeLimit) {
-      setApproveDialog("upsell");
-      return;
-    }
     approveMutation.mutate();
-  }
-
-  // From the upsell dialog: keep all the data by moving to Pro, then pay.
-  async function upgradeToPaid() {
-    setPlanIntent("paid");
-    setApproveDialog("pay");
-    try {
-      await progressMutation.mutateAsync({ selectedPlan: "paid" });
-    } catch {
-      // non-fatal; the chip/intent are already updated locally
-    }
-    // Re-validate so the free SKU-cap blocker clears (paid has no cap).
-    validateMutation.mutate();
   }
 
   // From the pay dialog: drop back to Free instead of paying.
@@ -1412,9 +1381,7 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
               <button type="button" className="ob-btn ob-btn--primary" onClick={handleApproveClick} disabled={approveDisabled}>
                 {planIntent === "paid"
                   ? "Approve & pay"
-                  : overFreeLimit
-                    ? "Approve & continue"
-                    : `Approve ${approvedCount} & continue`}
+                  : `Approve ${approvedCount} & continue`}
               </button>
             </div>
           </div>
@@ -1538,37 +1505,11 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
                   disabled={
                     checkoutMutation.isPending ||
                     validateMutation.isPending ||
-                    hasOtherBlocking ||
+                    hasBlocking ||
                     !preview?.hash
                   }
                 >
                   {checkoutMutation.isPending ? "Starting checkout…" : "Pay & import"}
-                </Button>
-              </DialogFooter>
-            </>
-          ) : approveDialog === "upsell" ? (
-            <>
-              <DialogHeader>
-                <DialogTitle>That&apos;s more than the Free plan holds</DialogTitle>
-                <DialogDescription>
-                  Your import adds {selectedNewSkuCount} items, and Free includes{" "}
-                  {FREE_SKU_LIMIT}. Keep everything by upgrading to Pro, or unselect some
-                  items in the table to stay on Free.
-                </DialogDescription>
-              </DialogHeader>
-              <DialogFooter>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => {
-                    setApproveDialog(null);
-                    setActiveTab("items");
-                  }}
-                >
-                  Unselect some items
-                </Button>
-                <Button type="button" onClick={upgradeToPaid}>
-                  Upgrade to Pro
                 </Button>
               </DialogFooter>
             </>

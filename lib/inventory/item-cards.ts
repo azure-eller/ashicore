@@ -34,7 +34,6 @@ import { trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import { DomainError } from "@/lib/errors/domain-error";
-import { assertCanCreateSkuInTx, assertCanCreateSkusInTx } from "@/lib/billing/dal";
 import {
   beginInventoryOperationInTx,
   finishInventoryOperationInTx,
@@ -886,8 +885,6 @@ export async function cloneItemCard(
       throw new ItemCardError("Item card has no active variants to clone.", 409);
     }
 
-    await assertCanCreateSkusInTx(tx, orgId, sourceVariants.length);
-
     const [clonedFamily] = await tx
       .insert(itemFamilies)
       .values({
@@ -1120,8 +1117,6 @@ export async function createItemCardInTx(
     payload: { data },
   });
   if (replay.replayed) return replay.result;
-
-  await assertCanCreateSkuInTx(tx, orgId);
 
   const [family] = await tx
     .insert(itemFamilies)
@@ -1527,8 +1522,6 @@ export async function createItemCardVariant(
       optionSortOrder: value.optionSortOrder,
       valueCode: value.valueCode,
     }));
-
-    await assertCanCreateSkuInTx(tx, orgId);
 
     const [maxSortOrderRow] = await tx
       .select({ value: sql<number>`COALESCE(MAX(${items.sortOrder}), -1)::int` })
@@ -2124,11 +2117,6 @@ export async function generateVariants(
       source.optionCombinationKey === "" && bareDefaultVariant.length === 0;
     const [promotedCombo, ...remainingCombos] =
       canPromoteSourceVariant && selected.length > 0 ? selected : [undefined, ...selected];
-    await assertCanCreateSkusInTx(
-      tx,
-      orgId,
-      remainingCombos.filter(Boolean).length
-    );
     const [maxSortOrderRow] = await tx
       .select({ value: sql<number>`COALESCE(MAX(${items.sortOrder}), -1)::int` })
       .from(items)

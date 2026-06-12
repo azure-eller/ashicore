@@ -13,7 +13,6 @@ import {
   suppliers,
   user,
 } from "../../../lib/db/schema";
-import { FREE_SKU_LIMIT } from "../../../lib/billing/types";
 import { getBaseUrl, getSessionCookie, testFetch } from "../../helpers/api";
 import { expectResponse, uniqueName } from "./story-helpers";
 
@@ -646,7 +645,7 @@ test.describe("onboarding import operating story", () => {
     expect(created?.id).toBeTruthy();
   });
 
-  test("paid intent holds commit until payment; free intent enforces the SKU cap", async ({
+  test("paid intent holds commit until payment; free imports are unmetered", async ({
     page,
     db,
   }) => {
@@ -707,12 +706,12 @@ test.describe("onboarding import operating story", () => {
       });
     }
 
-    // Free intent over the cap is surfaced as a blocking SKU-limit issue at review.
+    // SKUs are unmetered: a free-intent import of 51 items previews clean.
     await freshOrg("freecap");
     const freeSession = await uploadImport("free");
     const overCap = await patchPackage(
       freeSession,
-      productsPackage(FREE_SKU_LIMIT + 1, `FCAP-${suffix}`),
+      productsPackage(51, `FCAP-${suffix}`),
     );
     expect(overCap.status()).toBe(200);
     const overBody = await overCap.json();
@@ -720,8 +719,8 @@ test.describe("onboarding import operating story", () => {
       overBody.preview.issues.some((issue: { message: string }) =>
         /SKU limit/i.test(issue.message),
       ),
-    ).toBe(true);
-    expect(overBody.preview.blockingIssueCount).toBeGreaterThan(0);
+    ).toBe(false);
+    expect(overBody.preview.blockingIssueCount).toBe(0);
 
     // Paid intent: nothing commits until the org is actually paid.
     const paidOrg = await freshOrg("paidcommit");

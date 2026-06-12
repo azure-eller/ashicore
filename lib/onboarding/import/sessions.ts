@@ -28,7 +28,6 @@ import { customerDefaultValues } from "@/lib/schemas/customers";
 import type { PrivateFileUpload } from "@/lib/blob-storage";
 import { getUomOptions } from "@/lib/units-of-measure";
 import { businessDateToUtcDate, hashImportPackage } from "./hash";
-import { getSkuImportLimitInTx } from "./entitlements";
 import {
   importPackageSchema,
   type ImportPackage,
@@ -501,23 +500,6 @@ export async function validateImportPackageInTx(
           path: `boms.${bom.productRef}.components.${component.itemRef}.unitRef`,
         });
       }
-    }
-  }
-
-  const limit = await getSkuImportLimitInTx(tx, orgId);
-  if (limit != null) {
-    const [{ count }] = await tx
-      .select({ count: sql<number>`count(*)::int` })
-      .from(items)
-      .where(isNull(items.deletedAt));
-    const createCount = pkg.items.filter(
-      (item) => isReviewActive(item) && item.match.suggestion === "create",
-    ).length;
-    if (count + createCount > limit) {
-      issues.push({
-        severity: "blocking",
-        message: `This import would exceed the ${limit} SKU limit for this plan.`,
-      });
     }
   }
 

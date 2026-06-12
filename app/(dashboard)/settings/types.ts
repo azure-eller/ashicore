@@ -82,9 +82,6 @@ export type BillingPageData = {
   cancelAtPeriodEnd: boolean;
   currentPeriodEnd: string | null;
   skuCount: number;
-  skuLimit: number | null;
-  canCreateSku: boolean;
-  enforcementEnabled: boolean;
   billingConfigured: boolean;
   checkoutConfigured: boolean;
 };

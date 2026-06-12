@@ -98,7 +98,6 @@ const schema = z.object({
   OPENAI_IMPORT_MODEL: z.string().optional(),
 
   // Onboarding import knobs
-  ONBOARDING_IMPORT_SKU_LIMIT: z.string().optional(),
   IMPORT_EXTRACTION_FILES_PER_TICK: z.string().optional(),
 
   // Test/CI detection
