@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { NextResponse } from "next/server";
 import { getItems } from "@/lib/inventory/queries/items-list";
 import { createItemWithLot, deleteItems } from "@/lib/inventory/queries/item-write";
@@ -23,7 +24,14 @@ export const GET = apiHandler(async (request) => {
     raw && (ITEM_TYPES as readonly string[]).includes(raw)
       ? (raw as ItemType)
       : undefined;
-  const data = await getItems(itemType ? { itemType } : undefined);
+  const rawLocationId = searchParams.get("locationId");
+  const locationId =
+    rawLocationId && z.string().uuid().safeParse(rawLocationId).success
+      ? rawLocationId
+      : undefined;
+  const data = await getItems(
+    itemType || locationId ? { itemType, locationId } : undefined
+  );
   return NextResponse.json(data);
 });
 

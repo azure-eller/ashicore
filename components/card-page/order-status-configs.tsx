@@ -27,6 +27,7 @@ import {
 } from "@/components/table-frame";
 import { ManufacturingCompletionDialog } from "@/components/manufacturing/manufacturing-completion-dialog";
 import { Panel } from "@/components/panel";
+import { LocationPickerField, useActiveLocations } from "@/components/location-select";
 import {
   shipSalesOrder,
   SalesOrderApiError,
@@ -186,26 +187,56 @@ function ShipOrderDialog({
     return !Number.isFinite(quantity) || quantity <= 0 || quantity > remaining;
   });
 
+  const [locationId, setLocationId] = useState<string | null>(null);
+  const locationsQuery = useActiveLocations();
+  const locations = locationsQuery.data ?? [];
+  const multiLocation = locations.length > 1;
+  // Decide once, on the first settled fetch, whether full-ship may keep its
+  // one-click behavior (a successful fetch proves a single location) or must
+  // confirm through the dialog (multi-location, or the fetch failed so the
+  // default-location ship needs an explicit confirm). Sticky on purpose: the
+  // dialog's own picker remounts the query and must not flip the decision.
+  // Adjusted during render per react.dev's "storing information from
+  // previous renders" pattern.
+  const [fullShipMode, setFullShipMode] = useState<"undecided" | "auto" | "confirm">(
+    "undecided"
+  );
+  if (fullShipMode === "undecided") {
+    if (locationsQuery.isSuccess) {
+      setFullShipMode(multiLocation ? "confirm" : "auto");
+    } else if (locationsQuery.isError) {
+      setFullShipMode("confirm");
+    }
+  }
+  const shipFromName =
+    locations.find((location) => location.id === locationId)?.name ??
+    locations.find((location) => location.isDefault)?.name ??
+    "Default";
   const { mutation, warning, error } = useShipMutation(
     (confirm) =>
       shipSalesOrder(
         order.id,
         confirm,
-        mode === "partial" ? selectedLines : undefined
+        mode === "partial" ? selectedLines : undefined,
+        locationId
       ),
     onDone,
   );
   const canSubmit =
     !mutation.isPending &&
+    // Wait for the first locations fetch so a multi-location org cannot
+    // submit before its picker has had a chance to render.
+    !locationsQuery.isPending &&
     (mode === "all" || (selectedLines.length > 0 && invalidRows.length === 0));
 
   useEffect(() => {
     if (mode !== "all" || autoSubmittedRef.current) return;
+    if (fullShipMode !== "auto") return;
     autoSubmittedRef.current = true;
     mutation.mutate(false);
-  }, [mode, mutation]);
+  }, [fullShipMode, mode, mutation]);
 
-  if (mode === "all" && !warning && !error) {
+  if (mode === "all" && !warning && !error && fullShipMode !== "confirm") {
     return null;
   }
 
@@ -218,7 +249,9 @@ function ShipOrderDialog({
               ? stockWarningTitle(warning)
               : mode === "partial"
                 ? `Deliver items from ${order.orderNumber}`
-                : "Could not ship order"}
+                : error
+                  ? "Could not ship order"
+                  : `Deliver ${order.orderNumber}`}
           </DialogTitle>
           {mode === "partial" ? (
             <DialogDescription>
@@ -228,9 +261,13 @@ function ShipOrderDialog({
             <DialogDescription>
               Review the shortage before shipping this order.
             </DialogDescription>
-          ) : (
+          ) : error ? (
             <DialogDescription>
               Fix the issue below, then try again.
+            </DialogDescription>
+          ) : (
+            <DialogDescription>
+              Choose the location to ship from.
             </DialogDescription>
           )}
         </DialogHeader>
@@ -290,7 +327,9 @@ function ShipOrderDialog({
                       <FramedTableCell className={row.selected ? "" : "text-[var(--color-ink-faint)]"}>
                         {row.itemName}
                       </FramedTableCell>
-                      <FramedTableCell className="text-[var(--color-ink-faint)]">Default</FramedTableCell>
+                      <FramedTableCell className="text-[var(--color-ink-faint)]">
+                        {shipFromName}
+                      </FramedTableCell>
                       <FramedTableCell className="text-right">
                         {row.selected ? (
                           <div className="flex items-center justify-end gap-(--space-2)">
@@ -327,6 +366,11 @@ function ShipOrderDialog({
             </FramedTable>
           </div>
         ) : null}
+        <LocationPickerField
+          label="Ship from"
+          value={locationId}
+          onValueChange={setLocationId}
+        />
         {warning ? <NegativeStockNotice items={[warning]} /> : null}
         {error ? <p className="text-sm text-[var(--status-danger-ink)]">{error}</p> : null}
         <DialogFooter>
@@ -607,9 +651,11 @@ function ReceiveForm({
   onDone: (status?: PurchaseOrderStatus) => void;
 }) {
   const [rows, setRows] = useState<ReceiveDialogRow[]>(initialRows);
+  const [locationId, setLocationId] = useState<string | null>(null);
   const mutation = useMutation({
     mutationFn: () =>
       receivePurchaseOrder(orderId, {
+        locationId,
         lines: rows
           .map((row) => ({
             lineId: row.lineId,
@@ -629,8 +675,14 @@ function ReceiveForm({
     );
   });
   const selectedRows = rows.filter((row) => Number(normalizeDialogQuantity(row.quantity)) > 0);
+  // Wait for the first locations fetch so a multi-location org cannot
+  // submit before its picker has had a chance to render.
+  const locationsPending = useActiveLocations().isPending;
   const canSubmit =
-    !mutation.isPending && selectedRows.length > 0 && invalidRows.length === 0;
+    !mutation.isPending &&
+    !locationsPending &&
+    selectedRows.length > 0 &&
+    invalidRows.length === 0;
 
   if (rows.length === 0) {
     return (
@@ -709,6 +761,11 @@ function ReceiveForm({
           })}
         </FramedTableBody>
       </FramedTable>
+        <LocationPickerField
+          label="Receive into"
+          value={locationId}
+          onValueChange={setLocationId}
+        />
         {mutation.isError ? (
           <p className="text-sm text-[var(--status-danger-ink)]">
             {mutation.error instanceof Error ? mutation.error.message : "Failed to receive."}

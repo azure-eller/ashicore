@@ -10,7 +10,10 @@ import {
 import type { Tx } from "@/lib/db/with-org-context";
 import { LinkedManufacturingOutputUnavailableError } from "@/lib/inventory/kernel/errors";
 import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
-import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
+import {
+  getDefaultInventoryLocationInTx,
+  resolveInventoryLocationInTx,
+} from "@/lib/inventory/kernel/locations";
 import {
   applyDemandReferenceDeltasInTx,
   beginInventoryOperationInTx,
@@ -344,6 +347,9 @@ export async function consumeForSalesOrderShippingInTx(
   params: {
     organizationId: string;
     salesOrderId: string;
+    // Physical consumption location; omitted = default. Demand release
+    // stays at the default location (planning is default-pinned in v1).
+    locationId?: string | null;
     actorUserId?: string | null;
     idempotencyKey?: string | null;
     shippedAt?: Date;
@@ -363,6 +369,7 @@ export async function consumeForSalesOrderShippingInTx(
     idempotencyKey: params.idempotencyKey ?? null,
     payload: {
       salesOrderId: params.salesOrderId,
+      locationId: params.locationId ?? null,
       lines: params.lines,
       shippedAt: params.shippedAt?.toISOString() ?? null,
     },
@@ -372,7 +379,11 @@ export async function consumeForSalesOrderShippingInTx(
     return replay.result;
   }
 
-  const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
+  const location = await resolveInventoryLocationInTx(
+    tx,
+    params.organizationId,
+    params.locationId
+  );
   const eventIds: string[] = [];
   await lockItemsInTx(
     tx,
@@ -441,9 +452,16 @@ export async function consumeForSalesOrderShippingInTx(
     }
   }
 
+  // Planning is default-pinned in v1: expected/demand balances were recorded
+  // at the default location and must be released there, regardless of where
+  // the physical leg happened.
+  const planningLocation = await getDefaultInventoryLocationInTx(
+    tx,
+    params.organizationId
+  );
   await applyDemandReferenceDeltasInTx(tx, {
     organizationId: params.organizationId,
-    locationId: location.id,
+    locationId: planningLocation.id,
     actorUserId: params.actorUserId ?? null,
     eventSubtype: "shipped",
     deltas: params.lines.map((line) => ({

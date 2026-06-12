@@ -11,6 +11,7 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import { inventoryLocations } from "./locations";
 import { items } from "./items";
 import { lots } from "./lots";
 import { inventorySchema } from "./units";
@@ -23,6 +24,9 @@ export const stocktakes = inventorySchema
       organizationId: text("organization_id").notNull(),
       name: varchar("name", { length: 255 }).notNull(),
       scope: varchar("scope", { length: 255 }).notNull().default("all"),
+      // Where this stocktake counts; null = the default location (legacy
+      // rows and single-location orgs).
+      locationId: uuid("location_id").references(() => inventoryLocations.id),
       status: varchar("status", { length: 20 }).notNull().default("draft"),
       notes: text("notes"),
       reason: text("reason"),

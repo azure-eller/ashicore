@@ -351,6 +351,9 @@ const shipLinesSchema = z
   });
 
 export const shipSalesOrderSchema = z.object({
+  // Shipping location for the physical consumption; omitted = default
+  // (mobile sends no locationId). Demand release stays at the default.
+  locationId: z.string().uuid().nullish(),
   syncAccounting: z.boolean().optional(),
   confirmNegativeStock: z.boolean().optional(),
   completeLinkedManufacturing: z.boolean().optional(),

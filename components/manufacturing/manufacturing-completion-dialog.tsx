@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { LocationPickerField, useActiveLocations } from "@/components/location-select";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Dialog,
@@ -120,6 +121,10 @@ function CompletionDialogForm({
   const [rawBatchCount, setRawBatchCount] = useState(defaultBatchCount);
   const [rawLotNumber, setRawLotNumber] = useState("");
   const [disposition, setDisposition] = useState<OutputDisposition>("available");
+  const [locationId, setLocationId] = useState<string | null>(null);
+  // Wait for the first locations fetch so a multi-location org cannot
+  // submit before its picker has had a chance to render.
+  const locationsPending = useActiveLocations().isPending;
   const [shortage, setShortage] = useState<ManufacturingReleaseWarningPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const dispositionOptions: OutputDisposition[] =
@@ -156,18 +161,21 @@ function CompletionDialogForm({
             outputDisposition: disposition,
             confirmNegativeStock,
             producedLotNumber,
+            locationId,
           })
         : completesPartialBatchOrder
           ? completeManufacturingOrder(order.id, {
               batchCount,
               outputDisposition: disposition,
               confirmNegativeStock,
+              locationId,
             })
         : recordManufacturingOutput(order.id, {
             quantity,
             outputDisposition: disposition,
             confirmNegativeStock,
             producedLotNumber,
+            locationId,
           }),
     onSuccess: () => onDone(),
     onError: (err) => {
@@ -306,6 +314,12 @@ function CompletionDialogForm({
             </Panel>
           ) : null}
 
+          <LocationPickerField
+            label="Produce into"
+            value={locationId}
+            onValueChange={setLocationId}
+          />
+
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
         </div>
 
@@ -315,7 +329,7 @@ function CompletionDialogForm({
           </Button>
           <Button
             onClick={() => submit.mutate(shortage != null)}
-            disabled={submit.isPending || !quantityValid || !batchCountValid}
+            disabled={submit.isPending || locationsPending || !quantityValid || !batchCountValid}
           >
             {submit.isPending ? "Working…" : confirmLabel}
           </Button>

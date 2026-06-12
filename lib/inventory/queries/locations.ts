@@ -295,6 +295,20 @@ export async function deleteInventoryLocation(locationId: string): Promise<boole
       );
     }
 
+    // A draft stocktake stamped with this location would be permanently
+    // uncompletable after the delete; refuse rather than strand its counts.
+    const [openStocktake] = await tx
+      .select({ id: stocktakes.id })
+      .from(stocktakes)
+      .where(and(eq(stocktakes.locationId, locationId), eq(stocktakes.status, "draft")))
+      .limit(1);
+    if (openStocktake) {
+      throw new InventoryError(
+        "This location has an open stocktake and cannot be deleted.",
+        409
+      );
+    }
+
     await tx
       .update(inventoryLocations)
       .set({ deletedAt: new Date(), updatedAt: new Date() })

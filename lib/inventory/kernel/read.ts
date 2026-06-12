@@ -89,20 +89,34 @@ export function defaultLocationIdSubquery(organizationId: SqlExpression) {
   )`;
 }
 
+// An explicit location id, or the org default when omitted — the seam that
+// lets every projected read be scoped to one location (PR3) while omitted
+// stays byte-identical to the historical default-pinned behavior.
+export function locationIdOrDefaultSubquery(
+  organizationId: SqlExpression,
+  locationId?: string | null
+) {
+  return locationId
+    ? sql`${locationId}::uuid`
+    : defaultLocationIdSubquery(organizationId);
+}
+
 function itemBalanceSubquery(
   organizationId: SqlExpression,
   itemId: SqlExpression,
   column: typeof inventoryItemBalances.onHandQty
     | typeof inventoryItemBalances.demandQty
     | typeof inventoryItemBalances.expectedQty
-    | typeof inventoryItemBalances.availableToPromise
+    | typeof inventoryItemBalances.availableToPromise,
+  locationId?: string | null
 ) {
   return sql`(
     SELECT ${column}
     FROM ${inventoryItemBalances}
     WHERE ${inventoryItemBalances.organizationId} = ${organizationId}
-      AND ${inventoryItemBalances.locationId} = ${defaultLocationIdSubquery(
-        organizationId
+      AND ${inventoryItemBalances.locationId} = ${locationIdOrDefaultSubquery(
+        organizationId,
+        locationId
       )}
       AND ${inventoryItemBalances.itemId} = ${itemId}
     LIMIT 1
@@ -130,32 +144,30 @@ function activeLotBalanceSubquery(
   )`;
 }
 
-export function projectedOnHandQty(organizationId: SqlExpression, itemId: SqlExpression) {
-  return trimScale(projectedOnHandQtyExpr(
-    organizationId,
-    itemId,
-  ));
+export function projectedOnHandQty(
+  organizationId: SqlExpression,
+  itemId: SqlExpression,
+  locationId?: string | null
+) {
+  return trimScale(projectedOnHandQtyExpr(organizationId, itemId, locationId));
 }
 
-export function projectedExpectedQty(organizationId: SqlExpression, itemId: SqlExpression) {
-  return trimScale(projectedExpectedQtyExpr(
-    organizationId,
-    itemId,
-  ));
+export function projectedExpectedQty(organizationId: SqlExpression, itemId: SqlExpression,
+  locationId?: string | null
+) {
+  return trimScale(projectedExpectedQtyExpr(organizationId, itemId, locationId));
 }
 
-export function projectedDemandQty(organizationId: SqlExpression, itemId: SqlExpression) {
-  return trimScale(projectedDemandQtyExpr(
-    organizationId,
-    itemId,
-  ));
+export function projectedDemandQty(organizationId: SqlExpression, itemId: SqlExpression,
+  locationId?: string | null
+) {
+  return trimScale(projectedDemandQtyExpr(organizationId, itemId, locationId));
 }
 
-export function projectedAvailableQty(organizationId: SqlExpression, itemId: SqlExpression) {
-  return trimScale(projectedAvailableQtyExpr(
-    organizationId,
-    itemId,
-  ));
+export function projectedAvailableQty(organizationId: SqlExpression, itemId: SqlExpression,
+  locationId?: string | null
+) {
+  return trimScale(projectedAvailableQtyExpr(organizationId, itemId, locationId));
 }
 
 export function projectedPotentialQty(
@@ -172,32 +184,28 @@ export function projectedPotentialQty(
 
 export function projectedReservableOnHandQty(
   organizationId: SqlExpression,
-  itemId: SqlExpression
+  itemId: SqlExpression,
+  locationId?: string | null
 ) {
-  return trimScale(projectedReservableOnHandQtyExpr(
-    organizationId,
-    itemId,
-  ));
+  return trimScale(projectedReservableOnHandQtyExpr(organizationId, itemId, locationId));
 }
 
 export function projectedAvailableToPromise(
   organizationId: SqlExpression,
-  itemId: SqlExpression
+  itemId: SqlExpression,
+  locationId?: string | null
 ) {
-  return trimScale(projectedAvailableToPromiseExpr(
-    organizationId,
-    itemId,
-  ));
+  return trimScale(projectedAvailableToPromiseExpr(organizationId, itemId, locationId));
 }
 
-export function projectedLotQuantity(organizationId: SqlExpression, lotId: SqlExpression) {
+export function projectedLotQuantity(organizationId: SqlExpression, lotId: SqlExpression,
+  locationId?: string | null
+) {
   return trimScale(sql`COALESCE((
     SELECT SUM(${inventoryLotBalances.quantity})
     FROM ${inventoryLotBalances}
     WHERE ${inventoryLotBalances.organizationId} = ${organizationId}
-      AND ${inventoryLotBalances.locationId} = ${defaultLocationIdSubquery(
-        organizationId
-      )}
+      AND ${inventoryLotBalances.locationId} = ${locationIdOrDefaultSubquery(organizationId, locationId)}
       AND ${inventoryLotBalances.lotId} = ${lotId}
   ), 0)`);
 }
@@ -242,48 +250,53 @@ export function ledgerLotUnitCostByOrigin(
 
 export function projectedOnHandQtyExpr(
   organizationId: SqlExpression,
-  itemId: SqlExpression
+  itemId: SqlExpression,
+  locationId?: string | null
 ) {
   return sql`COALESCE(${itemBalanceSubquery(
     organizationId,
     itemId,
-    inventoryItemBalances.onHandQty
+    inventoryItemBalances.onHandQty,
+    locationId
   )}, 0)`;
 }
 
 export function projectedExpectedQtyExpr(
   organizationId: SqlExpression,
-  itemId: SqlExpression
+  itemId: SqlExpression,
+  locationId?: string | null
 ) {
   return sql`COALESCE(${itemBalanceSubquery(
     organizationId,
     itemId,
-    inventoryItemBalances.expectedQty
+    inventoryItemBalances.expectedQty,
+    locationId
   )}, 0)`;
 }
 
 export function projectedDemandQtyExpr(
   organizationId: SqlExpression,
-  itemId: SqlExpression
+  itemId: SqlExpression,
+  locationId?: string | null
 ) {
   return sql`COALESCE(${itemBalanceSubquery(
     organizationId,
     itemId,
-    inventoryItemBalances.demandQty
+    inventoryItemBalances.demandQty,
+    locationId
   )}, 0)`;
 }
 
 export function projectedReservableOnHandQtyExpr(
   organizationId: SqlExpression,
-  itemId: SqlExpression
+  itemId: SqlExpression,
+  locationId?: string | null
 ) {
   const positiveAvailableQty = sql`COALESCE((
     SELECT SUM(${inventoryLotBalances.quantity})
     FROM ${inventoryLotBalances}
     WHERE ${inventoryLotBalances.organizationId} = ${organizationId}
-	      AND ${inventoryLotBalances.locationId} = ${defaultLocationIdSubquery(
-	        organizationId
-	      )}
+	      AND ${inventoryLotBalances.locationId} = ${locationIdOrDefaultSubquery(organizationId, locationId)}
 	      AND ${inventoryLotBalances.itemId} = ${itemId}
 	      AND ${inventoryLotBalances.disposition} = 'available'
         AND ${inventoryLotBalances.quantity} > 0
@@ -292,9 +305,7 @@ export function projectedReservableOnHandQtyExpr(
     SELECT ABS(SUM(${inventoryLotBalances.quantity}))
     FROM ${inventoryLotBalances}
     WHERE ${inventoryLotBalances.organizationId} = ${organizationId}
-	      AND ${inventoryLotBalances.locationId} = ${defaultLocationIdSubquery(
-	        organizationId
-	      )}
+	      AND ${inventoryLotBalances.locationId} = ${locationIdOrDefaultSubquery(organizationId, locationId)}
 	      AND ${inventoryLotBalances.itemId} = ${itemId}
 	      AND ${inventoryLotBalances.disposition} = 'available'
         AND ${inventoryLotBalances.quantity} < 0
@@ -305,9 +316,10 @@ export function projectedReservableOnHandQtyExpr(
 
 export function projectedAvailableQtyExpr(
   organizationId: SqlExpression,
-  itemId: SqlExpression
+  itemId: SqlExpression,
+  locationId?: string | null
 ) {
-  return projectedReservableOnHandQtyExpr(organizationId, itemId);
+  return projectedReservableOnHandQtyExpr(organizationId, itemId, locationId);
 }
 
 export function projectedAgeEligibleAvailableQtyExpr(
@@ -406,15 +418,14 @@ export function projectedPotentialQtyExpr(
 
 export function projectedAvailableToPromiseExpr(
   organizationId: SqlExpression,
-  itemId: SqlExpression
+  itemId: SqlExpression,
+  locationId?: string | null
 ) {
   const positiveAvailableQty = sql`COALESCE((
     SELECT SUM(${inventoryLotBalances.quantity})
     FROM ${inventoryLotBalances}
     WHERE ${inventoryLotBalances.organizationId} = ${organizationId}
-      AND ${inventoryLotBalances.locationId} = ${defaultLocationIdSubquery(
-        organizationId
-      )}
+      AND ${inventoryLotBalances.locationId} = ${locationIdOrDefaultSubquery(organizationId, locationId)}
       AND ${inventoryLotBalances.itemId} = ${itemId}
       AND ${inventoryLotBalances.disposition} = 'available'
       AND ${inventoryLotBalances.quantity} > 0
@@ -423,9 +434,7 @@ export function projectedAvailableToPromiseExpr(
     SELECT ABS(SUM(${inventoryLotBalances.quantity}))
     FROM ${inventoryLotBalances}
     WHERE ${inventoryLotBalances.organizationId} = ${organizationId}
-      AND ${inventoryLotBalances.locationId} = ${defaultLocationIdSubquery(
-        organizationId
-      )}
+      AND ${inventoryLotBalances.locationId} = ${locationIdOrDefaultSubquery(organizationId, locationId)}
       AND ${inventoryLotBalances.itemId} = ${itemId}
       AND ${inventoryLotBalances.disposition} = 'available'
       AND ${inventoryLotBalances.quantity} < 0
@@ -435,9 +444,9 @@ export function projectedAvailableToPromiseExpr(
     GREATEST(
       0,
       ${positiveAvailableQty}
-      + ${projectedExpectedQtyExpr(organizationId, itemId)}
+      + ${projectedExpectedQtyExpr(organizationId, itemId, locationId)}
       - ${debtQty}
     )
-    - ${projectedDemandQtyExpr(organizationId, itemId)}
+    - ${projectedDemandQtyExpr(organizationId, itemId, locationId)}
   `;
 }

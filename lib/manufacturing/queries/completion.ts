@@ -107,6 +107,7 @@ async function completeBatchModeManufacturingOrder(
       await recordManufacturingOutput(
         id,
         {
+          locationId: payload.locationId,
           quantity: normalizeNumeric(remainingOutputQuantity),
           outputDisposition: payload.outputDisposition,
           notes: null,
@@ -128,6 +129,7 @@ async function completeBatchModeManufacturingOrder(
       id,
       batch.id,
       {
+        locationId: payload.locationId,
         actualQuantity: undefined,
         outputDisposition: payload.outputDisposition,
         ingredientActuals: [],
@@ -287,6 +289,7 @@ async function completeDiscreteManufacturingOrder(
         try {
           reconciled = await reconcileIngredientActualsInTx(tx, {
             organizationId: orgId,
+            locationId: payload.locationId,
             ingredient: {
               id: ingredient.id,
               itemId: ingredient.itemId,
@@ -369,6 +372,7 @@ async function completeDiscreteManufacturingOrder(
       manufacturingOrderId: id,
       productId: order.productId,
       quantity: actualQuantity,
+      locationId: payload.locationId,
       actorUserId: userId,
       outputDisposition: payload.outputDisposition,
       lotId: targetLot.lotId,
@@ -395,6 +399,7 @@ async function completeDiscreteManufacturingOrder(
       manufacturingOrderId: id,
       manufacturingOrderBatchId: null,
       lotId: produced.lotId,
+      locationId: produced.locationId,
       quantity: actualQuantity,
       disposition: payload.outputDisposition,
       materialCostTotal: totalMaterialCost,

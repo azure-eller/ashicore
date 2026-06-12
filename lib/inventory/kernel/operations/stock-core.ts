@@ -227,6 +227,44 @@ export async function getCurrentOnHandQtyInTx(tx: Tx, itemId: string) {
   return parseFloat(row?.quantity ?? "0");
 }
 
+export async function getCurrentAvailableOnHandQtyAtLocationInTx(
+  tx: Tx,
+  itemId: string,
+  locationId: string
+) {
+  const [positive] = await tx
+    .select({
+      quantity: sql<string>`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`,
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.itemId, itemId),
+        eq(inventoryLotBalances.locationId, locationId),
+        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
+        sql`${inventoryLotBalances.quantity} > 0`
+      )
+    );
+  const [debt] = await tx
+    .select({
+      quantity: sql<string>`COALESCE(ABS(SUM(${inventoryLotBalances.quantity})), 0)`,
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.itemId, itemId),
+        eq(inventoryLotBalances.locationId, locationId),
+        eq(inventoryLotBalances.disposition, DEFAULT_DISPOSITION),
+        sql`${inventoryLotBalances.quantity} < 0`
+      )
+    );
+
+  return Math.max(
+    0,
+    roundQuantity(parseFloat(positive?.quantity ?? "0") - parseFloat(debt?.quantity ?? "0"))
+  );
+}
+
 export async function getCurrentAvailableOnHandQtyInTx(tx: Tx, itemId: string) {
   const [positive] = await tx
     .select({

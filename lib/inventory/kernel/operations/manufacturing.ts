@@ -11,7 +11,10 @@ import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
 import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
 import { normalizeNumericScale } from "@/lib/format";
 import { assertTrackedItemInTx } from "@/lib/inventory/lot-tracking";
-import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
+import {
+  getDefaultInventoryLocationInTx,
+  resolveInventoryLocationInTx,
+} from "@/lib/inventory/kernel/locations";
 import {
   applyDemandReferenceDeltasInTx,
   applyExpectedReferenceDeltasInTx,
@@ -33,6 +36,8 @@ export async function addExpectedFromManufacturingInTx(
     manufacturingOrderId: string;
     productId: string;
     quantity: number;
+    // Output location; omitted = default.
+    locationId?: string | null;
     actorUserId?: string | null;
     idempotencyKey?: string | null;
   }
@@ -285,6 +290,9 @@ export async function pickManufacturingIngredientInTx(
     ingredientId: string;
     itemId: string;
     quantity: number;
+    // Pick location; omitted = default. Recorded on each allocation so
+    // unpick and variance restores return stock to where it came from.
+    locationId?: string | null;
     actorUserId?: string | null;
     idempotencyKey?: string | null;
     minimumReceivedDate?: string | null;
@@ -301,6 +309,7 @@ export async function pickManufacturingIngredientInTx(
       ingredientId: params.ingredientId,
       itemId: params.itemId,
       quantity: params.quantity,
+      locationId: params.locationId ?? null,
       minimumReceivedDate: params.minimumReceivedDate ?? null,
       confirmRequirementOverride: params.confirmRequirementOverride ?? false,
       allowNegativeStock: params.allowNegativeStock ?? false,
@@ -311,7 +320,11 @@ export async function pickManufacturingIngredientInTx(
     return replay.result;
   }
 
-  const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
+  const location = await resolveInventoryLocationInTx(
+    tx,
+    params.organizationId,
+    params.locationId
+  );
   await lockItemsInTx(tx, [params.itemId]);
   const available = await getPhysicalAvailableOnHandQtyAtLocationInTx(tx, {
     organizationId: params.organizationId,
@@ -353,6 +366,7 @@ export async function pickManufacturingIngredientInTx(
         return {
           manufacturingOrderIngredientId: params.ingredientId,
           lotId: allocation.lotId,
+          locationId: location.id,
           quantityUsed: normalizeNumericScale(allocation.quantity, 4),
           costPerUnit: normalizeNumericScale(allocation.unitCost, 6),
           requirementOverrideConfirmed: Boolean(requirementViolated),
@@ -366,9 +380,16 @@ export async function pickManufacturingIngredientInTx(
     );
   }
 
+  // Planning is default-pinned in v1: expected/demand balances were recorded
+  // at the default location and must be released there, regardless of where
+  // the physical leg happened.
+  const planningLocation = await getDefaultInventoryLocationInTx(
+    tx,
+    params.organizationId
+  );
   await applyDemandReferenceDeltasInTx(tx, {
     organizationId: params.organizationId,
-    locationId: location.id,
+    locationId: planningLocation.id,
     actorUserId: params.actorUserId ?? null,
     eventSubtype: "picked",
     deltas: [
@@ -424,6 +445,7 @@ export async function unpickManufacturingIngredientInTx(
     .select({
       id: manufacturingPickAllocations.id,
       lotId: manufacturingPickAllocations.lotId,
+      locationId: manufacturingPickAllocations.locationId,
       quantityUsed: manufacturingPickAllocations.quantityUsed,
       costPerUnit: manufacturingPickAllocations.costPerUnit,
     })
@@ -436,7 +458,7 @@ export async function unpickManufacturingIngredientInTx(
   for (const [index, allocation] of allocations.entries()) {
     const restocked = await restockExistingLotInTx(tx, {
       organizationId: params.organizationId,
-      locationId: location.id,
+      locationId: allocation.locationId ?? location.id,
       itemId: params.itemId,
       lotId: allocation.lotId,
       quantity: parseFloat(allocation.quantityUsed),
@@ -497,6 +519,8 @@ export async function produceManufacturedStockInTx(
     manufacturingOrderId: string;
     productId: string;
     quantity: number;
+    // Output location; omitted = default.
+    locationId?: string | null;
     actorUserId?: string | null;
     idempotencyKey?: string | null;
     lotId?: string | null;
@@ -511,7 +535,11 @@ export async function produceManufacturedStockInTx(
     }>;
   }
 ) {
-  const replay = await beginInventoryOperationInTx<{ eventIds: string[]; lotId: string }>(tx, {
+  const replay = await beginInventoryOperationInTx<{
+    eventIds: string[];
+    lotId: string;
+    locationId: string;
+  }>(tx, {
     organizationId: params.organizationId,
     operationName: "produceManufacturedStock",
     idempotencyKey: params.idempotencyKey ?? null,
@@ -519,6 +547,7 @@ export async function produceManufacturedStockInTx(
       manufacturingOrderId: params.manufacturingOrderId,
       productId: params.productId,
       quantity: params.quantity,
+      locationId: params.locationId ?? null,
       overheadCostTotal: params.overheadCostTotal ?? 0,
       outputDisposition: params.outputDisposition ?? "available",
       lotId: params.lotId ?? null,
@@ -546,7 +575,11 @@ export async function produceManufacturedStockInTx(
   );
   const totalCost = ingredientCostTotal + (params.overheadCostTotal ?? 0);
   const unitCost = normalizeNumericScale(totalCost / params.quantity, 6);
-  const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
+  const location = await resolveInventoryLocationInTx(
+    tx,
+    params.organizationId,
+    params.locationId
+  );
 
   const stockEventParams = {
     organizationId: params.organizationId,
@@ -577,6 +610,13 @@ export async function produceManufacturedStockInTx(
         lotNumber: params.newLotNumber ?? null,
       });
 
+  // Planning is default-pinned in v1: expected output was recorded at the
+  // default location and must be released there, regardless of where the
+  // physical output landed.
+  const planningLocation = await getDefaultInventoryLocationInTx(
+    tx,
+    params.organizationId
+  );
   const existingExpected = await tx
     .select({
       itemId: inventoryExpectedSummary.itemId,
@@ -586,7 +626,7 @@ export async function produceManufacturedStockInTx(
     .where(
       and(
         eq(inventoryExpectedSummary.organizationId, params.organizationId),
-        eq(inventoryExpectedSummary.locationId, location.id),
+        eq(inventoryExpectedSummary.locationId, planningLocation.id),
         eq(inventoryExpectedSummary.referenceType, "manufacturing_order"),
         eq(inventoryExpectedSummary.referenceId, params.manufacturingOrderId)
       )
@@ -594,7 +634,7 @@ export async function produceManufacturedStockInTx(
 
   await applyExpectedReferenceDeltasInTx(tx, {
     organizationId: params.organizationId,
-    locationId: location.id,
+    locationId: planningLocation.id,
     actorUserId: params.actorUserId ?? null,
     eventSubtype: "manufacturing_complete",
     deltas: existingExpected
@@ -622,6 +662,7 @@ export async function produceManufacturedStockInTx(
   const result = {
     eventIds: [created.eventId],
     lotId: created.lotId,
+    locationId: location.id,
   };
 
   await finishInventoryOperationInTx(tx, {
@@ -755,6 +796,9 @@ export async function reconcileIngredientActualsInTx(
     actualConsumedQuantity: number;
     referenceType: string;
     referenceId: string;
+    // Variance location: extra consumption happens here; restores return to
+    // each allocation's recorded location. Omitted = default.
+    locationId?: string | null;
     actorUserId?: string | null;
     idempotencyKey?: string | null;
     allowNegativeStock?: boolean;
@@ -773,6 +817,7 @@ export async function reconcileIngredientActualsInTx(
       itemId: params.ingredient.itemId,
       pickedQuantity: params.ingredient.pickedQuantity,
       actualConsumedQuantity: params.actualConsumedQuantity,
+      locationId: params.locationId ?? null,
       referenceType: params.referenceType,
       referenceId: params.referenceId,
       trackedLotDefault: params.trackedLotDefault ?? null,
@@ -784,7 +829,11 @@ export async function reconcileIngredientActualsInTx(
   }
 
   const delta = params.actualConsumedQuantity - params.ingredient.pickedQuantity;
-  const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
+  const location = await resolveInventoryLocationInTx(
+    tx,
+    params.organizationId,
+    params.locationId
+  );
   let firstEventId: string | null = null;
 
   if (delta > VARIANCE_EPSILON) {
@@ -810,6 +859,7 @@ export async function reconcileIngredientActualsInTx(
         consumed.allocations.map((allocation) => ({
           manufacturingOrderIngredientId: params.ingredient.id,
           lotId: allocation.lotId,
+          locationId: location.id,
           quantityUsed: normalizeNumericScale(allocation.quantity, 4),
           costPerUnit: normalizeNumericScale(allocation.unitCost, 4),
           createdBy: params.actorUserId ?? "system",
@@ -822,6 +872,7 @@ export async function reconcileIngredientActualsInTx(
       .select({
         id: manufacturingPickAllocations.id,
         lotId: manufacturingPickAllocations.lotId,
+        locationId: manufacturingPickAllocations.locationId,
         quantityUsed: manufacturingPickAllocations.quantityUsed,
         costPerUnit: manufacturingPickAllocations.costPerUnit,
       })
@@ -846,7 +897,7 @@ export async function reconcileIngredientActualsInTx(
 
       const restocked = await restockExistingLotInTx(tx, {
         organizationId: params.organizationId,
-        locationId: location.id,
+        locationId: allocation.locationId ?? location.id,
         itemId: params.ingredient.itemId,
         lotId: allocation.lotId,
         quantity: returnQty,

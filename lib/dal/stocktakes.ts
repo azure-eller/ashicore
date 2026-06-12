@@ -19,7 +19,8 @@ import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
   beginInventoryOperationInTx,
-  defaultLocationIdSubquery,
+  locationIdOrDefaultSubquery,
+  resolveInventoryLocationInTx,
   deriveInventoryIdempotencyKey,
   finishInventoryOperationInTx,
   lockItemsInTx,
@@ -62,6 +63,7 @@ type LockedStocktake = {
   id: string;
   status: string;
   reason: string | null;
+  locationId: string | null;
 };
 
 type SnapshotItem = {
@@ -143,6 +145,7 @@ async function getLockedStocktakeInTx(tx: Tx, id: string): Promise<LockedStockta
       id: stocktakes.id,
       status: stocktakes.status,
       reason: stocktakes.reason,
+      locationId: stocktakes.locationId,
     })
     .from(stocktakes)
     .where(eq(stocktakes.id, id))
@@ -188,10 +191,15 @@ async function getStocktakeLinesInTx(
   stocktakeId: string,
   options?: { liveCurrent?: boolean }
 ): Promise<StocktakeDetailLine[]> {
+  const [stocktakeRow] = await tx
+    .select({ locationId: stocktakes.locationId })
+    .from(stocktakes)
+    .where(eq(stocktakes.id, stocktakeId));
+  const locationId = stocktakeRow?.locationId ?? null;
   const expectedQty = options?.liveCurrent
-    ? trimScale(projectedReservableOnHandQtyExpr(items.organizationId, items.id)).as(
-        "expectedQty"
-      )
+    ? trimScale(
+        projectedReservableOnHandQtyExpr(items.organizationId, items.id, locationId)
+      ).as("expectedQty")
     : trimScale(stocktakeItems.expectedQty).as("expectedQty");
   const rows = await tx
     .select({
@@ -247,10 +255,11 @@ async function getStocktakeLinesInTx(
       and(
         eq(inventoryLotBalances.lotId, stocktakeLotItems.lotId),
         eq(inventoryLotBalances.disposition, "available"),
-        // Stocktakes count and reconcile at the default location only;
-        // stock transferred elsewhere is outside this count.
-        sql`${inventoryLotBalances.locationId} = ${defaultLocationIdSubquery(
-          inventoryLotBalances.organizationId
+        // Stocktakes count and reconcile at their stamped location
+        // (null = the default location).
+        sql`${inventoryLotBalances.locationId} = ${locationIdOrDefaultSubquery(
+          inventoryLotBalances.organizationId,
+          locationId
         )}`,
         sql`${inventoryLotBalances.quantity} <> 0`
       )
@@ -282,7 +291,11 @@ async function getStocktakeLinesInTx(
   return lineRows.map((line) => ({ ...line, lots: lotsByLineId.get(line.id) ?? [] }));
 }
 
-async function getAvailableLotRowsForItemIdsInTx(tx: Tx, itemIds: string[]) {
+async function getAvailableLotRowsForItemIdsInTx(
+  tx: Tx,
+  itemIds: string[],
+  locationId?: string | null
+) {
   if (itemIds.length === 0) return [];
   return tx
     .select({
@@ -303,9 +316,11 @@ async function getAvailableLotRowsForItemIdsInTx(tx: Tx, itemIds: string[]) {
         eq(inventoryLotBalances.organizationId, lots.organizationId),
         eq(inventoryLotBalances.itemId, lots.itemId),
         eq(inventoryLotBalances.lotId, lots.id),
-        // Stocktakes count and reconcile at the default location only.
-        sql`${inventoryLotBalances.locationId} = ${defaultLocationIdSubquery(
-          lots.organizationId
+        // Stocktakes count and reconcile at their stamped location
+        // (null = the default location).
+        sql`${inventoryLotBalances.locationId} = ${locationIdOrDefaultSubquery(
+          lots.organizationId,
+          locationId
         )}`,
         eq(inventoryLotBalances.disposition, "available")
       )
@@ -325,7 +340,11 @@ async function getAvailableLotRowsForItemIdsInTx(tx: Tx, itemIds: string[]) {
     .orderBy(asc(lots.receivedAt), asc(lots.id));
 }
 
-async function getSnapshotItemsForScopeInTx(tx: Tx, scope: StocktakeScope) {
+async function getSnapshotItemsForScopeInTx(
+  tx: Tx,
+  scope: StocktakeScope,
+  locationId?: string | null
+) {
   const conditions = stocktakeEligibleItemConditions();
   const parsedScope = parseStocktakeScope(scope);
 
@@ -334,7 +353,9 @@ async function getSnapshotItemsForScopeInTx(tx: Tx, scope: StocktakeScope) {
   }
 
   if (parsedScope.kind === "in_stock") {
-    conditions.push(sql`${projectedOnHandQtyExpr(items.organizationId, items.id)} > 0`);
+    conditions.push(
+      sql`${projectedOnHandQtyExpr(items.organizationId, items.id, locationId)} > 0`
+    );
   }
 
   if (parsedScope.kind === "type") {
@@ -366,7 +387,7 @@ async function getSnapshotItemsForScopeInTx(tx: Tx, scope: StocktakeScope) {
       lotTrackingMode: itemFamilies.lotTrackingMode,
       category: items.category,
       unitName: unitDefinitions.name,
-      currentQty: projectedOnHandQty(items.organizationId, items.id).as("currentQty"),
+      currentQty: projectedOnHandQty(items.organizationId, items.id, locationId).as("currentQty"),
     })
     .from(items)
     .innerJoin(itemFamilies, eq(itemFamilies.id, items.familyId))
@@ -383,7 +404,11 @@ async function getSnapshotItemsForScopeInTx(tx: Tx, scope: StocktakeScope) {
   });
 }
 
-async function getSnapshotItemsForItemIdsInTx(tx: Tx, itemIds: string[]) {
+async function getSnapshotItemsForItemIdsInTx(
+  tx: Tx,
+  itemIds: string[],
+  locationId?: string | null
+) {
   const uniqueIds = Array.from(new Set(itemIds));
 
   if (uniqueIds.length === 0) {
@@ -414,7 +439,7 @@ async function getSnapshotItemsForItemIdsInTx(tx: Tx, itemIds: string[]) {
       lotTrackingMode: itemFamilies.lotTrackingMode,
       category: items.category,
       unitName: unitDefinitions.name,
-      currentQty: projectedOnHandQty(items.organizationId, items.id).as("currentQty"),
+      currentQty: projectedOnHandQty(items.organizationId, items.id, locationId).as("currentQty"),
     })
     .from(items)
     .innerJoin(itemFamilies, eq(itemFamilies.id, items.familyId))
@@ -432,6 +457,7 @@ async function insertStocktakeSnapshotLinesInTx(
   tx: Tx,
   stocktakeId: string,
   snapshotItems: SnapshotItem[],
+  locationId?: string | null,
   sortOrderByItemId?: Map<string, number>
 ) {
   if (snapshotItems.length === 0) return [];
@@ -455,7 +481,8 @@ async function insertStocktakeSnapshotLinesInTx(
 
   const lotRows = await getAvailableLotRowsForItemIdsInTx(
     tx,
-    stocktakeLines.map((line) => line.itemId)
+    stocktakeLines.map((line) => line.itemId),
+    locationId
   );
   const snapshotQtyByItemId = new Map(
     snapshotItems.map((item) => [item.id, Number(item.currentQty)])
@@ -490,7 +517,9 @@ async function insertStocktakeSnapshotLinesInTx(
   return stocktakeLines;
 }
 
-export async function getStocktakePreviewItems(): Promise<StocktakePreviewItem[]> {
+export async function getStocktakePreviewItems(
+  locationId?: string | null
+): Promise<StocktakePreviewItem[]> {
   return withAuthedOrgContext(async (tx) => {
     const rows = await tx
       .select({
@@ -504,7 +533,9 @@ export async function getStocktakePreviewItems(): Promise<StocktakePreviewItem[]
         ),
         category: items.category,
         unitName: unitDefinitions.name,
-        currentQty: projectedOnHandQty(items.organizationId, items.id).as("currentQty"),
+        currentQty: projectedOnHandQty(items.organizationId, items.id, locationId).as(
+          "currentQty"
+        ),
       })
       .from(items)
       .innerJoin(itemFamilies, eq(itemFamilies.id, items.familyId))
@@ -703,6 +734,7 @@ export async function getStocktake(id: string): Promise<StocktakeDetail | null> 
         name: stocktakes.name,
         scope: stocktakes.scope,
         status: stocktakes.status,
+        locationId: stocktakes.locationId,
         notes: stocktakes.notes,
         reason: stocktakes.reason,
         completedAt: stocktakes.completedAt,
@@ -841,10 +873,17 @@ export async function getStocktakeCompletionPreview(
 
 export async function createStocktake(data: InsertStocktake) {
   return withAuthedOrgContext(async (tx, orgId) => {
+    // Validate and stamp a concrete location up front (org-owned, active) —
+    // including the default, so a completed stocktake is a durable record of
+    // where it counted even if the org default later changes. Rows predating
+    // the column keep null = the current default.
+    const stampedLocationId = (
+      await resolveInventoryLocationInTx(tx, orgId, data.locationId)
+    ).id;
     const scope = modeScope(data.creationMode, data.scope);
     const snapshotItems = (data.itemIds !== undefined
-      ? await getSnapshotItemsForItemIdsInTx(tx, data.itemIds)
-      : await getSnapshotItemsForScopeInTx(tx, scope)) as SnapshotItem[];
+      ? await getSnapshotItemsForItemIdsInTx(tx, data.itemIds, stampedLocationId)
+      : await getSnapshotItemsForScopeInTx(tx, scope, stampedLocationId)) as SnapshotItem[];
 
     if (snapshotItems.length === 0 && scope !== "empty") {
       throw new StocktakeError("No active items are selected.", 400, {
@@ -860,13 +899,14 @@ export async function createStocktake(data: InsertStocktake) {
         organizationId: orgId,
         name: data.name,
         scope,
+        locationId: stampedLocationId,
         status: "draft",
         notes: data.notes,
         reason: data.reason?.trim() || null,
       })
       .returning({ id: stocktakes.id });
 
-    await insertStocktakeSnapshotLinesInTx(tx, stocktake.id, snapshotItems);
+    await insertStocktakeSnapshotLinesInTx(tx, stocktake.id, snapshotItems, stampedLocationId);
 
     return stocktake;
   });
@@ -921,7 +961,11 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
       }
 
       if (addedItemIds.length > 0) {
-        const snapshotItems = await getSnapshotItemsForItemIdsInTx(tx, addedItemIds);
+        const snapshotItems = await getSnapshotItemsForItemIdsInTx(
+          tx,
+          addedItemIds,
+          stocktake.locationId
+        );
         if (snapshotItems.length !== addedItemIds.length) {
           throw new StocktakeError("One or more selected items are no longer active.", 400, {
             errors: {
@@ -934,6 +978,7 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
           tx,
           id,
           snapshotItems,
+          stocktake.locationId,
           new Map(uniqueItemIds.map((itemId, index) => [itemId, index]))
         );
       }
@@ -1396,6 +1441,7 @@ export async function completeStocktake(
     await reconcileStocktakeCountInTx(tx, {
       organizationId: orgId,
       stocktakeId: id,
+      locationId: stocktake.locationId,
       reason: "cycle_count",
       actorUserId: userId,
       idempotencyKey: deriveInventoryIdempotencyKey(
@@ -1515,6 +1561,7 @@ export async function cloneStocktake(
         id: stocktakes.id,
         name: stocktakes.name,
         scope: stocktakes.scope,
+        locationId: stocktakes.locationId,
       })
       .from(stocktakes)
       .where(eq(stocktakes.id, id));
@@ -1555,6 +1602,7 @@ export async function cloneStocktake(
 
     const created = await createStocktake({
       name: `Copy of ${source.name} - ${dateToken}`,
+      locationId: source.locationId,
       scope: (itemIds.length === 0 ? "empty" : "all") as StocktakeScope,
       notes: null,
       reason: data.reason.trim(),

@@ -42,12 +42,17 @@ export async function shipSalesOrder(
   orderId: string,
   confirmNegativeStock: boolean,
   lines?: Array<{ salesOrderLineId: string; quantity: string }>,
+  locationId?: string | null,
 ): Promise<void> {
   const path = `/api/sales-orders/${orderId}/ship`;
   await json<void>(path, {
     method: "POST",
     idempotencyKey: "shipSalesOrder",
-    body: { confirmNegativeStock, lines },
+    body: {
+      confirmNegativeStock,
+      lines,
+      ...(locationId ? { locationId } : {}),
+    },
   });
 }
 

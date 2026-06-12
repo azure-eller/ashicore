@@ -96,6 +96,8 @@ const stocktakeScopeSchema = z
 export const stocktakeCreationModeSchema = z.enum(STOCKTAKE_CREATION_MODES);
 
 export const insertStocktakeSchema = createInsertSchema(stocktakes, {
+  // Count location; omitted = default (mobile sends none).
+  locationId: z.string().uuid().nullish(),
   name: z
     .string()
     .trim()

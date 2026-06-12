@@ -126,3 +126,11 @@ export class InventoryInvariantViolationError extends DomainError<{
     });
   }
 }
+
+export class InventoryLocationNotFoundError extends DomainError {
+  constructor() {
+    super("Inventory location not found for this organization.", 404, {
+      name: "InventoryLocationNotFoundError",
+    });
+  }
+}

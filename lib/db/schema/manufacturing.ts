@@ -21,6 +21,7 @@ import {
   type BomComponentConstraintConfig,
 } from "./bom";
 import { items } from "./items";
+import { inventoryLocations } from "./locations";
 import { lots } from "./lots";
 import { salesOrders } from "./sales";
 import { manufacturingResources } from "./manufacturing-resources";
@@ -246,6 +247,9 @@ export const manufacturingPickAllocations = manufacturingSchema
       lotId: uuid("lot_id")
         .notNull()
         .references(() => lots.id),
+      // Where the pick consumed stock; null = the default location (legacy
+      // rows and single-location orgs). Unpick restores here.
+      locationId: uuid("location_id").references(() => inventoryLocations.id),
       quantityUsed: numeric("quantity_used", { precision: 12, scale: 4 }).notNull(),
       costPerUnit: numeric("cost_per_unit", { precision: 18, scale: 6 }),
       requirementOverrideConfirmed: boolean("requirement_override_confirmed")
@@ -297,6 +301,10 @@ export const manufacturingOrderOutputs = manufacturingSchema
       lotId: uuid("lot_id")
         .notNull()
         .references(() => lots.id),
+      // Where this output's finished goods landed; null = legacy rows (the
+      // default location) and reversal marker rows (which can span source
+      // locations). Output reversal decrements exactly here.
+      locationId: uuid("location_id").references(() => inventoryLocations.id),
       outputNumber: integer("output_number").notNull(),
       quantity: numeric("quantity", { precision: 12, scale: 4 }).notNull(),
       disposition: varchar("disposition", { length: 24 }).notNull().default("available"),
@@ -443,6 +451,9 @@ export const manufacturingOrderOutputConsumptions = manufacturingSchema
       lotId: uuid("lot_id")
         .notNull()
         .references(() => lots.id),
+      // Where this consumption drew stock; null = the default location
+      // (legacy rows). Output reversal restores exactly here.
+      locationId: uuid("location_id").references(() => inventoryLocations.id),
       quantityUsed: numeric("quantity_used", { precision: 12, scale: 4 }).notNull(),
       costPerUnit: numeric("cost_per_unit", { precision: 18, scale: 6 }).notNull(),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

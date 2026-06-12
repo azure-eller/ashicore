@@ -324,6 +324,8 @@ const producedLotSelectionFields = {
 };
 
 export const completeManufacturingOrderSchema = z.object({
+  // Output + variance location; omitted = default (mobile sends none).
+  locationId: z.string().uuid().nullish(),
   actualQuantity: positiveDecimalString("Actual quantity").nullish(),
   batchCount: z.number().int("Batches must be a whole number").positive("Batches must be positive").optional(),
   outputDisposition: z.enum(["available", "blocked"]).default("available"),
@@ -336,6 +338,8 @@ export type CompleteManufacturingOrder = z.infer<
 >;
 
 export const completeManufacturingBatchSchema = z.object({
+  // Output + variance location; omitted = default (mobile sends none).
+  locationId: z.string().uuid().nullish(),
   actualQuantity: positiveDecimalString("Actual quantity").nullish(),
   outputDisposition: z.enum(["available", "blocked"]).default("available"),
   ingredientActuals: z.array(ingredientActualSchema).default([]),
@@ -352,6 +356,8 @@ export type StartManufacturingBatch = z.infer<
 >;
 
 export const pickManufacturingIngredientSchema = z.object({
+  // Pick location; omitted = default (mobile sends none).
+  locationId: z.string().uuid().nullish(),
   confirmRequirementOverride: z.boolean().optional(),
   confirmNegativeStock: z.boolean().optional(),
 });
@@ -413,6 +419,9 @@ export type ReorderManufacturingOrderPriorityRanks = z.infer<
 >;
 
 export const recordManufacturingOutputSchema = z.object({
+  // Output location; a negative quantity reverses at this location too.
+  // Omitted = default (mobile sends none).
+  locationId: z.string().uuid().nullish(),
   quantity: z
     .string()
     .trim()

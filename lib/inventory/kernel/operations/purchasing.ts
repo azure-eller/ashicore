@@ -18,7 +18,10 @@ import {
   lockItemsInTx,
   lockSourceDocumentInTx,
 } from "@/lib/inventory/kernel/locking";
-import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
+import {
+  getDefaultInventoryLocationInTx,
+  resolveInventoryLocationInTx,
+} from "@/lib/inventory/kernel/locations";
 import {
   applyExpectedReferenceDeltasInTx,
   beginInventoryOperationInTx,
@@ -284,6 +287,9 @@ export async function receivePurchaseStockInTx(
   params: {
     organizationId: string;
     purchaseOrderId: string;
+    // Physical receipt location; omitted = default. Expected-supply release
+    // stays at the default location (planning is default-pinned in v1).
+    locationId?: string | null;
     actorUserId?: string | null;
     idempotencyKey?: string | null;
     lines: Array<{
@@ -305,6 +311,7 @@ export async function receivePurchaseStockInTx(
     idempotencyKey: params.idempotencyKey ?? null,
     payload: {
       purchaseOrderId: params.purchaseOrderId,
+      locationId: params.locationId ?? null,
       lines: params.lines,
     },
   });
@@ -313,7 +320,11 @@ export async function receivePurchaseStockInTx(
     return replay.result;
   }
 
-  const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
+  const location = await resolveInventoryLocationInTx(
+    tx,
+    params.organizationId,
+    params.locationId
+  );
   const eventIds: string[] = [];
   const lotIds: string[] = [];
   const itemIds = [...new Set(params.lines.map((line) => line.itemId))];
@@ -396,9 +407,16 @@ export async function receivePurchaseStockInTx(
     lotIds.push(created.lotId);
   }
 
+  // Planning is default-pinned in v1: expected/demand balances were recorded
+  // at the default location and must be released there, regardless of where
+  // the physical leg happened.
+  const planningLocation = await getDefaultInventoryLocationInTx(
+    tx,
+    params.organizationId
+  );
   await applyExpectedReferenceDeltasInTx(tx, {
     organizationId: params.organizationId,
-    locationId: location.id,
+    locationId: planningLocation.id,
     actorUserId: params.actorUserId ?? null,
     eventSubtype: "purchase_receive",
     deltas: params.lines.map((line) => ({

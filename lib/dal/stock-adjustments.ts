@@ -14,6 +14,7 @@ import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
 import {
   getDefaultInventoryLocationInTx,
   getExistingDefaultInventoryLocationInTx,
+  resolveInventoryLocationInTx,
 } from "@/lib/inventory/kernel/locations";
 import { readInventoryIdempotencyReplayInTx } from "@/lib/inventory/kernel/idempotency";
 import { reconcilePhysicalInventoryCountInTx } from "@/lib/inventory/kernel/operations/stocktakes";
@@ -51,8 +52,9 @@ export async function adjustItemStock(
       return jsonNotFound("Item not found");
     }
 
-    const location =
-      options.allowDefaultLocationCreate === false
+    const location = input.locationId
+      ? await resolveInventoryLocationInTx(tx, orgId, input.locationId)
+      : options.allowDefaultLocationCreate === false
         ? await getExistingDefaultInventoryLocationInTx(tx, orgId)
         : await getDefaultInventoryLocationInTx(tx, orgId);
     if (!location) {
@@ -93,6 +95,7 @@ export async function adjustItemStock(
     const delta = roundQuantity(Number(input.newQuantity) - Number(current?.quantity ?? "0"));
     await reconcilePhysicalInventoryCountInTx(tx, {
       organizationId: orgId,
+      locationId: location.id,
       source: { kind: "manual_adjustment" },
       reason: input.reason,
       note: input.note ?? null,
@@ -192,6 +195,7 @@ async function adjustLotTrackedStock(
 
   await reconcilePhysicalInventoryCountInTx(tx, {
     organizationId: params.orgId,
+    locationId: params.locationId,
     source: { kind: "manual_adjustment" },
     reason: params.input.reason,
     note: params.input.note ?? null,
@@ -275,6 +279,7 @@ function buildAdjustmentIdempotencyPayload(
   return {
     source: { kind: "manual_adjustment" },
     itemId,
+    locationId: input.locationId ?? null,
     reason: input.reason,
     note: input.note ?? null,
     newQuantity: input.newQuantity ?? null,

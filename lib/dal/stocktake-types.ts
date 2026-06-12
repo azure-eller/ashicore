@@ -86,6 +86,7 @@ export type StocktakeDetail = {
   name: string;
   scope: StocktakeScope;
   status: StocktakeStatus;
+  locationId: string | null;
   notes: string | null;
   reason: string | null;
   completedAt: Date | null;

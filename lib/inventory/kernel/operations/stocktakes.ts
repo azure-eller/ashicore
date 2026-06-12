@@ -7,7 +7,7 @@ import {
   inventoryLotBalances,
 } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
-import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
+import { resolveInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
 import {
   beginInventoryOperationInTx,
   finishInventoryOperationInTx,
@@ -26,6 +26,8 @@ export async function reconcileStocktakeCountInTx(
   params: {
     organizationId: string;
     stocktakeId: string;
+    // Count location; omitted = default (legacy stocktakes have none).
+    locationId?: string | null;
     reason: AdjustmentReason;
     note?: string | null;
     actorUserId?: string | null;
@@ -46,6 +48,7 @@ export async function reconcileStocktakeCountInTx(
     idempotencyOperationName: "reconcileStocktakeCount",
     idempotencyPayload: {
       stocktakeId: params.stocktakeId,
+      locationId: params.locationId ?? null,
       lines: params.lines,
     },
     source: {
@@ -63,6 +66,9 @@ export async function reconcilePhysicalInventoryCountInTx(
   tx: Tx,
   params: {
     organizationId: string;
+    // Count location; omitted = default. Stocktakes pass their stamped
+    // location; manual adjustments pass the operator's choice.
+    locationId?: string | null;
     source:
       | { kind: "stocktake"; stocktakeId: string }
       | { kind: "manual_adjustment" };
@@ -91,6 +97,7 @@ export async function reconcilePhysicalInventoryCountInTx(
     payload:
       params.idempotencyPayload ?? {
         source: params.source,
+        locationId: params.locationId ?? null,
         reason: params.reason,
         note: params.note ?? null,
         lines: params.lines,
@@ -101,7 +108,11 @@ export async function reconcilePhysicalInventoryCountInTx(
     return replay.result;
   }
 
-  const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
+  const location = await resolveInventoryLocationInTx(
+    tx,
+    params.organizationId,
+    params.locationId
+  );
   const eventIds: string[] = [];
   const now = new Date();
   const metadata =

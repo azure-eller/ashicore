@@ -7,7 +7,7 @@ import { trimScale } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import { lockSalesPriorityQueueInTx } from "@/lib/manufacturing-priority-lock";
-import { beginInventoryOperationInTx, consumeForSalesOrderShippingInTx, deriveInventoryIdempotencyKey, finishInventoryOperationInTx, InsufficientStockError, LinkedManufacturingOutputUnavailableError } from "@/lib/inventory/kernel";
+import { beginInventoryOperationInTx, consumeForSalesOrderShippingInTx, deriveInventoryIdempotencyKey, finishInventoryOperationInTx, getCurrentAvailableOnHandQtyAtLocationInTx, InsufficientStockError, LinkedManufacturingOutputUnavailableError, resolveInventoryLocationInTx } from "@/lib/inventory/kernel";
 import { completeManufacturingOrder } from "@/lib/manufacturing/queries/completion";
 import { ManufacturingError } from "@/lib/manufacturing/queries/errors";
 import { recordManufacturingOutput } from "@/lib/manufacturing/queries/output";
@@ -221,6 +221,7 @@ export async function shipSalesOrder(
       idempotencyKey: options?.idempotencyKey ?? null,
       payload: {
         id,
+        locationId: options?.locationId ?? null,
         syncAccounting: options?.syncAccounting ?? true,
         confirmNegativeStock: options?.confirmNegativeStock ?? false,
         completeLinkedManufacturing: options?.completeLinkedManufacturing ?? false,
@@ -319,15 +320,56 @@ export async function shipSalesOrder(
     }
 
     if (options?.confirmNegativeStock !== true) {
-      const warning = await buildDemandQueueShippingWarningInTx(tx, {
-        organizationId: orgId,
-        lines: linesToShip.map((line) => ({
-          salesOrderLineId: line.salesOrderLineId,
-          itemId: line.itemId,
-          itemName: line.itemName,
-          quantity: line.quantity,
-        })),
-      });
+      // The demand queue models the default location only (planning is
+      // default-pinned in v1), so an explicit shipping location gets a
+      // direct availability check at that location instead.
+      let warning = null;
+      if (options?.locationId) {
+        const location = await resolveInventoryLocationInTx(tx, orgId, options.locationId);
+        // Aggregate per item so two lines of the same item are checked
+        // against the location's availability combined, not independently.
+        const requestedByItem = new Map<
+          string,
+          { itemName: string; quantity: number; salesOrderLineIds: string[] }
+        >();
+        for (const line of linesToShip) {
+          const entry = requestedByItem.get(line.itemId) ?? {
+            itemName: line.itemName,
+            quantity: 0,
+            salesOrderLineIds: [],
+          };
+          entry.quantity += line.quantity;
+          entry.salesOrderLineIds.push(line.salesOrderLineId);
+          requestedByItem.set(line.itemId, entry);
+        }
+        for (const [itemId, requested] of requestedByItem) {
+          const available = await getCurrentAvailableOnHandQtyAtLocationInTx(
+            tx,
+            itemId,
+            location.id
+          );
+          if (available >= requested.quantity) continue;
+          warning = await buildStockWarningPayloadInTx(tx, {
+            organizationId: orgId,
+            itemId,
+            itemName: requested.itemName,
+            available,
+            requested: requested.quantity,
+            excludeSalesOrderLineIds: requested.salesOrderLineIds,
+          });
+          break;
+        }
+      } else {
+        warning = await buildDemandQueueShippingWarningInTx(tx, {
+          organizationId: orgId,
+          lines: linesToShip.map((line) => ({
+            salesOrderLineId: line.salesOrderLineId,
+            itemId: line.itemId,
+            itemName: line.itemName,
+            quantity: line.quantity,
+          })),
+        });
+      }
       if (warning) {
         throw new SalesError(
           `Cannot ship order. Insufficient stock for ${warning.itemName}.`,
@@ -343,6 +385,7 @@ export async function shipSalesOrder(
       await consumeForSalesOrderShippingInTx(tx, {
         organizationId: orgId,
         salesOrderId: id,
+        locationId: options?.locationId,
         actorUserId: userId,
         idempotencyKey: deriveInventoryIdempotencyKey(
           options?.idempotencyKey,
@@ -608,6 +651,8 @@ async function completeLinkedManufacturingForFullOrderShip(
           await recordManufacturingOutput(
             row.id,
             {
+              // The linked output must land where the shipment consumes.
+              locationId: options.locationId,
               quantity: normalizeNumeric(remainingOutputQuantity),
               outputDisposition: "available",
               notes: null,
@@ -624,6 +669,7 @@ async function completeLinkedManufacturingForFullOrderShip(
           await completeManufacturingOrder(
             row.id,
             {
+              locationId: options.locationId,
               outputDisposition: "available",
               ingredientActuals: [],
               confirmNegativeStock: options.confirmNegativeStock,
@@ -641,6 +687,7 @@ async function completeLinkedManufacturingForFullOrderShip(
           await completeManufacturingOrder(
             row.id,
             {
+              locationId: options.locationId,
               actualQuantity: row.plannedQuantity,
               outputDisposition: "available",
               ingredientActuals: [],
@@ -660,6 +707,7 @@ async function completeLinkedManufacturingForFullOrderShip(
         await completeManufacturingOrder(
           row.id,
           {
+            locationId: options.locationId,
             outputDisposition: "available",
             ingredientActuals: [],
             confirmNegativeStock: options.confirmNegativeStock,

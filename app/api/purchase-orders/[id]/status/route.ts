@@ -60,7 +60,7 @@ export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
 
     const result = await receivePurchaseOrder(
       id,
-      { lines: receivableLines, confirmOverReceipt: false },
+      { lines: receivableLines, confirmOverReceipt: false, locationId: null },
       { idempotencyKey: `${idempotencyKey}:receive` },
     );
     if (!result) {

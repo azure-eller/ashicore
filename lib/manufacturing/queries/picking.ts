@@ -6,7 +6,7 @@ import { trimScale } from "@/lib/db/numeric";
 import { normalizeQuantityNumber, todayInTimeZone } from "@/lib/format";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
-import { beginInventoryOperationInTx, deriveInventoryIdempotencyKey, finishInventoryOperationInTx, getDefaultInventoryLocationInTx, pickManufacturingIngredientInTx } from "@/lib/inventory/kernel";
+import { beginInventoryOperationInTx, deriveInventoryIdempotencyKey, finishInventoryOperationInTx, getCurrentAvailableOnHandQtyAtLocationInTx, pickManufacturingIngredientInTx, resolveInventoryLocationInTx } from "@/lib/inventory/kernel";
 import { evaluateLotAgeMinDaysRequirement, formatMinimumLotAgeRequirementViolation, getMinimumLotAgeDays, LOT_AGE_MIN_DAYS_CONSTRAINT } from "@/lib/bom/constraints";
 import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
 import { demandQueueCoverageKey, getDemandQueueCoverageByDemandKeyForItemsInTx } from "@/lib/inventory/allocation/demand-queue";
@@ -128,6 +128,7 @@ export async function pickManufacturingIngredient(
   ingredientId: string,
   options?: {
     idempotencyKey?: string;
+    locationId?: string | null;
     confirmRequirementOverride?: boolean;
     confirmNegativeStock?: boolean;
   }
@@ -143,6 +144,7 @@ export async function pickManufacturingIngredient(
       payload: {
         orderId,
         ingredientId,
+        locationId: options?.locationId ?? null,
         confirmRequirementOverride,
         confirmNegativeStock,
       },
@@ -219,7 +221,7 @@ export async function pickManufacturingIngredient(
       minimumLotAgeDays == null ? null : subtractDays(pickDate, minimumLotAgeDays);
 
     if (minimumLotAgeDays != null) {
-      const location = await getDefaultInventoryLocationInTx(tx, orgId);
+      const location = await resolveInventoryLocationInTx(tx, orgId, options?.locationId);
       const ageAvailability = await getLotAgeAvailabilityInTx(tx, {
         organizationId: orgId,
         locationId: location.id,
@@ -289,11 +291,21 @@ export async function pickManufacturingIngredient(
       }
     }
 
-    const queueAvailable = await getManufacturingIngredientQueueAvailableQtyInTx(tx, {
-      organizationId: orgId,
-      ingredientId,
-      itemId: ingredient.itemId,
-    });
+    // The demand queue models the default location only (planning is
+    // default-pinned in v1); an explicit pick location relies on the
+    // kernel's location-aware availability check instead. Resolving first
+    // 404s unknown locations rather than reporting them as out of stock.
+    const queueAvailable = options?.locationId
+      ? await getCurrentAvailableOnHandQtyAtLocationInTx(
+          tx,
+          ingredient.itemId,
+          (await resolveInventoryLocationInTx(tx, orgId, options.locationId)).id
+        )
+      : await getManufacturingIngredientQueueAvailableQtyInTx(tx, {
+          organizationId: orgId,
+          ingredientId,
+          itemId: ingredient.itemId,
+        });
 
     if (queueAvailable < remainingQuantity && !confirmNegativeStock) {
       throw new ManufacturingError(`Not enough ${ingredient.itemName}.`, 409, {
@@ -320,6 +332,7 @@ export async function pickManufacturingIngredient(
         ingredientId,
         itemId: ingredient.itemId,
         quantity: remainingQuantity,
+        locationId: options?.locationId,
         actorUserId: userId,
         idempotencyKey: deriveInventoryIdempotencyKey(
           options?.idempotencyKey,
@@ -396,6 +409,7 @@ export async function pickRemainingManufacturingIngredients(
   orderId: string,
   options?: {
     idempotencyKey?: string;
+    locationId?: string | null;
     confirmRequirementOverride?: boolean;
     confirmNegativeStock?: boolean;
   }
@@ -435,6 +449,7 @@ export async function pickRemainingManufacturingIngredients(
         options?.idempotencyKey,
         `pick-remaining:${ingredient.id}`
       ) ?? undefined,
+      locationId: options?.locationId,
       confirmRequirementOverride: options?.confirmRequirementOverride,
       confirmNegativeStock: options?.confirmNegativeStock,
     });

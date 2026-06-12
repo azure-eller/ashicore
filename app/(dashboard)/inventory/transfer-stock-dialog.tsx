@@ -23,7 +23,11 @@ import {
   InventoryItemCombobox,
   type InventoryItemComboboxOption,
 } from "@/components/inventory-item-combobox";
-import { LocationSelect, type LocationOption } from "@/components/location-select";
+import {
+  LocationSelect,
+  useActiveLocations,
+  type LocationOption,
+} from "@/components/location-select";
 import { apiJson } from "@/lib/client/api";
 import { queryKeys } from "@/lib/client/query-keys";
 import { formatQuantity } from "@/lib/format";
@@ -35,14 +39,6 @@ type TransferLine = {
   itemId: string | null;
   quantity: string;
 };
-
-export function useActiveLocations() {
-  return useQuery({
-    queryKey: queryKeys.locations.root,
-    queryFn: () => apiJson<LocationOption[]>("/api/locations"),
-    staleTime: 60_000,
-  });
-}
 
 export function TransferStockDialog({
   prefillItemId,

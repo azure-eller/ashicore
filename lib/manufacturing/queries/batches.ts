@@ -435,6 +435,7 @@ export async function completeManufacturingBatch(
         try {
           reconciled = await reconcileIngredientActualsInTx(tx, {
             organizationId: orgId,
+            locationId: payload.locationId,
             ingredient: {
               id: ingredient.id,
               itemId: ingredient.itemId,
@@ -517,6 +518,7 @@ export async function completeManufacturingBatch(
       manufacturingOrderId: orderId,
       productId: order.productId,
       quantity: actualQuantity,
+      locationId: payload.locationId,
       actorUserId: userId,
       outputDisposition: payload.outputDisposition,
       lotId: targetLot.lotId,
@@ -547,6 +549,7 @@ export async function completeManufacturingBatch(
       manufacturingOrderId: orderId,
       manufacturingOrderBatchId: batchId,
       lotId: produced.lotId,
+      locationId: produced.locationId,
       quantity: actualQuantity,
       disposition: payload.outputDisposition,
       materialCostTotal,

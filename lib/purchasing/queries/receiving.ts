@@ -328,6 +328,7 @@ export async function receivePurchaseOrder(
     await receivePurchaseStockInTx(tx, {
       organizationId: orgId,
       purchaseOrderId: id,
+      locationId: data.locationId,
       actorUserId: userId,
       idempotencyKey: deriveInventoryIdempotencyKey(
         options?.idempotencyKey,

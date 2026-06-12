@@ -527,7 +527,12 @@ export async function getPickAllocationsByIngredientInTx(tx: Tx, ingredientIds: 
   if (uniqueIds.length === 0) {
     return new Map<
       string,
-      Array<{ lotId: string; quantityUsed: string; costPerUnit: string | null }>
+      Array<{
+        lotId: string;
+        locationId: string | null;
+        quantityUsed: string;
+        costPerUnit: string | null;
+      }>
     >();
   }
 
@@ -535,6 +540,7 @@ export async function getPickAllocationsByIngredientInTx(tx: Tx, ingredientIds: 
     .select({
       manufacturingOrderIngredientId: manufacturingPickAllocations.manufacturingOrderIngredientId,
       lotId: manufacturingPickAllocations.lotId,
+      locationId: manufacturingPickAllocations.locationId,
       quantityUsed: trimScale(manufacturingPickAllocations.quantityUsed).as("quantityUsed"),
       costPerUnit: trimScaleNullable(manufacturingPickAllocations.costPerUnit).as(
         "costPerUnit"
@@ -548,13 +554,19 @@ export async function getPickAllocationsByIngredientInTx(tx: Tx, ingredientIds: 
 
   const allocations = new Map<
     string,
-    Array<{ lotId: string; quantityUsed: string; costPerUnit: string | null }>
+    Array<{
+      lotId: string;
+      locationId: string | null;
+      quantityUsed: string;
+      costPerUnit: string | null;
+    }>
   >();
 
   for (const row of rows) {
     const ingredientAllocations = allocations.get(row.manufacturingOrderIngredientId) ?? [];
     ingredientAllocations.push({
       lotId: row.lotId,
+      locationId: row.locationId,
       quantityUsed: row.quantityUsed,
       costPerUnit: row.costPerUnit,
     });

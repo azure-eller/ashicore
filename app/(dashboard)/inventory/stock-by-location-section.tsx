@@ -7,10 +7,8 @@ import { apiJson } from "@/lib/client/api";
 import { queryKeys } from "@/lib/client/query-keys";
 import { formatQuantity } from "@/lib/format";
 import type { ItemLocationBalance } from "@/lib/inventory/types";
-import {
-  TransferStockDialog,
-  useActiveLocations,
-} from "./transfer-stock-dialog";
+import { useActiveLocations } from "@/components/location-select";
+import { TransferStockDialog } from "./transfer-stock-dialog";
 
 export function StockByLocationSection({
   itemId,

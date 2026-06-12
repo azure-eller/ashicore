@@ -50,6 +50,7 @@ export async function completeManufacturingOrder(
     confirmNegativeStock?: boolean;
     producedLotId?: string;
     producedLotNumber?: string;
+    locationId?: string | null;
   },
 ): Promise<{ id: string }> {
   const path = `/api/manufacturing-orders/${orderId}/complete`;
@@ -57,6 +58,7 @@ export async function completeManufacturingOrder(
     method: "POST",
     idempotencyKey: "completeManufacturingOrder",
     body: {
+      ...(input.locationId ? { locationId: input.locationId } : {}),
       actualQuantity: input.actualQuantity,
       batchCount: input.batchCount,
       outputDisposition: input.outputDisposition,
@@ -80,6 +82,7 @@ export async function recordManufacturingOutput(
     confirmNegativeStock?: boolean;
     producedLotId?: string;
     producedLotNumber?: string;
+    locationId?: string | null;
   },
 ): Promise<{ id: string }> {
   const path = `/api/manufacturing-orders/${orderId}/outputs`;
@@ -87,6 +90,7 @@ export async function recordManufacturingOutput(
     method: "POST",
     idempotencyKey: "recordManufacturingOutput",
     body: {
+      ...(input.locationId ? { locationId: input.locationId } : {}),
       quantity: input.quantity,
       outputDisposition: input.outputDisposition,
       confirmNegativeStock: input.confirmNegativeStock ?? false,

@@ -1,0 +1,2 @@
+ALTER TABLE "manufacturing"."manufacturing_order_outputs" ADD COLUMN IF NOT EXISTS "location_id" uuid;--> statement-breakpoint ALTER TABLE "manufacturing"."manufacturing_order_outputs" DROP CONSTRAINT IF EXISTS "manufacturing_order_outputs_location_id_locations_id_fk";--> statement-breakpoint
+ALTER TABLE "manufacturing"."manufacturing_order_outputs" ADD CONSTRAINT "manufacturing_order_outputs_location_id_locations_id_fk" FOREIGN KEY ("location_id") REFERENCES "inventory"."locations"("id") ON DELETE no action ON UPDATE no action;

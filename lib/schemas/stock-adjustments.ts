@@ -42,6 +42,8 @@ export const adjustLotSchema = z
   });
 
 export const stockAdjustmentSchema = z.object({
+  // Adjustment location; omitted = default (mobile sends no locationId).
+  locationId: z.string().uuid().nullish(),
   reason: z.preprocess(normalizeAdjustmentReason, z.enum(ADJUSTMENT_REASONS)),
   note: z.string().trim().max(500).optional(),
   newQuantity: z.string().regex(/^\d+(\.\d+)?$/).optional(),

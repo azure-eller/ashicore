@@ -12,15 +12,18 @@ export default async function StocktakeDetailPage({
 }) {
   const context = await requireModuleReadAccess("inventory");
   const { id } = await params;
-  const [stocktake, previewItems, lotAccess] = await Promise.all([
+  const [stocktake, lotAccess] = await Promise.all([
     getStocktake(id),
-    getStocktakePreviewItems(),
     getFeatureAccessForCurrentOrg("lot_tracking"),
   ]);
 
   if (!stocktake) {
     redirect("/inventory/stocktakes");
   }
+
+  // Preview quantities seed expectedQty when adding items, so they must read
+  // at the stocktake's stamped location.
+  const previewItems = await getStocktakePreviewItems(stocktake.locationId);
 
   return (
     <StocktakeDetail

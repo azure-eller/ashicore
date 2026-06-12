@@ -7,7 +7,7 @@ import { normalizeNumeric, normalizeNumericScale, normalizeQuantityNumber } from
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
 import type { Tx } from "@/lib/db/with-org-context";
-import { applyDemandReferenceDeltasInTx, applyExpectedReferenceDeltasInTx, beginInventoryOperationInTx, consumeStockFifoInTx, decrementExistingLotStockInTx, deriveInventoryIdempotencyKey, finishInventoryOperationInTx, getDefaultInventoryLocationInTx, produceManufacturedStockInTx, restockExistingLotInTx } from "@/lib/inventory/kernel";
+import { applyDemandReferenceDeltasInTx, applyExpectedReferenceDeltasInTx, beginInventoryOperationInTx, consumeStockFifoInTx, decrementExistingLotStockInTx, deriveInventoryIdempotencyKey, finishInventoryOperationInTx, getDefaultInventoryLocationInTx, produceManufacturedStockInTx, resolveInventoryLocationInTx, restockExistingLotInTx } from "@/lib/inventory/kernel";
 import { calculatePlannedOperationCost } from "@/lib/manufacturing/operation-costs";
 import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
 import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
@@ -178,6 +178,8 @@ async function nextOutputNumberInTx(tx: Tx, manufacturingOrderId: string) {
 type ManufacturingOutputConsumptionInput = {
   manufacturingOrderIngredientId: string;
   lotId: string;
+  // Where the consumption drew stock; reversal restores exactly here.
+  locationId: string | null;
   quantityUsed: string;
   costPerUnit: string;
 };
@@ -188,6 +190,8 @@ export async function insertManufacturingOrderOutputInTx(
     manufacturingOrderId: string;
     manufacturingOrderBatchId: string | null;
     lotId: string;
+    // Resolved location the finished goods landed at; reversal decrements here.
+    locationId: string;
     quantity: number;
     disposition: Extract<InventoryDisposition, "available" | "blocked">;
     materialCostTotal: number;
@@ -202,6 +206,7 @@ export async function insertManufacturingOrderOutputInTx(
       manufacturingOrderId: params.manufacturingOrderId,
       manufacturingOrderBatchId: params.manufacturingOrderBatchId,
       lotId: params.lotId,
+      locationId: params.locationId,
       outputNumber: await nextOutputNumberInTx(tx, params.manufacturingOrderId),
       quantity: normalizeNumeric(params.quantity),
       disposition: params.disposition,
@@ -231,7 +236,12 @@ export function buildOutputConsumptionsFromPickedAllocations(
   ingredients: Array<{ ingredientId: string; actualQuantity: number }>,
   allocationsByIngredient: Map<
     string,
-    Array<{ lotId: string; quantityUsed: string; costPerUnit: string | null }>
+    Array<{
+      lotId: string;
+      locationId: string | null;
+      quantityUsed: string;
+      costPerUnit: string | null;
+    }>
   >
 ) {
   const rows: ManufacturingOutputConsumptionInput[] = [];
@@ -260,6 +270,7 @@ export function buildOutputConsumptionsFromPickedAllocations(
       rows.push({
         manufacturingOrderIngredientId: ingredient.ingredientId,
         lotId: allocation.lotId,
+        locationId: allocation.locationId,
         quantityUsed: normalizeNumericScale(quantityUsed, 4),
         costPerUnit: normalizeNumericScale(costPerUnit, 6),
       });
@@ -278,12 +289,27 @@ async function reverseManufacturingOutputInTx(
     manufacturingOrderBatchId: string | null;
     productId: string;
     quantity: number;
+    // Fallback for legacy output rows with no recorded location; omitted =
+    // default. Finished goods come back out of each output's recorded
+    // location; ingredient restores follow each consumption's recorded location.
+    locationId?: string | null;
     actorUserId: string | null;
     idempotencyKey?: string | null;
     notes?: string | null;
   }
 ) {
-  const location = await getDefaultInventoryLocationInTx(tx, params.organizationId);
+  const location = await resolveInventoryLocationInTx(
+    tx,
+    params.organizationId,
+    params.locationId
+  );
+  // Planning is default-pinned in v1: the reversal re-adds demand/expected
+  // at the default location where they were originally recorded, regardless
+  // of where the physical legs happen.
+  const planningLocation = await getDefaultInventoryLocationInTx(
+    tx,
+    params.organizationId
+  );
   const existingOutputQuantity = await getOutputQuantityInTx(tx, {
     manufacturingOrderId: params.manufacturingOrderId,
     manufacturingOrderBatchId: params.manufacturingOrderBatchId,
@@ -297,6 +323,7 @@ async function reverseManufacturingOutputInTx(
     .select({
       id: manufacturingOrderOutputs.id,
       lotId: manufacturingOrderOutputs.lotId,
+      locationId: manufacturingOrderOutputs.locationId,
       quantity: trimScale(manufacturingOrderOutputs.quantity).as("quantity"),
       disposition: manufacturingOrderOutputs.disposition,
       unitCost: trimScale(manufacturingOrderOutputs.unitCost).as("unitCost"),
@@ -317,16 +344,40 @@ async function reverseManufacturingOutputInTx(
     .orderBy(desc(manufacturingOrderOutputs.outputNumber))
     .for("update");
 
+  // Reversal markers don't reference the output rows they drew from, so a
+  // row's remaining quantity is reconstructed by replaying the deterministic
+  // newest-first walk: skip what prior reversals already took before
+  // allocating this one. Without the skip, repeated partial reversals would
+  // re-reverse the newest rows (wrong location/disposition and double
+  // ingredient restores).
+  const positiveOutputQuantity = outputRows.reduce(
+    (sum, row) => sum + parseFloat(row.quantity),
+    0
+  );
+  let alreadyReversed = normalizeQuantityNumber(
+    positiveOutputQuantity - existingOutputQuantity
+  );
   let remaining = params.quantity;
   let reversedMaterialCostTotal = 0;
   let reversalDisposition: Extract<InventoryDisposition, "available" | "blocked"> = "available";
   const reversedConsumptions = new Map<
     string,
-    { quantity: number; cost: number; rows: Array<{ outputId: string; lotId: string; quantity: number; costPerUnit: number }> }
+    {
+      quantity: number;
+      cost: number;
+      rows: Array<{
+        outputId: string;
+        lotId: string;
+        locationId: string | null;
+        quantity: number;
+        costPerUnit: number;
+      }>;
+    }
   >();
   const outputConsumptionRows: Array<{
     manufacturingOrderIngredientId: string;
     lotId: string;
+    locationId: string | null;
     quantityUsed: string;
     costPerUnit: string;
   }> = [];
@@ -335,7 +386,15 @@ async function reverseManufacturingOutputInTx(
     if (remaining <= 0) break;
 
     const outputQuantity = parseFloat(output.quantity);
-    const reversedQuantity = normalizeQuantityNumber(Math.min(remaining, outputQuantity));
+    let availableQuantity = outputQuantity;
+    if (alreadyReversed > 0) {
+      const skipped = Math.min(alreadyReversed, outputQuantity);
+      alreadyReversed = normalizeQuantityNumber(alreadyReversed - skipped);
+      availableQuantity = normalizeQuantityNumber(outputQuantity - skipped);
+    }
+    const reversedQuantity = normalizeQuantityNumber(
+      Math.min(remaining, availableQuantity)
+    );
     if (reversedQuantity <= 0) continue;
 
     reversalDisposition = output.disposition as Extract<
@@ -348,7 +407,7 @@ async function reverseManufacturingOutputInTx(
 
     await decrementExistingLotStockInTx(tx, {
       organizationId: params.organizationId,
-      locationId: location.id,
+      locationId: output.locationId ?? location.id,
       itemId: params.productId,
       lotId: output.lotId,
       quantity: reversedQuantity,
@@ -370,6 +429,7 @@ async function reverseManufacturingOutputInTx(
       .select({
         ingredientId: manufacturingOrderOutputConsumptions.manufacturingOrderIngredientId,
         lotId: manufacturingOrderOutputConsumptions.lotId,
+        locationId: manufacturingOrderOutputConsumptions.locationId,
         quantityUsed: trimScale(manufacturingOrderOutputConsumptions.quantityUsed).as(
           "quantityUsed"
         ),
@@ -391,11 +451,18 @@ async function reverseManufacturingOutputInTx(
       };
       current.quantity = normalizeQuantityNumber(current.quantity + quantity);
       current.cost += quantity * costPerUnit;
-      current.rows.push({ outputId: output.id, lotId: consumption.lotId, quantity, costPerUnit });
+      current.rows.push({
+        outputId: output.id,
+        lotId: consumption.lotId,
+        locationId: consumption.locationId,
+        quantity,
+        costPerUnit,
+      });
       reversedConsumptions.set(consumption.ingredientId, current);
       outputConsumptionRows.push({
         manufacturingOrderIngredientId: consumption.ingredientId,
         lotId: consumption.lotId,
+        locationId: consumption.locationId ?? location.id,
         quantityUsed: normalizeNumeric(-quantity),
         costPerUnit: normalizeNumericScale(costPerUnit, 6),
       });
@@ -433,9 +500,11 @@ async function reverseManufacturingOutputInTx(
     if (!ingredient) continue;
 
     for (const row of reversed.rows) {
+      // Each consumption row records where it drew stock; legacy rows
+      // (null) restore at the operation's location.
       await restockExistingLotInTx(tx, {
         organizationId: params.organizationId,
-        locationId: location.id,
+        locationId: row.locationId ?? location.id,
         itemId: ingredient.itemId,
         lotId: row.lotId,
         quantity: row.quantity,
@@ -445,9 +514,11 @@ async function reverseManufacturingOutputInTx(
         referenceType: "manufacturing_order",
         referenceId: params.manufacturingOrderId,
         actorUserId: params.actorUserId,
+        // Location is part of the key: the same output/ingredient/lot can
+        // have consumption rows at several locations, each restored separately.
         idempotencyKey: deriveInventoryIdempotencyKey(
           params.idempotencyKey,
-          `reverse-consume:${row.outputId}:${ingredientId}:${row.lotId}`
+          `reverse-consume:${row.outputId}:${ingredientId}:${row.lotId}:${row.locationId ?? location.id}`
         ),
         metadata: { manufacturingOrderIngredientId: ingredientId },
       });
@@ -482,7 +553,7 @@ async function reverseManufacturingOutputInTx(
 
     await applyDemandReferenceDeltasInTx(tx, {
       organizationId: params.organizationId,
-      locationId: location.id,
+      locationId: planningLocation.id,
       actorUserId: params.actorUserId,
       eventSubtype: "manufacturing_output_reversal",
       deltas: [
@@ -498,7 +569,7 @@ async function reverseManufacturingOutputInTx(
 
   await applyExpectedReferenceDeltasInTx(tx, {
     organizationId: params.organizationId,
-    locationId: location.id,
+    locationId: planningLocation.id,
     actorUserId: params.actorUserId,
     eventSubtype: "manufacturing_output_reversal",
     deltas: [
@@ -526,6 +597,9 @@ async function reverseManufacturingOutputInTx(
       manufacturingOrderId: params.manufacturingOrderId,
       manufacturingOrderBatchId: params.manufacturingOrderBatchId,
       lotId,
+      // A reversal can span outputs at several locations; markers stay
+      // unlocated and are never walked (quantity <= 0).
+      locationId: null,
       outputNumber: await nextOutputNumberInTx(tx, params.manufacturingOrderId),
       quantity: normalizeNumeric(-params.quantity),
       disposition: reversalDisposition,
@@ -601,6 +675,7 @@ export async function recordManufacturingOutput(
         manufacturingOrderBatchId: options?.batchId ?? null,
         productId: order.productId,
         quantity: Math.abs(outputQuantity),
+        locationId: payload.locationId,
         actorUserId: userId,
         idempotencyKey: options?.idempotencyKey,
         notes: payload.notes,
@@ -742,10 +817,14 @@ export async function recordManufacturingOutput(
       ingredientRows.map((row) => row.id)
     );
     const ratio = outputQuantity / plannedOutputQuantity;
-    const location = await getDefaultInventoryLocationInTx(tx, orgId);
+    // Physical legs (auto-consume, produce) follow the requested location;
+    // planning legs stay default-pinned in v1.
+    const location = await resolveInventoryLocationInTx(tx, orgId, payload.locationId);
+    const planningLocation = await getDefaultInventoryLocationInTx(tx, orgId);
     const outputConsumptionRows: Array<{
       manufacturingOrderIngredientId: string;
       lotId: string;
+      locationId: string | null;
       quantityUsed: string;
       costPerUnit: string;
     }> = [];
@@ -802,6 +881,7 @@ export async function recordManufacturingOutput(
         outputConsumptionRows.push({
           manufacturingOrderIngredientId: ingredient.id,
           lotId: allocation.lotId,
+          locationId: allocation.locationId,
           quantityUsed: normalizeNumericScale(quantityUsed, 4),
           costPerUnit: normalizeNumericScale(costPerUnit, 6),
         });
@@ -854,6 +934,7 @@ export async function recordManufacturingOutput(
           outputConsumptionRows.push({
             manufacturingOrderIngredientId: ingredient.id,
             lotId: allocation.lotId,
+            locationId: location.id,
             quantityUsed: normalizeNumericScale(allocation.quantity, 4),
             costPerUnit: normalizeNumericScale(allocation.unitCost, 6),
           });
@@ -895,7 +976,7 @@ export async function recordManufacturingOutput(
 
       await applyDemandReferenceDeltasInTx(tx, {
         organizationId: orgId,
-        locationId: location.id,
+        locationId: planningLocation.id,
         actorUserId: userId,
         eventSubtype: "manufacturing_output",
         deltas: [
@@ -935,6 +1016,7 @@ export async function recordManufacturingOutput(
       manufacturingOrderId: orderId,
       productId: order.productId,
       quantity: outputQuantity,
+      locationId: payload.locationId,
       actorUserId: userId,
       outputDisposition: payload.outputDisposition,
       lotId: targetLot.lotId,
@@ -952,6 +1034,7 @@ export async function recordManufacturingOutput(
       manufacturingOrderId: orderId,
       manufacturingOrderBatchId: batch?.id ?? null,
       lotId: produced.lotId,
+      locationId: location.id,
       quantity: outputQuantity,
       disposition: payload.outputDisposition,
       materialCostTotal,

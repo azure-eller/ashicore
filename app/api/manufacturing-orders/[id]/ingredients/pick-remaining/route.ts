@@ -20,6 +20,7 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
 
   const result = await pickRemainingManufacturingIngredients(id, {
     idempotencyKey,
+    locationId: data.locationId,
     confirmRequirementOverride: data.confirmRequirementOverride,
     confirmNegativeStock: data.confirmNegativeStock,
   });

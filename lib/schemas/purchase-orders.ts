@@ -255,9 +255,12 @@ export const receivePurchaseOrderSchema = z
   .object({
     lines: z.array(rawReceiveLineSchema).min(1),
     confirmOverReceipt: z.boolean().optional(),
+    // Receiving location; omitted = default (mobile sends no locationId).
+    locationId: z.string().uuid().nullish(),
   })
-  .transform(({ lines, confirmOverReceipt }) => ({
+  .transform(({ lines, confirmOverReceipt, locationId }) => ({
     confirmOverReceipt: confirmOverReceipt ?? false,
+    locationId: locationId ?? null,
     lines: lines
       .map((line) => ({
         lineId: line.lineId,

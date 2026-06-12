@@ -33,6 +33,7 @@ export type ReceivePurchaseOrderInput = {
     disposition?: "available" | "blocked";
   }>;
   confirmOverReceipt?: boolean;
+  locationId?: string | null;
 };
 
 export async function receivePurchaseOrder(

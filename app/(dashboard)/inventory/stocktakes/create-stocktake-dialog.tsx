@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { LocationPickerField, useActiveLocations } from "@/components/location-select";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon } from "@hugeicons/core-free-icons";
@@ -51,6 +52,10 @@ export function CreateStocktakeDialog() {
   const [open, setOpen] = useState(createRequested);
   const [mode, setMode] = useState<StocktakeCreationMode>("in_stock");
   const [reason, setReason] = useState("");
+  const [locationId, setLocationId] = useState<string | null>(null);
+  // Wait for the first locations fetch so a multi-location org cannot
+  // submit before its picker has had a chance to render.
+  const locationsPending = useActiveLocations().isPending;
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,6 +77,7 @@ export function CreateStocktakeDialog() {
           creationMode: mode,
           notes: null,
           reason: reason.trim(),
+          ...(locationId ? { locationId } : {}),
         },
         fallbackError: "Failed to create stocktake.",
       });
@@ -134,6 +140,8 @@ export function CreateStocktakeDialog() {
           ))}
         </RadioGroup>
 
+        <LocationPickerField value={locationId} onValueChange={setLocationId} />
+
         <div className="space-y-2">
           <Label htmlFor="stocktake-create-reason">
             Reason <span className="text-[var(--status-danger-ink)]">*</span>
@@ -147,7 +155,7 @@ export function CreateStocktakeDialog() {
         </div>
 
         <DialogFooter>
-          <Button onClick={createMode} disabled={pending || reason.trim() === ""}>
+          <Button onClick={createMode} disabled={pending || locationsPending || reason.trim() === ""}>
             {pending ? "Creating..." : "Create stocktake"}
           </Button>
         </DialogFooter>

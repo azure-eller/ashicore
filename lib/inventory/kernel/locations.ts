@@ -1,6 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { inventoryLocations } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
+import { InventoryLocationNotFoundError } from "@/lib/inventory/kernel/errors";
 
 const DEFAULT_LOCATION_CODE = "main";
 const DEFAULT_LOCATION_NAME = "Main";
@@ -43,7 +44,7 @@ export async function resolveInventoryLocationInTx(
     .for("share");
 
   if (!location) {
-    throw new Error("Inventory location not found for this organization.");
+    throw new InventoryLocationNotFoundError();
   }
 
   return location;

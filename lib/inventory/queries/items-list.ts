@@ -41,6 +41,12 @@ import {
   applyMarginTiers,
   calculateMarginPercent,
 } from "./metrics";
+import {
+  projectedAvailableQty,
+  projectedDemandQty,
+  projectedExpectedQty,
+  projectedOnHandQty,
+} from "@/lib/inventory/kernel";
 import { stockSubquery, lastCountedAtSubquery, demandQtySubquery, availableQtySubquery, expectedQtySubquery, potentialSubquery, getVariantOptionValuesByItemIdInTx, formatNormalizedVariantDisplay, buildDuplicateCombinationWarnings, type BomViewPermissions, getBomViewPermissions, hasBomViewAccess, getBomParentVisibilityCondition } from "./shared";
 
 async function getCurrentBomProductIdSetInTx(tx: Tx, productIds: string[]) {
@@ -133,6 +139,9 @@ async function getRevenue30dByItemIdInTx(tx: Tx, itemIds: string[]) {
 
 export async function getItems(filters?: {
   itemType?: ItemType;
+  // Scope projected quantities to one location; omitted = the default
+  // location (the historical behavior every existing client gets).
+  locationId?: string | null;
 }): Promise<ItemRow[]> {
   return measureObservedOperation(
     "inventory.get_items",
@@ -141,6 +150,28 @@ export async function getItems(filters?: {
       const bomViewPermissions = getBomViewPermissions(context.assignedRoles);
 
       return withAuthedOrgContext<ItemRow[]>(async (tx) => {
+        const locationId = filters?.locationId ?? null;
+        const stockCol = locationId
+          ? projectedOnHandQty(items.organizationId, items.id, locationId).as("stock")
+          : stockSubquery;
+        const demandCol = locationId
+          ? projectedDemandQty(items.organizationId, items.id, locationId).as("demandQty")
+          : demandQtySubquery;
+        const availableCol = locationId
+          ? projectedAvailableQty(items.organizationId, items.id, locationId).as(
+              "availableQty"
+            )
+          : availableQtySubquery;
+        const expectedCol = locationId
+          ? projectedExpectedQty(items.organizationId, items.id, locationId).as(
+              "expectedQty"
+            )
+          : expectedQtySubquery;
+        // Potential derives from planning-pinned ingredient availability, so
+        // there is no truthful per-location figure; blank it under a filter.
+        const potentialCol = locationId
+          ? sql<string | null>`NULL`.as("potential")
+          : potentialSubquery;
         const rows = await measureObservedOperation(
           "inventory.get_items.base_query",
           () =>
@@ -154,11 +185,11 @@ export async function getItems(filters?: {
                 itemType: items.itemType,
                 lotTrackingMode: itemFamilies.lotTrackingMode,
                 optionCombinationKey: items.optionCombinationKey,
-                stock: stockSubquery,
+                stock: stockCol,
                 lastCountedAt: lastCountedAtSubquery,
-                demandQty: demandQtySubquery,
-                availableQty: availableQtySubquery,
-                expectedQty: expectedQtySubquery,
+                demandQty: demandCol,
+                availableQty: availableCol,
+                expectedQty: expectedCol,
                 safetyStock: trimScale(items.safetyStock).as("safetyStock"),
                 defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as("defaultSellingPrice"),
                 currentStockUnitCost: trimScaleNullable(items.currentStockUnitCost).as(
@@ -169,7 +200,7 @@ export async function getItems(filters?: {
                 unitUom: unitDefinitions.uom,
                 category: items.category,
                 familyCategory: itemFamilies.category,
-                potential: potentialSubquery,
+                potential: potentialCol,
                 sellable: items.sellable,
                 createdAt: items.createdAt,
               })
