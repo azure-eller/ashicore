@@ -1,9 +1,9 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  --font-display: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-app-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-app-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-display: var(--font-app-display), ui-sans-serif, system-ui, sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -63,7 +63,7 @@
   --subnav-bg: var(--paint-white);
   --subnav-fg: var(--paint-ink);
   --subnav-line: color-mix(in oklch, var(--paint-table-header), var(--paint-white) 20%);
-  --grid-header-fg: color-mix(in oklch, var(--paint-ink), var(--paint-white) 28%);
+  --grid-header-fg: color-mix(in oklch, var(--paint-ink), var(--paint-white) 48%);
   --color-bg: var(--paint-white);
   --color-bg-2: var(--color-surface-alt);
   --color-surface: color-mix(in oklch, var(--paint-white), var(--paint-table-header) 24%);
@@ -139,10 +139,10 @@
   --radius-pill: var(--radius-token-pill);
   --radius-full: var(--radius-token-full);
 
-  --font-sans: var(--font-geist-sans), "Geist", system-ui, sans-serif;
+  --font-sans: var(--font-app-sans), "Hanken Grotesk", system-ui, sans-serif;
   --font-body: var(--font-sans);
-  --font-display: var(--font-geist-sans), "Geist", system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
+  --font-display: var(--font-app-display), "Space Grotesk", system-ui, sans-serif;
+  --font-mono: var(--font-app-mono), "JetBrains Mono", ui-monospace, monospace;
   --text-3xs: 10.5px;
   --text-2xs: 11px;
   --text-label: 11.5px;
@@ -206,7 +206,7 @@
   --height-subnav: 54px;
   --height-nav: 64px;
   --height-statusbar: 45px;
-  --height-input-sm: 39px;
+  --height-input-sm: 32px;
   --height-input-md: 45px;
   --height-input-lg: 54px;
   --height-menu-item: 36px;

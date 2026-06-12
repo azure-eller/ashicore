@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { after } from "next/server";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Hanken_Grotesk, JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import {
   getRequestLogContext,
   logObservedEvent,
@@ -9,13 +9,17 @@ import { Providers } from "@/app/providers";
 import { APP_NAME } from "@/lib/app-brand";
 import "./globals.css";
 
-const sans = Geist({
+const sans = Hanken_Grotesk({
   subsets: ["latin"],
-  variable: "--font-geist-sans",
+  variable: "--font-app-sans",
 });
-const mono = Geist_Mono({
+const mono = JetBrains_Mono({
   subsets: ["latin"],
-  variable: "--font-geist-mono",
+  variable: "--font-app-mono",
+});
+const display = Space_Grotesk({
+  subsets: ["latin"],
+  variable: "--font-app-display",
 });
 
 export const metadata: Metadata = {
@@ -41,7 +45,7 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
-      className={`${sans.variable} ${mono.variable}`}
+      className={`${sans.variable} ${mono.variable} ${display.variable}`}
       suppressHydrationWarning
     >
       <body className="antialiased">
