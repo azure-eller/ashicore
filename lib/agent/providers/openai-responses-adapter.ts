@@ -1,3 +1,5 @@
+import "server-only";
+
 import { zodResponsesFunction, zodTextFormat } from "openai/helpers/zod";
 import type { Reasoning } from "openai/resources/shared";
 import type {
@@ -16,6 +18,7 @@ import type {
   AgentTokenUsage,
   AgentTool,
   AgentToolCall,
+  AgentUserContent,
 } from "@/lib/agent/core";
 
 export type OpenAIResponsesUsage = {
@@ -68,8 +71,28 @@ function responseToolCallToAgentToolCall(toolCall: ResponseFunctionToolCall): Ag
   };
 }
 
-function contentList(content: string) {
-  return [{ type: "input_text" as const, text: content }];
+function contentList(content: AgentUserContent) {
+  if (typeof content === "string") {
+    return [{ type: "input_text" as const, text: content }];
+  }
+
+  return content.map((part) => {
+    if (part.type === "text") {
+      return { type: "input_text" as const, text: part.text };
+    }
+    if (part.type === "image") {
+      return {
+        type: "input_image" as const,
+        detail: part.detail ?? ("auto" as const),
+        image_url: part.dataUrl,
+      };
+    }
+    return {
+      type: "input_file" as const,
+      filename: part.filename,
+      file_data: part.dataUrl,
+    };
+  });
 }
 
 // Synthesized fallback for assistant turns without raw provider items (e.g.

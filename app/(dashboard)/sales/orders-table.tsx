@@ -75,6 +75,7 @@ import {
 } from "./create-manufacturing-orders-dialog";
 import type { SalesOrderListRow } from "@/lib/sales/types";
 import { queryKeys } from "@/lib/client/query-keys";
+import { useGridSearchParam } from "@/lib/hooks/use-grid-search-param";
 
 const OPEN_SALES_STATUSES = ["open"] as const;
 const DONE_SALES_STATUSES = ["done"] as const;
@@ -712,7 +713,7 @@ function OrdersTableContent({
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [statusFilter, setStatusFilter] =
     useState<SalesWorkflowFilterValue>("open");
-  const [searchValue, setSearchValue] = useState("");
+  const [searchValue, setSearchValue] = useGridSearchParam();
   const [selectedOrders, setSelectedOrders] = useState<SalesOrderListRow[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [hasActiveSort, setHasActiveSort] = useState(false);
@@ -818,10 +819,13 @@ function OrdersTableContent({
   );
   const visibleActivePanel = activePanelOrder ? activePanel : null;
   const closeStatusPanel = useCallback(() => setActivePanel(null), []);
-  const handleSearchChange = useCallback((value: string) => {
-    setActivePanel(null);
-    setSearchValue(value);
-  }, []);
+  const handleSearchChange = useCallback(
+    (value: string) => {
+      setActivePanel(null);
+      setSearchValue(value);
+    },
+    [setSearchValue]
+  );
   const handleStatusFilterChange = useCallback((value: SalesWorkflowFilterValue) => {
     setActivePanel(null);
     setStatusFilter(value);

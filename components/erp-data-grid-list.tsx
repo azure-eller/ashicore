@@ -10,6 +10,7 @@ import {
 import { Add01Icon, Delete02Icon, MoreVerticalIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { apiJson } from "@/lib/client/api";
+import { useGridSearchParam } from "@/lib/hooks/use-grid-search-param";
 import { ERPDataGrid, type ColDef } from "@/components/erp-data-grid";
 import { Panel } from "@/components/panel";
 import { SelectionCountBadge } from "@/components/selection-count-badge";
@@ -102,7 +103,7 @@ function ERPDataGridListInner<TData extends { id: string }>({
   fillViewport = true,
 }: ERPDataGridListProps<TData>) {
   const queryClient = useQueryClient();
-  const [searchValue, setSearchValue] = useState("");
+  const [searchValue, setSearchValue] = useGridSearchParam();
   const [selectedRows, setSelectedRows] = useState<TData[]>([]);
   const selectedRowsRef = useRef<TData[]>([]);
   const [deleteRows, setDeleteRows] = useState<TData[]>([]);

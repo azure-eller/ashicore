@@ -14,9 +14,11 @@ import {
   type AgentRuntimeMessage,
   type AgentToolMemberContext,
   type AgentToolResult,
+  type AgentUserContentPart,
 } from "@/lib/agent/core";
 import { createOpenAIResponsesAgentProvider } from "@/lib/agent/providers/openai-responses";
 import { dashboardChatAgentTask } from "@/lib/agent/chat/task";
+import { workbookToStructuredText } from "@/lib/onboarding/import/extraction/workbook-reader";
 
 const uiMessagePartSchema = z.object({ type: z.string() }).passthrough();
 const uiMessageSchema = z
@@ -42,6 +44,9 @@ function messageText(message: UIMessage) {
   return message.parts.map(partText).join("").trim();
 }
 
+// Attachments ride only the message they were sent with (the client drops
+// data URLs from history to stay under request-size limits), so history
+// conversion reads text parts only.
 function uiMessageToRuntimeMessage(message: UIMessage): AgentRuntimeMessage | null {
   const content = messageText(message);
   if (!content) return null;
@@ -57,19 +62,116 @@ function uiMessageToRuntimeMessage(message: UIMessage): AgentRuntimeMessage | nu
   return null;
 }
 
+type UIFilePart = { type: "file"; mediaType: string; filename?: string; url: string };
+
+const MAX_ATTACHMENTS_PER_MESSAGE = 5;
+// ~3.7MB of binary per attachment as a base64 data URL; Vercel caps request
+// bodies at ~4.5MB, so the client enforces a tighter total — this is the
+// server-side backstop.
+const MAX_ATTACHMENT_DATA_URL_CHARS = 5_000_000;
+const MAX_ATTACHMENT_TEXT_CHARS = 80_000;
+
+function isUIFilePart(part: UIMessage["parts"][number]): part is UIFilePart {
+  return (
+    part.type === "file" &&
+    typeof (part as { url?: unknown }).url === "string" &&
+    typeof (part as { mediaType?: unknown }).mediaType === "string"
+  );
+}
+
+function dataUrlBuffer(url: string): Buffer | null {
+  if (!url.startsWith("data:")) return null;
+  const comma = url.indexOf(",");
+  if (comma === -1 || !url.slice(0, comma).endsWith(";base64")) return null;
+  return Buffer.from(url.slice(comma + 1), "base64");
+}
+
+function isSpreadsheetPart(part: UIFilePart) {
+  return (
+    part.mediaType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+    part.mediaType === "application/vnd.ms-excel" ||
+    /\.xlsx?$/i.test(part.filename ?? "")
+  );
+}
+
+function isTextLikePart(part: UIFilePart) {
+  return (
+    part.mediaType.startsWith("text/") ||
+    part.mediaType === "application/json" ||
+    /\.(csv|txt|json)$/i.test(part.filename ?? "")
+  );
+}
+
+function attachmentText(filename: string, body: string) {
+  const text =
+    body.length > MAX_ATTACHMENT_TEXT_CHARS
+      ? `${body.slice(0, MAX_ATTACHMENT_TEXT_CHARS)}\n[truncated after ${MAX_ATTACHMENT_TEXT_CHARS} characters]`
+      : body;
+  return { type: "text" as const, text: `Attached file ${filename}:\n${text}` };
+}
+
+function filePartToRuntimePart(part: UIFilePart): AgentUserContentPart {
+  const filename = part.filename ?? "attachment";
+  if (part.url.length > MAX_ATTACHMENT_DATA_URL_CHARS) {
+    return {
+      type: "text",
+      text: `[Attachment ${filename} was too large to process.]`,
+    };
+  }
+
+  if (part.mediaType.startsWith("image/")) {
+    return { type: "image", dataUrl: part.url };
+  }
+
+  if (part.mediaType === "application/pdf") {
+    return { type: "file", filename, dataUrl: part.url };
+  }
+
+  const bytes = dataUrlBuffer(part.url);
+  if (!bytes) {
+    return { type: "text", text: `[Attachment ${filename} could not be read.]` };
+  }
+
+  if (isSpreadsheetPart(part)) {
+    try {
+      return attachmentText(filename, workbookToStructuredText(bytes));
+    } catch {
+      return {
+        type: "text",
+        text: `[Attachment ${filename} could not be parsed as a spreadsheet.]`,
+      };
+    }
+  }
+
+  if (isTextLikePart(part)) {
+    return attachmentText(filename, bytes.toString("utf8"));
+  }
+
+  return {
+    type: "text",
+    text: `[Attachment ${filename} (${part.mediaType}) is not a supported type. Supported: images, PDF, Excel, CSV, and text files.]`,
+  };
+}
+
 export function dashboardChatMessagesToRuntime(messages: UIMessage[]) {
   const latestUserIndex = messages.findLastIndex((message) => message.role === "user");
   if (latestUserIndex === -1) {
     return null;
   }
 
-  const input = messageText(messages[latestUserIndex]!);
-  if (!input) {
+  const latest = messages[latestUserIndex]!;
+  const input = messageText(latest);
+  const attachments = latest.parts
+    .filter(isUIFilePart)
+    .slice(0, MAX_ATTACHMENTS_PER_MESSAGE)
+    .map(filePartToRuntimePart);
+  if (!input && attachments.length === 0) {
     return null;
   }
 
   return {
     input,
+    attachments,
     history: messages
       .slice(Math.max(0, latestUserIndex - 12), latestUserIndex)
       .map(uiMessageToRuntimeMessage)
@@ -160,16 +262,21 @@ export function createDashboardChatResponse(args: {
         writer.write({ type: "reasoning-end", id: reasoningId });
         reasoningId = null;
       };
+      const inputText = [
+        `Current organization: ${args.organizationName}`,
+        args.pageContext ? `Page context: ${args.pageContext}` : null,
+        `User message:\n${prepared.input || "(see attached files)"}`,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+
       for await (const event of runAgentTask({
         task: dashboardChatAgentTask,
         provider: createOpenAIResponsesAgentProvider(),
-        input: [
-          `Current organization: ${args.organizationName}`,
-          args.pageContext ? `Page context: ${args.pageContext}` : null,
-          `User message:\n${prepared.input}`,
-        ]
-          .filter(Boolean)
-          .join("\n\n"),
+        input:
+          prepared.attachments.length > 0
+            ? [{ type: "text", text: inputText }, ...prepared.attachments]
+            : inputText,
         history: prepared.history,
         cacheKey: args.chatId,
         run: {

@@ -63,7 +63,7 @@ export const queryTool = buildAgentTool({
     }
   },
   summarize: (output) =>
-    `${output.rowCount}${output.truncated ? "+" : ""} rows, ${output.columns.length} columns`,
+    `${output.rowCount}${output.truncated ? "+" : ""} ${output.rowCount === 1 && !output.truncated ? "row" : "rows"}, ${output.columns.length} ${output.columns.length === 1 ? "column" : "columns"}`,
   toModelContent: (output) => {
     if (output.rowCount === 0) return "0 rows";
     const cell = (value: unknown) => {

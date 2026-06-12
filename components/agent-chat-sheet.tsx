@@ -1,18 +1,29 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  FormEvent,
+  ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
   Alert02Icon,
+  ArrowDown01Icon,
   ArrowUp02Icon,
+  Attachment01Icon,
   Calendar03Icon,
   Cancel01Icon,
   ChatSparkIcon,
   CheckmarkCircle02Icon,
+  File01Icon,
   Search01Icon,
   StopIcon,
 } from "@hugeicons/core-free-icons";
@@ -28,6 +39,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { AGENT_LINKABLE_PATHS } from "@/lib/agent/chat/linkable-paths";
 import { isAgentProposal } from "@/lib/agent/chat/proposals";
 import { AgentStagingProvider } from "@/components/agent-staging/staging-provider";
 import { AshTray, StagedCard } from "@/components/agent-staging/staged-card";
@@ -83,14 +95,28 @@ const ASH_PROMPT_CATEGORIES = [
   },
 ];
 
-const ASH_TIPS = [
-  "Ash stages changes — nothing is applied without your approval.",
-  "Enter sends. Shift+Enter adds a new line.",
-  "Ash reads live data, so answers reflect this org right now.",
-  "Ask follow-ups — Ash keeps the conversation in mind.",
+function TipKey({ children }: { children: ReactNode }) {
+  return (
+    <kbd className="rounded-(--radius-sm) border border-[var(--color-line)] bg-[var(--color-surface-sunk)] px-(--space-2) font-mono text-[length:var(--text-2xs)] text-[var(--color-ink)]">
+      {children}
+    </kbd>
+  );
+}
+
+// Keep tips short enough for one line in the sheet-width strip.
+const ASH_TIPS: ReactNode[] = [
+  "Nothing applies until you approve it.",
+  <>
+    <TipKey>Enter</TipKey> sends. <TipKey>Shift</TipKey> <TipKey>Enter</TipKey> adds a new
+    line.
+  </>,
+  "Ash reads live data from this org.",
+  "Ask follow-ups — Ash keeps context.",
 ];
 
-function RotatingTip() {
+const ASH_TIP_DISMISS_KEY = "ash-composer-tip-dismissed";
+
+function ComposerTip({ onDismiss }: { onDismiss: () => void }) {
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
@@ -102,12 +128,24 @@ function RotatingTip() {
   }, []);
 
   return (
-    <p
-      key={index}
-      className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-(--duration-3)"
-    >
-      {ASH_TIPS[index]}
-    </p>
+    <div className="flex items-center justify-between gap-(--space-4) rounded-t-(--radius-lg) border border-b-0 border-[var(--color-line)] bg-[var(--color-surface)] px-(--space-5) py-(--space-2)">
+      <p
+        key={index}
+        className="min-w-0 truncate text-[length:var(--text-xs)] text-[var(--color-ink-faint)] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-(--duration-3)"
+      >
+        Tip: {ASH_TIPS[index]}
+      </p>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Dismiss tip"
+        onClick={onDismiss}
+        className="-my-(--space-1) shrink-0"
+      >
+        <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} />
+      </Button>
+    </div>
   );
 }
 
@@ -171,6 +209,36 @@ function cellText(value: unknown) {
   return text.length > 60 ? `${text.slice(0, 60)}…` : text;
 }
 
+// Internal links only: the path must start with "/", so external URLs and any
+// other markdown stay literal text.
+const INTERNAL_LINK_PATTERN = /\[([^\]\n]+)\]\((\/[^)\s]*)\)/g;
+
+// The prompt-level whitelist enforced in code: anything else (including
+// protocol-relative "//host" paths) stays literal text.
+const LINKABLE_PATHS = new Set<string>(AGENT_LINKABLE_PATHS);
+
+function linkifyInternal(segment: string): ReactNode {
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+  for (const match of segment.matchAll(INTERNAL_LINK_PATTERN)) {
+    if (!LINKABLE_PATHS.has(match[2]!.split(/[?#]/)[0]!)) continue;
+    if (match.index > cursor) nodes.push(segment.slice(cursor, match.index));
+    nodes.push(
+      <Link
+        key={`${match.index}-${match[2]}`}
+        href={match[2]!}
+        className="font-medium text-[var(--color-accent)] underline underline-offset-(--space-1)"
+      >
+        {match[1]}
+      </Link>
+    );
+    cursor = match.index + match[0].length;
+  }
+  if (nodes.length === 0) return segment;
+  if (cursor < segment.length) nodes.push(segment.slice(cursor));
+  return nodes;
+}
+
 function MessageText({
   text,
   streaming = false,
@@ -203,7 +271,7 @@ function MessageText({
             key={`${index}-${segment.slice(0, 12)}`}
             className="whitespace-pre-wrap text-[length:var(--text-sm)] leading-[var(--leading-md)]"
           >
-            {segment}
+            {linkifyInternal(segment)}
             {streaming && index === lastIndex ? (
               <span className="ml-(--space-1) inline-block h-(--space-6) w-(--space-2) animate-pulse bg-[var(--color-accent)] align-text-bottom" />
             ) : null}
@@ -226,7 +294,7 @@ function QueryResultCard({ output }: { output: AgentQueryOutput }) {
         </div>
         <Badge variant="outline">
           {output.rowCount}
-          {output.truncated ? "+" : ""} rows
+          {output.truncated ? "+" : ""} {output.rowCount === 1 && !output.truncated ? "row" : "rows"}
         </Badge>
       </div>
       <div className="overflow-x-auto">
@@ -268,6 +336,48 @@ function QueryResultCard({ output }: { output: AgentQueryOutput }) {
   );
 }
 
+// Exploratory queries collapse into a pill so several in one answer don't each
+// dump a full table into the transcript; the table renders on expand.
+function QueryResultPill({
+  summary,
+  output,
+}: {
+  summary: string | undefined;
+  output: AgentQueryOutput;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const expandable = output.rowCount > 0 && output.columns.length > 0;
+
+  return (
+    <div className="space-y-(--space-3) motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1">
+      <button
+        type="button"
+        disabled={!expandable}
+        aria-expanded={expanded}
+        onClick={() => setExpanded((current) => !current)}
+        className={cn(
+          "inline-flex max-w-full items-center gap-(--space-3) rounded-(--radius-full) border border-[var(--color-line)] bg-[var(--color-surface)] px-(--space-4) py-(--space-2) font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]",
+          expandable && "hover:bg-[var(--color-surface-alt)] hover:text-[var(--color-ink)]"
+        )}
+      >
+        <HugeiconsIcon icon={Search01Icon} strokeWidth={2} className="size-(--space-5) shrink-0" />
+        <span className="min-w-0 truncate">{summary ?? "Query result"}</span>
+        {expandable ? (
+          <HugeiconsIcon
+            icon={ArrowDown01Icon}
+            strokeWidth={2}
+            className={cn(
+              "size-(--space-5) shrink-0 transition-transform",
+              expanded && "rotate-180"
+            )}
+          />
+        ) : null}
+      </button>
+      {expanded && expandable ? <QueryResultCard output={output} /> : null}
+    </div>
+  );
+}
+
 function ToolPart({ part }: { part: UIMessage["parts"][number] }) {
   if (part.type !== "dynamic-tool") return null;
 
@@ -298,6 +408,10 @@ function ToolPart({ part }: { part: UIMessage["parts"][number] }) {
     return <StagedCard id={part.toolCallId} proposal={data} />;
   }
 
+  if (part.toolName === "query" && isQueryOutput(data)) {
+    return <QueryResultPill summary={output.summary} output={data} />;
+  }
+
   return (
     <div className="space-y-(--space-3) motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1">
       <Badge variant="outline" className="max-w-full">
@@ -310,9 +424,6 @@ function ToolPart({ part }: { part: UIMessage["parts"][number] }) {
           {output.summary ?? `${part.toolName} complete`}
         </span>
       </Badge>
-      {part.toolName === "query" && isQueryOutput(data) ? (
-        <QueryResultCard output={data} />
-      ) : null}
     </div>
   );
 }
@@ -322,10 +433,33 @@ function AgentMessage({ message }: { message: UIMessage }) {
   const assistant = message.role === "assistant";
 
   if (!assistant) {
+    const fileParts = message.parts.filter((part) => part.type === "file");
+
     return (
       <div className="flex w-full justify-end motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1">
-        <div className="max-w-[82%] rounded-t-(--radius-lg) rounded-br-(--radius-sm) rounded-bl-(--radius-lg) bg-[var(--color-surface-alt)] px-(--space-5) py-(--space-4) text-[length:var(--text-sm)] text-[var(--color-ink)]">
-          <MessageText text={text} />
+        <div className="flex max-w-[82%] flex-col items-end gap-(--space-3)">
+          {fileParts.length > 0 ? (
+            <div className="flex flex-wrap justify-end gap-(--space-3)">
+              {fileParts.map((part, index) => (
+                <AttachmentPreview
+                  key={index}
+                  filename={part.filename ?? "attachment"}
+                  mediaType={part.mediaType}
+                  url={part.url}
+                  className={
+                    part.mediaType.startsWith("image/")
+                      ? "h-[calc(var(--space-24)*2)] w-auto max-w-[calc(var(--space-24)*4)]"
+                      : undefined
+                  }
+                />
+              ))}
+            </div>
+          ) : null}
+          {text ? (
+            <div className="rounded-t-(--radius-lg) rounded-br-(--radius-sm) rounded-bl-(--radius-lg) bg-[var(--color-surface-alt)] px-(--space-5) py-(--space-4) text-[length:var(--text-sm)] text-[var(--color-ink)]">
+              <MessageText text={text} />
+            </div>
+          ) : null}
         </div>
       </div>
     );
@@ -361,9 +495,90 @@ function AgentMessage({ message }: { message: UIMessage }) {
           }
           return <ToolPart key={index} part={part} />;
         })}
-        {!text && message.parts.length === 0 ? null : null}
       </div>
     </div>
+  );
+}
+
+type ComposerAttachment = {
+  id: string;
+  filename: string;
+  mediaType: string;
+  url: string;
+  size: number;
+};
+
+const MAX_COMPOSER_ATTACHMENTS = 5;
+// Keep well under Vercel's ~4.5MB request cap once base64 inflates the bytes.
+// The budget is shared across the whole message, not per file.
+const MAX_ATTACHMENT_BYTES = 3_000_000;
+const ATTACHMENT_ACCEPT =
+  "image/*,.pdf,.csv,.txt,.xlsx,.xls,application/pdf,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel";
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error("File read failed."));
+    reader.readAsDataURL(file);
+  });
+}
+
+// Attachments ride only the message they were sent with: replaying prior data
+// URLs would re-upload every old attachment each turn and blow the request
+// cap. A text placeholder keeps the turn visible to the model (an
+// attachment-only message would otherwise drop out of history entirely);
+// local state keeps the originals, so the transcript still renders them.
+function withoutHistoryAttachments(messages: UIMessage[]): UIMessage[] {
+  return messages.map((message, index) =>
+    index === messages.length - 1
+      ? message
+      : {
+          ...message,
+          parts: message.parts.map((part) =>
+            part.type === "file"
+              ? { type: "text" as const, text: `[attached ${part.filename ?? "file"}]` }
+              : part
+          ),
+        }
+  );
+}
+
+function AttachmentPreview({
+  filename,
+  mediaType,
+  url,
+  className,
+}: {
+  filename: string;
+  mediaType: string;
+  url: string;
+  className?: string;
+}) {
+  if (mediaType.startsWith("image/")) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element -- data-URL preview; next/image cannot optimize these
+      <img
+        src={url}
+        alt={filename}
+        className={cn(
+          "size-(--space-24) rounded-(--radius-md) border border-[var(--color-line)] object-cover",
+          className
+        )}
+      />
+    );
+  }
+
+  return (
+    <span
+      className={cn(
+        "inline-flex max-w-[calc(var(--space-24)*4)] items-center gap-(--space-2) rounded-(--radius-md) border border-[var(--color-line)] bg-[var(--color-surface)] px-(--space-3) py-(--space-2) text-[length:var(--text-xs)] text-[var(--color-ink)]",
+        className
+      )}
+    >
+      <HugeiconsIcon icon={File01Icon} strokeWidth={2} className="size-(--space-5) shrink-0" />
+      <span className="min-w-0 truncate">{filename}</span>
+    </span>
   );
 }
 
@@ -371,12 +586,31 @@ export function AgentChatSheet({ open, onOpenChange }: AgentChatSheetProps) {
   const [input, setInput] = useState("");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [promptPreview, setPromptPreview] = useState<string | null>(null);
+  // The sheet mounts with ssr:false, so localStorage is safe to read here.
+  const [tipDismissed, setTipDismissed] = useState(
+    () => window.localStorage.getItem(ASH_TIP_DISMISS_KEY) === "1"
+  );
   const pathname = usePathname();
   const context = pageContext(pathname);
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const transport = useMemo(
-    () => new DefaultChatTransport({ api: "/api/agent/chat" }),
+    () =>
+      new DefaultChatTransport({
+        api: "/api/agent/chat",
+        prepareSendMessagesRequest: ({ id, messages, body, trigger, messageId }) => ({
+          body: {
+            ...body,
+            id,
+            messages: withoutHistoryAttachments(messages),
+            trigger,
+            messageId,
+          },
+        }),
+      }),
     []
   );
   const { messages, sendMessage, setMessages, status, stop, error } = useChat({
@@ -423,11 +657,61 @@ export function AgentChatSheet({ open, onOpenChange }: AgentChatSheetProps) {
     return () => cancelAnimationFrame(frame);
   }, [messages, status, open]);
 
+  async function addAttachments(files: Iterable<File>) {
+    const incoming = [...files];
+    if (incoming.length === 0) return;
+    setAttachmentError(null);
+
+    const errors: string[] = [];
+    const added: ComposerAttachment[] = [];
+    let totalBytes = attachments.reduce((sum, attachment) => sum + attachment.size, 0);
+    for (const file of incoming) {
+      if (attachments.length + added.length >= MAX_COMPOSER_ATTACHMENTS) {
+        errors.push(`At most ${MAX_COMPOSER_ATTACHMENTS} attachments per message.`);
+        break;
+      }
+      if (totalBytes + file.size > MAX_ATTACHMENT_BYTES) {
+        errors.push(
+          file.size > MAX_ATTACHMENT_BYTES
+            ? `${file.name || "Attachment"} is larger than 3 MB.`
+            : `${file.name || "Attachment"} skipped: attachments are limited to 3 MB total.`
+        );
+        continue;
+      }
+      try {
+        added.push({
+          id: crypto.randomUUID(),
+          filename: file.name || "attachment",
+          mediaType: file.type || "application/octet-stream",
+          url: await readFileAsDataUrl(file),
+          size: file.size,
+        });
+        totalBytes += file.size;
+      } catch {
+        errors.push(`${file.name || "Attachment"} could not be read.`);
+      }
+    }
+
+    if (added.length > 0) setAttachments((current) => [...current, ...added]);
+    if (errors.length > 0) setAttachmentError(errors.join(" "));
+  }
+
   async function submitText(text: string) {
     const trimmed = text.trim();
-    if (!trimmed || busy) return;
+    if ((!trimmed && attachments.length === 0) || busy) return;
+    const files = attachments.map(({ filename, mediaType, url }) => ({
+      type: "file" as const,
+      filename,
+      mediaType,
+      url,
+    }));
     setInput("");
-    await sendMessage({ text: trimmed }, { body: { context } });
+    setAttachments([]);
+    setAttachmentError(null);
+    await sendMessage(
+      { text: trimmed, ...(files.length > 0 ? { files } : {}) },
+      { body: { context } }
+    );
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -462,7 +746,12 @@ export function AgentChatSheet({ open, onOpenChange }: AgentChatSheetProps) {
               variant="ghost"
               size="icon-sm"
               aria-label="New chat"
-              onClick={() => setMessages([])}
+              onClick={() => {
+                stop();
+                setMessages([]);
+                setAttachments([]);
+                setAttachmentError(null);
+              }}
               disabled={busy && messages.length === 0}
             >
               <HugeiconsIcon icon={Add01Icon} strokeWidth={2} />
@@ -560,7 +849,6 @@ export function AgentChatSheet({ open, onOpenChange }: AgentChatSheetProps) {
                       ))}
                     </div>
                   ) : null}
-                  {!input.trim() ? <RotatingTip /> : null}
                 </div>
               </div>
             ) : (
@@ -587,7 +875,51 @@ export function AgentChatSheet({ open, onOpenChange }: AgentChatSheetProps) {
           className="shrink-0 space-y-(--space-3) border-t border-[var(--color-line)] bg-[var(--color-surface-sunk)] p-(--space-5)"
         >
           <AshTray />
-          <div className="rounded-(--radius-lg) border border-[var(--color-line)] bg-[var(--color-surface)] p-(--space-4) focus-within:border-[var(--color-accent)] focus-within:shadow-[0_0_0_4px_var(--color-accent-soft)]">
+          <div>
+            {!tipDismissed ? (
+              <ComposerTip
+                onDismiss={() => {
+                  window.localStorage.setItem(ASH_TIP_DISMISS_KEY, "1");
+                  setTipDismissed(true);
+                }}
+              />
+            ) : null}
+            <div
+              className={cn(
+                "rounded-(--radius-lg) border border-[var(--color-line)] bg-[var(--color-surface)] p-(--space-4) focus-within:border-[var(--color-accent)] focus-within:shadow-[0_0_0_4px_var(--color-accent-soft)]",
+                !tipDismissed && "rounded-t-none"
+              )}
+            >
+            {attachments.length > 0 ? (
+              <div className="mb-(--space-3) flex flex-wrap gap-(--space-3)">
+                {attachments.map((attachment) => (
+                  <div key={attachment.id} className="relative">
+                    <AttachmentPreview
+                      filename={attachment.filename}
+                      mediaType={attachment.mediaType}
+                      url={attachment.url}
+                    />
+                    <button
+                      type="button"
+                      aria-label={`Remove ${attachment.filename}`}
+                      onClick={() =>
+                        setAttachments((current) =>
+                          current.filter((entry) => entry.id !== attachment.id)
+                        )
+                      }
+                      className="absolute -right-(--space-2) -top-(--space-2) flex size-(--space-7) items-center justify-center rounded-(--radius-full) border border-[var(--color-line)] bg-[var(--color-surface)] text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]"
+                    >
+                      <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} className="size-(--space-4)" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {attachmentError ? (
+              <p className="mb-(--space-3) text-[length:var(--text-xs)] text-[var(--status-danger-ink)]">
+                {attachmentError}
+              </p>
+            ) : null}
             <Textarea
               ref={textareaRef}
               value={input}
@@ -598,11 +930,39 @@ export function AgentChatSheet({ open, onOpenChange }: AgentChatSheetProps) {
                   event.currentTarget.form?.requestSubmit();
                 }
               }}
+              onPaste={(event) => {
+                const files = event.clipboardData?.files;
+                if (files && files.length > 0) {
+                  event.preventDefault();
+                  void addAttachments(files);
+                }
+              }}
               rows={2}
               placeholder={promptPreview ?? "Ask Ash..."}
               className="max-h-40 min-h-(--height-input-lg) resize-none border-0 bg-transparent p-0 shadow-none focus-visible:shadow-none"
             />
             <div className="mt-(--space-4) flex items-center gap-(--space-4)">
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept={ATTACHMENT_ACCEPT}
+                className="hidden"
+                onChange={(event) => {
+                  if (event.target.files) void addAttachments(event.target.files);
+                  event.target.value = "";
+                }}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Attach files"
+                onClick={() => fileInputRef.current?.click()}
+                className="rounded-(--radius-full) text-[var(--color-ink-faint)]"
+              >
+                <HugeiconsIcon icon={Attachment01Icon} strokeWidth={2} />
+              </Button>
               <span className="flex-1" />
               {busy ? (
                 <Button
@@ -620,12 +980,13 @@ export function AgentChatSheet({ open, onOpenChange }: AgentChatSheetProps) {
                   type="submit"
                   size="icon-sm"
                   aria-label="Send message"
-                  disabled={!input.trim()}
+                  disabled={!input.trim() && attachments.length === 0}
                   className="rounded-(--radius-full)"
                 >
                   <HugeiconsIcon icon={ArrowUp02Icon} strokeWidth={2} />
                 </Button>
               )}
+            </div>
             </div>
           </div>
         </form>

@@ -90,9 +90,11 @@ export function buildOnboardingImportDocumentTools(files: OnboardingImportAgentF
       name: "read_uploaded_file_text",
       description:
         "Read text from an onboarding upload. For workbooks, this returns structured sheets, relevant cells, formulas, comments, and inventory signal indexes.",
+      // Strict function schemas reject `.optional()` — nullable is the
+      // "omit" signal across all agent tools.
       inputSchema: z.object({
         fileId: z.string(),
-        maxChars: z.number().int().positive().max(200_000).optional(),
+        maxChars: z.number().int().positive().max(200_000).nullable(),
       }),
       outputSchema: z.object({
         fileId: z.string(),

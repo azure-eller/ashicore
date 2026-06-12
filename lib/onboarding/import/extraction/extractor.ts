@@ -1,16 +1,17 @@
 import "server-only";
 
-import OpenAI from "openai";
-import type { ResponseInputContent } from "openai/resources/responses/responses";
-import { zodTextFormat } from "openai/helpers/zod";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { parse } from "csv-parse/sync";
+import { runAgentTask, type AgentUserContent } from "@/lib/agent/core";
+import { createOpenAIResponsesAgentProvider } from "@/lib/agent/providers/openai-responses";
 import { partialImportPackageSchema, type PartialImportPackage } from "../types";
 import { workbookCurrentInventoryHeaderCandidates, workbookRowText, workbookSheetRole, workbookToStructuredText } from "./workbook-reader";
 import {
   allowedImportUoms,
   allowedImportUomSet,
-  buildOnboardingImportCorrectionPrompt,
+  buildOnboardingImportPrompt,
+  createOnboardingImportAgentTask,
   onboardingModelPackageSchema,
   onboardingModelProvenanceSchema,
 } from "./agent-contract";
@@ -26,7 +27,7 @@ export type ImportExtractionFile = {
 export type ImportExtractionAttempt = {
   attempt: number;
   correctionErrors: string[];
-  status: "invalid_response" | "schema_error" | "validation_error" | "accepted";
+  status: "schema_error" | "validation_error" | "accepted";
   parsedPackage: unknown;
   normalizedPackage?: PartialImportPackage;
   errors: string[];
@@ -35,18 +36,6 @@ export type ImportExtractionAttempt = {
 export type ImportExtractionOptions = {
   onAttempt?: (attempt: ImportExtractionAttempt) => void | Promise<void>;
 };
-
-function textFromBytes(file: ImportExtractionFile) {
-  if (
-    file.contentType === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-    file.contentType === "application/vnd.ms-excel" ||
-    /\.xlsx?$/i.test(file.filename)
-  ) {
-    return workbookToStructuredText(file.bytes);
-  }
-
-  return file.bytes.toString("utf8");
-}
 
 function assertExtractorConfigured() {
   if (!env.OPENAI_API_KEY) {
@@ -58,42 +47,30 @@ function dataUrl(contentType: string, bytes: Buffer) {
   return `data:${contentType};base64,${bytes.toString("base64")}`;
 }
 
-function buildUserContent(
-  file: ImportExtractionFile,
-  correctionErrors: string[] = [],
-  previousPackage: unknown = null,
-): ResponseInputContent[] {
-  const prompt = buildOnboardingImportCorrectionPrompt({
-    file,
-    correctionErrors,
-    previousPackage,
-  });
+// Workbooks/CSVs are read by the agent through the document tools; binary
+// formats the tools can't inline (images, PDFs) ride the task input as
+// native multimodal parts instead.
+function buildTaskInput(file: ImportExtractionFile): AgentUserContent {
+  const prompt = [
+    buildOnboardingImportPrompt(file),
+    `\nThe upload is available to your document tools: call read_uploaded_file_text with fileId "${file.id}" to read it (list_uploaded_files shows what is attached).`,
+  ].join("\n");
 
   if (file.contentType.startsWith("image/")) {
     return [
-      { type: "input_text", text: prompt },
-      {
-        type: "input_image",
-        detail: "high",
-        image_url: dataUrl(file.contentType, file.bytes),
-      },
+      { type: "text", text: prompt },
+      { type: "image", detail: "high", dataUrl: dataUrl(file.contentType, file.bytes) },
     ];
   }
 
   if (file.contentType === "application/pdf") {
     return [
-      { type: "input_text", text: prompt },
-      {
-        type: "input_file",
-        filename: file.filename,
-        file_data: dataUrl(file.contentType, file.bytes),
-      },
+      { type: "text", text: prompt },
+      { type: "file", filename: file.filename, dataUrl: dataUrl(file.contentType, file.bytes) },
     ];
   }
 
-  return [
-    { type: "input_text", text: `${prompt}\n\nFilename: ${file.filename}\n\n${textFromBytes(file)}` },
-  ];
+  return prompt;
 }
 
 function optional<T>(value: T | null): T | undefined {
@@ -687,83 +664,102 @@ function zodIssuesToCorrectionErrors(error: z.ZodError) {
   });
 }
 
+// Generous bound: corrections and document-tool reads each consume a turn,
+// so this spans the legacy 4 model attempts plus tool traffic between them.
+const MAX_EXTRACTION_TURNS = 16;
+
 export async function extractImportPackage(
   file: ImportExtractionFile,
   options: ImportExtractionOptions = {},
 ): Promise<PartialImportPackage> {
   assertExtractorConfigured();
 
-  const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
-  let correctionErrors: string[] = [];
-  let previousPackage: unknown = null;
+  let accepted: PartialImportPackage | null = null;
+  let lastErrors: string[] = ["Return a complete import package matching the requested schema."];
+  let attempt = 0;
 
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    const response = await client.responses.parse({
-      model: env.OPENAI_IMPORT_MODEL ?? "gpt-5.4-mini",
-      input: [
-        {
-          role: "user",
-          content: buildUserContent(file, correctionErrors, previousPackage),
-        },
-      ],
-      text: {
-        format: zodTextFormat(onboardingModelPackageSchema, "onboarding_import_package"),
-      },
-    });
+  const run = runAgentTask({
+    task: createOnboardingImportAgentTask([
+      { id: file.id, filename: file.filename, contentType: file.contentType, bytes: file.bytes },
+    ]),
+    provider: createOpenAIResponsesAgentProvider({
+      model: env.OPENAI_IMPORT_MODEL ?? undefined,
+      // The provider default ({ effort: "low" }) is tuned for interactive chat
+      // latency; extraction is a background worker where accuracy wins.
+      reasoning: { effort: "medium" },
+    }),
+    input: buildTaskInput(file),
+    run: {
+      runId: randomUUID(),
+      now: new Date().toISOString(),
+      abortSignal: new AbortController().signal,
+      artifacts: null,
+      member: null,
+    },
+    maxTurns: MAX_EXTRACTION_TURNS,
+    outputSchema: onboardingModelPackageSchema,
+    // The deterministic gate replaces the legacy correction loop: rejected
+    // output feeds the errors back to the model as the next turn's input,
+    // with the prior package already in the transcript for repair.
+    validateFinalOutput: async ({ output }) => {
+      attempt += 1;
 
-    if (!response.output_parsed) {
-      correctionErrors = ["Return a complete import package matching the requested schema."];
-      await options.onAttempt?.({
-        attempt: attempt + 1,
-        correctionErrors,
-        status: "invalid_response",
-        parsedPackage: null,
-        errors: correctionErrors,
-      });
-      continue;
-    }
-
-    previousPackage = response.output_parsed;
-
-    let extracted: PartialImportPackage;
-    try {
-      extracted = alignCsvOpeningStock(toPartialImportPackage(response.output_parsed), file);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        correctionErrors = zodIssuesToCorrectionErrors(error);
-        await options.onAttempt?.({
-          attempt: attempt + 1,
-          correctionErrors,
-          status: "schema_error",
-          parsedPackage: response.output_parsed,
-          errors: correctionErrors,
-        });
-        continue;
+      let extracted: PartialImportPackage;
+      try {
+        extracted = alignCsvOpeningStock(
+          toPartialImportPackage(onboardingModelPackageSchema.parse(output)),
+          file,
+        );
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          lastErrors = zodIssuesToCorrectionErrors(error);
+          await options.onAttempt?.({
+            attempt,
+            correctionErrors: lastErrors,
+            status: "schema_error",
+            parsedPackage: output,
+            errors: lastErrors,
+          });
+          return { ok: false, errors: lastErrors };
+        }
+        throw error;
       }
-      throw error;
-    }
 
-    correctionErrors = validateExtractedPackage(extracted, file);
-    if (correctionErrors.length === 0) {
+      const errors = validateExtractedPackage(extracted, file);
+      if (errors.length === 0) {
+        accepted = extracted;
+        await options.onAttempt?.({
+          attempt,
+          correctionErrors: [],
+          status: "accepted",
+          parsedPackage: output,
+          normalizedPackage: extracted,
+          errors: [],
+        });
+        return { ok: true };
+      }
+
+      lastErrors = errors;
       await options.onAttempt?.({
-        attempt: attempt + 1,
-        correctionErrors: [],
-        status: "accepted",
-        parsedPackage: response.output_parsed,
+        attempt,
+        correctionErrors: errors,
+        status: "validation_error",
+        parsedPackage: output,
         normalizedPackage: extracted,
-        errors: [],
+        errors,
       });
-      return extracted;
+      return { ok: false, errors };
+    },
+  });
+
+  for await (const event of run) {
+    if (event.type === "run_completed" && accepted) {
+      return accepted;
     }
-    await options.onAttempt?.({
-      attempt: attempt + 1,
-      correctionErrors,
-      status: "validation_error",
-      parsedPackage: response.output_parsed,
-      normalizedPackage: extracted,
-      errors: correctionErrors,
-    });
+    if (event.type === "run_failed") {
+      throw new Error(`Extractor returned invalid import data: ${lastErrors.join(" ")} (${event.error})`);
+    }
   }
 
-  throw new Error(`Extractor returned invalid import data: ${correctionErrors.join(" ")}`);
+  throw new Error(`Extractor returned invalid import data: ${lastErrors.join(" ")}`);
 }

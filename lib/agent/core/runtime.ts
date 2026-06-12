@@ -8,10 +8,21 @@ export type AgentToolCall = {
   input: unknown;
 };
 
+/**
+ * Multimodal user content. Images and files carry data URLs; providers map
+ * them to their native input parts (e.g. Responses `input_image`/`input_file`).
+ */
+export type AgentUserContentPart =
+  | { type: "text"; text: string }
+  | { type: "image"; dataUrl: string; detail?: "low" | "high" | "auto" }
+  | { type: "file"; filename: string; dataUrl: string };
+
+export type AgentUserContent = string | AgentUserContentPart[];
+
 export type AgentRuntimeMessage =
   | {
       role: "user";
-      content: string;
+      content: AgentUserContent;
     }
   | {
       role: "assistant";
@@ -183,7 +194,7 @@ export type AgentRuntimeEvent =
 export type AgentRuntimeOptions = {
   task: ReturnType<typeof defineAgentTask>;
   provider: AgentModelProvider;
-  input: string;
+  input: AgentUserContent;
   /** Prior conversation turns seeded before `input` (e.g. a chat transcript). */
   history?: AgentRuntimeMessage[];
   run: Omit<AgentToolContext, "artifacts"> & {

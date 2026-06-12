@@ -51,23 +51,6 @@ export function buildOnboardingImportPrompt(file: OnboardingImportPromptFile) {
   );
 }
 
-export function buildOnboardingImportCorrectionPrompt(args: {
-  file: OnboardingImportPromptFile;
-  correctionErrors: string[];
-  previousPackage: unknown;
-}) {
-  const previousPackageText =
-    args.previousPackage == null
-      ? ""
-      : `\n\nPrevious invalid package JSON. Repair this package instead of starting over; preserve valid records and references unless a validation error names them:\n${JSON.stringify(args.previousPackage, null, 2)}`;
-
-  if (args.correctionErrors.length === 0) {
-    return buildOnboardingImportPrompt(args.file);
-  }
-
-  return `${buildOnboardingImportPrompt(args.file)}\n\nYour previous extraction failed deterministic validation. Correct only these issues and return the full corrected package. Preserve valid units, items, partners, BOMs, and openingStock rows; do not fix one issue by deleting unrelated valid records. Keep every item/unit/reference pair internally consistent. When current inventory signals exist, do not solve unit/name validation errors by deleting all openingStock; repair the unit definitions and keep reviewable openingStock rows with unitCost null when cost is missing. If a row is ambiguous, keep the best reviewable record and add an unresolvedQuestion rather than dropping the whole entity type:\n${args.correctionErrors.map((error) => `- ${error}`).join("\n")}${previousPackageText}`;
-}
-
 export const onboardingModelProvenanceSchema = z.object({
   fileId: z.string(),
   location: z.string().nullable(),
@@ -188,6 +171,11 @@ export function createOnboardingImportAgentTask(files: OnboardingImportAgentFile
         id: "onboarding-import-contract",
         tier: "task",
         text: onboardingImportContractText,
+      },
+      {
+        id: "onboarding-import-correction",
+        tier: "task",
+        text: "When deterministic validation rejects your package, correct only the named issues and return the full corrected package. Preserve valid units, items, partners, BOMs, and openingStock rows; do not fix one issue by deleting unrelated valid records. Keep every item/unit/reference pair internally consistent. When current inventory signals exist, do not solve unit/name validation errors by deleting all openingStock; repair the unit definitions and keep reviewable openingStock rows with unitCost null when cost is missing. If a row is ambiguous, keep the best reviewable record and add an unresolvedQuestion rather than dropping the whole entity type.",
       },
     ],
     tools: buildOnboardingImportDocumentTools(files),
