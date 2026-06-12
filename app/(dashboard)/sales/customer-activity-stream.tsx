@@ -275,7 +275,7 @@ export function ActivitySection({
         </Button>
       }
     >
-      <div className="grid gap-(--space-8)">
+      <div className="grid gap-(--space-10)">
         {!readOnly ? (
           <div className="grid gap-0 rounded-(--radius-md) border-[1.5px] border-[var(--color-line)] transition-[border-color,box-shadow] duration-(--duration-1) ease-(--ease-out) focus-within:border-[var(--color-accent)] focus-within:shadow-[0_0_0_4px_var(--color-accent-soft)]">
             <div className="flex flex-wrap items-center gap-(--space-2) p-(--space-4) pb-0">
@@ -288,7 +288,7 @@ export function ActivitySection({
                     variant="outline"
                     aria-pressed={type === option}
                     className={cn(
-                      "rounded-full font-normal",
+                      "rounded-full font-medium",
                       type === option
                         ? "border-transparent bg-[var(--color-accent-soft)] text-[var(--color-accent-ink)] hover:bg-[var(--color-accent-soft)]"
                         : "text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]"
@@ -349,7 +349,7 @@ export function ActivitySection({
                 </div>
               ) : null}
             </div>
-            <div className="flex flex-wrap items-center gap-(--space-3) border-t border-[var(--color-line)] bg-[var(--color-surface-alt)] p-(--space-3)">
+            <div className="flex flex-wrap items-center gap-(--space-3) border-t border-[var(--color-line)] bg-[var(--color-surface-alt)] p-(--space-4)">
               <Select
                 value={projectId}
                 onValueChange={(value) => {
@@ -584,7 +584,7 @@ function ActivityStreamLists({
                 return (
                   <li
                     key={task.id}
-                    className="flex items-center gap-(--space-3) py-(--space-3)"
+                    className="flex items-center gap-(--space-3) py-(--space-6)"
                   >
                     <button
                       type="button"
@@ -604,7 +604,7 @@ function ActivityStreamLists({
                         className="size-(--space-7)"
                       />
                     </button>
-                    <span className="min-w-0 truncate text-[length:var(--text-sm)]">
+                    <span className="min-w-0 truncate text-[length:var(--text-md)]">
                       {renderWithMentions(task.title ?? "", task.attendees, onFilterChange)}
                     </span>
                     {task.projectName && task.customerProjectId ? (
@@ -652,7 +652,7 @@ function ActivityStreamLists({
         ) : null}
 
         {timelineMonths.length > 0 ? (
-          <div className="grid gap-(--space-5)">
+          <div className="grid gap-(--space-8)">
             {timelineMonths.map((month) => (
               <div key={month.label} className="grid gap-(--space-3)">
                 <div className="flex items-center gap-(--space-4)">
@@ -661,33 +661,35 @@ function ActivityStreamLists({
                 </div>
                 <ul className="divide-y divide-[var(--color-line-2)]">
                   {month.entries.map((entry) => (
-                    <li key={entry.id} className="flex gap-(--space-4) py-(--space-3)">
+                    <li key={entry.id} className="flex gap-(--space-6) py-(--space-7)">
                       {entry.type === "task" ? (
-                        <Checkbox
-                          aria-label={`Reopen "${entry.title}"`}
-                          checked
-                          disabled={readOnly || pending}
-                          className="mt-(--space-1) size-(--space-12) rounded-full data-checked:border-transparent data-checked:bg-[var(--color-success-soft)] data-checked:text-[var(--status-success-ink)]"
-                          onCheckedChange={() =>
-                            onToggle({
-                              activityId: entry.id,
-                              status: "open",
-                            })
-                          }
-                        />
+                        <span className="mt-(--space-1) flex size-(--space-16) shrink-0 items-center justify-center">
+                          <Checkbox
+                            aria-label={`Reopen "${entry.title}"`}
+                            checked
+                            disabled={readOnly || pending}
+                            className="size-(--space-12) rounded-full data-checked:border-transparent data-checked:bg-[var(--color-success-soft)] data-checked:text-[var(--status-success-ink)]"
+                            onCheckedChange={() =>
+                              onToggle({
+                                activityId: entry.id,
+                                status: "open",
+                              })
+                            }
+                          />
+                        </span>
                       ) : (
                         <span className="mt-(--space-1) flex size-(--space-16) shrink-0 items-center justify-center rounded-full border border-[var(--color-line)] bg-[var(--color-surface-alt)] text-[var(--color-ink-soft)]">
                           <HugeiconsIcon
                             icon={activityTimelineIcons[entry.type]}
-                            className="size-(--space-7)"
+                            className="size-(--space-8)"
                           />
                         </span>
                       )}
                       <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-(--space-3)">
+                        <div className="flex flex-wrap items-baseline gap-(--space-4)">
                           <span
                             className={cn(
-                              "font-mono text-[length:var(--text-2xs)] font-medium uppercase tracking-wide",
+                              "font-mono text-[length:var(--text-xs)] font-semibold uppercase tracking-wide",
                               entry.type === "task"
                                 ? "text-[var(--status-success-ink)]"
                                 : "text-[var(--color-accent-ink)]"
@@ -697,7 +699,7 @@ function ActivityStreamLists({
                             {entry.type === "task" ? " · Done" : ""}
                           </span>
                           {entry.createdByName ? (
-                            <span className="text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
+                            <span className="text-[length:var(--text-base)] font-semibold text-[var(--color-ink)]">
                               {entry.createdByName}
                             </span>
                           ) : null}
@@ -718,12 +720,12 @@ function ActivityStreamLists({
                           ) : null}
                         </div>
                         {entry.title ? (
-                          <p className="mt-(--space-2) max-w-[72ch] text-[length:var(--text-sm)]">
+                          <p className="mt-(--space-3) max-w-[72ch] text-[length:var(--text-md)] leading-[var(--leading-md)]">
                             {renderWithMentions(entry.title, entry.attendees, onFilterChange)}
                           </p>
                         ) : null}
                         {entry.body ? (
-                          <p className="mt-(--space-2) max-w-[72ch] whitespace-pre-wrap text-[length:var(--text-sm)] leading-[var(--leading-md)] text-[var(--color-ink)]">
+                          <p className="mt-(--space-3) max-w-[72ch] whitespace-pre-wrap text-[length:var(--text-md)] leading-[var(--leading-md)] text-[var(--color-ink-2)]">
                             {renderWithMentions(entry.body, entry.attendees, onFilterChange)}
                           </p>
                         ) : null}
