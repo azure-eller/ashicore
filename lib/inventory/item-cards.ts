@@ -31,6 +31,13 @@ import {
   variantOptions,
 } from "@/lib/db/schema";
 import { trimScaleNullable } from "@/lib/db/numeric";
+import {
+  itemCardCreateSchema,
+  itemCardDocUpdateSchema,
+  itemCardUpdateSchema,
+  itemCardVariantCreateSchema,
+  itemCardVariantUpdateSchema,
+} from "@/lib/schemas/item-cards";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import { DomainError } from "@/lib/errors/domain-error";
@@ -38,16 +45,6 @@ import {
   beginInventoryOperationInTx,
   finishInventoryOperationInTx,
 } from "@/lib/inventory/kernel";
-import {
-  isNonNegativeNumberString,
-  nullableString,
-  nullableStringPreserveUndefined,
-  optionalMoneyString,
-  optionalNonNegativeDecimalInputPreserveUndefined,
-  optionalNonNegativeDecimalString,
-  optionalPositiveDecimalString,
-  optionalPositiveDecimalStringPreserveUndefined,
-} from "@/lib/schemas/shared";
 import { projectedOnHandQty } from "@/lib/inventory/kernel/read";
 import { getEstimatedRecipeCostSummariesByItemIdInTx } from "@/lib/inventory/estimated-cost";
 import {
@@ -81,8 +78,6 @@ export class ItemCardError extends DomainError {
   }
 }
 
-const nullableText = nullableString;
-const patchNullableText = nullableStringPreserveUndefined;
 const CLONE_NAME_PREFIX = "Copy of ";
 const ITEM_NAME_MAX_LENGTH = 255;
 
@@ -90,8 +85,6 @@ function cloneName(name: string) {
   const maxSourceLength = ITEM_NAME_MAX_LENGTH - CLONE_NAME_PREFIX.length;
   return `${CLONE_NAME_PREFIX}${name.slice(0, maxSourceLength).trimEnd()}`;
 }
-
-const lotTrackingModeSchema = z.enum(LOT_TRACKING_MODES);
 
 const variantOptionValueInputSchema = z.object({
   id: z.string().uuid().optional(),
@@ -121,137 +114,18 @@ export const copyVariantConfigSchema = z.object({
   sourceItemId: z.string().uuid(),
 });
 
-export const itemCardCreateSchema = z.object({
-  itemType: z.enum(["product", "material"]),
-  name: z.string().trim().min(1, "Name is required"),
-  category: nullableText,
-  description: nullableText,
-  unitDefinitionId: z.string().uuid("Unit is required"),
-  defaultSupplierId: z.string().uuid().nullable().optional(),
-  purchaseUnitDefinitionId: z.string().uuid().nullable().optional(),
-  purchaseToStockFactor: optionalPositiveDecimalString("Purchase-to-stock factor"),
-  sku: nullableText,
-  sellable: z.boolean().optional(),
-  defaultSellingPrice: optionalMoneyString("Default selling price"),
-  defaultPurchasePrice: optionalMoneyString("Default purchase price"),
-  currentStockUnitCost: optionalNonNegativeDecimalString("Current stock unit cost"),
-  registeredBarcode: nullableText,
-  internalBarcode: nullableText,
-  supplierItemCode: nullableText,
-  defaultLeadTimeDays: z.number().int().nonnegative().nullable().optional(),
-  minimumOrderQuantity: optionalPositiveDecimalString("Minimum order quantity"),
-  lotTrackingMode: lotTrackingModeSchema.optional(),
-}).superRefine((data, ctx) => {
-  if (data.itemType === "product") {
-    for (const field of [
-      "defaultSupplierId",
-      "purchaseUnitDefinitionId",
-      "purchaseToStockFactor",
-    ] as const) {
-      if (data[field] != null) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: [field],
-          message: "This field is only supported for material cards",
-        });
-      }
-    }
-  }
-
-  if (
-    data.itemType === "material" &&
-    data.purchaseUnitDefinitionId &&
-    !data.purchaseToStockFactor
-  ) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["purchaseToStockFactor"],
-      message: "Purchase-to-stock factor is required when purchase unit is set",
-    });
-  }
-});
-
-export const itemCardUpdateSchema = z.object({
-  name: z.string().trim().min(1, "Name is required").optional(),
-  category: patchNullableText,
-  description: patchNullableText,
-  unitDefinitionId: z.string().uuid("Unit is required").optional(),
-  defaultSupplierId: z.string().uuid().nullable().optional(),
-  purchaseUnitDefinitionId: z.string().uuid().nullable().optional(),
-  purchaseToStockFactor: optionalPositiveDecimalStringPreserveUndefined(
-    "Purchase-to-stock factor",
-  ),
-  lotTrackingMode: lotTrackingModeSchema.optional(),
-}).superRefine((data, ctx) => {
-  if (
-    data.purchaseUnitDefinitionId &&
-    data.purchaseToStockFactor === null
-  ) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["purchaseToStockFactor"],
-      message: "Purchase-to-stock factor is required when purchase unit is set",
-    });
-  }
-});
-
-/**
- * Variant-level field PATCH for the card UI. Updates fields that live on
- * `inventory.items` for a single focused variant (not the family). All fields
- * are optional — only those present are applied, matching the inline-cell
- * autosave pattern used by the card's variant table.
- */
-export const itemCardVariantUpdateSchema = z.object({
-  sku: patchNullableText,
-  registeredBarcode: patchNullableText,
-  internalBarcode: patchNullableText,
-  supplierItemCode: patchNullableText,
-  defaultLeadTimeDays: z.number().int().nonnegative().nullable().optional(),
-  minimumOrderQuantity: optionalPositiveDecimalStringPreserveUndefined(
-    "Minimum order quantity",
-  ),
-  defaultSellingPrice: optionalNonNegativeDecimalInputPreserveUndefined(
-    "Default selling price",
-  ),
-  defaultPurchasePrice: optionalNonNegativeDecimalInputPreserveUndefined(
-    "Default purchase price",
-  ),
-  currentStockUnitCost: optionalNonNegativeDecimalInputPreserveUndefined(
-    "Current stock unit cost",
-  ),
-  safetyStock: z
-    .string()
-    .optional()
-    .transform((value) => {
-      if (value === undefined) return undefined;
-      return value.trim() || "0";
-    })
-    .refine(
-      (value) => value == null || isNonNegativeNumberString(value),
-      "Safety stock must be a non-negative number",
-    ),
-  sellable: z.boolean().optional(),
-  optionValueIdsByOptionId: z
-    .record(z.string().uuid(), z.string().uuid())
-    .optional(),
-});
-
-export const itemCardVariantCreateSchema = itemCardVariantUpdateSchema.extend({
-  optionValueIdsByOptionId: z.record(z.string().uuid(), z.string().uuid()),
-});
+export {
+  itemCardCreateSchema,
+  itemCardDocUpdateSchema,
+  itemCardUpdateSchema,
+  itemCardVariantCreateSchema,
+  itemCardVariantUpdateSchema,
+} from "@/lib/schemas/item-cards";
 
 export const generateVariantsSchema = z.object({
   combinations: z
     .array(z.record(z.string().uuid(), z.string().uuid()))
     .optional(),
-});
-
-export const itemCardSellableSchema = z.object({
-  sellable: z.boolean(),
-});
-
-export const reorderItemCardVariantsSchema = z.object({
-  orderedVariantIds: z.array(z.string().uuid()).min(1),
 });
 
 export type VariantOptionValueDto = {
@@ -310,6 +184,7 @@ export type ItemCardDto = {
     purchaseUnitDefinitionId: string | null;
     purchaseToStockFactor: string | null;
     lotTrackingMode: LotTrackingMode;
+    version: number;
     deletedAt: Date | null;
     createdAt: Date;
     updatedAt: Date;
@@ -511,6 +386,7 @@ async function getItemCardInTx(tx: Tx, itemId: string): Promise<ItemCardDto> {
           "purchaseToStockFactor",
         ),
         lotTrackingMode: itemFamilies.lotTrackingMode,
+        version: itemFamilies.version,
         deletedAt: itemFamilies.deletedAt,
         createdAt: itemFamilies.createdAt,
         updatedAt: itemFamilies.updatedAt,
@@ -1179,16 +1055,6 @@ export async function createItemCardInTx(
   return result;
 }
 
-export async function updateItemCard(
-  itemId: string,
-  data: z.infer<typeof itemCardUpdateSchema>,
-  options?: { idempotencyKey?: string | null },
-) {
-  return withAuthedOrgContext(async (tx, orgId, userId) => {
-    return updateItemCardInTx(tx, orgId, userId, itemId, data, options);
-  });
-}
-
 export async function updateItemCardInTx(
   tx: Tx,
   orgId: string,
@@ -1302,16 +1168,6 @@ export async function updateItemCardInTx(
  * inline-cell autosave (SKU, barcodes, supplier item code, lead time, MOQ,
  * pricing). Does not touch `item_families`.
  */
-export async function updateItemCardVariant(
-  itemId: string,
-  data: z.infer<typeof itemCardVariantUpdateSchema>,
-  options?: { idempotencyKey?: string | null },
-) {
-  return withAuthedOrgContext(async (tx, orgId) => {
-    return updateItemCardVariantInTx(tx, orgId, itemId, data, options);
-  });
-}
-
 export async function updateItemCardVariantInTx(
   tx: Tx,
   orgId: string,
@@ -1571,6 +1427,7 @@ export async function createItemCardVariant(
       })),
     );
     await recomputeVariantKeysInTx(tx, source.familyId);
+    await bumpItemFamilyVersionInTx(tx, source.familyId);
 
     const result = {
       itemId: variant.id,
@@ -1585,85 +1442,117 @@ export async function createItemCardVariant(
   });
 }
 
-export async function updateItemCardSellable(
-  itemId: string,
-  data: z.infer<typeof itemCardSellableSchema>,
-  options?: { idempotencyKey?: string | null },
+async function applyVariantOrderInTx(
+  tx: Tx,
+  familyId: string,
+  orderedVariantIds: string[],
 ) {
-  return withAuthedOrgContext(async (tx, orgId) => {
-    const replay = await beginInventoryOperationInTx<ItemCardDto>(tx, {
-      organizationId: orgId,
-      operationName: "updateItemCardSellable",
-      idempotencyKey: options?.idempotencyKey ?? null,
-      payload: { itemId, data },
-    });
-    if (replay.replayed) return replay.result;
+  const uniqueIds = [...new Set(orderedVariantIds)];
+  if (uniqueIds.length !== orderedVariantIds.length) {
+    throw new ItemCardError("Variant order cannot include duplicates");
+  }
 
-    const familyId = await resolveFamilyIdInTx(tx, itemId);
-    await tx
-      .select({ id: items.id })
-      .from(items)
-      .where(and(eq(items.familyId, familyId), isNull(items.deletedAt)))
-      .orderBy(asc(items.id))
-      .for("update");
+  const currentVariants = await tx
+    .select({ id: items.id })
+    .from(items)
+    .where(and(eq(items.familyId, familyId), isNull(items.deletedAt)))
+    .orderBy(asc(items.id))
+    .for("update");
+  const currentIds = currentVariants.map((variant) => variant.id);
+  if (
+    uniqueIds.length !== currentIds.length ||
+    uniqueIds.some((variantId) => !currentIds.includes(variantId))
+  ) {
+    throw new ItemCardError("Variant order must include every visible variant on this card");
+  }
 
+  for (const [sortOrder, variantId] of uniqueIds.entries()) {
     await tx
       .update(items)
-      .set({ sellable: data.sellable, updatedAt: new Date() })
-      .where(and(eq(items.familyId, familyId), isNull(items.deletedAt)));
-
-    const result = await getItemCardInTx(tx, itemId);
-    await finishInventoryOperationInTx(tx, {
-      organizationId: orgId,
-      idempotencyKey: options?.idempotencyKey ?? null,
-      result,
-    });
-    return result;
-  });
+      .set({ sortOrder, updatedAt: new Date() })
+      .where(eq(items.id, variantId));
+  }
 }
 
-export async function reorderItemCardVariants(
+async function bumpItemFamilyVersionInTx(tx: Tx, familyId: string) {
+  await tx
+    .update(itemFamilies)
+    .set({
+      version: sql`${itemFamilies.version} + 1`,
+      updatedAt: new Date(),
+    })
+    .where(eq(itemFamilies.id, familyId));
+}
+
+export type ItemCardDocUpdateResult =
+  | { kind: "updated"; card: ItemCardDto }
+  | { kind: "conflict"; current: ItemCardDto };
+
+/**
+ * The consolidated card-document save: family fields, per-variant fields,
+ * and variant order apply in one transaction under one idempotency key,
+ * guarded by the family row's version when the caller sends expectedVersion.
+ */
+export async function updateItemCardDoc(
   itemId: string,
-  data: z.infer<typeof reorderItemCardVariantsSchema>,
+  data: z.infer<typeof itemCardDocUpdateSchema>,
   options?: { idempotencyKey?: string | null },
-) {
-  return withAuthedOrgContext(async (tx, orgId) => {
-    const replay = await beginInventoryOperationInTx<ItemCardDto>(tx, {
+): Promise<ItemCardDocUpdateResult> {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<ItemCardDocUpdateResult>(tx, {
       organizationId: orgId,
-      operationName: "reorderItemCardVariants",
+      operationName: "updateItemCardDoc",
       idempotencyKey: options?.idempotencyKey ?? null,
       payload: { itemId, data },
     });
     if (replay.replayed) return replay.result;
 
     const familyId = await resolveFamilyIdInTx(tx, itemId);
-    const uniqueIds = [...new Set(data.orderedVariantIds)];
-    if (uniqueIds.length !== data.orderedVariantIds.length) {
-      throw new ItemCardError("Variant order cannot include duplicates");
+    const { expectedVersion, family, variants, variantOrder } = data;
+
+    const [bumped] = await tx
+      .update(itemFamilies)
+      .set({
+        version: sql`${itemFamilies.version} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(itemFamilies.id, familyId),
+          ...(expectedVersion != null
+            ? [eq(itemFamilies.version, expectedVersion)]
+            : []),
+        ),
+      )
+      .returning({ id: itemFamilies.id });
+
+    if (!bumped) {
+      const result: ItemCardDocUpdateResult = {
+        kind: "conflict",
+        current: await getItemCardInTx(tx, itemId),
+      };
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result,
+      });
+      return result;
     }
 
-    const currentVariants = await tx
-      .select({ id: items.id })
-      .from(items)
-      .where(and(eq(items.familyId, familyId), isNull(items.deletedAt)))
-      .orderBy(asc(items.id))
-      .for("update");
-    const currentIds = currentVariants.map((variant) => variant.id);
-    if (
-      uniqueIds.length !== currentIds.length ||
-      uniqueIds.some((variantId) => !currentIds.includes(variantId))
-    ) {
-      throw new ItemCardError("Variant order must include every visible variant on this card");
+    if (family) {
+      await updateItemCardInTx(tx, orgId, userId, itemId, family);
+    }
+    for (const { id: variantId, ...patch } of variants ?? []) {
+      await updateItemCardVariantInTx(tx, orgId, variantId, patch);
+    }
+    if (variantOrder) {
+      await applyVariantOrderInTx(tx, familyId, variantOrder);
     }
 
-    for (const [sortOrder, variantId] of uniqueIds.entries()) {
-      await tx
-        .update(items)
-        .set({ sortOrder, updatedAt: new Date() })
-        .where(eq(items.id, variantId));
-    }
-
-    const result = await getItemCardInTx(tx, itemId);
+    const result: ItemCardDocUpdateResult = {
+      kind: "updated",
+      card: await getItemCardInTx(tx, itemId),
+    };
     await finishInventoryOperationInTx(tx, {
       organizationId: orgId,
       idempotencyKey: options?.idempotencyKey ?? null,
@@ -1947,6 +1836,7 @@ export async function updateVariantConfig(
     }
 
     await recomputeVariantKeysInTx(tx, familyId);
+    await bumpItemFamilyVersionInTx(tx, familyId);
     const result = await getItemCardInTx(tx, itemId);
     await finishInventoryOperationInTx(tx, {
       organizationId: orgId,
@@ -2197,6 +2087,10 @@ export async function generateVariants(
       );
     }
 
+    if (selected.length > 0) {
+      await bumpItemFamilyVersionInTx(tx, source.familyId);
+    }
+
     const result = { created };
     await finishInventoryOperationInTx(tx, {
       organizationId: orgId,
@@ -2360,6 +2254,7 @@ export async function deleteVariant(
         .update(items)
         .set({ deletedAt: new Date(), updatedAt: new Date() })
         .where(eq(items.id, variant.id));
+      await bumpItemFamilyVersionInTx(tx, variant.familyId);
       const result = { deleted: true, hardDeleted: false };
       await finishInventoryOperationInTx(tx, {
         organizationId: orgId,
@@ -2371,6 +2266,7 @@ export async function deleteVariant(
 
     await tx.delete(itemVariantValues).where(eq(itemVariantValues.itemId, variant.id));
     await tx.delete(items).where(eq(items.id, variant.id));
+    await bumpItemFamilyVersionInTx(tx, variant.familyId);
     const result = { deleted: true, hardDeleted: true };
     await finishInventoryOperationInTx(tx, {
       organizationId: orgId,

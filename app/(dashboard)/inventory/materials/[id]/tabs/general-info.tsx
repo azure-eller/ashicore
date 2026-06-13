@@ -38,7 +38,7 @@ export type MaterialGeneralInfoTabProps = {
   onVariantReorder: (orderedVariantIds: string[]) => void;
   onCreateVariant: (input: CreateItemCardVariantInput) => Promise<CreateItemCardResult | null>;
   onFocusedVariantDeleted: (nextVariantId: string) => void;
-  onFlush: () => Promise<void>;
+  onFlush: () => Promise<unknown>;
   variantsEnabled: boolean;
   onVariantsEnabledChange: (enabled: boolean) => void;
   canAdminInventory: boolean;

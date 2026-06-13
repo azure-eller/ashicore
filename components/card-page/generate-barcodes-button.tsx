@@ -12,7 +12,7 @@ export type GenerateBarcodesButtonProps = {
   variants: ItemCardVariantDto[];
   disabled?: boolean;
   onAssignBarcode: (variantId: string, barcode: string) => void;
-  onFlush: () => Promise<void>;
+  onFlush: () => Promise<unknown>;
 };
 
 /**

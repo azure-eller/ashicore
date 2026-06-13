@@ -113,7 +113,7 @@ export function ContactsSection({
   const onRowsChange = useCallback(
     (nextRows: ContactGridRow[], change: EditableLineDataGridChange<ContactGridRow>) => {
       setRows(nextRows);
-      if (change.type === "row_deleted" && change.row && !change.row.isNew) {
+      if (change.type === "row_deleted" && change.row) {
         onDelete(change.row.id);
         return;
       }
@@ -176,7 +176,8 @@ function textColumn<TData>(
 function newContactRow(): ContactGridRow {
   const now = new Date();
   return {
-    id: `new-${crypto.randomUUID()}`,
+    // A real uuid: the server persists this id when the row first saves.
+    id: crypto.randomUUID(),
     isNew: true,
     name: "",
     title: null,

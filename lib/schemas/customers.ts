@@ -2,7 +2,13 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { DEFAULT_COUNTRY } from "@/lib/addresses";
 import { customers } from "@/lib/db/schema";
-import { nullableString, nullableStringStrict } from "./shared";
+import { customerContactSchema } from "./customer-crm";
+import {
+  clientIdSchema,
+  expectedVersionSchema,
+  nullableString,
+  nullableStringStrict,
+} from "./shared";
 
 export const CUSTOMER_ACCOUNT_STATES = [
   "active",
@@ -47,15 +53,30 @@ const baseCustomerSchema = createInsertSchema(customers, {
 }).omit({
   id: true,
   organizationId: true,
+  version: true,
   deletedAt: true,
   createdAt: true,
   updatedAt: true,
 });
 
-export const insertCustomerSchema = baseCustomerSchema;
+/**
+ * Contacts ride inside the customer document; the server reconciles the
+ * array by id (insert new ids, update existing, soft-delete missing).
+ */
+export const customerContactsSchema = z.array(
+  customerContactSchema.extend({ id: clientIdSchema }),
+);
+
+export const insertCustomerSchema = baseCustomerSchema.extend({
+  id: clientIdSchema,
+  contacts: customerContactsSchema.optional(),
+});
 export type InsertCustomer = z.infer<typeof insertCustomerSchema>;
 
-export const updateCustomerSchema = baseCustomerSchema;
+export const updateCustomerSchema = baseCustomerSchema.extend({
+  expectedVersion: expectedVersionSchema,
+  contacts: customerContactsSchema.optional(),
+});
 export type UpdateCustomer = z.infer<typeof updateCustomerSchema>;
 
 export const patchCustomerSchema = z

@@ -1,34 +1,25 @@
 "use client";
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  createItemCard,
+  createItemCardDoc,
   createItemCardVariant,
-  updateItemCard,
-  updateItemCardSellable,
-  updateItemCardVariant,
-  reorderItemCardVariants,
+  updateItemCardDoc,
   type CreateItemCardResult,
   type CreateItemCardVariantInput,
   type ItemCardDto,
   type ItemCardVariantDto,
+  type UpdateItemCardDocInput,
   type UpdateItemCardInput,
   type UpdateItemCardVariantInput,
 } from "@/lib/api/clients/item-cards";
-import {
-  useDraftSaveEngine,
-  type QueuedDraftOp,
-} from "@/lib/hooks/use-draft-save-engine";
+import { itemCardDocUpdateSchema } from "@/lib/schemas/item-cards";
+import type { FlushOutcome } from "@/lib/card-kernel/kernel";
+import { useCardKernel } from "@/lib/card-kernel/use-card-kernel";
 import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
 import type { ItemType } from "@/lib/inventory/types";
 import { queryKeys } from "@/lib/client/query-keys";
-
-export type ItemCardDraftOp =
-  | { type: "patchFamily"; patch: UpdateItemCardInput }
-  | { type: "setSellable"; sellable: boolean }
-  | { type: "patchVariant"; variantId: string; patch: UpdateItemCardVariantInput }
-  | { type: "reorderVariants"; orderedVariantIds: string[] };
 
 export type ItemCardDraftController = {
   card: ItemCardDto;
@@ -47,7 +38,7 @@ export type ItemCardDraftController = {
   createVariant: (input: CreateItemCardVariantInput) => Promise<CreateItemCardResult | null>;
   reorderVariants: (orderedVariantIds: string[]) => void;
   mergeServerCard: (card: ItemCardDto) => void;
-  flush: () => Promise<void>;
+  flush: () => Promise<FlushOutcome>;
   resetToSaved: () => void;
 };
 
@@ -59,10 +50,77 @@ type UseItemCardDraftControllerConfig = {
   unitOptions: Array<{ id: string; name: string }>;
 };
 
-type ItemCardSaveResult = {
-  itemId: string;
-  card: ItemCardDto;
-};
+const VARIANT_PAYLOAD_KEYS = [
+  "sku",
+  "registeredBarcode",
+  "internalBarcode",
+  "supplierItemCode",
+  "defaultLeadTimeDays",
+  "minimumOrderQuantity",
+  "defaultSellingPrice",
+  "defaultPurchasePrice",
+  "sellable",
+  "optionValueIdsByOptionId",
+] as const;
+
+function serializeItemCard(draft: ItemCardDto): {
+  payload: UpdateItemCardDocInput;
+  pathAliases: Record<string, string>;
+} {
+  const activeVariants = draft.variants.filter(
+    (variant) => variant.deletedAt == null,
+  );
+  const pathAliases: Record<string, string> = {};
+  const variants = activeVariants.map((variant, index) => {
+    for (const key of VARIANT_PAYLOAD_KEYS) {
+      pathAliases[`variants.${index}.${key}`] = `variants.${variant.id}.${key}`;
+    }
+    return {
+      id: variant.id,
+      sku: variant.sku,
+      registeredBarcode: variant.registeredBarcode,
+      internalBarcode: variant.internalBarcode,
+      supplierItemCode: variant.supplierItemCode,
+      defaultLeadTimeDays: variant.defaultLeadTimeDays,
+      minimumOrderQuantity: variant.minimumOrderQuantity,
+      defaultSellingPrice: variant.defaultSellingPrice,
+      defaultPurchasePrice: variant.defaultPurchasePrice,
+      sellable: variant.sellable,
+      optionValueIdsByOptionId:
+        variant.optionValues.length > 0
+          ? Object.fromEntries(
+              variant.optionValues.map((value) => [value.optionId, value.valueId]),
+            )
+          : undefined,
+    };
+  });
+
+  const family = draft.family;
+  return {
+    payload: {
+      family: {
+        name: family.name,
+        category: family.category,
+        description: family.description,
+        unitDefinitionId: family.unitDefinitionId,
+        ...(family.itemType === "material"
+          ? {
+              defaultSupplierId: family.defaultSupplierId,
+              purchaseUnitDefinitionId: family.purchaseUnitDefinitionId,
+              purchaseToStockFactor: family.purchaseToStockFactor,
+            }
+          : {}),
+        lotTrackingMode: family.lotTrackingMode,
+      },
+      variants: variants.length > 0 ? variants : undefined,
+      variantOrder:
+        activeVariants.length > 0
+          ? activeVariants.map((variant) => variant.id)
+          : undefined,
+    },
+    pathAliases,
+  };
+}
 
 export function useItemCardDraftController({
   initialItemId,
@@ -72,274 +130,175 @@ export function useItemCardDraftController({
   unitOptions,
 }: UseItemCardDraftControllerConfig): ItemCardDraftController {
   const queryClient = useQueryClient();
-  const fieldRevisionRef = useRef<Record<string, number>>({});
+  const [newItemId] = useState(() => crypto.randomUUID());
   const unitNameById = useMemo(
     () => new Map(unitOptions.map((unit) => [unit.id, unit.name])),
     [unitOptions],
   );
-  const isSaveable = useCallback(
-    (draft: ItemCardDto) =>
-      Boolean(draft.family.name.trim()) && Boolean(draft.family.unitDefinitionId),
-    [],
-  );
-  const applyOp = useCallback(
-    (draft: ItemCardDto, op: ItemCardDraftOp, revision: number) => {
-      stampOpRevisions(fieldRevisionRef.current, op, revision);
-      return applyItemCardOp(draft, op, unitNameById);
+
+  const kernel = useCardKernel<ItemCardDto, UpdateItemCardDocInput>({
+    entityType: "item-card",
+    id: initialItemId ?? newItemId,
+    initialServerDoc: initialItemId ? initialCard : null,
+    makeNewDoc: () => initialCard,
+    collections: { variants: { idKey: "id" } },
+    schema: itemCardDocUpdateSchema,
+    serialize: serializeItemCard,
+    readVersion: (card) => card.family.version ?? null,
+    readId: (card) => card.focusedVariantId,
+    create: async (payload, opts) => {
+      const family = payload.family ?? {};
+      const result = await createItemCardDoc(
+        {
+          itemType,
+          name: (family.name ?? "").trim(),
+          unitDefinitionId: family.unitDefinitionId ?? "",
+          category: family.category,
+          description: family.description,
+          defaultSupplierId:
+            itemType === "material" ? family.defaultSupplierId : undefined,
+          purchaseUnitDefinitionId:
+            itemType === "material" ? family.purchaseUnitDefinitionId : undefined,
+          purchaseToStockFactor:
+            itemType === "material" ? family.purchaseToStockFactor : undefined,
+          lotTrackingMode: family.lotTrackingMode,
+        },
+        opts,
+      );
+      return result.card;
     },
-    [unitNameById],
-  );
-  const create = useCallback(
-    async (draft: ItemCardDto) =>
-      createItemCard({
-        itemType,
-        name: draft.family.name.trim(),
-        unitDefinitionId: draft.family.unitDefinitionId,
-        category: draft.family.category,
-        description: draft.family.description,
-        defaultSupplierId: itemType === "material" ? draft.family.defaultSupplierId : undefined,
-        purchaseUnitDefinitionId:
-          itemType === "material" ? draft.family.purchaseUnitDefinitionId : undefined,
-        purchaseToStockFactor:
-          itemType === "material" ? draft.family.purchaseToStockFactor : undefined,
-        lotTrackingMode: draft.family.lotTrackingMode,
-      }),
-    [itemType],
-  );
-  const save = useCallback(
-    (itemId: string, draft: ItemCardDto, ops: Array<QueuedDraftOp<ItemCardDraftOp>>) =>
-      saveItemCardOps(itemId, draft, ops),
-    [],
-  );
-  const getResultId = useCallback((result: ItemCardSaveResult) => result.itemId, []);
-  const applyPersistedIdentity = useCallback(
-    (draft: ItemCardDto, result: ItemCardSaveResult) =>
-      applyItemCardPersistedIdentity(draft, result.card),
-    [],
-  );
-  const mergeServerOwnedFields = useCallback(
-    (
-      draft: ItemCardDto,
-      result: ItemCardSaveResult,
-      context: { hasNewerLocalEdits: boolean; saveStartedRevision: number; source: string },
-    ) => {
-      const next = mergeItemCardServerResult(draft, result.card, fieldRevisionRef.current);
-      if (!context.hasNewerLocalEdits && context.source !== "refresh") {
-        clearRevisionsThrough(fieldRevisionRef.current, context.saveStartedRevision);
-      }
-      return next;
-    },
-    [],
-  );
-  const onPersisted = useCallback(
-    (id: string) => {
-      reflectPersistedCardUrlWithoutNavigation(persistedHref(id));
-    },
-    [persistedHref],
-  );
-  const onResult = useCallback(
-    (result: ItemCardSaveResult, draft: ItemCardDto) => {
-      queryClient.setQueryData(queryKeys.itemCards.detail(result.itemId), draft);
-      for (const variant of draft.variants) {
-        queryClient.setQueryData(queryKeys.itemCards.detail(variant.id), draft);
+    update: (id, payload, opts) => updateItemCardDoc(id, payload, opts),
+    onServerDoc: (card) => {
+      queryClient.setQueryData(
+        queryKeys.itemCards.detail(card.focusedVariantId),
+        card,
+      );
+      for (const variant of card.variants) {
+        queryClient.setQueryData(queryKeys.itemCards.detail(variant.id), card);
       }
       void Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.itemCards.root }),
         queryClient.invalidateQueries({ queryKey: queryKeys.items.root }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.itemCategories.byType(itemType) }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.itemCategories.byType(itemType),
+        }),
       ]);
     },
-    [itemType, queryClient],
-  );
-  const getErrorMessage = useCallback(
-    (error: unknown) =>
-      error instanceof Error ? error.message : "Failed to save item card.",
-    [],
-  );
-
-  const engine = useDraftSaveEngine<ItemCardDto, ItemCardDraftOp, ItemCardSaveResult>({
-    initialDraft: initialCard,
-    initialServerSnapshot: initialItemId ? initialCard : null,
-    initialId: initialItemId,
-    isSaveable,
-    applyOp,
-    coalesceOps: coalesceItemCardOps,
-    create,
-    save,
-    getResultId,
-    applyPersistedIdentity,
-    mergeServerOwnedFields,
-    onPersisted,
-    onResult,
-    getErrorMessage,
+    onCreated: (card) => {
+      reflectPersistedCardUrlWithoutNavigation(
+        persistedHref(card.focusedVariantId),
+      );
+    },
   });
-  const { applyLocalOp, flush, mergeServerResult } = engine;
+
+  const update = kernel.update;
+  const flush = kernel.flush;
+  const adoptServerDoc = kernel.adoptServerDoc;
+  const getPersistedId = kernel.getPersistedId;
+
+  const patchFamily = useCallback(
+    (patch: UpdateItemCardInput, delayMs = 0) => {
+      update(
+        (draft) => ({
+          ...draft,
+          family: {
+            ...draft.family,
+            ...patch,
+            unitName:
+              patch.unitDefinitionId != null
+                ? unitNameById.get(patch.unitDefinitionId) ?? draft.family.unitName
+                : draft.family.unitName,
+          },
+        }),
+        { debounceMs: delayMs },
+      );
+    },
+    [unitNameById, update],
+  );
 
   return {
-    card: engine.draft,
-    currentItemId: engine.currentId,
-    hasPersistedEntity: engine.hasPersistedEntity,
-    status: engine.status,
-    error: engine.error,
-    patchFamily: useCallback(
-      (patch, delayMs = 0) => {
-        applyLocalOp({ type: "patchFamily", patch }, delayMs);
-      },
-      [applyLocalOp],
-    ),
+    card: kernel.draft,
+    currentItemId: kernel.persistedId,
+    hasPersistedEntity: kernel.isPersisted,
+    status:
+      kernel.status === "blocked"
+        ? "error"
+        : kernel.status === "idle"
+          ? kernel.isPersisted
+            ? "saved"
+            : "idle"
+          : kernel.status,
+    error: kernel.error,
+    patchFamily,
     commitFamily: useCallback(
-      (patch) => {
-        if (patch) applyLocalOp({ type: "patchFamily", patch }, Number.POSITIVE_INFINITY);
-        void flush().catch(reportItemCardSaveError);
+      (patch?: UpdateItemCardInput) => {
+        if (patch) patchFamily(patch, Number.POSITIVE_INFINITY);
+        void flush();
       },
-      [applyLocalOp, flush],
+      [flush, patchFamily],
     ),
     setSellable: useCallback(
-      (sellable) => {
-        applyLocalOp({ type: "setSellable", sellable }, 0);
+      (sellable: boolean) => {
+        update((draft) => ({
+          ...draft,
+          variants: draft.variants.map((variant) =>
+            variant.deletedAt == null ? { ...variant, sellable } : variant,
+          ),
+        }));
       },
-      [applyLocalOp],
+      [update],
     ),
     patchVariant: useCallback(
       (variantId, patch, delayMs = 0) => {
-        applyLocalOp({ type: "patchVariant", variantId, patch }, delayMs);
+        update(
+          (draft) => ({
+            ...draft,
+            variants: draft.variants.map((variant) =>
+              variant.id === variantId
+                ? applyVariantPatch(variant, patch, draft.options)
+                : variant,
+            ),
+          }),
+          { debounceMs: delayMs },
+        );
       },
-      [applyLocalOp],
+      [update],
     ),
     createVariant: useCallback(
       async (input) => {
-        await flush();
-        const sourceItemId =
-          engine.currentId ??
-          engine.draft.variants.find((variant) => variant.deletedAt == null)?.id ??
-          engine.draft.variants[0]?.id ??
-          null;
+        const outcome = await flush();
+        if (outcome.outcome !== "saved") return null;
+        const sourceItemId = getPersistedId();
         if (!sourceItemId) return null;
         const result = await createItemCardVariant(sourceItemId, input);
-        mergeServerResult(result);
+        adoptServerDoc(result.card);
         return result;
       },
-      [engine.currentId, engine.draft.variants, flush, mergeServerResult],
+      [adoptServerDoc, flush, getPersistedId],
     ),
     reorderVariants: useCallback(
-      (orderedVariantIds) => {
-        applyLocalOp({ type: "reorderVariants", orderedVariantIds }, 0);
+      (orderedVariantIds: string[]) => {
+        const sortById = new Map(orderedVariantIds.map((id, index) => [id, index]));
+        update((draft) => ({
+          ...draft,
+          variants: [...draft.variants]
+            .sort(
+              (left, right) =>
+                (sortById.get(left.id) ?? 9999) - (sortById.get(right.id) ?? 9999),
+            )
+            .map((variant, index) => ({ ...variant, sortOrder: index })),
+        }));
       },
-      [applyLocalOp],
+      [update],
     ),
     mergeServerCard: useCallback(
-      (card) => {
-        const itemId = engine.currentId ?? card.variants[0]?.id ?? card.family.id;
-        mergeServerResult({ itemId, card });
+      (card: ItemCardDto) => {
+        adoptServerDoc(card);
       },
-      [engine.currentId, mergeServerResult],
+      [adoptServerDoc],
     ),
     flush,
-    resetToSaved: engine.resetToServer,
-  };
-}
-
-async function saveItemCardOps(
-  itemId: string,
-  _draft: ItemCardDto,
-  queuedOps: Array<QueuedDraftOp<ItemCardDraftOp>>,
-): Promise<ItemCardSaveResult | null> {
-  if (queuedOps.length === 0) return null;
-
-  let result: ItemCardSaveResult | null = null;
-  const familyPatch: UpdateItemCardInput = {};
-  const variantPatches = new Map<string, UpdateItemCardVariantInput>();
-  let sellable: boolean | null = null;
-  let orderedVariantIds: string[] | null = null;
-
-  for (const { op } of queuedOps) {
-    if (op.type === "patchFamily") {
-      Object.assign(familyPatch, op.patch);
-    } else if (op.type === "setSellable") {
-      sellable = op.sellable;
-    } else if (op.type === "patchVariant") {
-      variantPatches.set(op.variantId, {
-        ...(variantPatches.get(op.variantId) ?? {}),
-        ...op.patch,
-      });
-    } else {
-      orderedVariantIds = op.orderedVariantIds;
-    }
-  }
-
-  if (Object.keys(familyPatch).length > 0) {
-    result = { itemId, card: await updateItemCard(itemId, familyPatch) };
-    removeQueuedOps(queuedOps, (queued) => queued.op.type === "patchFamily");
-  }
-  if (sellable != null) {
-    result = { itemId, card: await updateItemCardSellable(itemId, { sellable }) };
-    removeQueuedOps(queuedOps, (queued) => queued.op.type === "setSellable");
-  }
-  for (const [variantId, patch] of variantPatches) {
-    result = { itemId, card: await updateItemCardVariant(variantId, patch) };
-    removeQueuedOps(
-      queuedOps,
-      (queued) => queued.op.type === "patchVariant" && queued.op.variantId === variantId,
-    );
-  }
-  if (orderedVariantIds) {
-    result = { itemId, card: await reorderItemCardVariants(itemId, orderedVariantIds) };
-    removeQueuedOps(queuedOps, (queued) => queued.op.type === "reorderVariants");
-  }
-
-  return result;
-}
-
-function removeQueuedOps<TOp>(
-  ops: Array<QueuedDraftOp<TOp>>,
-  predicate: (queued: QueuedDraftOp<TOp>) => boolean,
-) {
-  for (let index = ops.length - 1; index >= 0; index -= 1) {
-    if (predicate(ops[index])) ops.splice(index, 1);
-  }
-}
-
-function applyItemCardOp(
-  draft: ItemCardDto,
-  op: ItemCardDraftOp,
-  unitNameById: Map<string, string>,
-): ItemCardDto {
-  if (op.type === "patchFamily") {
-    const nextFamily = {
-      ...draft.family,
-      ...op.patch,
-      unitName:
-        op.patch.unitDefinitionId != null
-          ? unitNameById.get(op.patch.unitDefinitionId) ?? draft.family.unitName
-          : draft.family.unitName,
-    };
-    return { ...draft, family: nextFamily };
-  }
-  if (op.type === "setSellable") {
-    return {
-      ...draft,
-      variants: draft.variants.map((variant) =>
-        variant.deletedAt == null ? { ...variant, sellable: op.sellable } : variant,
-      ),
-    };
-  }
-  if (op.type === "patchVariant") {
-    return {
-      ...draft,
-      variants: draft.variants.map((variant) =>
-        variant.id === op.variantId
-          ? applyVariantPatch(variant, op.patch, draft.options)
-          : variant,
-      ),
-    };
-  }
-
-  const sortById = new Map(op.orderedVariantIds.map((id, index) => [id, index]));
-  return {
-    ...draft,
-    variants: [...draft.variants]
-      .sort((left, right) => (sortById.get(left.id) ?? 9999) - (sortById.get(right.id) ?? 9999))
-      .map((variant, index) => ({ ...variant, sortOrder: index })),
+    resetToSaved: kernel.resetToServer,
   };
 }
 
@@ -385,160 +344,4 @@ function resolveOptionValueDisplay(
 function toDateOrNull(value: Date | string | null | undefined) {
   if (value == null) return null;
   return value instanceof Date ? value : new Date(value);
-}
-
-function coalesceItemCardOps(
-  existing: Array<QueuedDraftOp<ItemCardDraftOp>>,
-  next: QueuedDraftOp<ItemCardDraftOp>,
-): Array<QueuedDraftOp<ItemCardDraftOp>> {
-  if (next.op.type === "patchFamily") {
-    const retained = existing.filter((queued) => queued.op.type !== "patchFamily");
-    const previous = existing.findLast(
-      (queued): queued is QueuedDraftOp<Extract<ItemCardDraftOp, { type: "patchFamily" }>> =>
-        queued.op.type === "patchFamily",
-    );
-    return [
-      ...retained,
-      previous
-        ? {
-            op: {
-              type: "patchFamily",
-              patch: { ...previous.op.patch, ...next.op.patch },
-            },
-            revision: next.revision,
-          }
-        : next,
-    ];
-  }
-  if (next.op.type === "setSellable") {
-    return [
-      ...existing.filter((queued) => queued.op.type !== "setSellable"),
-      next,
-    ];
-  }
-  if (next.op.type === "reorderVariants") {
-    return [
-      ...existing.filter((queued) => queued.op.type !== "reorderVariants"),
-      next,
-    ];
-  }
-  if (next.op.type !== "patchVariant") return [...existing, next];
-  const nextVariantId = next.op.variantId;
-  const retained = existing.filter(
-    (queued) => {
-      if (queued.op.type !== "patchVariant") return true;
-      return queued.op.variantId !== nextVariantId;
-    },
-  );
-  const previous = existing.findLast(
-    (queued): queued is QueuedDraftOp<Extract<ItemCardDraftOp, { type: "patchVariant" }>> =>
-      queued.op.type === "patchVariant" &&
-      queued.op.variantId === nextVariantId,
-  );
-  if (!previous) return [...retained, next];
-  return [
-    ...retained,
-    {
-      op: {
-        type: "patchVariant",
-        variantId: next.op.variantId,
-        patch: { ...previous.op.patch, ...next.op.patch },
-      },
-      revision: next.revision,
-    },
-  ];
-}
-
-function stampOpRevisions(
-  revisions: Record<string, number>,
-  op: ItemCardDraftOp,
-  revision: number,
-) {
-  if (op.type === "patchFamily") {
-    for (const key of Object.keys(op.patch)) revisions[`family:${key}`] = revision;
-    return;
-  }
-  if (op.type === "setSellable") {
-    revisions["variants:*:sellable"] = revision;
-    return;
-  }
-  if (op.type === "patchVariant") {
-    for (const key of Object.keys(op.patch)) revisions[`variant:${op.variantId}:${key}`] = revision;
-    return;
-  }
-  revisions["variants:sortOrder"] = revision;
-}
-
-function clearRevisionsThrough(revisions: Record<string, number>, revision: number) {
-  for (const [key, value] of Object.entries(revisions)) {
-    if (value <= revision) delete revisions[key];
-  }
-}
-
-function mergeItemCardServerResult(
-  draft: ItemCardDto,
-  server: ItemCardDto,
-  revisions: Record<string, number>,
-): ItemCardDto {
-  const family = { ...server.family };
-  for (const key of Object.keys(draft.family) as Array<keyof ItemCardDto["family"]>) {
-    if (revisions[`family:${String(key)}`] != null) {
-      family[key] = draft.family[key] as never;
-    }
-  }
-
-  const draftVariants = new Map(draft.variants.map((variant) => [variant.id, variant]));
-  const variants = server.variants.map((serverVariant) => {
-    const draftVariant = draftVariants.get(serverVariant.id);
-    if (!draftVariant) return serverVariant;
-    let next = { ...serverVariant };
-    for (const key of Object.keys(draftVariant) as Array<keyof ItemCardVariantDto>) {
-      if (
-        revisions[`variant:${serverVariant.id}:${String(key)}`] != null ||
-        (key === "sellable" && revisions["variants:*:sellable"] != null)
-      ) {
-        next = { ...next, [key]: draftVariant[key] };
-      }
-    }
-    return next;
-  });
-
-  if (revisions["variants:sortOrder"] != null) {
-    const draftOrder = new Map(draft.variants.map((variant, index) => [variant.id, index]));
-    variants.sort(
-      (left, right) => (draftOrder.get(left.id) ?? 9999) - (draftOrder.get(right.id) ?? 9999),
-    );
-  }
-
-  return { ...server, family, variants };
-}
-
-function applyItemCardPersistedIdentity(
-  draft: ItemCardDto,
-  server: ItemCardDto,
-): ItemCardDto {
-  const family = {
-    ...draft.family,
-    id: server.family.id,
-    createdAt: server.family.createdAt,
-    updatedAt: server.family.updatedAt,
-  };
-  const draftVariants = new Map(draft.variants.map((variant) => [variant.id, variant]));
-  const variants = server.variants.map((serverVariant) => ({
-    ...serverVariant,
-    ...(draftVariants.get(serverVariant.id) ?? {}),
-    id: serverVariant.id,
-    familyId: serverVariant.familyId,
-  }));
-
-  return {
-    ...draft,
-    family,
-    options: server.options,
-    variants,
-  };
-}
-
-function reportItemCardSaveError(error: unknown) {
-  console.error("Item card save failed:", error);
 }

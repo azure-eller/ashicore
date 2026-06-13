@@ -111,10 +111,16 @@ const supplierRowSelect = {
   )`,
   paymentTerms: suppliers.paymentTerms,
   notes: suppliers.notes,
+  version: suppliers.version,
   deletedAt: suppliers.deletedAt,
   createdAt: suppliers.createdAt,
   updatedAt: suppliers.updatedAt,
 } as const;
+
+export type SupplierWriteResult =
+  | { kind: "updated"; supplier: SupplierRow }
+  | { kind: "conflict"; current: SupplierRow }
+  | { kind: "not-found" };
 
 export async function getSuppliers(): Promise<SupplierRow[]> {
   return measureObservedOperation(
@@ -158,11 +164,27 @@ export async function getSupplier(
 
 export async function createSupplier(data: InsertSupplier): Promise<SupplierRow> {
   return withAuthedOrgContext(async (tx, orgId) => {
-    const created = await createSupplierInTx(tx, orgId, data);
+    // Idempotent under client-generated ids: a retried create with the same
+    // id no-ops the insert and returns the existing row.
+    const inserted = await tx
+      .insert(suppliers)
+      .values({ organizationId: orgId, ...data })
+      .onConflictDoNothing({ target: suppliers.id })
+      .returning({ id: suppliers.id });
+
+    const id = inserted[0]?.id ?? data.id;
+    if (!id) {
+      throw new PurchasingError("Failed to create supplier.", 500);
+    }
+
     const [supplier] = await tx
       .select(supplierRowSelect)
       .from(suppliers)
-      .where(eq(suppliers.id, created.id));
+      .where(eq(suppliers.id, id));
+
+    if (!supplier) {
+      throw new PurchasingError("Supplier id is already in use.", 409);
+    }
 
     return supplier;
   });
@@ -180,42 +202,75 @@ export async function createSupplierInTx(tx: Tx, orgId: string, data: InsertSupp
   return supplier;
 }
 
-export async function updateSupplier(id: string, data: UpdateSupplier) {
+export async function updateSupplier(
+  id: string,
+  data: UpdateSupplier,
+): Promise<SupplierWriteResult> {
   return withAuthedOrgContext(async (tx) => {
-    return updateSupplierInTx(tx, id, data);
+    const { expectedVersion, ...fields } = data;
+    const updated = await writeSupplierInTx(tx, id, fields, expectedVersion);
+    if (updated) {
+      const [supplier] = await tx
+        .select(supplierRowSelect)
+        .from(suppliers)
+        .where(eq(suppliers.id, id));
+      return { kind: "updated", supplier } satisfies SupplierWriteResult;
+    }
+
+    const [current] = await tx
+      .select(supplierRowSelect)
+      .from(suppliers)
+      .where(and(eq(suppliers.id, id), isNull(suppliers.deletedAt)));
+    return current
+      ? ({ kind: "conflict", current } satisfies SupplierWriteResult)
+      : ({ kind: "not-found" } satisfies SupplierWriteResult);
   });
 }
 
-export async function patchSupplier(id: string, data: PatchSupplier) {
+export async function patchSupplier(
+  id: string,
+  data: PatchSupplier,
+): Promise<SupplierRow | null> {
   return withAuthedOrgContext(async (tx) => {
-    return patchSupplierInTx(tx, id, data);
+    const updated = await patchSupplierInTx(tx, id, data);
+    if (!updated) return null;
+    const [supplier] = await tx
+      .select(supplierRowSelect)
+      .from(suppliers)
+      .where(eq(suppliers.id, id));
+    return supplier ?? null;
   });
 }
 
-export async function updateSupplierInTx(tx: Tx, id: string, data: UpdateSupplier) {
+async function writeSupplierInTx(
+  tx: Tx,
+  id: string,
+  data: Omit<UpdateSupplier, "expectedVersion"> | PatchSupplier,
+  expectedVersion?: number,
+) {
   const [supplier] = await tx
     .update(suppliers)
     .set({
       ...data,
+      version: sql`${suppliers.version} + 1`,
       updatedAt: new Date(),
     })
-    .where(and(eq(suppliers.id, id), isNull(suppliers.deletedAt)))
+    .where(
+      and(
+        eq(suppliers.id, id),
+        isNull(suppliers.deletedAt),
+        ...(expectedVersion != null
+          ? [eq(suppliers.version, expectedVersion)]
+          : []),
+      ),
+    )
     .returning({ id: suppliers.id });
 
   return supplier ?? null;
 }
 
 export async function patchSupplierInTx(tx: Tx, id: string, data: PatchSupplier) {
-  const [supplier] = await tx
-    .update(suppliers)
-    .set({
-      ...data,
-      updatedAt: new Date(),
-    })
-    .where(and(eq(suppliers.id, id), isNull(suppliers.deletedAt)))
-    .returning({ id: suppliers.id });
-
-  return supplier ?? null;
+  return writeSupplierInTx(tx, id, data);
 }
 
 export async function deleteSupplier(id: string) {

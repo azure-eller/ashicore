@@ -1,21 +1,24 @@
 import type {
   CustomerActivityRow,
-  CustomerContactRow,
   CustomerDetailData,
   CustomerProjectRow,
 } from "@/lib/sales/types";
-import { apiClientJson } from "@/lib/client/api";
+import { apiClientJson, apiJson } from "@/lib/client/api";
 import type {
   CustomerActivityInput,
   CustomerActivityPatch,
-  CustomerContactInput,
   CustomerProjectInput,
 } from "@/lib/schemas/customer-crm";
-import type { InsertCustomer, PatchCustomer } from "@/lib/schemas/customers";
+import type { InsertCustomer, UpdateCustomer } from "@/lib/schemas/customers";
 
 const json = apiClientJson;
 
 const jsonHeaders = { "Content-Type": "application/json" };
+
+type DocSaveOptions = {
+  idempotencyKey: string;
+  keepalive?: boolean;
+};
 
 export async function getCustomerCard(customerId: string) {
   return json<CustomerDetailData>(
@@ -25,28 +28,33 @@ export async function getCustomerCard(customerId: string) {
   );
 }
 
-export async function createCustomer(input: InsertCustomer) {
-  return json<{ id: string }>(
-    "/api/customers",
-    {
-      method: "POST",
-      headers: jsonHeaders,
-      body: input,
-    },
-    "Failed to create customer."
-  );
+// Kernel save adapters use apiJson directly: the thrown ApiJsonError carries
+// the response body, which the kernel reads for 409 {conflict, current}.
+export async function createCustomerDoc(
+  payload: InsertCustomer,
+  opts: DocSaveOptions,
+) {
+  return apiJson<CustomerDetailData>("/api/customers", {
+    method: "POST",
+    body: payload,
+    idempotencyKey: opts.idempotencyKey,
+    keepalive: opts.keepalive,
+    fallbackError: "Failed to create customer.",
+  });
 }
 
-export async function patchCustomer(customerId: string, input: PatchCustomer) {
-  return json<{ id: string }>(
-    `/api/customers/${customerId}`,
-    {
-      method: "PATCH",
-      headers: jsonHeaders,
-      body: input,
-    },
-    "Failed to save customer."
-  );
+export async function updateCustomerDoc(
+  customerId: string,
+  payload: Omit<UpdateCustomer, "expectedVersion">,
+  opts: DocSaveOptions & { expectedVersion: number | null },
+) {
+  return apiJson<CustomerDetailData>(`/api/customers/${customerId}`, {
+    method: "PUT",
+    body: { ...payload, expectedVersion: opts.expectedVersion ?? undefined },
+    idempotencyKey: opts.idempotencyKey,
+    keepalive: opts.keepalive,
+    fallbackError: "Failed to save customer.",
+  });
 }
 
 export async function deleteCustomer(customerId: string) {
@@ -54,45 +62,6 @@ export async function deleteCustomer(customerId: string) {
     `/api/customers/${customerId}`,
     { method: "DELETE" },
     "Failed to delete customer."
-  );
-}
-
-export async function createCustomerContact(
-  customerId: string,
-  input: CustomerContactInput
-) {
-  return json<CustomerContactRow>(
-    `/api/customers/${customerId}/contacts`,
-    {
-      method: "POST",
-      headers: jsonHeaders,
-      body: input,
-    },
-    "Failed to create contact."
-  );
-}
-
-export async function updateCustomerContact(
-  customerId: string,
-  contactId: string,
-  input: CustomerContactInput
-) {
-  return json<CustomerContactRow>(
-    `/api/customers/${customerId}/contacts/${contactId}`,
-    {
-      method: "PUT",
-      headers: jsonHeaders,
-      body: input,
-    },
-    "Failed to save contact."
-  );
-}
-
-export async function deleteCustomerContact(customerId: string, contactId: string) {
-  return json<{ success: boolean }>(
-    `/api/customers/${customerId}/contacts/${contactId}`,
-    { method: "DELETE" },
-    "Failed to remove contact."
   );
 }
 

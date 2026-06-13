@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";
-import { jsonNotFound, jsonSuccess } from "@/lib/api/responses";
+import { jsonConflict, jsonNotFound, jsonSuccess } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { patchSupplierSchema, updateSupplierSchema } from "@/lib/schemas/suppliers";
 import { deleteSupplier, getSupplier, patchSupplier, updateSupplier } from "@/lib/purchasing/queries/suppliers";
@@ -23,13 +23,16 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("purchasing", request.headers);
   const { id } = await (ctx as RouteContext).params;
   const data = await parseJsonBody(request, updateSupplierSchema);
-  const supplier = await updateSupplier(id, data);
+  const result = await updateSupplier(id, data);
 
-  if (!supplier) {
+  if (result.kind === "not-found") {
     return jsonNotFound("Supplier not found");
   }
+  if (result.kind === "conflict") {
+    return jsonConflict("This supplier was changed elsewhere.", result.current);
+  }
 
-  return NextResponse.json(supplier);
+  return NextResponse.json(result.supplier);
 });
 
 export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {

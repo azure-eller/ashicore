@@ -14,6 +14,7 @@ import {
   purchaseOrderAdditionalCosts,
   purchaseOrderLines,
   purchaseOrders,
+  suppliers,
 } from "../../../lib/db/schema";
 import { groupPurchaseOrderByResolvedSupplier } from "../../../lib/purchasing/resolved-supplier-groups";
 import {
@@ -52,6 +53,56 @@ async function writeFastLocalAttachment(storageKey: string, content: string) {
 test.describe("purchasing supply and receipt heartbeat", () => {
   const ts = Date.now();
   const unitId = getUnitId();
+
+  test("card save with a stale expectedVersion returns 409 with the fresh doc and applies nothing", async ({ db }) => {
+    const supplier = await createSupplier({ name: `Fast Version Gate ${ts}` });
+    expect(supplier.status).toBe(201);
+    const supplierId = (supplier.body as { id: string; version: number }).id;
+
+    const basePayload = {
+      name: `Fast Version Gate ${ts}`,
+      code: null,
+      contactName: null,
+      email: null,
+      phone: null,
+      billingLine1: null,
+      billingLine2: null,
+      billingCity: null,
+      billingRegion: null,
+      billingPostcode: null,
+      billingCountry: null,
+      paymentTerms: null,
+      notes: null,
+    };
+
+    const first = await testFetch(`/api/suppliers/${supplierId}`, {
+      method: "PUT",
+      body: JSON.stringify({ ...basePayload, notes: "first writer", expectedVersion: 1 }),
+    });
+    expect(first.status).toBe(200);
+    const firstBody = (await first.json()) as { version: number };
+    expect(firstBody.version).toBe(2);
+
+    const stale = await testFetch(`/api/suppliers/${supplierId}`, {
+      method: "PUT",
+      body: JSON.stringify({ ...basePayload, notes: "stale writer", expectedVersion: 1 }),
+    });
+    expect(stale.status).toBe(409);
+    const staleBody = (await stale.json()) as {
+      conflict: boolean;
+      current: { notes: string | null; version: number };
+    };
+    expect(staleBody.conflict).toBe(true);
+    expect(staleBody.current.notes).toBe("first writer");
+    expect(staleBody.current.version).toBe(2);
+
+    const [row] = await db
+      .select({ notes: suppliers.notes, version: suppliers.version })
+      .from(suppliers)
+      .where(eq(suppliers.id, supplierId));
+    expect(row.notes).toBe("first writer");
+    expect(row.version).toBe(2);
+  });
 
   test("purchase order submit creates expected supply", async ({ db }) => {
     const material = await createItem({

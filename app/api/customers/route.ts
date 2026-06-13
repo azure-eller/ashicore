@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { jsonCreated } from "@/lib/api/responses";
+import { jsonCreated, jsonError } from "@/lib/api/responses";
 import { apiHandler } from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";
 import { deletePrivateBlobsIfConfigured } from "@/lib/blob-storage";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { insertCustomerSchema } from "@/lib/schemas/customers";
 import { bulkDeleteSchema } from "@/lib/schemas/shared";
-import { getCustomers } from "@/lib/sales/queries/customers-read";
+import { getCustomerDetail, getCustomers } from "@/lib/sales/queries/customers-read";
 import { createCustomer, deleteCustomers } from "@/lib/sales/queries/customers-write";
 
 
@@ -19,7 +19,11 @@ export const GET = apiHandler(async (request) => {
 export const POST = apiHandler(async (request) => {
   await assertModuleWriteAccess("sales", request.headers);
   const data = await parseJsonBody(request, insertCustomerSchema);
-  const customer = await createCustomer(data);
+  const created = await createCustomer(data);
+  const customer = created ? await getCustomerDetail(created.id) : null;
+  if (!customer) {
+    return jsonError("Customer id is already in use.", 409);
+  }
   return jsonCreated(customer);
 });
 

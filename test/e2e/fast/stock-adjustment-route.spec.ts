@@ -64,11 +64,13 @@ test.describe("non-lot stock adjustment route", () => {
     const modeResponse = await testFetch(`/api/item-cards/${itemId}`, {
       method: "PATCH",
       body: JSON.stringify({
-        name,
-        category,
-        description: null,
-        unitDefinitionId: unitId,
-        lotTrackingMode: "untracked",
+        family: {
+          name,
+          category,
+          description: null,
+          unitDefinitionId: unitId,
+          lotTrackingMode: "untracked",
+        },
       }),
     });
     expect(
@@ -670,11 +672,13 @@ test.describe("lot-tracked stock adjustment route", () => {
     const modeResponse = await testFetch(`/api/item-cards/${itemId}`, {
       method: "PATCH",
       body: JSON.stringify({
-        name,
-        category,
-        description: null,
-        unitDefinitionId: unitId,
-        lotTrackingMode: "tracked",
+        family: {
+          name,
+          category,
+          description: null,
+          unitDefinitionId: unitId,
+          lotTrackingMode: "tracked",
+        },
       }),
     });
     expect(

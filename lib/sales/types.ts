@@ -46,6 +46,7 @@ export type CustomerRow = {
   nextTaskId: string | null;
   nextTaskTitle: string | null;
   nextTaskDueDate: string | null;
+  version: number;
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;

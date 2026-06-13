@@ -13,18 +13,16 @@ import { CardFormRow } from "@/components/card-page/form-cell";
 import { createCardFields } from "@/components/card-page/bound-fields";
 import { NotesField } from "@/components/card-page/notes-field";
 import { useCardEntityActions } from "@/components/card-page/use-card-entity-actions";
-import type { CardSaveState } from "@/components/card-page/card-save-status";
 import {
   AddressBookInput,
   useAddressBookDialog,
 } from "@/components/card-page/address-book";
 import {
-  createSupplier,
+  createSupplierDoc,
   deleteSupplier,
-  getSupplierCard,
-  patchSupplier,
+  updateSupplierDoc,
 } from "@/lib/api/clients/suppliers";
-import { useDraftSaveEngine } from "@/lib/hooks/use-draft-save-engine";
+import { useCardKernel } from "@/lib/card-kernel/use-card-kernel";
 import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
 import type { AddressEntry } from "@/lib/dal/addresses";
 import {
@@ -35,8 +33,9 @@ import {
 } from "@/lib/addresses";
 import {
   supplierDefaultValues,
-  type InsertSupplier,
+  updateSupplierSchema,
   type PatchSupplier,
+  type UpdateSupplier,
 } from "@/lib/schemas/suppliers";
 import {
   PAYMENT_TERMS_TOOLTIP,
@@ -46,6 +45,8 @@ import type { SupplierRow } from "@/lib/purchasing/types";
 import { queryKeys } from "@/lib/client/query-keys";
 
 const SupplierFields = createCardFields<PatchSupplier>();
+
+type SupplierPayload = Omit<UpdateSupplier, "expectedVersion">;
 
 type SupplierCardProps = {
   initialSupplierId: string | null;
@@ -64,7 +65,6 @@ type SupplierAddressFields = {
 
 type SupplierAddressOption = AddressEntryOption;
 
-
 export function SupplierCard({
   initialSupplierId,
   initialSupplier,
@@ -72,68 +72,36 @@ export function SupplierCard({
 }: SupplierCardProps) {
   const queryClient = useQueryClient();
   const [addressBook, setAddressBook] = useState(addresses);
-  const engine = useDraftSaveEngine<
-    SupplierRow,
-    { type: "patch"; patch: PatchSupplier },
-    SupplierRow
-  >({
-    initialDraft: initialSupplier ?? makeDraftSupplier(supplierDefaultValues),
-    initialServerSnapshot: initialSupplier,
-    initialId: initialSupplierId,
-    isSaveable: (draft) => Boolean(draft.name.trim()),
-    applyOp: (draft, op) => mergeSupplierPatch(draft, op.patch),
-    coalesceOps: (existing, next) => [
-      {
-        op: {
-          type: "patch",
-          patch: [...existing, next].reduce<PatchSupplier>(
-            (patch, queued) => ({ ...patch, ...queued.op.patch }),
-            {},
-          ),
-        },
-        revision: next.revision,
-      },
-    ],
-    // Single request: a follow-up GET that failed would re-queue the ops and
-    // make the next flush create a second supplier.
-    create: (draft) => createSupplier(supplierToInsertInput(draft)),
-    save: async (supplierId, draft, ops) => {
-      if (ops.length === 0) return null;
-      const patch = ops.reduce<PatchSupplier>(
-        (nextPatch, queued) => ({ ...nextPatch, ...queued.op.patch }),
-        {},
-      );
-      await patchSupplier(supplierId, draft, patch);
-      return getSupplierCard(supplierId);
-    },
-    getResultId: (result) => result.id,
-    applyPersistedIdentity: (draft, result) => ({
-      ...draft,
-      id: result.id,
-      createdAt: result.createdAt,
-    }),
-    mergeServerOwnedFields: (draft, result) => ({
-      ...result,
-      ...supplierEditableSnapshot(draft),
-    }),
-    onPersisted: (id) => {
-      reflectPersistedCardUrlWithoutNavigation(`/purchasing/suppliers/${id}`);
-    },
-    onResult: (result, draft) => {
-      queryClient.setQueryData(queryKeys.suppliers.card(result.id), draft);
+  const [newSupplierId] = useState(() => crypto.randomUUID());
+  const supplierId = initialSupplierId ?? newSupplierId;
+
+  const kernel = useCardKernel<SupplierRow, SupplierPayload>({
+    entityType: "supplier",
+    id: supplierId,
+    initialServerDoc: initialSupplier,
+    makeNewDoc: makeDraftSupplier,
+    schema: updateSupplierSchema,
+    serialize: (draft) => ({ payload: supplierToPayload(draft) }),
+    create: (payload, opts) =>
+      createSupplierDoc({ ...payload, id: supplierId }, opts),
+    update: (id, payload, opts) => updateSupplierDoc(id, payload, opts),
+    onServerDoc: (doc) => {
+      queryClient.setQueryData(queryKeys.suppliers.card(doc.id), doc);
       void queryClient.invalidateQueries({ queryKey: queryKeys.suppliers.root });
     },
+    onCreated: (doc) => {
+      reflectPersistedCardUrlWithoutNavigation(`/purchasing/suppliers/${doc.id}`);
+    },
   });
-  const currentSupplierId = engine.currentId;
-  const isDraft = !engine.hasPersistedEntity;
 
-  const display = engine.draft;
+  const isDraft = !kernel.isPersisted;
+  const display = kernel.draft;
   const readOnly = Boolean(display.deletedAt);
 
   const actions = useCardEntityActions({
     entity: "supplier-action",
-    getId: () => engine.currentId,
-    flush: engine.flush,
+    getId: () => (kernel.isPersisted ? supplierId : null),
+    flush: kernel.flush,
     invalidateQueryKeys: [queryKeys.suppliers.root],
     delete: {
       label: "Delete supplier",
@@ -151,13 +119,12 @@ export function SupplierCard({
     },
   });
 
-
   const commitSupplierPatch = useCallback(
     (patch: PatchSupplier) => {
       if (readOnly) return;
-      engine.applyLocalOp({ type: "patch", patch });
+      kernel.update((draft) => ({ ...draft, ...patch }));
     },
-    [engine, readOnly]
+    [kernel, readOnly]
   );
 
   const applySupplierAddress = useCallback(
@@ -169,7 +136,7 @@ export function SupplierCard({
 
   const addressDialog = useAddressBookDialog({
     entity: "supplier",
-    entityId: currentSupplierId,
+    entityId: kernel.isPersisted ? supplierId : null,
     idPrefix: "supplier",
     addressBook,
     setAddressBook,
@@ -184,26 +151,14 @@ export function SupplierCard({
         .filter((option): option is SupplierAddressOption => option != null),
     [addressBook]
   );
-  const cardSaveState: CardSaveState = readOnly
-    ? "readonly"
-    : engine.status === "saving" || engine.status === "dirty"
-      ? "saving"
-      : engine.status === "error"
-        ? "failed"
-        : isDraft
-          ? "not_saved"
-          : "saved";
-  const cardSaveMessage =
-    cardSaveState === "saved"
-      ? "Saved"
-      : cardSaveState === "failed"
-        ? engine.error
-        : null;
+
+  const cardSaveState = readOnly ? "readonly" : kernel.saveState;
+  const cardSaveMessage = readOnly ? null : kernel.saveMessage;
 
   return (
     <CardPage>
       <CardPageHeader
-        title={display.name.trim() || "New supplier"}
+        title={(display.name ?? "").trim() || "New supplier"}
         saveState={cardSaveState}
         saveMessage={cardSaveMessage}
         fallbackHref="/purchasing/suppliers"
@@ -228,14 +183,14 @@ export function SupplierCard({
               commit={commitSupplierPatch}
               readOnly={readOnly}
               idPrefix="supplier"
-              errors={engine.fieldErrors}
+              errors={kernel.fieldErrors}
             >
               <SupplierFields.Text
                 name="name"
                 label="Name"
                 required
                 autoFocus={isDraft}
-                invalid={isDraft && !display.name.trim()}
+                invalid={isDraft && !(display.name ?? "").trim()}
               />
               <SupplierFields.Text name="code" label="Code" tooltip={SUPPLIER_CODE_TOOLTIP} />
               <SupplierFields.Text name="contactName" label="Contact name" />
@@ -270,7 +225,11 @@ export function SupplierCard({
             readOnlyValue={readOnly}
             commitUnchangedValue={isDraft}
             onDraftChange={(notes) => {
-              if (isDraft) engine.applyLocalOp({ type: "patch", patch: { notes } }, Number.POSITIVE_INFINITY);
+              if (isDraft) {
+                kernel.update((draft) => ({ ...draft, notes }), {
+                  debounceMs: Number.POSITIVE_INFINITY,
+                });
+              }
             }}
             onCommit={(notes) => commitSupplierPatch({ notes })}
           />
@@ -284,67 +243,33 @@ export function SupplierCard({
   );
 }
 
-function makeDraftSupplier(draft: InsertSupplier): SupplierRow {
+function makeDraftSupplier(id: string): SupplierRow {
   const now = new Date();
   return {
-    id: "__draft__",
-    ...draft,
+    ...supplierDefaultValues,
+    id,
+    name: supplierDefaultValues.name,
+    code: supplierDefaultValues.code ?? null,
+    contactName: supplierDefaultValues.contactName ?? null,
+    email: supplierDefaultValues.email ?? null,
+    phone: supplierDefaultValues.phone ?? null,
+    billingLine1: supplierDefaultValues.billingLine1 ?? null,
+    billingLine2: supplierDefaultValues.billingLine2 ?? null,
+    billingCity: supplierDefaultValues.billingCity ?? null,
+    billingRegion: supplierDefaultValues.billingRegion ?? null,
+    billingPostcode: supplierDefaultValues.billingPostcode ?? null,
+    billingCountry: supplierDefaultValues.billingCountry ?? null,
+    paymentTerms: supplierDefaultValues.paymentTerms ?? null,
+    notes: supplierDefaultValues.notes ?? null,
     xeroContactId: null,
+    version: 0,
     deletedAt: null,
     createdAt: now,
     updatedAt: now,
   };
 }
 
-function normalizeSupplierDraft(draft: InsertSupplier): InsertSupplier {
-  return {
-    ...draft,
-    name: draft.name.trim(),
-  };
-}
-
-function mergeSupplierPatch(supplier: SupplierRow, patch: PatchSupplier): SupplierRow {
-  return {
-    ...supplier,
-    ...patch,
-    updatedAt: new Date(),
-  };
-}
-
-function supplierToInsertInput(supplier: SupplierRow): InsertSupplier {
-  return normalizeSupplierDraft({
-    name: supplier.name,
-    code: supplier.code,
-    contactName: supplier.contactName,
-    email: supplier.email,
-    phone: supplier.phone,
-    billingLine1: supplier.billingLine1,
-    billingLine2: supplier.billingLine2,
-    billingCity: supplier.billingCity,
-    billingRegion: supplier.billingRegion,
-    billingPostcode: supplier.billingPostcode,
-    billingCountry: supplier.billingCountry,
-    paymentTerms: supplier.paymentTerms,
-    notes: supplier.notes,
-  });
-}
-
-function supplierEditableSnapshot(supplier: SupplierRow): Pick<
-  SupplierRow,
-  | "name"
-  | "code"
-  | "contactName"
-  | "email"
-  | "phone"
-  | "billingLine1"
-  | "billingLine2"
-  | "billingCity"
-  | "billingRegion"
-  | "billingPostcode"
-  | "billingCountry"
-  | "paymentTerms"
-  | "notes"
-> {
+function supplierToPayload(supplier: SupplierRow): SupplierPayload {
   return {
     name: supplier.name,
     code: supplier.code,

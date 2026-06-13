@@ -1,19 +1,9 @@
 import { useState } from "react";
 import {
-  createCustomerContact,
-  deleteCustomerContact,
-  getCustomerCard,
-  patchCustomer,
-  updateCustomerContact,
-} from "@/lib/api/clients/customers";
-import {
   normalizeAddressFields,
   type AddressEntryOption,
 } from "@/lib/addresses";
-import {
-  type InsertCustomer,
-  type PatchCustomer,
-} from "@/lib/schemas/customers";
+import { customerDefaultValues } from "@/lib/schemas/customers";
 import type {
   CustomerContactRow,
   CustomerDetailData,
@@ -21,11 +11,6 @@ import type {
 
 export type ContactGridRow = CustomerContactRow & { isNew?: boolean };
 
-export type CustomerDraftOp =
-  | { type: "patch"; patch: PatchCustomer }
-  | { type: "upsertContact"; row: ContactGridRow }
-  | { type: "deleteContact"; contactId: string }
-;
 export type AddressTarget = "billing" | "shipping";
 export type CustomerAddressFields = {
   line1: string | null;
@@ -37,11 +22,28 @@ export type CustomerAddressFields = {
 };
 export type CustomerAddressOption = AddressEntryOption;
 
-export function makeDraftCustomer(draft: InsertCustomer): CustomerDetailData {
+export function makeDraftCustomer(id: string): CustomerDetailData {
   const now = new Date();
   return {
-    id: "__draft__",
-    ...draft,
+    id,
+    name: customerDefaultValues.name,
+    customerCategoryId: customerDefaultValues.customerCategoryId ?? null,
+    accountState: "active",
+    accountPriority: "standard",
+    email: customerDefaultValues.email ?? null,
+    phone: customerDefaultValues.phone ?? null,
+    billingLine1: customerDefaultValues.billingLine1 ?? null,
+    billingLine2: customerDefaultValues.billingLine2 ?? null,
+    billingCity: customerDefaultValues.billingCity ?? null,
+    billingRegion: customerDefaultValues.billingRegion ?? null,
+    billingPostcode: customerDefaultValues.billingPostcode ?? null,
+    billingCountry: customerDefaultValues.billingCountry ?? null,
+    shipLine1: customerDefaultValues.shipLine1 ?? null,
+    shipLine2: customerDefaultValues.shipLine2 ?? null,
+    shipCity: customerDefaultValues.shipCity ?? null,
+    shipRegion: customerDefaultValues.shipRegion ?? null,
+    shipPostcode: customerDefaultValues.shipPostcode ?? null,
+    shipCountry: customerDefaultValues.shipCountry ?? null,
     customerCategoryName: null,
     openOrderCount: 0,
     openOrderValue: "0",
@@ -53,6 +55,7 @@ export function makeDraftCustomer(draft: InsertCustomer): CustomerDetailData {
     nextTaskTitle: null,
     nextTaskDueDate: null,
     xeroContactId: null,
+    version: 0,
     deletedAt: null,
     createdAt: now,
     updatedAt: now,
@@ -63,127 +66,21 @@ export function makeDraftCustomer(draft: InsertCustomer): CustomerDetailData {
   };
 }
 
-export function normalizeCustomerDraft(draft: InsertCustomer): InsertCustomer {
-  return {
-    ...draft,
-    name: draft.name.trim(),
-  };
-}
-
-export function mergeCustomerPatch(
-  customer: CustomerDetailData,
-  patch: PatchCustomer
-): CustomerDetailData {
-  return {
-    ...customer,
-    ...patch,
-    updatedAt: new Date(),
-  };
-}
-
-export function applyCustomerDraftOp(
-  customer: CustomerDetailData,
-  op: CustomerDraftOp
-): CustomerDetailData {
-  if (op.type === "patch") return mergeCustomerPatch(customer, op.patch);
-  if (op.type === "upsertContact") {
-    const contacts = upsertById(customer.contacts, op.row);
-    return { ...customer, contacts, updatedAt: new Date() };
-  }
-  return {
-    ...customer,
-    contacts: customer.contacts.filter((contact) => contact.id !== op.contactId),
-    updatedAt: new Date(),
-  };
-}
-
-export async function saveCustomerOps(
-  customerId: string,
-  draft: CustomerDetailData,
-  ops: CustomerDraftOp[]
-) {
-  let changed = false;
-  const patch = ops.reduce<PatchCustomer>(
-    (next, op) => (op.type === "patch" ? { ...next, ...op.patch } : next),
-    {},
-  );
-  if (Object.keys(patch).length > 0) {
-    await patchCustomer(customerId, customerEditableSnapshot(draft));
-    changed = true;
-  }
-
-  for (const op of ops) {
-    if (op.type === "upsertContact") {
-      if (!op.row.name.trim()) continue;
-      if (op.row.isNew) {
-        await createCustomerContact(customerId, contactPayload(op.row));
-      } else {
-        await updateCustomerContact(customerId, op.row.id, contactPayload(op.row));
-      }
-      changed = true;
-    } else if (op.type === "deleteContact") {
-      await deleteCustomerContact(customerId, op.contactId);
-      changed = true;
-    }
-  }
-
-  return changed ? getCustomerCard(customerId) : null;
+export function toDocContact(row: ContactGridRow): CustomerContactRow {
+  const contact = { ...row };
+  delete contact.isNew;
+  return contact;
 }
 
 export function contactPayload(row: ContactGridRow) {
   return {
+    id: row.id,
     name: row.name.trim(),
     title: row.title || null,
     email: row.email || null,
     phone: row.phone || null,
     addressEntryId: row.addressEntryId || null,
     roles: row.roles,
-  };
-}
-
-export function customerToInsertInput(customer: CustomerDetailData): InsertCustomer {
-  return normalizeCustomerDraft({
-    name: customer.name,
-    customerCategoryId: customer.customerCategoryId,
-    accountState: customer.accountState,
-    accountPriority: customer.accountPriority,
-    email: customer.email,
-    phone: customer.phone,
-    billingLine1: customer.billingLine1,
-    billingLine2: customer.billingLine2,
-    billingCity: customer.billingCity,
-    billingRegion: customer.billingRegion,
-    billingPostcode: customer.billingPostcode,
-    billingCountry: customer.billingCountry,
-    shipLine1: customer.shipLine1,
-    shipLine2: customer.shipLine2,
-    shipCity: customer.shipCity,
-    shipRegion: customer.shipRegion,
-    shipPostcode: customer.shipPostcode,
-    shipCountry: customer.shipCountry,
-  });
-}
-
-export function customerEditableSnapshot(customer: CustomerDetailData): PatchCustomer {
-  return {
-    name: customer.name,
-    customerCategoryId: customer.customerCategoryId,
-    accountState: customer.accountState,
-    accountPriority: customer.accountPriority,
-    email: customer.email,
-    phone: customer.phone,
-    billingLine1: customer.billingLine1,
-    billingLine2: customer.billingLine2,
-    billingCity: customer.billingCity,
-    billingRegion: customer.billingRegion,
-    billingPostcode: customer.billingPostcode,
-    billingCountry: customer.billingCountry,
-    shipLine1: customer.shipLine1,
-    shipLine2: customer.shipLine2,
-    shipCity: customer.shipCity,
-    shipRegion: customer.shipRegion,
-    shipPostcode: customer.shipPostcode,
-    shipCountry: customer.shipCountry,
   };
 }
 
@@ -229,7 +126,7 @@ export function getCustomerShippingAddress(customer: CustomerDetailData): Custom
   });
 }
 
-export function shippingAddressPatch(address: CustomerAddressFields): PatchCustomer {
+export function shippingAddressPatch(address: CustomerAddressFields) {
   return {
     shipLine1: address.line1,
     shipLine2: address.line2,
@@ -240,7 +137,7 @@ export function shippingAddressPatch(address: CustomerAddressFields): PatchCusto
   };
 }
 
-export function billingAddressPatch(address: CustomerAddressFields): PatchCustomer {
+export function billingAddressPatch(address: CustomerAddressFields) {
   return {
     billingLine1: address.line1,
     billingLine2: address.line2,

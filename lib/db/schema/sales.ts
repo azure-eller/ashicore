@@ -82,6 +82,7 @@ export const customers = salesSchema
       shipRegion: varchar("ship_region", { length: 120 }),
       shipPostcode: varchar("ship_postcode", { length: 30 }),
       shipCountry: varchar("ship_country", { length: 120 }),
+      version: integer("version").notNull().default(1),
       deletedAt: timestamp("deleted_at", { withTimezone: true }),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
       updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -481,6 +482,7 @@ export const salesOrders = salesSchema
       totalAmount: numeric("total_amount", { precision: 12, scale: 2 })
         .notNull()
         .default("0"),
+      version: integer("version").notNull().default(1),
       deletedAt: timestamp("deleted_at", { withTimezone: true }),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
       updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

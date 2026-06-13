@@ -2,7 +2,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { DEFAULT_COUNTRY } from "@/lib/addresses";
 import { suppliers } from "@/lib/db/schema";
-import { nullableString } from "./shared";
+import { clientIdSchema, expectedVersionSchema, nullableString } from "./shared";
 
 const nullableEmail = nullableString.refine(
   (value) => value == null || z.string().email().safeParse(value).success,
@@ -26,15 +26,20 @@ const baseSupplierSchema = createInsertSchema(suppliers, {
 }).omit({
   id: true,
   organizationId: true,
+  version: true,
   deletedAt: true,
   createdAt: true,
   updatedAt: true,
 });
 
-export const insertSupplierSchema = baseSupplierSchema;
+export const insertSupplierSchema = baseSupplierSchema.extend({
+  id: clientIdSchema,
+});
 export type InsertSupplier = z.infer<typeof insertSupplierSchema>;
 
-export const updateSupplierSchema = baseSupplierSchema;
+export const updateSupplierSchema = baseSupplierSchema.extend({
+  expectedVersion: expectedVersionSchema,
+});
 export type UpdateSupplier = z.infer<typeof updateSupplierSchema>;
 
 export const patchSupplierSchema = baseSupplierSchema.partial();

@@ -8,6 +8,7 @@ import { MaterialCard } from "../materials/[id]/material-card";
 
 function emptyCard(itemType: "material", unitDefinitionId: string): ItemCardDto {
   return {
+    focusedVariantId: "",
     family: {
       id: "",
       itemType,
@@ -20,6 +21,7 @@ function emptyCard(itemType: "material", unitDefinitionId: string): ItemCardDto 
       purchaseUnitDefinitionId: null,
       purchaseToStockFactor: null,
       lotTrackingMode: "tracked",
+      version: 0,
       deletedAt: null,
       createdAt: null,
       updatedAt: null,

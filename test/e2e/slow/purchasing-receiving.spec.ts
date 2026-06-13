@@ -570,11 +570,13 @@ test.describe("editable freight revaluation after receipt", () => {
     const mode = await testFetch(`/api/item-cards/${untrackedId}`, {
       method: "PATCH",
       body: JSON.stringify({
-        name: created.body.name,
-        category: "Slow Story",
-        description: null,
-        unitDefinitionId: unitId,
-        lotTrackingMode: "untracked",
+        family: {
+          name: created.body.name,
+          category: "Slow Story",
+          description: null,
+          unitDefinitionId: unitId,
+          lotTrackingMode: "untracked",
+        },
       }),
     });
     expect(mode.status, await mode.text()).toBe(200);

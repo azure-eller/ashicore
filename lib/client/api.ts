@@ -12,6 +12,8 @@ export type ApiJsonOptions = {
   fallbackError?: string;
   idempotencyKey?: string;
   headers?: HeadersInit;
+  /** Let the request outlive the page (pagehide flushes). 64KB body cap. */
+  keepalive?: boolean;
   mapError?: (status: number, body: unknown) => Error | undefined;
 };
 
@@ -209,6 +211,7 @@ export async function apiJson<T>(
     fallbackError = "Request failed.",
     idempotencyKey,
     headers,
+    keepalive,
     mapError,
   }: ApiJsonOptions = {}
 ): Promise<T> {
@@ -221,6 +224,7 @@ export async function apiJson<T>(
     method,
     headers: requestHeaders,
     credentials: "same-origin",
+    ...(keepalive ? { keepalive: true } : {}),
   };
 
   if (idempotencyKey) {

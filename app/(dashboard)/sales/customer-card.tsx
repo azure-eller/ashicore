@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/empty-state";
@@ -36,11 +36,12 @@ import {
   useAddressBookDialog,
 } from "@/components/card-page/address-book";
 import {
-  createCustomer,
+  createCustomerDoc,
   deleteCustomer,
   getCustomerCard,
+  updateCustomerDoc,
 } from "@/lib/api/clients/customers";
-import { useDraftSaveEngine } from "@/lib/hooks/use-draft-save-engine";
+import { useCardKernel } from "@/lib/card-kernel/use-card-kernel";
 import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
 import type { AddressEntry } from "@/lib/dal/addresses";
 import {
@@ -57,8 +58,9 @@ import {
 } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
-  customerDefaultValues,
+  updateCustomerSchema,
   type PatchCustomer,
+  type UpdateCustomer,
 } from "@/lib/schemas/customers";
 import type {
   CustomerCategoryOption,
@@ -87,20 +89,67 @@ import {
 } from "./customer-activity-stream";
 import { ContactsSection } from "./customer-contacts-section";
 import {
-  applyCustomerDraftOp,
   billingAddressPatch,
-  customerEditableSnapshot,
-  customerToInsertInput,
+  contactPayload,
+  toDocContact,
   getCustomerBillingAddress,
   getCustomerShippingAddress,
   makeDraftCustomer,
-  saveCustomerOps,
   shippingAddressPatch,
+  upsertById,
   type AddressTarget,
+  type ContactGridRow,
   type CustomerAddressFields,
   type CustomerAddressOption,
-  type CustomerDraftOp,
 } from "./customer-draft";
+
+type CustomerPayload = Omit<UpdateCustomer, "expectedVersion">;
+
+const CONTACT_PAYLOAD_KEYS = [
+  "name",
+  "title",
+  "email",
+  "phone",
+  "addressEntryId",
+  "roles",
+] as const;
+
+function serializeCustomer(draft: CustomerDetailData): {
+  payload: CustomerPayload;
+  pathAliases: Record<string, string>;
+} {
+  const contacts = draft.contacts.filter((contact) => contact.name.trim());
+  const pathAliases: Record<string, string> = {};
+  contacts.forEach((contact, index) => {
+    for (const key of CONTACT_PAYLOAD_KEYS) {
+      pathAliases[`contacts.${index}.${key}`] = `contacts.${contact.id}.${key}`;
+    }
+  });
+  return {
+    payload: {
+      name: draft.name,
+      customerCategoryId: draft.customerCategoryId,
+      accountState: draft.accountState,
+      accountPriority: draft.accountPriority,
+      email: draft.email,
+      phone: draft.phone,
+      billingLine1: draft.billingLine1,
+      billingLine2: draft.billingLine2,
+      billingCity: draft.billingCity,
+      billingRegion: draft.billingRegion,
+      billingPostcode: draft.billingPostcode,
+      billingCountry: draft.billingCountry,
+      shipLine1: draft.shipLine1,
+      shipLine2: draft.shipLine2,
+      shipCity: draft.shipCity,
+      shipRegion: draft.shipRegion,
+      shipPostcode: draft.shipPostcode,
+      shipCountry: draft.shipCountry,
+      contacts: contacts.map(contactPayload),
+    },
+    pathAliases,
+  };
+}
 
 type CustomerCardProps = {
   initialCustomerId: string | null;
@@ -148,74 +197,53 @@ export function CustomerCard({
       scroller.scrollTo({ top, behavior: "smooth" });
     });
   }, []);
-  const engine = useDraftSaveEngine<
-    CustomerDetailData,
-    CustomerDraftOp,
-    CustomerDetailData
-  >({
-    initialDraft:
-      initialCustomer ??
-      makeDraftCustomer({
-        ...customerDefaultValues,
-        accountState: "active",
-        accountPriority: "standard",
-      }),
-    initialServerSnapshot: initialCustomer,
-    initialId: initialCustomerId,
-    isSaveable: (draft) => Boolean(draft.name.trim()),
-    applyOp: (draft, op) => applyCustomerDraftOp(draft, op),
-    create: async (draft) => {
-      const created = await createCustomer(customerToInsertInput(draft));
-      return getCustomerCard(created.id);
-    },
-    save: async (customerId, draft, ops) => {
-      if (ops.length === 0) return null;
-      return saveCustomerOps(customerId, draft, ops.map(({ op }) => op));
-    },
-    getResultId: (result) => result.id,
-    applyPersistedIdentity: (draft, result) => ({
-      ...draft,
-      id: result.id,
-      createdAt: result.createdAt,
-    }),
-    mergeServerOwnedFields: (draft, result) => ({
-      ...result,
-      ...customerEditableSnapshot(draft),
-    }),
-    onPersisted: (id) => {
-      reflectPersistedCardUrlWithoutNavigation(`/sales/customers/${id}`);
-    },
-    onResult: (result, draft) => {
-      queryClient.setQueryData(queryKeys.customers.card(result.id), draft);
+  const [newCustomerId] = useState(() => crypto.randomUUID());
+  const customerId = initialCustomerId ?? newCustomerId;
+
+  const kernel = useCardKernel<CustomerDetailData, CustomerPayload>({
+    entityType: "customer",
+    id: customerId,
+    initialServerDoc: initialCustomer,
+    makeNewDoc: makeDraftCustomer,
+    collections: { contacts: { idKey: "id" } },
+    schema: updateCustomerSchema,
+    serialize: serializeCustomer,
+    create: (payload, opts) =>
+      createCustomerDoc({ ...payload, id: customerId }, opts),
+    update: (id, payload, opts) => updateCustomerDoc(id, payload, opts),
+    onServerDoc: (doc) => {
+      queryClient.setQueryData(queryKeys.customers.card(doc.id), doc);
       void queryClient.invalidateQueries({ queryKey: queryKeys.customers.root });
     },
+    onCreated: (doc) => {
+      reflectPersistedCardUrlWithoutNavigation(`/sales/customers/${doc.id}`);
+    },
   });
-  const currentCustomerId = engine.currentId;
-  const isDraft = !engine.hasPersistedEntity;
+  const isDraft = !kernel.isPersisted;
+  const currentCustomerId = isDraft ? null : customerId;
 
+  // Activity/project mutations invalidate this query; adopting its data keeps
+  // the kernel doc's server-owned satellites (activities, projects) fresh.
   const customerQuery = useQuery({
-    queryKey: queryKeys.customers.card(currentCustomerId ?? "__draft__"),
-    queryFn: () => getCustomerCard(currentCustomerId as string),
+    queryKey: queryKeys.customers.card(customerId),
+    queryFn: () => getCustomerCard(customerId),
     initialData: initialCustomer ?? undefined,
     enabled: !isDraft,
     refetchOnWindowFocus: false,
   });
-  const serverCustomer = isDraft ? null : customerQuery.data ?? initialCustomer;
-  const display = isDraft
-    ? engine.draft
-    : serverCustomer
-      ? {
-          ...serverCustomer,
-          ...customerEditableSnapshot(engine.draft),
-          contacts: engine.draft.contacts,
-        }
-      : engine.draft;
+  const refreshedCustomer = customerQuery.data;
+  const adoptServerDoc = kernel.adoptServerDoc;
+  useEffect(() => {
+    if (refreshedCustomer) adoptServerDoc(refreshedCustomer);
+  }, [adoptServerDoc, refreshedCustomer]);
+
+  const display = kernel.draft;
   const readOnly = Boolean(display.deletedAt);
 
   const actions = useCardEntityActions({
     entity: "customer-action",
-    getId: () => engine.currentId,
-    flush: engine.flush,
+    getId: () => (kernel.isPersisted ? customerId : null),
+    flush: kernel.flush,
     invalidateQueryKeys: [queryKeys.customers.root],
     delete: {
       label: "Delete customer",
@@ -235,9 +263,9 @@ export function CustomerCard({
   const commitCustomerPatch = useCallback(
     (patch: PatchCustomer) => {
       if (readOnly) return;
-      engine.applyLocalOp({ type: "patch", patch });
+      kernel.update((draft) => ({ ...draft, ...patch }));
     },
-    [engine, readOnly]
+    [kernel, readOnly]
   );
 
   const applyCustomerAddress = useCallback(
@@ -283,21 +311,8 @@ export function CustomerCard({
     [categories]
   );
 
-  const cardSaveState: CardSaveState = readOnly
-    ? "readonly"
-    : engine.status === "saving" || engine.status === "dirty"
-      ? "saving"
-      : engine.status === "error"
-        ? "failed"
-        : isDraft
-          ? "not_saved"
-          : "saved";
-  const cardSaveMessage =
-    cardSaveState === "saved"
-      ? "Saved"
-      : cardSaveState === "failed"
-        ? engine.error
-        : null;
+  const cardSaveState: CardSaveState = readOnly ? "readonly" : kernel.saveState;
+  const cardSaveMessage = readOnly ? null : kernel.saveMessage;
 
   return (
     <CardPage>
@@ -461,11 +476,20 @@ export function CustomerCard({
             readOnly={readOnly || isDraft}
             onSave={(row) => {
               if (readOnly || isDraft) return;
-              engine.applyLocalOp({ type: "upsertContact", row });
+              const contact = toDocContact(row as ContactGridRow);
+              kernel.update((draft) => ({
+                ...draft,
+                contacts: upsertById(draft.contacts, contact),
+              }));
             }}
             onDelete={(contactId) => {
               if (readOnly || isDraft) return;
-              engine.applyLocalOp({ type: "deleteContact", contactId });
+              kernel.update((draft) => ({
+                ...draft,
+                contacts: draft.contacts.filter(
+                  (contact) => contact.id !== contactId,
+                ),
+              }));
             }}
           />
         )}

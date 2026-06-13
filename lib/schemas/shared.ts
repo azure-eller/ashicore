@@ -62,6 +62,19 @@ export const bulkDeleteSchema = z.object({
   ids: z.array(z.string().min(1)).min(1),
 });
 
+/**
+ * Optional client-generated entity id. Makes create idempotent: a retried
+ * POST with the same id is the same create, not a duplicate.
+ */
+export const clientIdSchema = z.string().uuid().optional();
+
+/**
+ * Optional optimistic-concurrency check for card saves. Absent preserves
+ * last-write-wins (the Android app never sends it); present and stale makes
+ * the route answer 409 with the fresh document.
+ */
+export const expectedVersionSchema = z.number().int().min(1).optional();
+
 export {
   isNonNegativeNumberString,
   isPositiveNumberString,

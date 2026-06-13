@@ -1,5 +1,6 @@
 import {
   ApiClientError,
+  apiJson,
   createApiJsonRequester,
 } from "@/lib/client/api";
 import type {
@@ -77,12 +78,14 @@ export type ItemCardFamilyDto = {
   purchaseUnitDefinitionId: string | null;
   purchaseToStockFactor: string | null;
   lotTrackingMode: LotTrackingMode;
+  version: number;
   deletedAt: DateOrIso;
   createdAt: DateOrIso;
   updatedAt: DateOrIso;
 };
 
 export type ItemCardDto = {
+  focusedVariantId: string;
   family: ItemCardFamilyDto;
   options: VariantOptionDto[];
   variants: ItemCardVariantDto[];
@@ -207,41 +210,43 @@ export type CreateItemCardResult = {
   card: ItemCardDto;
 };
 
-export async function createItemCard(input: CreateItemCardInput): Promise<CreateItemCardResult> {
-  const path = `/api/item-cards`;
-  return request<CreateItemCardResult>(path, {
+type DocSaveOptions = {
+  idempotencyKey: string;
+  keepalive?: boolean;
+};
+
+export type UpdateItemCardDocInput = {
+  family?: UpdateItemCardInput;
+  variants?: Array<{ id: string } & UpdateItemCardVariantInput>;
+  variantOrder?: string[];
+};
+
+// Kernel save adapters use apiJson directly: the thrown ApiJsonError carries
+// the response body, which the kernel reads for 409 {conflict, current}.
+export async function createItemCardDoc(
+  input: CreateItemCardInput,
+  opts: DocSaveOptions,
+): Promise<CreateItemCardResult> {
+  return apiJson<CreateItemCardResult>("/api/item-cards", {
     method: "POST",
-    idempotencyKey: "createItemCard",
     body: input,
+    idempotencyKey: opts.idempotencyKey,
+    keepalive: opts.keepalive,
+    fallbackError: "Failed to create item.",
   });
 }
 
-export async function updateItemCard(
+export async function updateItemCardDoc(
   itemId: string,
-  input: UpdateItemCardInput
+  input: UpdateItemCardDocInput,
+  opts: DocSaveOptions & { expectedVersion: number | null },
 ): Promise<ItemCardDto> {
-  const path = `/api/item-cards/${itemId}`;
-  return request<ItemCardDto>(path, {
+  return apiJson<ItemCardDto>(`/api/item-cards/${itemId}`, {
     method: "PATCH",
-    idempotencyKey: "updateItemCard",
-    body: input,
-  });
-}
-
-/**
- * PATCH variant-level fields for a single variant items row. Family-level
- * fields go through `updateItemCard`; this companion handles the inline-cell
- * autosaves (SKU, barcodes, supplier item code, lead time, MOQ, pricing).
- */
-export async function updateItemCardVariant(
-  variantItemId: string,
-  input: UpdateItemCardVariantInput
-): Promise<ItemCardDto> {
-  const path = `/api/item-cards/${variantItemId}/variant`;
-  return request<ItemCardDto>(path, {
-    method: "PATCH",
-    idempotencyKey: "updateItemCardVariant",
-    body: input,
+    body: { ...input, expectedVersion: opts.expectedVersion ?? undefined },
+    idempotencyKey: opts.idempotencyKey,
+    keepalive: opts.keepalive,
+    fallbackError: "Failed to save item.",
   });
 }
 
@@ -254,30 +259,6 @@ export async function createItemCardVariant(
     method: "POST",
     idempotencyKey: "createItemCardVariant",
     body: input,
-  });
-}
-
-export async function updateItemCardSellable(
-  itemId: string,
-  input: { sellable: boolean },
-): Promise<ItemCardDto> {
-  const path = `/api/item-cards/${itemId}/sellable`;
-  return request<ItemCardDto>(path, {
-    method: "POST",
-    idempotencyKey: "updateItemCardSellable",
-    body: input,
-  });
-}
-
-export async function reorderItemCardVariants(
-  itemId: string,
-  orderedVariantIds: string[],
-): Promise<ItemCardDto> {
-  const path = `/api/item-cards/${itemId}/variants/reorder`;
-  return request<ItemCardDto>(path, {
-    method: "POST",
-    idempotencyKey: "reorderItemCardVariants",
-    body: { orderedVariantIds },
   });
 }
 

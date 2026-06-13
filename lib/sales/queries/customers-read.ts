@@ -119,6 +119,7 @@ const customerRowSelect = {
     ORDER BY ca.due_date ASC NULLS LAST, ca.created_at ASC, ca.id ASC
     LIMIT 1
   )`.as("nextTaskDueDate"),
+  version: customers.version,
   deletedAt: customers.deletedAt,
   createdAt: customers.createdAt,
   updatedAt: customers.updatedAt,

@@ -8,7 +8,20 @@ owns: "the card draft lifecycle pattern: one engine, per-card adapters, bound fi
 
 # Card Kernel
 
-Every card page (customer, supplier, sales order, purchase order, manufacturing
+> **Migration in progress — new cards use `lib/card-kernel/`.** The
+> document-sync kernel ([`lib/card-kernel/kernel.ts`](../lib/card-kernel/kernel.ts),
+> bound via [`use-card-kernel.ts`](../lib/card-kernel/use-card-kernel.ts))
+> replaces the op-queue engine below: one draft document + the last
+> server-confirmed document, dirt computed as a diff (never a queued log),
+> validation with the route's own Zod schema (`blocked` is a visible
+> outcome), full-doc responses rebased under still-dirty paths, idempotent
+> create via client ids or stable idempotency keys, and optimistic
+> concurrency (`expectedVersion` → 409 `{conflict, current}` → auto-rebase).
+> Supplier, customer, and item cards are converted; PO/SO/MO follow, then
+> the old engine is deleted. **The op-queue engine is frozen: converting
+> cards only, no new adopters.**
+
+Every remaining op-queue card (sales order, purchase order, manufacturing
 order) is built on **one** draft lifecycle engine:
 [`lib/hooks/use-draft-save-engine.ts`](../lib/hooks/use-draft-save-engine.ts).
 Do not write a new save controller — configure this one.

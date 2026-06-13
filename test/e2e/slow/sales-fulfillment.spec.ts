@@ -11,6 +11,7 @@ import {
   salesOrders,
 } from "../../../lib/db/schema";
 import {
+  addCustomerContact,
   createCustomerCategory,
   createPricingSchedule,
   createSalesOrder,
@@ -199,19 +200,12 @@ test.describe("sales fulfillment operating story", () => {
     const taggedBody = `Confirm delivery gate access with @${contactName} ${run}`;
     const untaggedBody = `General check-in ${run}`;
 
-    const contactResponse = await testFetch(`/api/customers/${customerId}/contacts`, {
-      method: "POST",
-      body: JSON.stringify({
-        name: contactName,
-        title: "Site Contact",
-        email: null,
-        phone: null,
-        addressEntryId: null,
-        roles: [],
-      }),
+    const contactResponse = await addCustomerContact(customerId, {
+      name: contactName,
+      title: "Site Contact",
     });
-    expect(contactResponse.status).toBe(201);
-    const contact = (await contactResponse.json()) as { id: string };
+    expect(contactResponse.status).toBe(200);
+    const contact = { id: contactResponse.contactId };
 
     const projectResponse = await testFetch(`/api/customers/${customerId}/projects`, {
       method: "POST",

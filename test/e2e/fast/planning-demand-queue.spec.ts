@@ -447,11 +447,13 @@ test("untracked on-hand coverage uses physical canonical lot quantity", async ()
   const modeResponse = await testFetch(`/api/item-cards/${productId}`, {
     method: "PATCH",
     body: JSON.stringify({
-      name: `Fast Untracked Pinned Product ${ts}`,
-      category: `Fast Planning ${ts}`,
-      description: null,
-      unitDefinitionId: unitId,
-      lotTrackingMode: "untracked",
+      family: {
+        name: `Fast Untracked Pinned Product ${ts}`,
+        category: `Fast Planning ${ts}`,
+        description: null,
+        unitDefinitionId: unitId,
+        lotTrackingMode: "untracked",
+      },
     }),
   });
   expect(modeResponse.status).toBe(200);
@@ -527,11 +529,13 @@ test("demand queue nets negative lot debt before exposing positive lots", async 
   const modeResponse = await testFetch(`/api/item-cards/${productId}`, {
     method: "PATCH",
     body: JSON.stringify({
-      name: `Fast Negative Lot Debt Product ${ts}`,
-      category: `Fast Planning ${ts}`,
-      description: null,
-      unitDefinitionId: unitId,
-      lotTrackingMode: "tracked",
+      family: {
+        name: `Fast Negative Lot Debt Product ${ts}`,
+        category: `Fast Planning ${ts}`,
+        description: null,
+        unitDefinitionId: unitId,
+        lotTrackingMode: "tracked",
+      },
     }),
   });
   expect(modeResponse.status).toBe(200);
@@ -683,11 +687,13 @@ test("batched demand queue coverage matches batch-of-one coverage", async ({
   const untrackedMode = await testFetch(`/api/item-cards/${untrackedProductId}`, {
     method: "PATCH",
     body: JSON.stringify({
-      name: `Fast Batch Untracked ${ts}`,
-      category: `Fast Planning ${ts}`,
-      description: null,
-      unitDefinitionId: unitId,
-      lotTrackingMode: "untracked",
+      family: {
+        name: `Fast Batch Untracked ${ts}`,
+        category: `Fast Planning ${ts}`,
+        description: null,
+        unitDefinitionId: unitId,
+        lotTrackingMode: "untracked",
+      },
     }),
   });
   expect(untrackedMode.status).toBe(200);

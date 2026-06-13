@@ -1,49 +1,41 @@
 import type { SupplierRow } from "@/lib/purchasing/types";
-import { apiClientJson } from "@/lib/client/api";
-import type { InsertSupplier, PatchSupplier, UpdateSupplier } from "@/lib/schemas/suppliers";
+import { apiClientJson, apiJson } from "@/lib/client/api";
+import type { InsertSupplier, UpdateSupplier } from "@/lib/schemas/suppliers";
 
 const json = apiClientJson;
 
-const jsonHeaders = { "Content-Type": "application/json" };
+type DocSaveOptions = {
+  idempotencyKey: string;
+  keepalive?: boolean;
+};
 
-export async function getSupplierCard(supplierId: string) {
-  return json<SupplierRow>(
-    `/api/suppliers/${supplierId}`,
-    undefined,
-    "Failed to load supplier."
-  );
-}
-
-export async function createSupplier(input: InsertSupplier) {
-  return json<SupplierRow>(
-    "/api/suppliers",
-    {
-      method: "POST",
-      headers: jsonHeaders,
-      body: input,
-    },
-    "Failed to create supplier."
-  );
-}
-
-export async function updateSupplier(supplierId: string, input: UpdateSupplier) {
-  return json<{ id: string }>(
-    `/api/suppliers/${supplierId}`,
-    {
-      method: "PUT",
-      headers: jsonHeaders,
-      body: input,
-    },
-    "Failed to save supplier."
-  );
-}
-
-export async function patchSupplier(
-  supplierId: string,
-  current: SupplierRow,
-  input: PatchSupplier
+// Kernel save adapters use apiJson directly: the thrown ApiJsonError carries
+// the response body, which the kernel reads for 409 {conflict, current}.
+export async function createSupplierDoc(
+  payload: InsertSupplier,
+  opts: DocSaveOptions,
 ) {
-  return updateSupplier(supplierId, supplierToUpdateInput(current, input));
+  return apiJson<SupplierRow>("/api/suppliers", {
+    method: "POST",
+    body: payload,
+    idempotencyKey: opts.idempotencyKey,
+    keepalive: opts.keepalive,
+    fallbackError: "Failed to create supplier.",
+  });
+}
+
+export async function updateSupplierDoc(
+  supplierId: string,
+  payload: Omit<UpdateSupplier, "expectedVersion">,
+  opts: DocSaveOptions & { expectedVersion: number | null },
+) {
+  return apiJson<SupplierRow>(`/api/suppliers/${supplierId}`, {
+    method: "PUT",
+    body: { ...payload, expectedVersion: opts.expectedVersion ?? undefined },
+    idempotencyKey: opts.idempotencyKey,
+    keepalive: opts.keepalive,
+    fallbackError: "Failed to save supplier.",
+  });
 }
 
 export async function deleteSupplier(supplierId: string) {
@@ -52,26 +44,4 @@ export async function deleteSupplier(supplierId: string) {
     { method: "DELETE" },
     "Failed to delete supplier."
   );
-}
-
-function supplierToUpdateInput(
-  supplier: SupplierRow,
-  patch: PatchSupplier
-): UpdateSupplier {
-  return {
-    name: supplier.name,
-    code: supplier.code,
-    contactName: supplier.contactName,
-    email: supplier.email,
-    phone: supplier.phone,
-    billingLine1: supplier.billingLine1,
-    billingLine2: supplier.billingLine2,
-    billingCity: supplier.billingCity,
-    billingRegion: supplier.billingRegion,
-    billingPostcode: supplier.billingPostcode,
-    billingCountry: supplier.billingCountry,
-    paymentTerms: supplier.paymentTerms,
-    notes: supplier.notes,
-    ...patch,
-  };
 }

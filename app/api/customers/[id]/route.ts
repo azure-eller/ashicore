@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";
-import { jsonNotFound, jsonSuccess } from "@/lib/api/responses";
+import { jsonConflict, jsonNotFound, jsonSuccess } from "@/lib/api/responses";
 import { deletePrivateBlobsIfConfigured } from "@/lib/blob-storage";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { patchCustomerSchema, updateCustomerSchema } from "@/lib/schemas/customers";
@@ -24,26 +24,36 @@ export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("sales", request.headers);
   const { id } = await (ctx as RouteContext).params;
   const data = await parseJsonBody(request, patchCustomerSchema);
-  const customer = await patchCustomer(id, data);
+  const patched = await patchCustomer(id, data);
 
-  if (!customer) {
+  if (!patched) {
     return jsonNotFound("Customer not found");
   }
 
-  return NextResponse.json(customer);
+  return NextResponse.json(await getCustomerDetail(id));
 });
 
 export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("sales", request.headers);
   const { id } = await (ctx as RouteContext).params;
   const data = await parseJsonBody(request, updateCustomerSchema);
-  const customer = await updateCustomer(id, data);
+  const result = await updateCustomer(id, data);
 
-  if (!customer) {
+  if (result.kind === "not-found") {
     return jsonNotFound("Customer not found");
   }
+  if (result.kind === "conflict") {
+    const current = await getCustomerDetail(id, { includeDeleted: true });
+    if (!current) {
+      return jsonNotFound("Customer not found");
+    }
+    return jsonConflict(
+      "This customer was changed elsewhere.",
+      current,
+    );
+  }
 
-  return NextResponse.json(customer);
+  return NextResponse.json(await getCustomerDetail(id));
 });
 
 export const DELETE = apiHandler(async (_request: Request, ctx: unknown) => {

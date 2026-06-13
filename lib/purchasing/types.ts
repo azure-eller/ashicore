@@ -20,6 +20,7 @@ export type SupplierRow = {
   xeroContactId: string | null;
   paymentTerms: string | null;
   notes: string | null;
+  version: number;
   deletedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;

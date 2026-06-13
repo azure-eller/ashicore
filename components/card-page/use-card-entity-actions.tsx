@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
+import { firstFieldErrorMessage } from "@/lib/api/field-errors";
+import type { FlushOutcome } from "@/lib/card-kernel/kernel";
 import type { CardHeaderAction } from "./card-page-header";
 import { useConfirmMutation } from "./use-confirm-mutation";
 import { useDeleteEntity } from "./use-delete-entity";
@@ -45,9 +47,11 @@ export function useCardEntityActions({
 }: {
   entity: string;
   getId: () => string | null;
-  flush?: () => Promise<void>;
-  /** Lets duplicate refuse to copy stale server state when a flush no-ops
-   *  (e.g. the draft is currently unsaveable). Delete ignores pending edits. */
+  /** Kernel flushes resolve with an outcome the actions branch on; legacy
+   *  engine flushes resolve void and reject on save failure. */
+  flush?: () => Promise<void | FlushOutcome>;
+  /** Legacy-engine only: lets duplicate refuse to copy stale server state
+   *  when a flush no-ops (unsaveable draft). Delete ignores pending edits. */
   hasPendingOps?: () => boolean;
   invalidateQueryKeys: readonly QueryKey[];
   missingIdError?: string;
@@ -79,9 +83,21 @@ export function useCardEntityActions({
   const router = useRouter();
   const currentId = getId();
 
-  const resolveId = async ({ requireFlushed = false } = {}) => {
-    await flush?.();
-    if (requireFlushed && hasPendingOps?.()) {
+  const resolveId = async ({ requireSaved = false } = {}) => {
+    const outcome = await flush?.();
+    if (outcome) {
+      if (outcome.outcome === "failed" || outcome.outcome === "conflict") {
+        throw new Error(outcome.error);
+      }
+      if (requireSaved && outcome.outcome === "blocked") {
+        throw new Error(
+          firstFieldErrorMessage(
+            outcome.fieldErrors,
+            "Unsaved changes can't be saved yet — fix them first.",
+          ),
+        );
+      }
+    } else if (requireSaved && hasPendingOps?.()) {
       throw new Error("Unsaved changes can't be saved yet — fix them first.");
     }
     const id = getId();
@@ -93,7 +109,7 @@ export function useCardEntityActions({
     mutationKey: [entity, currentId ?? "__draft__", "duplicate"],
     mutationFn: async () => {
       if (!duplicate) throw new Error("Duplicate is not configured.");
-      return duplicate.run(await resolveId({ requireFlushed: true }));
+      return duplicate.run(await resolveId({ requireSaved: true }));
     },
     invalidateQueryKeys,
     onDuplicated: (created) => {

@@ -216,10 +216,6 @@ export async function updateItem(id: string, data: Record<string, unknown>) {
     delete familyPayload.purchaseUnitDefinitionId;
     delete familyPayload.purchaseToStockFactor;
   }
-  if (Object.keys(familyPayload).length > 0) {
-    latest = await jsonMutation(`/api/item-cards/${id}`, "PATCH", familyPayload);
-    if (latest.status >= 400) return latest;
-  }
 
   const variantPayload = pickDefined(data, [
     "sku",
@@ -234,8 +230,15 @@ export async function updateItem(id: string, data: Record<string, unknown>) {
     "safetyStock",
     "sellable",
   ]);
-  if (Object.keys(variantPayload).length > 0) {
-    latest = await jsonMutation(`/api/item-cards/${id}/variant`, "PATCH", variantPayload);
+
+  // Family + variant fields ride in one consolidated document PATCH.
+  if (Object.keys(familyPayload).length > 0 || Object.keys(variantPayload).length > 0) {
+    latest = await jsonMutation(`/api/item-cards/${id}`, "PATCH", {
+      ...(Object.keys(familyPayload).length > 0 ? { family: familyPayload } : {}),
+      ...(Object.keys(variantPayload).length > 0
+        ? { variants: [{ id, ...variantPayload }] }
+        : {}),
+    });
     if (latest.status >= 400) return latest;
   }
 
@@ -542,6 +545,72 @@ export async function updateCustomer(id: string, data: {
   });
   const body = await res.json().catch(() => null);
   return { status: res.status, body };
+}
+
+/**
+ * Append a contact through the customer document PUT (contacts ride inside
+ * the customer doc and reconcile by id; there is no standalone contact POST).
+ */
+export async function addCustomerContact(
+  customerId: string,
+  contact: {
+    name: string;
+    title?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    roles?: string[];
+  },
+) {
+  const detailRes = await testFetch(`/api/customers/${customerId}`);
+  const detail = (await detailRes.json()) as Record<string, unknown> & {
+    contacts: Array<Record<string, unknown>>;
+  };
+  const contactId = crypto.randomUUID();
+  const res = await testFetch(`/api/customers/${customerId}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      name: detail.name,
+      customerCategoryId: detail.customerCategoryId,
+      accountState: detail.accountState,
+      accountPriority: detail.accountPriority,
+      email: detail.email,
+      phone: detail.phone,
+      billingLine1: detail.billingLine1,
+      billingLine2: detail.billingLine2,
+      billingCity: detail.billingCity,
+      billingRegion: detail.billingRegion,
+      billingPostcode: detail.billingPostcode,
+      billingCountry: detail.billingCountry,
+      shipLine1: detail.shipLine1,
+      shipLine2: detail.shipLine2,
+      shipCity: detail.shipCity,
+      shipRegion: detail.shipRegion,
+      shipPostcode: detail.shipPostcode,
+      shipCountry: detail.shipCountry,
+      contacts: [
+        ...detail.contacts.map((row) => ({
+          id: row.id,
+          name: row.name,
+          title: row.title,
+          email: row.email,
+          phone: row.phone,
+          addressEntryId: row.addressEntryId,
+          roles: row.roles,
+        })),
+        {
+          id: contactId,
+          name: contact.name,
+          title: contact.title ?? null,
+          email: contact.email ?? null,
+          phone: contact.phone ?? null,
+          addressEntryId: null,
+          roles: contact.roles ?? [],
+        },
+      ],
+    }),
+  });
+  const body = await res.json().catch(() => null);
+  return { status: res.status, body, contactId };
 }
 
 export async function createCustomerCategory(data: {

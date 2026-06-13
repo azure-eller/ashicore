@@ -236,91 +236,90 @@ export async function getCustomerProjectsInTx(
   }));
 }
 
-export async function createCustomerContact(
+/**
+ * Reconcile the customer document's contacts array: update rows whose ids
+ * exist, insert new ones, soft-delete rows missing from the array. Recording
+ * NEW contacts is the crm workflow (gated); editing/deleting existing
+ * records stays free — same boundary as lot tracking's existing-data rule.
+ */
+export async function reconcileCustomerContactsInTx(
+  tx: Tx,
+  orgId: string,
   customerId: string,
-  data: CustomerContactInput
-): Promise<CustomerContactRow | null> {
-  return withAuthedOrgContext(async (tx, orgId) => {
-    // Recording new CRM data is the crm workflow; editing/deleting existing
-    // records stays free (same boundary as lot tracking's existing-data rule).
+  contacts: Array<CustomerContactInput & { id?: string }>,
+) {
+  const existing = await tx
+    .select({ id: customerContacts.id })
+    .from(customerContacts)
+    .where(
+      and(
+        eq(customerContacts.customerId, customerId),
+        isNull(customerContacts.deletedAt)
+      )
+    );
+  const existingIds = new Set(existing.map((row) => row.id));
+  const incoming = contacts.filter((contact) => contact.name.trim());
+
+  const newContacts = incoming.filter(
+    (contact) => !contact.id || !existingIds.has(contact.id)
+  );
+  if (newContacts.length > 0) {
     await assertFeatureAccessInTx(tx, orgId, "crm", {
-      route: "POST /api/customers/[id]/contacts",
+      route: "PUT /api/customers/[id]",
     });
-    const customer = await ensureActiveCustomerInTx(tx, customerId);
-    if (!customer) return null;
-    await ensureAddressEntryForContactInTx(tx, orgId, data.addressEntryId);
+  }
 
-    const [contact] = await tx
-      .insert(customerContacts)
-      .values({
-        organizationId: orgId,
-        customerId,
-        name: data.name,
-        title: data.title,
-        email: data.email,
-        phone: data.phone,
-        addressEntryId: data.addressEntryId,
-        ...buildCustomerContactRoleColumns(data.roles),
-      })
-      .returning(customerContactSelect);
+  const now = new Date();
+  for (const contact of incoming) {
+    await ensureAddressEntryForContactInTx(tx, orgId, contact.addressEntryId);
+    const fields = {
+      name: contact.name,
+      title: contact.title,
+      email: contact.email,
+      phone: contact.phone,
+      addressEntryId: contact.addressEntryId,
+      ...buildCustomerContactRoleColumns(contact.roles),
+    };
+    if (contact.id && existingIds.has(contact.id)) {
+      await tx
+        .update(customerContacts)
+        .set({ ...fields, updatedAt: now })
+        .where(
+          and(
+            eq(customerContacts.id, contact.id),
+            eq(customerContacts.customerId, customerId),
+            isNull(customerContacts.deletedAt)
+          )
+        );
+    } else {
+      await tx
+        .insert(customerContacts)
+        .values({
+          ...(contact.id ? { id: contact.id } : {}),
+          organizationId: orgId,
+          customerId,
+          ...fields,
+        })
+        .onConflictDoNothing({ target: customerContacts.id });
+    }
+  }
 
-    return contact ? mapCustomerContactRow(contact) : null;
-  });
-}
-
-export async function updateCustomerContact(
-  customerId: string,
-  contactId: string,
-  data: CustomerContactInput
-): Promise<CustomerContactRow | null> {
-  return withAuthedOrgContext(async (tx, orgId) => {
-    const customer = await ensureActiveCustomerInTx(tx, customerId);
-    if (!customer) return null;
-    await ensureAddressEntryForContactInTx(tx, orgId, data.addressEntryId);
-
-    const [contact] = await tx
+  const keepIds = new Set(
+    incoming.flatMap((contact) => (contact.id ? [contact.id] : []))
+  );
+  const removeIds = [...existingIds].filter((id) => !keepIds.has(id));
+  if (removeIds.length > 0) {
+    await tx
       .update(customerContacts)
-      .set({
-        name: data.name,
-        title: data.title,
-        email: data.email,
-        phone: data.phone,
-        addressEntryId: data.addressEntryId,
-        ...buildCustomerContactRoleColumns(data.roles),
-        updatedAt: new Date(),
-      })
+      .set({ deletedAt: now, updatedAt: now })
       .where(
         and(
-          eq(customerContacts.id, contactId),
+          inArray(customerContacts.id, removeIds),
           eq(customerContacts.customerId, customerId),
           isNull(customerContacts.deletedAt)
         )
-      )
-      .returning(customerContactSelect);
-
-    return contact ? mapCustomerContactRow(contact) : null;
-  });
-}
-
-export async function deleteCustomerContact(customerId: string, contactId: string) {
-  return withAuthedOrgContext(async (tx) => {
-    const customer = await ensureActiveCustomerInTx(tx, customerId);
-    if (!customer) return { deleted: false };
-
-    const [contact] = await tx
-      .update(customerContacts)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(
-        and(
-          eq(customerContacts.id, contactId),
-          eq(customerContacts.customerId, customerId),
-          isNull(customerContacts.deletedAt)
-        )
-      )
-      .returning({ id: customerContacts.id });
-
-    return { deleted: contact != null };
-  });
+      );
+  }
 }
 
 export async function createCustomerActivity(

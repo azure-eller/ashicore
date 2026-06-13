@@ -7,6 +7,7 @@ import { ProductCard } from "../products/[id]/product-card";
 
 function emptyCard(itemType: "product", unitDefinitionId: string): ItemCardDto {
   return {
+    focusedVariantId: "",
     family: {
       id: "",
       itemType,
@@ -19,6 +20,7 @@ function emptyCard(itemType: "product", unitDefinitionId: string): ItemCardDto {
       purchaseUnitDefinitionId: null,
       purchaseToStockFactor: null,
       lotTrackingMode: "tracked",
+      version: 0,
       deletedAt: null,
       createdAt: null,
       updatedAt: null,

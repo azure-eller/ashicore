@@ -1,51 +1,100 @@
 import "server-only";
 
+import { sql } from "drizzle-orm";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { customerActivities, customerContacts, customerProjects, customers } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import type { InsertCustomer, PatchCustomer, UpdateCustomer } from "@/lib/schemas/customers";
 import { ensureCustomerCategoryExistsInTx } from "./customer-categories";
+import { reconcileCustomerContactsInTx } from "./crm";
+
+export type CustomerWriteResult =
+  | { kind: "updated"; id: string }
+  | { kind: "conflict"; id: string }
+  | { kind: "not-found" };
 
 export async function createCustomer(data: InsertCustomer) {
   return withAuthedOrgContext(async (tx, orgId) => {
-    return createCustomerInTx(tx, orgId, data);
+    const { contacts, ...fields } = data;
+    await ensureCustomerCategoryExistsInTx(tx, fields.customerCategoryId);
+
+    // Idempotent under client-generated ids: a retried create with the same
+    // id no-ops the insert.
+    const inserted = await tx
+      .insert(customers)
+      .values({ organizationId: orgId, ...fields })
+      .onConflictDoNothing({ target: customers.id })
+      .returning({ id: customers.id });
+
+    const id = inserted[0]?.id ?? data.id;
+    if (!id) return null;
+
+    if (contacts) {
+      await reconcileCustomerContactsInTx(tx, orgId, id, contacts);
+    }
+
+    return { id };
   });
 }
 
 export async function createCustomerInTx(tx: Tx, orgId: string, data: InsertCustomer) {
-  await ensureCustomerCategoryExistsInTx(tx, data.customerCategoryId);
+  const { contacts: _contacts, ...fields } = data;
+  await ensureCustomerCategoryExistsInTx(tx, fields.customerCategoryId);
 
   const [customer] = await tx
     .insert(customers)
     .values({
       organizationId: orgId,
-      ...data,
+      ...fields,
     })
     .returning({ id: customers.id });
 
   return customer;
 }
 
-export async function updateCustomer(id: string, data: UpdateCustomer) {
-  return withAuthedOrgContext(async (tx) => {
-    return updateCustomerInTx(tx, id, data);
+export async function updateCustomer(
+  id: string,
+  data: UpdateCustomer,
+): Promise<CustomerWriteResult> {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const { expectedVersion, contacts, ...fields } = data;
+    await ensureCustomerCategoryExistsInTx(tx, fields.customerCategoryId);
+
+    const [customer] = await tx
+      .update(customers)
+      .set({
+        ...fields,
+        version: sql`${customers.version} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(customers.id, id),
+          isNull(customers.deletedAt),
+          ...(expectedVersion != null
+            ? [eq(customers.version, expectedVersion)]
+            : []),
+        ),
+      )
+      .returning({ id: customers.id });
+
+    if (!customer) {
+      const [current] = await tx
+        .select({ id: customers.id })
+        .from(customers)
+        .where(and(eq(customers.id, id), isNull(customers.deletedAt)));
+      return current
+        ? ({ kind: "conflict", id } satisfies CustomerWriteResult)
+        : ({ kind: "not-found" } satisfies CustomerWriteResult);
+    }
+
+    if (contacts) {
+      await reconcileCustomerContactsInTx(tx, orgId, id, contacts);
+    }
+
+    return { kind: "updated", id } satisfies CustomerWriteResult;
   });
-}
-
-export async function updateCustomerInTx(tx: Tx, id: string, data: UpdateCustomer) {
-  await ensureCustomerCategoryExistsInTx(tx, data.customerCategoryId);
-
-  const [customer] = await tx
-    .update(customers)
-    .set({
-      ...data,
-      updatedAt: new Date(),
-    })
-    .where(and(eq(customers.id, id), isNull(customers.deletedAt)))
-    .returning({ id: customers.id });
-
-  return customer ?? null;
 }
 
 export async function patchCustomerInTx(tx: Tx, id: string, data: PatchCustomer) {
@@ -57,6 +106,7 @@ export async function patchCustomerInTx(tx: Tx, id: string, data: PatchCustomer)
     .update(customers)
     .set({
       ...data,
+      version: sql`${customers.version} + 1`,
       updatedAt: new Date(),
     })
     .where(and(eq(customers.id, id), isNull(customers.deletedAt)))

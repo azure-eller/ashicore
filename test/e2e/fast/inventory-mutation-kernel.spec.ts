@@ -439,11 +439,13 @@ test.describe("inventory mutation kernel heartbeat", () => {
     const modeResponse = await testFetch(`/api/item-cards/${itemId}`, {
       method: "PATCH",
       body: JSON.stringify({
-        name: itemName,
-        category,
-        description: null,
-        unitDefinitionId: unitId,
-        lotTrackingMode: "untracked",
+        family: {
+          name: itemName,
+          category,
+          description: null,
+          unitDefinitionId: unitId,
+          lotTrackingMode: "untracked",
+        },
       }),
     });
     expect(
@@ -673,11 +675,13 @@ test.describe("inventory mutation kernel heartbeat", () => {
     const modeResponse = await testFetch(`/api/item-cards/${itemId}`, {
       method: "PATCH",
       body: JSON.stringify({
-        name: itemName,
-        category,
-        description: null,
-        unitDefinitionId: unitId,
-        lotTrackingMode: "untracked",
+        family: {
+          name: itemName,
+          category,
+          description: null,
+          unitDefinitionId: unitId,
+          lotTrackingMode: "untracked",
+        },
       }),
     });
     expect(
@@ -732,11 +736,13 @@ test.describe("inventory mutation kernel heartbeat", () => {
     const trackedModeResponse = await testFetch(`/api/item-cards/${itemId}`, {
       method: "PATCH",
       body: JSON.stringify({
-        name: itemName,
-        category,
-        description: null,
-        unitDefinitionId: unitId,
-        lotTrackingMode: "tracked",
+        family: {
+          name: itemName,
+          category,
+          description: null,
+          unitDefinitionId: unitId,
+          lotTrackingMode: "tracked",
+        },
       }),
     });
     expect(
@@ -1761,6 +1767,114 @@ test.describe("inventory mutation kernel heartbeat", () => {
           variant.duplicateCombinationWarnings.length > 0,
       ),
     ).toBe(true);
+  });
+
+  test("variant document shape changes bump the item-card document version", async ({ db }) => {
+    const unique = randomUUID().slice(0, 8);
+    const product = await createItem({
+      itemType: "product",
+      name: `Fast Variant Version ${unique}`,
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-VARIANT-VERSION-${unique}`,
+      category: `Fast Variant Version ${unique}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "15.00",
+      registeredBarcode: null,
+      internalBarcode: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(product.status).toBe(201);
+    const itemId = product.body.id as string;
+
+    const [beforeConfig] = await db
+      .select({ version: itemFamilies.version })
+      .from(itemFamilies)
+      .innerJoin(items, eq(items.familyId, itemFamilies.id))
+      .where(eq(items.id, itemId));
+
+    const configResponse = await testFetch(`/api/item-cards/${itemId}/variant-config`, {
+      method: "PUT",
+      body: JSON.stringify({
+        options: [
+          {
+            name: "Pack",
+            values: [{ label: "1 ct" }, { label: "2 ct" }],
+          },
+        ],
+      }),
+    });
+    expect(configResponse.status).toBe(200);
+
+    const [afterConfig] = await db
+      .select({ version: itemFamilies.version })
+      .from(itemFamilies)
+      .innerJoin(items, eq(items.familyId, itemFamilies.id))
+      .where(eq(items.id, itemId));
+    expect(afterConfig.version).toBeGreaterThan(beforeConfig.version);
+
+    const generateResponse = await testFetch(`/api/item-cards/${itemId}/variants/generate`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    expect(generateResponse.status).toBe(201);
+
+    const [afterGenerate] = await db
+      .select({ version: itemFamilies.version })
+      .from(itemFamilies)
+      .innerJoin(items, eq(items.familyId, itemFamilies.id))
+      .where(eq(items.id, itemId));
+    expect(afterGenerate.version).toBeGreaterThan(afterConfig.version);
+
+    const cardResponse = await testFetch(`/api/item-cards/${itemId}`);
+    expect(cardResponse.status).toBe(200);
+    const card = await cardResponse.json();
+    const familyId = card.family.id as string;
+    const option = card.options[0] as {
+      id: string;
+      values: Array<{ id: string; label: string }>;
+    };
+    const duplicateValue = option.values.find((value) => value.label === "1 ct");
+    expect(duplicateValue?.id).toBeTruthy();
+
+    const [beforeCreate] = await db
+      .select({ version: itemFamilies.version })
+      .from(itemFamilies)
+      .where(eq(itemFamilies.id, familyId));
+
+    const createDuplicateResponse = await testFetch(`/api/item-cards/${itemId}/variant`, {
+      method: "POST",
+      body: JSON.stringify({
+        optionValueIdsByOptionId: {
+          [option.id]: duplicateValue!.id,
+        },
+        sku: `FAST-VARIANT-VERSION-DUP-${unique}`,
+      }),
+    });
+    expect(createDuplicateResponse.status).toBe(201);
+    const created = await createDuplicateResponse.json();
+    const createdVariantId = created.itemId as string;
+
+    const [afterCreate] = await db
+      .select({ version: itemFamilies.version })
+      .from(itemFamilies)
+      .where(eq(itemFamilies.id, familyId));
+    expect(afterCreate.version).toBeGreaterThan(beforeCreate.version);
+
+    const deleteResponse = await testFetch(`/api/items/${createdVariantId}`, {
+      method: "DELETE",
+      body: JSON.stringify({}),
+    });
+    expect(deleteResponse.status).toBe(200);
+
+    const [afterDelete] = await db
+      .select({ version: itemFamilies.version })
+      .from(itemFamilies)
+      .where(eq(itemFamilies.id, familyId));
+    expect(afterDelete.version).toBeGreaterThan(afterCreate.version);
   });
 
   test("item creation is unmetered: a free-plan org far past 50 SKUs keeps creating", async ({
