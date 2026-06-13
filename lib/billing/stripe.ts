@@ -10,19 +10,21 @@ import {
 } from "./dal";
 import { sendFounderAlert } from "@/lib/internal-alerts";
 import {
+  getBillingOffer,
   pluginsFromLookupKeys,
   type BillingPlan,
   type BillingPlugin,
   type BillingStatus,
 } from "./types";
 import { env } from "@/lib/env";
+import { isCheckoutConfigured } from "./config";
+export { isCheckoutConfigured, isStripeConfigured } from "./config";
 
 const STRIPE_API_VERSION = "2026-05-27.dahlia";
 
 type BillingConfig = {
   secretKey: string;
   webhookSecret: string | null;
-  corePriceId: string | null;
 };
 
 export class BillingConfigError extends Error {
@@ -54,24 +56,17 @@ export class BillingConflictError extends Error {
 
 export function getBillingConfig(options?: {
   requireWebhookSecret?: boolean;
-  requireCorePriceId?: boolean;
 }): BillingConfig {
   const secretKey = env.STRIPE_SECRET_KEY?.trim();
   const webhookSecret = env.STRIPE_WEBHOOK_SECRET?.trim() || null;
-  const corePriceId = env.STRIPE_CORE_PRICE_ID?.trim() || null;
 
-  if (
-    !secretKey ||
-    (options?.requireWebhookSecret && !webhookSecret) ||
-    (options?.requireCorePriceId && !corePriceId)
-  ) {
+  if (!secretKey || (options?.requireWebhookSecret && !webhookSecret)) {
     throw new BillingConfigError();
   }
 
   return {
     secretKey,
     webhookSecret,
-    corePriceId,
   };
 }
 
@@ -79,16 +74,6 @@ export function getStripeClient(config = getBillingConfig()) {
   return new Stripe(config.secretKey, {
     apiVersion: STRIPE_API_VERSION,
   });
-}
-
-export function isStripeConfigured() {
-  return Boolean(env.STRIPE_SECRET_KEY?.trim());
-}
-
-export function isCheckoutConfigured() {
-  return Boolean(
-    env.STRIPE_SECRET_KEY?.trim() && env.STRIPE_CORE_PRICE_ID?.trim()
-  );
 }
 
 function appUrl(path: string) {
@@ -111,6 +96,7 @@ export async function createCheckoutSession({
   orgId,
   orgName,
   userEmail,
+  lookupKey,
   idempotencyKey,
   successPath,
   cancelPath,
@@ -118,6 +104,7 @@ export async function createCheckoutSession({
   orgId: string;
   orgName: string;
   userEmail: string;
+  lookupKey: string;
   idempotencyKey: string;
   // Where Stripe sends the user back. Defaults to the billing settings page; the
   // onboarding flow overrides these so the user returns into the guided flow to
@@ -125,23 +112,19 @@ export async function createCheckoutSession({
   successPath?: string;
   cancelPath?: string;
 }) {
-  const config = getBillingConfig({ requireCorePriceId: true });
-  const stripe = getStripeClient(config);
-  const billing = await getBillingStateByOrgId(orgId);
-  const corePriceId = config.corePriceId;
-
-  if (!corePriceId) {
-    throw new BillingConfigError();
+  const offer = getBillingOffer(lookupKey);
+  if (!offer) {
+    throw new BillingConfigError(`Unknown catalog item: ${lookupKey}`);
   }
+  if (!isCheckoutConfigured()) {
+    throw new BillingConfigError("Stripe checkout catalog is not configured.");
+  }
+
+  const stripe = getStripeClient();
+  const billing = await getBillingStateByOrgId(orgId);
 
   if (!billing) {
     throw new Error("Organization not found.");
-  }
-
-  if (billing.plan === "core") {
-    throw new BillingConflictError(
-      "This organization already has a Core subscription."
-    );
   }
 
   let stripeCustomerId = billing.stripeCustomerId;
@@ -184,6 +167,18 @@ export async function createCheckoutSession({
     }
   }
 
+  const prices = await stripe.prices.list({
+    lookup_keys: [lookupKey],
+    active: true,
+    limit: 1,
+  });
+  const price = prices.data[0];
+  if (!price) {
+    throw new BillingConfigError(
+      `No active Stripe price has the lookup key ${lookupKey}. Run scripts/stripe-create-catalog.ts.`
+    );
+  }
+
   const session = await stripe.checkout.sessions.create(
     {
       mode: "subscription",
@@ -205,7 +200,7 @@ export async function createCheckoutSession({
             "Start your Ashicore workspace. You can manage billing from settings after checkout.",
         },
       },
-      line_items: [{ price: corePriceId, quantity: 1 }],
+      line_items: [{ price: price.id, quantity: 1 }],
       success_url: appUrl(successPath ?? "/settings/billing?success=1"),
       cancel_url: appUrl(cancelPath ?? "/settings/billing"),
       metadata: { organizationId: orgId },
@@ -213,7 +208,7 @@ export async function createCheckoutSession({
         metadata: { organizationId: orgId },
       },
     },
-    { idempotencyKey: `org-core-checkout-${orgId}-${idempotencyKey}` }
+    { idempotencyKey: `org-checkout-${orgId}-${lookupKey}-${idempotencyKey}` }
   );
 
   await sendFounderAlert({
@@ -222,7 +217,7 @@ export async function createCheckoutSession({
     idempotencyKey: `founder-alert-checkout-started-${session.id}`,
     fields: [
       { label: "Organization", value: orgName },
-      { label: "Plan", value: "core" },
+      { label: "Catalog item", value: offer.name },
       { label: "User email", value: userEmail },
       { label: "Organization ID", value: orgId },
       { label: "Stripe customer ID", value: stripeCustomerId },

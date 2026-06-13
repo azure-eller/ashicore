@@ -632,7 +632,7 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
       apiJson<{ url?: string }>("/api/billing/checkout", {
         method: "POST",
         headers: { "Idempotency-Key": `onboarding-${sessionId ?? "checkout"}` },
-        body: { flow: "onboarding" },
+        body: { flow: "onboarding", lookupKey: "everything" },
       }),
     onSuccess: (data) => {
       if (data.url) {
@@ -1483,9 +1483,9 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
           {approveDialog === "pay" ? (
             <>
               <DialogHeader>
-                <DialogTitle>Start your Pro plan</DialogTitle>
+                <DialogTitle>Start with every plugin</DialogTitle>
                 <DialogDescription>
-                  Pro is $199/mo — unlimited SKUs, locations and integrations. You&apos;ll
+                  Everything is $399/mo — every plugin, current and future. You&apos;ll
                   go to secure checkout, then your data imports automatically. Nothing is
                   saved until your payment goes through.
                 </DialogDescription>

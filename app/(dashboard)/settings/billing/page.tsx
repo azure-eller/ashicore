@@ -29,7 +29,6 @@ export default async function SettingsBillingPage({
   return (
     <BillingSection
       initialData={initialData}
-      autoCheckout={params.checkout === "1"}
       checkoutSuccess={params.success === "1"}
     />
   );

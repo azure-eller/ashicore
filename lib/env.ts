@@ -48,7 +48,7 @@ const schema = z.object({
   // Billing
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
-  STRIPE_CORE_PRICE_ID: z.string().optional(),
+  STRIPE_CATALOG_READY: z.string().optional(),
   STRIPE_LIVE_MODE: z.string().optional(),
   BILLING_ENTITLEMENTS_ENFORCED: z.string().optional(),
   BILLING_ENFORCED_PLUGINS: z.string().optional(),

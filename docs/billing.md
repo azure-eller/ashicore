@@ -25,7 +25,10 @@ and nothing more:
    future product decision — never baked into feature gating.
 
 The plugin registry — ids, labels, Stripe lookup keys — lives in
-`lib/billing/types.ts` and is the only shared code a new plugin touches.
+`lib/billing/types.ts` and is the only shared code a new plugin touches. The
+sellable catalog (`BILLING_CATALOG`: display names, blurbs, prices) lives in
+the same file; `scripts/stripe-create-catalog.ts` creates the Stripe prices
+from it, keyed by lookup key — no price IDs are stored anywhere.
 
 **Deliberately not built** (add only when the trigger fires): a gate
 declaration registry and CI gate-coverage guard (trigger: the inventory table

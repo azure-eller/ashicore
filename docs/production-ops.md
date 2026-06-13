@@ -63,16 +63,15 @@ Founder alerts are optional but required before actively marketing paid signup:
 Production paid checkout requires Stripe live-mode configuration on the ERP Vercel project:
 
 - `STRIPE_SECRET_KEY`
-- `STRIPE_CORE_PRICE_ID`
 - `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_CATALOG_READY=1`
 - `STRIPE_LIVE_MODE=1`
 
 Stripe setup checklist:
 
-1. Create or verify the live monthly Core price for `$199 / month`.
-2. Set `STRIPE_CORE_PRICE_ID` to that live price ID.
-3. Create a live webhook endpoint for `https://ashicore.app/api/stripe/webhook`.
-4. Subscribe the webhook to:
+1. Create the live catalog prices: `STRIPE_SECRET_KEY=sk_live_... pnpm tsx scripts/stripe-create-catalog.ts` (idempotent; keys every price by lookup key — no price IDs to record).
+2. Create a live webhook endpoint for `https://ashicore.app/api/stripe/webhook`.
+3. Subscribe the webhook to:
    - `checkout.session.completed`
    - `customer.subscription.created`
    - `customer.subscription.updated`
@@ -81,14 +80,15 @@ Stripe setup checklist:
 5. Set `STRIPE_WEBHOOK_SECRET` from the live endpoint signing secret.
 6. Set `STRIPE_SECRET_KEY` to the live restricted or secret key used by the ERP app.
 7. Set `STRIPE_LIVE_MODE=1`.
-8. Redeploy the ERP project after env changes.
+8. Set `STRIPE_CATALOG_READY=1` only after the live catalog script succeeds.
+9. Redeploy the ERP project after env changes.
 
 Verification before marketing paid signup:
 
-- Vercel production env lists all four Stripe vars above.
-- `/settings/billing` enables the `Upgrade to Core` action for a free organization.
+- Vercel production env lists all Stripe vars above.
+- `/settings/billing` shows the plugin catalog with working `Add` checkout buttons for a free organization.
 - A live-mode test checkout reaches Stripe Checkout from the deployed ERP app.
-- Returning from checkout leaves the org on Core after the webhook is processed.
+- Returning from checkout leaves the org entitled to the purchased plugins after the webhook is processed.
 - Vercel Runtime Logs show no `Stripe billing is not configured.` errors.
 - Founder alert email arrives for checkout start and subscription activation when `ASHICORE_ALERT_EMAILS` is set.
 

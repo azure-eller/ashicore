@@ -29,9 +29,9 @@ const REQUIRED_ENV = [
   "EMAIL_FROM",
   "ASHICORE_ALERT_EMAILS",
   "STRIPE_SECRET_KEY",
-  "STRIPE_CORE_PRICE_ID",
   "STRIPE_WEBHOOK_SECRET",
   "STRIPE_LIVE_MODE",
+  "STRIPE_CATALOG_READY",
 ] as const;
 
 function parseArgs(): Options {

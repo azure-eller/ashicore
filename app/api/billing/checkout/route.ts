@@ -7,6 +7,7 @@ import {
   BillingConflictError,
   createCheckoutSession,
 } from "@/lib/billing/stripe";
+import { getBillingOffer } from "@/lib/billing/types";
 
 export const POST = apiHandler(async (request) => {
   const context = await assertTeamManagementAccess(request.headers);
@@ -15,14 +16,20 @@ export const POST = apiHandler(async (request) => {
   const body = (await request
     .clone()
     .json()
-    .catch(() => null)) as { flow?: unknown } | null;
+    .catch(() => null)) as { flow?: unknown; lookupKey?: unknown } | null;
   const onboarding = body?.flow === "onboarding";
+  const lookupKey = typeof body?.lookupKey === "string" ? body.lookupKey : null;
+
+  if (!lookupKey || !getBillingOffer(lookupKey)) {
+    return jsonError("Unknown catalog item.", 400);
+  }
 
   try {
     const session = await createCheckoutSession({
       orgId: context.orgId,
       orgName: context.organizationName,
       userEmail: context.email,
+      lookupKey,
       idempotencyKey,
       successPath: onboarding ? "/onboarding?checkout=success" : undefined,
       cancelPath: onboarding ? "/onboarding?checkout=cancel" : undefined,

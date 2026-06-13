@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Alert02Icon, CreditCardIcon, RefreshIcon } from "@hugeicons/core-free-icons";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,11 @@ import {
   SettingsQuietRow,
 } from "@/components/settings-panel";
 import { apiJson } from "@/lib/client/api";
+import {
+  BILLING_CATALOG,
+  type BillingOffer,
+  type BillingPlugin,
+} from "@/lib/billing/types";
 import type { BillingPageData } from "./types";
 
 type BillingActionResponse = {
@@ -27,6 +32,32 @@ function formatDate(value: string | null) {
     day: "numeric",
     year: "numeric",
   }).format(new Date(value));
+}
+
+function offerIncluded(offer: BillingOffer, entitlements: BillingPlugin[]) {
+  return offer.plugins.every((plugin) => entitlements.includes(plugin));
+}
+
+// The display name for what the org currently has: Everything beats an exact
+// package match beats a list of plugin names beats Free.
+function describeCurrentPlan(entitlements: BillingPlugin[]) {
+  if (entitlements.length === 0) return "Free";
+  const everything = BILLING_CATALOG.find((offer) => offer.kind === "everything");
+  if (everything && everything.plugins.every((p) => entitlements.includes(p))) {
+    return everything.name;
+  }
+  const exactPackage = BILLING_CATALOG.find(
+    (offer) =>
+      offer.kind === "package" &&
+      offer.plugins.length === entitlements.length &&
+      offer.plugins.every((p) => entitlements.includes(p))
+  );
+  if (exactPackage) return exactPackage.name;
+  return BILLING_CATALOG.filter(
+    (offer) => offer.kind === "plugin" && offerIncluded(offer, entitlements)
+  )
+    .map((offer) => offer.name)
+    .join(" · ");
 }
 
 function PlanStatusBadge({ data }: { data: BillingPageData }) {
@@ -47,37 +78,41 @@ function PlanStatusBadge({ data }: { data: BillingPageData }) {
   );
 }
 
+function OfferPrice({ offer }: { offer: BillingOffer }) {
+  return (
+    <span className="font-mono text-[length:var(--text-xs)] text-[var(--color-ink-soft)]">
+      <span className="text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
+        ${offer.monthlyUsd}
+      </span>
+      /mo
+    </span>
+  );
+}
+
 export function BillingSection({
   initialData,
-  autoCheckout,
   checkoutSuccess,
 }: {
   initialData: BillingPageData;
-  autoCheckout: boolean;
   checkoutSuccess: boolean;
 }) {
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(checkoutSuccess);
-  const [isPending, setIsPending] = useState<"checkout" | "portal" | "resync" | null>(
-    null
-  );
-  const autoCheckoutStarted = useRef(false);
+  const [pending, setPending] = useState<string | null>(null);
   const periodEnd = formatDate(initialData.currentPeriodEnd);
-  const isCore = initialData.plan === "core";
+  const entitlements = initialData.entitlements;
+  const hasSubscription =
+    Boolean(initialData.stripeSubscriptionId) && initialData.status !== "canceled";
 
   const runBillingAction = useCallback(
-    async (action: "checkout" | "portal" | "resync") => {
+    async (action: "portal" | "resync") => {
       setError(null);
-      setIsPending(action);
+      setPending(action);
 
       try {
         const response = await apiJson<BillingActionResponse>(
           `/api/billing/${action}`,
-          {
-            method: "POST",
-            idempotencyKey: action === "checkout" ? "billing-checkout" : undefined,
-            fallbackError: "Billing request failed.",
-          }
+          { method: "POST", fallbackError: "Billing request failed." }
         );
 
         if (response.url) {
@@ -90,11 +125,36 @@ export function BillingSection({
         setError(caught instanceof Error ? caught.message : "Billing request failed.");
         setIsProcessing(false);
       } finally {
-        setIsPending(null);
+        setPending(null);
       }
     },
     []
   );
+
+  const startCheckout = useCallback(async (lookupKey: string) => {
+    setError(null);
+    setPending(lookupKey);
+
+    try {
+      const response = await apiJson<BillingActionResponse>("/api/billing/checkout", {
+        method: "POST",
+        idempotencyKey: `billing-checkout-${lookupKey}`,
+        body: { lookupKey },
+        fallbackError: "Checkout failed.",
+      });
+
+      if (response.url) {
+        window.location.assign(response.url);
+        return;
+      }
+
+      window.location.reload();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Checkout failed.");
+    } finally {
+      setPending(null);
+    }
+  }, []);
 
   useEffect(() => {
     if (!checkoutSuccess) return;
@@ -106,50 +166,48 @@ export function BillingSection({
     return () => window.clearTimeout(timeout);
   }, [checkoutSuccess]);
 
-  useEffect(() => {
-    if (
-      !autoCheckout ||
-      autoCheckoutStarted.current ||
-      checkoutSuccess ||
-      initialData.plan !== "free"
-    ) {
-      return;
-    }
-
-    autoCheckoutStarted.current = true;
-    void runBillingAction("checkout");
-  }, [autoCheckout, checkoutSuccess, initialData.plan, runBillingAction]);
-
-  const skuUsage = `Unlimited SKUs · ${initialData.skuCount} in use`;
   const renewal = initialData.cancelAtPeriodEnd
     ? `ends ${periodEnd ?? "at period end"}`
     : periodEnd
       ? `renews ${periodEnd}`
-      : "renews monthly";
+      : null;
+
+  const offerAction = (offer: BillingOffer) => {
+    if (offerIncluded(offer, entitlements)) {
+      return <Badge variant="success">Included</Badge>;
+    }
+    return (
+      <div className="flex items-center gap-(--space-5)">
+        <OfferPrice offer={offer} />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void startCheckout(offer.lookupKey)}
+          disabled={
+            !initialData.checkoutConfigured || hasSubscription || pending != null
+          }
+        >
+          Add
+        </Button>
+      </div>
+    );
+  };
 
   return (
     <div className="flex flex-col gap-(--space-8)">
       <SettingsPageHeader
         title="Billing"
-        sub="Your Ashicore subscription. Invoices and payment methods are managed in Stripe."
+        sub="Plugins for your Ashicore workspace. Invoices and payment methods are managed in Stripe."
         action={
-          initialData.plan === "free" ? (
-            <Button
-              onClick={() => void runBillingAction("checkout")}
-              disabled={!initialData.checkoutConfigured || isPending != null}
-            >
-              <HugeiconsIcon icon={CreditCardIcon} data-icon="inline-start" />
-              Upgrade to Core
-            </Button>
-          ) : (
+          hasSubscription ? (
             <Button
               onClick={() => void runBillingAction("portal")}
-              disabled={!initialData.billingConfigured || isPending != null}
+              disabled={!initialData.billingConfigured || pending != null}
             >
               <HugeiconsIcon icon={CreditCardIcon} data-icon="inline-start" />
               Manage subscription
             </Button>
-          )
+          ) : null
         }
       />
 
@@ -181,7 +239,9 @@ export function BillingSection({
                 strokeWidth={2}
               />
               <div>
-                <div className="font-medium">Core ends {periodEnd ?? "at period end"}</div>
+                <div className="font-medium">
+                  Subscription ends {periodEnd ?? "at period end"}
+                </div>
                 <div className="mt-(--space-1) text-[var(--color-ink-faint)]">
                   You keep all current data; paid plugin workflows pause when the
                   subscription ends.
@@ -219,24 +279,71 @@ export function BillingSection({
           <div className="flex min-w-0 flex-col gap-(--space-3)">
             <div className="flex items-center gap-(--space-5)">
               <span className="text-[length:var(--text-xl)] leading-[var(--leading-xl)] font-semibold tracking-[var(--tracking-tight)] text-[var(--color-ink)]">
-                {isCore ? "Core" : "Free"}
+                {describeCurrentPlan(entitlements)}
               </span>
-              <PlanStatusBadge data={initialData} />
+              {hasSubscription || initialData.status === "past_due" ? (
+                <PlanStatusBadge data={initialData} />
+              ) : null}
             </div>
-            {isCore ? (
-              <span className="font-mono text-[length:var(--text-xs)] text-[var(--color-ink-soft)]">
-                <span className="text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
-                  $199
-                </span>{" "}
-                / month
-              </span>
-            ) : null}
             <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-              {isCore ? `${skuUsage} · ${renewal}` : skuUsage}
+              {entitlements.length === 0
+                ? `Unlimited SKUs, users, and orders · ${initialData.skuCount} SKUs in use`
+                : [
+                    `Unlimited SKUs · ${initialData.skuCount} in use`,
+                    renewal,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
             </span>
           </div>
         </SettingsBlock>
+      </SettingsCard>
 
+      <SettingsCard>
+        <SettingsBlock>
+          <div className="text-[length:var(--text-sm)] font-medium">Plugins</div>
+          <div className="mt-(--space-1) text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+            Add a single workflow when you need it.
+          </div>
+        </SettingsBlock>
+        {BILLING_CATALOG.filter((offer) => offer.kind === "plugin").map((offer) => (
+          <SettingsBlock key={offer.lookupKey}>
+            <SettingsQuietRow
+              title={offer.name}
+              sub={offer.blurb}
+              action={offerAction(offer)}
+            />
+          </SettingsBlock>
+        ))}
+      </SettingsCard>
+
+      <SettingsCard>
+        <SettingsBlock>
+          <div className="text-[length:var(--text-sm)] font-medium">Packages</div>
+          <div className="mt-(--space-1) text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+            Three plugins picked for your kind of operation, or everything at once.
+          </div>
+        </SettingsBlock>
+        {BILLING_CATALOG.filter((offer) => offer.kind !== "plugin").map((offer) => (
+          <SettingsBlock key={offer.lookupKey}>
+            <SettingsQuietRow
+              title={offer.name}
+              sub={offer.blurb}
+              action={offerAction(offer)}
+            />
+          </SettingsBlock>
+        ))}
+        {hasSubscription ? (
+          <SettingsBlock>
+            <div className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+              Changing an active subscription in-app is coming next; until then,
+              manage it in Stripe or contact support@ashicore.app.
+            </div>
+          </SettingsBlock>
+        ) : null}
+      </SettingsCard>
+
+      <SettingsCard>
         <SettingsBlock>
           <SettingsQuietRow
             title="Advantage"
@@ -260,7 +367,7 @@ export function BillingSection({
           size="sm"
           className="h-auto p-0 text-[length:var(--text-xs)]"
           onClick={() => void runBillingAction("resync")}
-          disabled={!initialData.billingConfigured || isPending != null}
+          disabled={!initialData.billingConfigured || pending != null}
         >
           <HugeiconsIcon icon={RefreshIcon} data-icon="inline-start" />
           Resync with Stripe

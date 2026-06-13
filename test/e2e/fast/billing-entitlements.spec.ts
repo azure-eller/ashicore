@@ -135,8 +135,8 @@ test("stripe webhook is the single writer of the org plugin entitlement set", as
   expect(granted.entitlements).toEqual([
     "lot_tracking",
     "batch_production",
-    "planning",
     "crm",
+    "wholesale_pricing",
   ]);
   expect(granted.plan).toBe("core");
   expect(granted.stripeSubscriptionId).toBe(subscriptionId);
@@ -167,8 +167,8 @@ test("stripe webhook is the single writer of the org plugin entitlement set", as
   expect(stillGranted.entitlements).toEqual([
     "lot_tracking",
     "batch_production",
-    "planning",
     "crm",
+    "wholesale_pricing",
   ]);
   expect(stillGranted.plan).toBe("core");
   expect(stillGranted.status).toBe("active");
@@ -439,4 +439,20 @@ test("shadow mode keeps schedule pricing applied for unentitled orgs", async () 
   };
   expect(Number(pricing.suggestedUnitPrice)).toBe(18);
   expect(pricing.pricingSourceType).toBe("schedule_break");
+});
+
+test("checkout sells only catalog lookup keys", async () => {
+  const missing = await testFetch("/api/billing/checkout", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  expect(missing.status).toBe(400);
+});
+
+test("checkout refuses catalog offers until Stripe catalog readiness is enabled", async () => {
+  const response = await testFetch("/api/billing/checkout", {
+    method: "POST",
+    body: JSON.stringify({ lookupKey: "plugin_lot_tracking" }),
+  });
+  expect(response.status).toBe(503);
 });

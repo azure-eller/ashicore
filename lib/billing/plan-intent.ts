@@ -11,5 +11,5 @@ export function orgSetupPathForPlanIntent(plan: BillingPlanIntent) {
 }
 
 export function appEntryPathForPlanIntent(plan: BillingPlanIntent) {
-  return plan === "paid" ? "/settings/billing?checkout=1" : "/sales/orders";
+  return plan === "paid" ? "/settings/billing" : "/sales/orders";
 }
