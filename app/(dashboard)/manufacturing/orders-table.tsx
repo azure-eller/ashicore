@@ -66,7 +66,10 @@ import {
 } from "@/components/card-page/order-status-configs";
 import type { ManufacturingOrderListRow } from "@/lib/manufacturing/types";
 import { queryKeys } from "@/lib/client/query-keys";
-import { useGridSearchParam } from "@/lib/hooks/use-grid-search-param";
+import {
+  useGridSearchParam,
+  useWorkflowTabForUrlQuery,
+} from "@/lib/hooks/use-grid-search-param";
 
 const OPEN_MANUFACTURING_STATUSES = ["open"] as const;
 const DONE_MANUFACTURING_STATUSES = ["done"] as const;
@@ -310,7 +313,7 @@ export function OrdersTable({
   const [statusFilter, setStatusFilter] =
     useState<ManufacturingWorkflowFilterValue>("open");
   const [resourceFilter, setResourceFilter] = useState(ALL_RESOURCES_FILTER);
-  const [searchValue, setSearchValue] = useGridSearchParam();
+  const [searchValue, setSearchValue, urlQuery] = useGridSearchParam();
   const [selectedOrders, setSelectedOrders] = useState<ManufacturingOrderListRow[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [hasActiveSort, setHasActiveSort] = useState(false);
@@ -326,26 +329,36 @@ export function OrdersTable({
       }),
     initialData,
   });
-  const statusCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-
-    for (const order of orders) {
-      counts.set(order.status, (counts.get(order.status) ?? 0) + 1);
-    }
-
-    return counts;
-  }, [orders]);
+  const searchedOrders = useMemo(
+    () => orders.filter((order) => manufacturingOrderMatchesSearch(order, searchValue)),
+    [orders, searchValue]
+  );
+  // Counts reflect the active search ("matches per tab"), so a search whose
+  // hits live on the other tab is never silently invisible.
+  const openCount = searchedOrders.filter((order) =>
+    (OPEN_MANUFACTURING_STATUSES as readonly string[]).includes(order.status)
+  ).length;
+  const doneCount = searchedOrders.filter((order) =>
+    (DONE_MANUFACTURING_STATUSES as readonly string[]).includes(order.status)
+  ).length;
+  useWorkflowTabForUrlQuery({
+    urlQuery,
+    searchValue,
+    ready: orders.length > 0,
+    openMatches: openCount,
+    doneMatches: doneCount,
+    tab: statusFilter,
+    onTabChange: setStatusFilter,
+  });
   const statusFilteredOrders = useMemo(() => {
     const allowedStatuses =
       statusFilter === "done"
         ? DONE_MANUFACTURING_STATUSES
         : OPEN_MANUFACTURING_STATUSES;
-    return orders.filter(
-      (order) =>
-        (allowedStatuses as readonly string[]).includes(order.status) &&
-        manufacturingOrderMatchesSearch(order, searchValue)
+    return searchedOrders.filter((order) =>
+      (allowedStatuses as readonly string[]).includes(order.status)
     );
-  }, [orders, searchValue, statusFilter]);
+  }, [searchedOrders, statusFilter]);
   const resourceOptions = useMemo<ManufacturingResourceFilterOption[]>(() => {
     const optionByValue = new Map<string, ManufacturingResourceFilterOption>();
 
@@ -623,10 +636,12 @@ export function OrdersTable({
           reorderMutation.mutate(orderedRows);
         }}
         toolbarContent={
-          <ManufacturingStatusFilter
+          <WorkflowStatusFilter
             value={statusFilter}
-            statusCounts={statusCounts}
-            onStatusChange={setStatusFilter}
+            openCount={openCount}
+            doneCount={doneCount}
+            ariaLabel="Filter manufacturing orders by status"
+            onValueChange={setStatusFilter}
           />
         }
         actions={
@@ -744,31 +759,3 @@ function ManufacturingResourceFilter({
   );
 }
 
-function ManufacturingStatusFilter({
-  value,
-  statusCounts,
-  onStatusChange,
-}: {
-  value: ManufacturingWorkflowFilterValue;
-  statusCounts: Map<string, number>;
-  onStatusChange: (status: ManufacturingWorkflowFilterValue) => void;
-}) {
-  const openCount = OPEN_MANUFACTURING_STATUSES.reduce(
-    (sum, status) => sum + (statusCounts.get(status) ?? 0),
-    0
-  );
-  const doneCount = DONE_MANUFACTURING_STATUSES.reduce(
-    (sum, status) => sum + (statusCounts.get(status) ?? 0),
-    0
-  );
-
-  return (
-    <WorkflowStatusFilter
-      value={value}
-      openCount={openCount}
-      doneCount={doneCount}
-      ariaLabel="Filter manufacturing orders by status"
-      onValueChange={onStatusChange}
-    />
-  );
-}

@@ -75,7 +75,10 @@ import {
 } from "./create-manufacturing-orders-dialog";
 import type { SalesOrderListRow } from "@/lib/sales/types";
 import { queryKeys } from "@/lib/client/query-keys";
-import { useGridSearchParam } from "@/lib/hooks/use-grid-search-param";
+import {
+  useGridSearchParam,
+  useWorkflowTabForUrlQuery,
+} from "@/lib/hooks/use-grid-search-param";
 
 const OPEN_SALES_STATUSES = ["open"] as const;
 const DONE_SALES_STATUSES = ["done"] as const;
@@ -713,7 +716,7 @@ function OrdersTableContent({
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [statusFilter, setStatusFilter] =
     useState<SalesWorkflowFilterValue>("open");
-  const [searchValue, setSearchValue] = useGridSearchParam();
+  const [searchValue, setSearchValue, urlQuery] = useGridSearchParam();
   const [selectedOrders, setSelectedOrders] = useState<SalesOrderListRow[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [hasActiveSort, setHasActiveSort] = useState(false);
@@ -760,31 +763,34 @@ function OrdersTableContent({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
-  const statusCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-
-    for (const order of orders) {
-      counts.set(order.status, (counts.get(order.status) ?? 0) + 1);
-    }
-
-    return counts;
-  }, [orders]);
-  const openOrders = useMemo(
-    () => orders.filter((order) => isOpenSalesOrder(order)),
-    [orders]
+  // Counts reflect the active search ("matches per tab"), so a search whose
+  // hits live on the other tab is never silently invisible.
+  const searchedOrders = useMemo(
+    () => orders.filter((order) => salesOrderMatchesSearch(order, searchValue)),
+    [orders, searchValue]
   );
-  const openCount = openOrders.length;
-  const doneCount = DONE_SALES_STATUSES.reduce(
-    (sum, status) => sum + (statusCounts.get(status) ?? 0),
-    0
-  );
+  const openCount = searchedOrders.filter((order) => isOpenSalesOrder(order)).length;
+  const doneCount = searchedOrders.filter((order) =>
+    (DONE_SALES_STATUSES as readonly string[]).includes(order.status)
+  ).length;
+  useWorkflowTabForUrlQuery({
+    urlQuery,
+    searchValue,
+    ready: orders.length > 0,
+    openMatches: openCount,
+    doneMatches: doneCount,
+    tab: statusFilter,
+    onTabChange: (tab) => {
+      // Same discipline as the manual handlers: a tab change closes the panel.
+      setActivePanel(null);
+      setStatusFilter(tab);
+    },
+  });
   const displayedOrders = useMemo(() => {
     const allowedStatuses =
       statusFilter === "done" ? DONE_SALES_STATUSES : OPEN_SALES_STATUSES;
-    const filteredOrders = orders.filter(
-      (order) =>
-        (allowedStatuses as readonly string[]).includes(order.status) &&
-        salesOrderMatchesSearch(order, searchValue)
+    const filteredOrders = searchedOrders.filter((order) =>
+      (allowedStatuses as readonly string[]).includes(order.status)
     );
 
     if (statusFilter === "done") {
@@ -792,7 +798,7 @@ function OrdersTableContent({
     }
 
     return [...filteredOrders].sort(compareSalesOrderRank);
-  }, [orders, searchValue, statusFilter]);
+  }, [searchedOrders, statusFilter]);
   const gridRows = useMemo(
     () => displayedOrders.map(buildSalesOrderGridRow),
     [displayedOrders]
