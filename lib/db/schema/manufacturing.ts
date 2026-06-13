@@ -307,6 +307,12 @@ export const manufacturingOrderOutputs = manufacturingSchema
       locationId: uuid("location_id").references(() => inventoryLocations.id),
       outputNumber: integer("output_number").notNull(),
       quantity: numeric("quantity", { precision: 12, scale: 4 }).notNull(),
+      // How much of this row later reversals took back. Kept per row because
+      // reversal markers don't reference their source rows, and replaying the
+      // walk order misattributes once an output is recorded after a reversal.
+      reversedQuantity: numeric("reversed_quantity", { precision: 12, scale: 4 })
+        .notNull()
+        .default("0"),
       disposition: varchar("disposition", { length: 24 }).notNull().default("available"),
       unitCost: numeric("unit_cost", { precision: 18, scale: 6 }).notNull(),
       materialCostTotal: numeric("material_cost_total", {

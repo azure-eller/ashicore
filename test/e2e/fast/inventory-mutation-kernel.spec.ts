@@ -33,10 +33,12 @@ import {
 import { buildStocktakeCategoryScope } from "../../../lib/schemas/stocktakes";
 import {
   createItem,
+  createManufacturingOrder,
   getBaseUrl,
   getOrgId,
   getSessionCookie,
   getUnitId,
+  releaseManufacturingOrder,
   testFetch,
   updateItem,
 } from "../../helpers/api";
@@ -891,6 +893,132 @@ test.describe("inventory mutation kernel heartbeat", () => {
     expect(
       itemBalances.find((row) => row.locationId === otherLocation.id)?.onHandQty
     ).toBe("12.0000");
+  });
+
+  test("output reversal exits each output's recorded location, surviving re-outputs", async ({
+    db,
+  }) => {
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast RevAttr Material ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-REVATTR-M-${ts}`,
+      category: `Fast RevAttr ${ts}`,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      lotTrackingMode: "tracked",
+      stock: "10",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status).toBe(201);
+    const materialId = material.body.id as string;
+    const product = await createItem({
+      itemType: "product",
+      name: `Fast RevAttr Product ${ts}`,
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-REVATTR-P-${ts}`,
+      category: `Fast RevAttr ${ts}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "20.00",
+      lotTrackingMode: "tracked",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: materialId, quantity: "1" }],
+    });
+    expect(product.status).toBe(201);
+    const productId = product.body.id as string;
+
+    const [defaultLocation] = await db
+      .select({ id: inventoryLocations.id })
+      .from(inventoryLocations)
+      .where(
+        and(
+          eq(inventoryLocations.organizationId, orgId),
+          eq(inventoryLocations.isDefault, true)
+        )
+      );
+    const [locationB] = await db
+      .insert(inventoryLocations)
+      .values({
+        organizationId: orgId,
+        name: `Fast RevAttr B ${ts}`,
+        code: `fast-revattr-${ts}`,
+        isDefault: false,
+      })
+      .returning({ id: inventoryLocations.id });
+    const moved = await testFetch("/api/inventory/transfers", {
+      method: "POST",
+      body: JSON.stringify({
+        fromLocationId: defaultLocation.id,
+        toLocationId: locationB.id,
+        lines: [{ itemId: materialId, quantity: "4" }],
+      }),
+    });
+    expect(moved.status).toBe(201);
+
+    const mo = await createManufacturingOrder({
+      productId,
+      plannedQuantity: "10",
+      ingredients: [{ itemId: materialId, quantityPerUnit: "1" }],
+    });
+    expect(mo.status, JSON.stringify(mo.body)).toBe(201);
+    const moId = mo.body.id as string;
+    expect((await releaseManufacturingOrder(moId)).status).toBe(200);
+    const recordOutput = async (body: Record<string, unknown>) => {
+      const res = await testFetch(`/api/manufacturing-orders/${moId}/outputs`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      expect(res.status, await res.text().catch(() => "")).toBe(200);
+    };
+
+    // Produce at B and fully reverse; the take-back must come out of B even
+    // though the reversal names no location (outputs record where they landed).
+    await recordOutput({ locationId: locationB.id, quantity: "4" });
+    await recordOutput({ quantity: "-4" });
+    // Re-output at the default, then reverse: per-row reversed-quantity
+    // attribution must charge this reversal to the live default row, not
+    // re-walk onto the already-reversed (empty) B row.
+    await recordOutput({ quantity: "3" });
+    await recordOutput({ quantity: "-3" });
+
+    const reversalEvents = await db
+      .select({ locationId: inventoryEvents.locationId })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.referenceType, "manufacturing_order"),
+          eq(inventoryEvents.referenceId, moId),
+          eq(inventoryEvents.eventSubtype, "manufacturing_output_reversal"),
+          // The physical take-back legs only — the planning re-adds share the
+          // subtype but are pinned to the default by design.
+          eq(inventoryEvents.eventType, "manual_adjustment_decrease"),
+          eq(inventoryEvents.itemId, productId)
+        )
+      );
+    expect(reversalEvents.map((event) => event.locationId).sort()).toEqual(
+      [defaultLocation.id, locationB.id].sort()
+    );
+
+    const balances = await db
+      .select({
+        itemId: inventoryItemBalances.itemId,
+        locationId: inventoryItemBalances.locationId,
+        onHandQty: inventoryItemBalances.onHandQty,
+      })
+      .from(inventoryItemBalances)
+      .where(inArray(inventoryItemBalances.itemId, [materialId, productId]));
+    const qty = (itemId: string, locationId: string) =>
+      balances.find((row) => row.itemId === itemId && row.locationId === locationId)
+        ?.onHandQty ?? "0.0000";
+    expect(qty(productId, defaultLocation.id)).toBe("0.0000");
+    expect(qty(productId, locationB.id)).toBe("0.0000");
+    expect(qty(materialId, defaultLocation.id)).toBe("6.0000");
+    expect(qty(materialId, locationB.id)).toBe("4.0000");
   });
 
   test("stock transfer API rejects replay drift and non-addressable inputs", async ({

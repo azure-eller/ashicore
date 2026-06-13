@@ -1156,6 +1156,13 @@
       "when": 1781296173256,
       "tag": "0164_workable_electro",
       "breakpoints": true
+    },
+    {
+      "idx": 165,
+      "version": "7",
+      "when": 1781305194193,
+      "tag": "0165_chief_squirrel_girl",
+      "breakpoints": true
     }
   ]
 }

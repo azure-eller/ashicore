@@ -325,6 +325,9 @@ async function reverseManufacturingOutputInTx(
       lotId: manufacturingOrderOutputs.lotId,
       locationId: manufacturingOrderOutputs.locationId,
       quantity: trimScale(manufacturingOrderOutputs.quantity).as("quantity"),
+      reversedQuantity: trimScale(manufacturingOrderOutputs.reversedQuantity).as(
+        "reversedQuantity"
+      ),
       disposition: manufacturingOrderOutputs.disposition,
       unitCost: trimScale(manufacturingOrderOutputs.unitCost).as("unitCost"),
       materialCostTotal: trimScale(manufacturingOrderOutputs.materialCostTotal).as(
@@ -344,19 +347,6 @@ async function reverseManufacturingOutputInTx(
     .orderBy(desc(manufacturingOrderOutputs.outputNumber))
     .for("update");
 
-  // Reversal markers don't reference the output rows they drew from, so a
-  // row's remaining quantity is reconstructed by replaying the deterministic
-  // newest-first walk: skip what prior reversals already took before
-  // allocating this one. Without the skip, repeated partial reversals would
-  // re-reverse the newest rows (wrong location/disposition and double
-  // ingredient restores).
-  const positiveOutputQuantity = outputRows.reduce(
-    (sum, row) => sum + parseFloat(row.quantity),
-    0
-  );
-  let alreadyReversed = normalizeQuantityNumber(
-    positiveOutputQuantity - existingOutputQuantity
-  );
   let remaining = params.quantity;
   let reversedMaterialCostTotal = 0;
   let reversalDisposition: Extract<InventoryDisposition, "available" | "blocked"> = "available";
@@ -385,13 +375,12 @@ async function reverseManufacturingOutputInTx(
   for (const output of outputRows) {
     if (remaining <= 0) break;
 
+    // Each row tracks how much earlier reversals took from it, so attribution
+    // survives outputs recorded after a reversal (walk-order replay doesn't).
     const outputQuantity = parseFloat(output.quantity);
-    let availableQuantity = outputQuantity;
-    if (alreadyReversed > 0) {
-      const skipped = Math.min(alreadyReversed, outputQuantity);
-      alreadyReversed = normalizeQuantityNumber(alreadyReversed - skipped);
-      availableQuantity = normalizeQuantityNumber(outputQuantity - skipped);
-    }
+    const availableQuantity = normalizeQuantityNumber(
+      outputQuantity - parseFloat(output.reversedQuantity)
+    );
     const reversedQuantity = normalizeQuantityNumber(
       Math.min(remaining, availableQuantity)
     );
@@ -424,6 +413,17 @@ async function reverseManufacturingOutputInTx(
       disposition: output.disposition as Extract<InventoryDisposition, "available" | "blocked">,
       metadata: { manufacturingOrderOutputId: output.id },
     });
+
+    await tx
+      .update(manufacturingOrderOutputs)
+      .set({
+        reversedQuantity: normalizeNumeric(
+          normalizeQuantityNumber(
+            parseFloat(output.reversedQuantity) + reversedQuantity
+          )
+        ),
+      })
+      .where(eq(manufacturingOrderOutputs.id, output.id));
 
     const consumptions = await tx
       .select({
