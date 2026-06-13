@@ -1,10 +1,20 @@
 import { Fragment } from "react";
-import type { BillingPlanIntent } from "@/lib/billing/plan-intent";
+import {
+  billingSelectionLookupKey,
+  type BillingSelection,
+} from "@/lib/billing/plan-intent";
+import { getBillingOffer } from "@/lib/billing/types";
 
-function planParts(plan: BillingPlanIntent) {
-  return plan === "paid"
-    ? { tier: "Paid", detail: "$199/mo" }
-    : { tier: "Free", detail: "Unlimited SKUs" };
+function planParts(plan: BillingSelection) {
+  const lookupKey = billingSelectionLookupKey(plan);
+  if (!lookupKey) {
+    return { tier: "Free", detail: "Unlimited SKUs" };
+  }
+  const offer = getBillingOffer(lookupKey);
+  return {
+    tier: offer?.name ?? "Paid",
+    detail: offer ? `$${offer.monthlyUsd}/mo` : "Paid",
+  };
 }
 
 // One continuous progress model for the whole onboarding journey — shared by the
@@ -70,7 +80,7 @@ export function OnboardingProgress({
   isNavigable,
 }: {
   activeIndex: number;
-  plan?: BillingPlanIntent;
+  plan?: BillingSelection;
   onNavigate?: (index: number) => void;
   isNavigable?: (index: number) => boolean;
 }) {

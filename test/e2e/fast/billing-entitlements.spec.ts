@@ -441,12 +441,22 @@ test("shadow mode keeps schedule pricing applied for unentitled orgs", async () 
   expect(pricing.pricingSourceType).toBe("schedule_break");
 });
 
-test("checkout sells only catalog lookup keys", async () => {
+test("billing actions accept only catalog lookup keys", async () => {
   const missing = await testFetch("/api/billing/checkout", {
     method: "POST",
     body: JSON.stringify({}),
   });
   expect(missing.status).toBe(400);
+
+  const invalidChange = await testFetch("/api/billing/subscription", {
+    method: "POST",
+    headers: { "Idempotency-Key": "fast-invalid-subscription-offer" },
+    body: JSON.stringify({
+      action: "change_offer",
+      lookupKey: "not_a_catalog_item",
+    }),
+  });
+  expect(invalidChange.status).toBe(400);
 });
 
 test("checkout refuses catalog offers until Stripe catalog readiness is enabled", async () => {

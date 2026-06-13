@@ -10,6 +10,7 @@ import {
 } from "./dal";
 import { sendFounderAlert } from "@/lib/internal-alerts";
 import {
+  BILLING_CATALOG,
   getBillingOffer,
   pluginsFromLookupKeys,
   type BillingPlan,
@@ -51,6 +52,16 @@ export class BillingConflictError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "BillingConflictError";
+  }
+}
+
+export class BillingSubscriptionError extends Error {
+  status: number;
+
+  constructor(message: string, status = 400) {
+    super(message);
+    this.name = "BillingSubscriptionError";
+    this.status = status;
   }
 }
 
@@ -241,6 +252,237 @@ export async function createPortalSession({ orgId }: { orgId: string }) {
     customer: billing.stripeCustomerId,
     return_url: appUrl("/settings/billing"),
   });
+}
+
+async function getActivePriceForLookupKey(stripe: Stripe, lookupKey: string) {
+  const prices = await stripe.prices.list({
+    lookup_keys: [lookupKey],
+    active: true,
+    limit: 1,
+  });
+  const price = prices.data[0];
+  if (!price) {
+    throw new BillingConfigError(
+      `No active Stripe price has the lookup key ${lookupKey}. Run scripts/stripe-create-catalog.ts.`
+    );
+  }
+  return price;
+}
+
+function knownBillingLookupKey(item: Stripe.SubscriptionItem) {
+  const lookupKey = item.price?.lookup_key;
+  return lookupKey && getBillingOffer(lookupKey) ? lookupKey : null;
+}
+
+function currentBillingLookupKeys(subscription: Stripe.Subscription) {
+  return subscription.items.data
+    .map(knownBillingLookupKey)
+    .filter((key): key is string => key !== null);
+}
+
+function nextLookupKeysForOffer(currentLookupKeys: string[], lookupKey: string) {
+  const offer = getBillingOffer(lookupKey);
+  if (!offer) {
+    throw new BillingSubscriptionError("Unknown catalog item.");
+  }
+
+  if (offer.kind === "everything") {
+    return [lookupKey];
+  }
+
+  const next = new Set(
+    currentLookupKeys.filter((currentKey) => {
+      const currentOffer = getBillingOffer(currentKey);
+      if (!currentOffer) return false;
+      if (currentOffer.kind === "everything") return false;
+      if (offer.kind === "package" && currentOffer.kind === "package") return false;
+      if (
+        offer.kind === "package" &&
+        currentOffer.kind === "plugin" &&
+        currentOffer.plugins.every((plugin) => offer.plugins.includes(plugin))
+      ) {
+        return false;
+      }
+      return true;
+    })
+  );
+  next.add(lookupKey);
+
+  return BILLING_CATALOG.map((catalogOffer) => catalogOffer.lookupKey).filter((key) =>
+    next.has(key)
+  );
+}
+
+function sameLookupKeySet(left: string[], right: string[]) {
+  if (left.length !== right.length) return false;
+  const rightSet = new Set(right);
+  return left.every((key) => rightSet.has(key));
+}
+
+async function getCurrentSubscription(stripe: Stripe, orgId: string) {
+  const billing = await getBillingStateByOrgId(orgId);
+  if (!billing?.stripeSubscriptionId) {
+    throw new BillingSubscriptionError(
+      "This organization does not have an active Stripe subscription.",
+      409
+    );
+  }
+
+  return stripe.subscriptions.retrieve(billing.stripeSubscriptionId);
+}
+
+export async function changeSubscriptionOffer({
+  orgId,
+  orgName,
+  lookupKey,
+  idempotencyKey,
+}: {
+  orgId: string;
+  orgName: string;
+  lookupKey: string;
+  idempotencyKey: string;
+}) {
+  const targetOffer = getBillingOffer(lookupKey);
+  if (!targetOffer) {
+    throw new BillingSubscriptionError("Unknown catalog item.");
+  }
+  if (!isCheckoutConfigured()) {
+    throw new BillingConfigError("Stripe checkout catalog is not configured.");
+  }
+
+  const stripe = getStripeClient();
+  const subscription = await getCurrentSubscription(stripe, orgId);
+  const currentLookupKeys = currentBillingLookupKeys(subscription);
+  const nextLookupKeys = nextLookupKeysForOffer(currentLookupKeys, lookupKey);
+
+  if (
+    sameLookupKeySet(currentLookupKeys, nextLookupKeys) &&
+    !subscription.cancel_at_period_end
+  ) {
+    return subscription;
+  }
+
+  const pricesByLookupKey = new Map(
+    await Promise.all(
+      nextLookupKeys.map(async (key) => {
+        const price = await getActivePriceForLookupKey(stripe, key);
+        return [key, price] as const;
+      })
+    )
+  );
+  const nextLookupKeySet = new Set(nextLookupKeys);
+  const currentLookupKeySet = new Set(currentLookupKeys);
+  const items: Stripe.SubscriptionUpdateParams.Item[] = [];
+
+  for (const item of subscription.items.data) {
+    const itemLookupKey = knownBillingLookupKey(item);
+    if (itemLookupKey && !nextLookupKeySet.has(itemLookupKey)) {
+      items.push({ id: item.id, deleted: true });
+    }
+  }
+
+  for (const key of nextLookupKeys) {
+    if (!currentLookupKeySet.has(key)) {
+      const price = pricesByLookupKey.get(key);
+      if (!price) throw new BillingConfigError();
+      items.push({ price: price.id, quantity: 1 });
+    }
+  }
+
+  const updateParams: Stripe.SubscriptionUpdateParams = {
+    cancel_at_period_end: false,
+    metadata: { organizationId: orgId },
+    proration_behavior: "create_prorations",
+  };
+  if (items.length > 0) {
+    updateParams.items = items;
+  }
+
+  const updated = await stripe.subscriptions.update(subscription.id, updateParams, {
+    idempotencyKey: `org-subscription-change-${orgId}-${idempotencyKey}`,
+  });
+
+  await applySubscriptionState({ subscription: updated, orgId });
+  await sendFounderAlert({
+    kind: "subscription_active",
+    subject: `Ashicore subscription changed: ${orgName}`,
+    idempotencyKey: `founder-alert-subscription-change-${updated.id}-${idempotencyKey}`,
+    fields: [
+      { label: "Organization", value: orgName },
+      { label: "Catalog item", value: targetOffer.name },
+      { label: "Organization ID", value: orgId },
+      { label: "Subscription ID", value: updated.id },
+      { label: "Lookup keys", value: nextLookupKeys.join(", ") },
+    ],
+  });
+
+  return updated;
+}
+
+export async function cancelSubscriptionAtPeriodEnd({
+  orgId,
+  orgName,
+  idempotencyKey,
+}: {
+  orgId: string;
+  orgName: string;
+  idempotencyKey: string;
+}) {
+  const stripe = getStripeClient();
+  const subscription = await getCurrentSubscription(stripe, orgId);
+  const updated = await stripe.subscriptions.update(
+    subscription.id,
+    { cancel_at_period_end: true },
+    { idempotencyKey: `org-subscription-cancel-${orgId}-${idempotencyKey}` }
+  );
+
+  await applySubscriptionState({ subscription: updated, orgId });
+  await sendFounderAlert({
+    kind: "subscription_attention",
+    subject: `Ashicore subscription cancel scheduled: ${orgName}`,
+    idempotencyKey: `founder-alert-subscription-cancel-${updated.id}-${idempotencyKey}`,
+    fields: [
+      { label: "Organization", value: orgName },
+      { label: "Organization ID", value: orgId },
+      { label: "Subscription ID", value: updated.id },
+      { label: "Current period end", value: periodEndDate(updated) },
+    ],
+  });
+
+  return updated;
+}
+
+export async function resumeSubscription({
+  orgId,
+  orgName,
+  idempotencyKey,
+}: {
+  orgId: string;
+  orgName: string;
+  idempotencyKey: string;
+}) {
+  const stripe = getStripeClient();
+  const subscription = await getCurrentSubscription(stripe, orgId);
+  const updated = await stripe.subscriptions.update(
+    subscription.id,
+    { cancel_at_period_end: false },
+    { idempotencyKey: `org-subscription-resume-${orgId}-${idempotencyKey}` }
+  );
+
+  await applySubscriptionState({ subscription: updated, orgId });
+  await sendFounderAlert({
+    kind: "subscription_active",
+    subject: `Ashicore subscription resumed: ${orgName}`,
+    idempotencyKey: `founder-alert-subscription-resume-${updated.id}-${idempotencyKey}`,
+    fields: [
+      { label: "Organization", value: orgName },
+      { label: "Organization ID", value: orgId },
+      { label: "Subscription ID", value: updated.id },
+      { label: "Current period end", value: periodEndDate(updated) },
+    ],
+  });
+
+  return updated;
 }
 
 function periodEndDate(subscription: Stripe.Subscription) {

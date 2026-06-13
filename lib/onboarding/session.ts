@@ -3,6 +3,10 @@ import "server-only";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { onboardingSessions } from "@/lib/db/schema";
+import {
+  isBillingSelection,
+  normalizeBillingSelection,
+} from "@/lib/billing/plan-intent";
 import type { Tx } from "@/lib/db/with-org-context";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import { DomainError } from "@/lib/errors/domain-error";
@@ -25,13 +29,18 @@ const onboardingSteps = [
   "done",
 ] as const;
 
+const billingSelectionSchema = z
+  .unknown()
+  .refine(isBillingSelection, "Select a billing plan from the catalog.")
+  .transform(normalizeBillingSelection);
+
 export const startOnboardingSessionSchema = z.object({
-  selectedPlan: z.enum(["free", "paid"]).optional(),
+  selectedPlan: billingSelectionSchema.optional(),
   currentStep: z.enum(onboardingSteps).optional(),
 });
 
 export const patchOnboardingSessionSchema = z.object({
-  selectedPlan: z.enum(["free", "paid"]).nullable().optional(),
+  selectedPlan: billingSelectionSchema.nullable().optional(),
   status: z.enum(onboardingStatuses).optional(),
   currentStep: z.enum(onboardingSteps).optional(),
   importSessionId: z.string().uuid().nullable().optional(),

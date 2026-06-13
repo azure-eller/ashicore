@@ -3,10 +3,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
-import type { BillingPlanIntent } from "@/lib/billing/plan-intent";
+import {
+  billingSelectionLookupKey,
+  normalizeBillingSelection,
+  type BillingPlanIntent,
+  type BillingSelection,
+} from "@/lib/billing/plan-intent";
+import { BILLING_CATALOG, getBillingOffer } from "@/lib/billing/types";
 import type { CellValueChangedEvent, ColDef, ICellRendererParams } from "ag-grid-community";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
+import { Add01Icon, CheckmarkCircle02Icon, Delete02Icon } from "@hugeicons/core-free-icons";
 import { ERPDataGrid } from "@/components/erp-data-grid";
 import { OnboardingProgress, onboardingStepIndex } from "@/components/onboarding-stepper";
 import { OnboardingSplit } from "@/components/onboarding-rail";
@@ -190,6 +196,7 @@ const integrationTiles = [
   ["Xero", "Accounting", true],
   ["Square", "POS sales", false],
 ] as const;
+const onboardingPaidOffers = BILLING_CATALOG.filter((offer) => offer.kind !== "plugin");
 
 function selected(review?: ReviewMeta) {
   return review?.selected !== false;
@@ -499,7 +506,9 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
   const startedRef = useRef(false);
   const finalizeStartedRef = useRef(false);
   const [flowStep, setFlowStep] = useState<FlowStep>("invite");
-  const [planIntent, setPlanIntent] = useState<BillingPlanIntent>(plan ?? "free");
+  const [billingSelection, setBillingSelection] = useState<BillingSelection>(() =>
+    normalizeBillingSelection(plan ?? "free"),
+  );
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [inviteRows, setInviteRows] = useState<InviteRow[]>(() => [createInviteRow()]);
   const [stagedFiles, setStagedFiles] = useState<File[]>([]);
@@ -525,14 +534,14 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
         method: "POST",
         // Only assert the plan when the URL carried it (first entry). On the Stripe
         // return there's no plan param, so we preserve the persisted intent.
-        body: plan ? { selectedPlan: plan } : {},
+        body: plan ? { selectedPlan: normalizeBillingSelection(plan) } : {},
       }),
     onSuccess: (data) => {
       if (!data.session) return;
       setFlowStep(data.session.currentStep ?? "import");
       setSessionId(data.session.importSessionId);
-      if (data.session.selectedPlan === "free" || data.session.selectedPlan === "paid") {
-        setPlanIntent(data.session.selectedPlan);
+      if (data.session.selectedPlan) {
+        setBillingSelection(normalizeBillingSelection(data.session.selectedPlan));
       }
       if (data.session.invitesDraft?.length) {
         setInviteRows(
@@ -632,7 +641,10 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
       apiJson<{ url?: string }>("/api/billing/checkout", {
         method: "POST",
         headers: { "Idempotency-Key": `onboarding-${sessionId ?? "checkout"}` },
-        body: { flow: "onboarding", lookupKey: "everything" },
+        body: {
+          flow: "onboarding",
+          lookupKey: billingSelectionLookupKey(billingSelection) ?? "everything",
+        },
       }),
     onSuccess: (data) => {
       if (data.url) {
@@ -746,6 +758,11 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
     finalizeStartedRef.current = true;
     finalizeMutation.mutate(sessionId);
   }, [searchParams, onboardingReady, sessionId, committed, finalizeMutation]);
+
+  const selectedOffer = useMemo(() => {
+    const lookupKey = billingSelectionLookupKey(billingSelection);
+    return lookupKey ? getBillingOffer(lookupKey) : null;
+  }, [billingSelection]);
 
   const paymentCanceled = searchParams.get("checkout") === "cancel" && !committed;
 
@@ -950,7 +967,7 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
   // The approve gate: where payment happens, before anything is written to the DB.
   function handleApproveClick() {
     if (approveDisabled) return;
-    if (planIntent === "paid") {
+    if (selectedOffer) {
       setApproveDialog("pay");
       return;
     }
@@ -959,7 +976,7 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
 
   // From the pay dialog: drop back to Free instead of paying.
   async function downgradeToFree() {
-    setPlanIntent("free");
+    setBillingSelection("free");
     setApproveDialog(null);
     try {
       await progressMutation.mutateAsync({ selectedPlan: "free" });
@@ -967,6 +984,15 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
       // non-fatal
     }
     validateMutation.mutate();
+  }
+
+  async function selectBillingPlan(nextSelection: BillingSelection) {
+    setBillingSelection(nextSelection);
+    try {
+      await progressMutation.mutateAsync({ selectedPlan: nextSelection });
+    } catch {
+      setMessage("Could not save your plan choice. Try again.");
+    }
   }
 
   function enterWorkspace() {
@@ -1012,7 +1038,7 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
     <div className="onboarding-flow-screen flex min-h-svh flex-col">
       <OnboardingProgress
         activeIndex={onboardingActiveIndex(flowStep)}
-        plan={planIntent}
+        plan={billingSelection}
         onNavigate={navigateToStep}
         isNavigable={isStepNavigable}
       />
@@ -1047,6 +1073,42 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
           <p className="ob-form-sub ob-stagger">
             Add the people who&apos;ll work in your ERP. Skip if it&apos;s just you for now.
           </p>
+          <div className="ob-plan-picker ob-stagger" aria-label="Choose billing plan">
+            <button
+              type="button"
+              className={cn("ob-plan-card", billingSelection === "free" && "is-selected")}
+              onClick={() => void selectBillingPlan("free")}
+            >
+              <span className="ob-plan-card-main">
+                <span className="ob-plan-card-title">Free</span>
+                <span className="ob-plan-card-sub">Unlimited SKUs, users, and orders</span>
+              </span>
+              <span className="ob-plan-card-price">$0/mo</span>
+              {billingSelection === "free" ? (
+                <HugeiconsIcon icon={CheckmarkCircle02Icon} size={18} />
+              ) : null}
+            </button>
+            <div className="ob-plan-package-grid">
+              {onboardingPaidOffers.map((offer) => {
+                const selected = billingSelection === offer.lookupKey;
+                return (
+                  <button
+                    key={offer.lookupKey}
+                    type="button"
+                    className={cn("ob-plan-card ob-plan-card--compact", selected && "is-selected")}
+                    onClick={() => void selectBillingPlan(offer.lookupKey)}
+                  >
+                    <span className="ob-plan-card-main">
+                      <span className="ob-plan-card-title">{offer.name}</span>
+                      <span className="ob-plan-card-sub">{offer.blurb}</span>
+                    </span>
+                    <span className="ob-plan-card-price">${offer.monthlyUsd}/mo</span>
+                    {selected ? <HugeiconsIcon icon={CheckmarkCircle02Icon} size={18} /> : null}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           <div className="ob-form-stack ob-form-stack--tight">
             {inviteRows.map((row, index) => (
               <div key={row.id} className="ob-invite-row">
@@ -1297,7 +1359,7 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
               onClick={handleApproveClick}
               disabled={approveDisabled}
             >
-              {planIntent === "paid" ? "Approve & pay" : "Approve all & continue"}
+              {selectedOffer ? "Approve & pay" : "Approve all & continue"}
             </button>
           </div>
 
@@ -1379,7 +1441,7 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
                 {dirty ? "Update preview" : "Revalidate"}
               </button>
               <button type="button" className="ob-btn ob-btn--primary" onClick={handleApproveClick} disabled={approveDisabled}>
-                {planIntent === "paid"
+                {selectedOffer
                   ? "Approve & pay"
                   : `Approve ${approvedCount} & continue`}
               </button>
@@ -1483,9 +1545,10 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
           {approveDialog === "pay" ? (
             <>
               <DialogHeader>
-                <DialogTitle>Start with every plugin</DialogTitle>
+                <DialogTitle>Start with {selectedOffer?.name ?? "paid plugins"}</DialogTitle>
                 <DialogDescription>
-                  Everything is $399/mo — every plugin, current and future. You&apos;ll
+                  {selectedOffer?.name ?? "Your selection"} is $
+                  {selectedOffer?.monthlyUsd ?? 0}/mo. You&apos;ll
                   go to secure checkout, then your data imports automatically. Nothing is
                   saved until your payment goes through.
                 </DialogDescription>

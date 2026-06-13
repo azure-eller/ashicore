@@ -44,6 +44,24 @@ function upsertEnvValue(content: string, key: string, value: string) {
   return `${content}${line}\n`;
 }
 
+const WORKTREE_LOCAL_ENV_KEYS = new Set([
+  "DATABASE_URL",
+  "DATABASE_URL_APP",
+  "DATABASE_URL_AGENT",
+  "AUTH_MFA_DISABLED",
+]);
+
+function worktreeLocalEnvContent(existingContent: string) {
+  const lines = existingContent
+    .split("\n")
+    .filter((line) => {
+      const match = line.match(/^([A-Z0-9_]+)=/);
+      return match ? WORKTREE_LOCAL_ENV_KEYS.has(match[1]) : false;
+    });
+
+  return `${WORKTREE_ENV_HEADER}${lines.join("\n")}${lines.length > 0 ? "\n" : ""}`;
+}
+
 async function ensureAppRole(client: Client, roleName: string, password: string) {
   const existingRole = await client.query<{ exists: number }>(
     "SELECT 1 AS exists FROM pg_roles WHERE rolname = $1",
@@ -82,8 +100,7 @@ function writeWorktreeEnv(
   agentUrl: string
 ) {
   const existingContent = existsSync(envPath) ? readFileSync(envPath, "utf8") : "";
-  const baseContent =
-    existingContent.length > 0 ? existingContent : WORKTREE_ENV_HEADER;
+  const baseContent = worktreeLocalEnvContent(existingContent);
   const withOwnerUrl = upsertEnvValue(baseContent, "DATABASE_URL", ownerUrl);
   const withAppUrl = upsertEnvValue(withOwnerUrl, "DATABASE_URL_APP", appUrl);
   const withAgentUrl = upsertEnvValue(withAppUrl, "DATABASE_URL_AGENT", agentUrl);

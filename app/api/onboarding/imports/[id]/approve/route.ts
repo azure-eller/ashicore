@@ -15,6 +15,7 @@ import {
   updateCurrentOnboardingProgress,
 } from "@/lib/onboarding/session";
 import { getBillingStateByOrgId } from "@/lib/billing/dal";
+import { isPaidBillingSelection } from "@/lib/billing/plan-intent";
 import { env } from "@/lib/env";
 
 export const runtime = "nodejs";
@@ -29,7 +30,7 @@ export const POST = apiHandler(async (request: Request, context: unknown) => {
   // direct commit here unless the org is genuinely paid (so nothing is written
   // to the DB before the user has paid).
   const onboarding = await getCurrentOnboardingSession();
-  if (onboarding?.selectedPlan === "paid") {
+  if (isPaidBillingSelection(onboarding?.selectedPlan)) {
     const billing = await getBillingStateByOrgId(member.orgId);
     if (billing?.plan !== "core") {
       return jsonError("Complete payment to import your data.", 402);

@@ -105,15 +105,25 @@ export function BillingSection({
     Boolean(initialData.stripeSubscriptionId) && initialData.status !== "canceled";
 
   const runBillingAction = useCallback(
-    async (action: "portal" | "resync") => {
+    async (
+      action: "portal" | "resync" | "cancel_at_period_end" | "resume"
+    ) => {
       setError(null);
       setPending(action);
 
       try {
-        const response = await apiJson<BillingActionResponse>(
-          `/api/billing/${action}`,
-          { method: "POST", fallbackError: "Billing request failed." }
-        );
+        const response =
+          action === "portal" || action === "resync"
+            ? await apiJson<BillingActionResponse>(`/api/billing/${action}`, {
+                method: "POST",
+                fallbackError: "Billing request failed.",
+              })
+            : await apiJson<BillingActionResponse>("/api/billing/subscription", {
+                method: "POST",
+                idempotencyKey: `billing-${action}`,
+                body: { action },
+                fallbackError: "Billing request failed.",
+              });
 
         if (response.url) {
           window.location.assign(response.url);
@@ -156,6 +166,28 @@ export function BillingSection({
     }
   }, []);
 
+  const changeOffer = useCallback(async (lookupKey: string) => {
+    setError(null);
+    setPending(lookupKey);
+
+    try {
+      await apiJson<BillingActionResponse>("/api/billing/subscription", {
+        method: "POST",
+        idempotencyKey: `billing-change-${lookupKey}`,
+        body: { action: "change_offer", lookupKey },
+        fallbackError: "Subscription change failed.",
+      });
+
+      window.location.reload();
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : "Subscription change failed."
+      );
+    } finally {
+      setPending(null);
+    }
+  }, []);
+
   useEffect(() => {
     if (!checkoutSuccess) return;
 
@@ -176,6 +208,21 @@ export function BillingSection({
     if (offerIncluded(offer, entitlements)) {
       return <Badge variant="success">Included</Badge>;
     }
+    if (hasSubscription) {
+      return (
+        <div className="flex items-center gap-(--space-5)">
+          <OfferPrice offer={offer} />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void changeOffer(offer.lookupKey)}
+            disabled={!initialData.checkoutConfigured || pending != null}
+          >
+            {offer.kind === "plugin" ? "Add" : "Switch"}
+          </Button>
+        </div>
+      );
+    }
     return (
       <div className="flex items-center gap-(--space-5)">
         <OfferPrice offer={offer} />
@@ -183,9 +230,7 @@ export function BillingSection({
           variant="outline"
           size="sm"
           onClick={() => void startCheckout(offer.lookupKey)}
-          disabled={
-            !initialData.checkoutConfigured || hasSubscription || pending != null
-          }
+          disabled={!initialData.checkoutConfigured || pending != null}
         >
           Add
         </Button>
@@ -276,13 +321,38 @@ export function BillingSection({
         ) : null}
 
         <SettingsBlock>
-          <div className="flex min-w-0 flex-col gap-(--space-3)">
-            <div className="flex items-center gap-(--space-5)">
-              <span className="text-[length:var(--text-xl)] leading-[var(--leading-xl)] font-semibold tracking-[var(--tracking-tight)] text-[var(--color-ink)]">
-                {describeCurrentPlan(entitlements)}
-              </span>
-              {hasSubscription || initialData.status === "past_due" ? (
-                <PlanStatusBadge data={initialData} />
+          <div className="flex min-w-0 flex-col gap-(--space-4)">
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-(--space-5)">
+              <div className="flex min-w-0 items-center gap-(--space-5)">
+                <span className="text-[length:var(--text-xl)] leading-[var(--leading-xl)] font-semibold tracking-[var(--tracking-tight)] text-[var(--color-ink)]">
+                  {describeCurrentPlan(entitlements)}
+                </span>
+                {hasSubscription || initialData.status === "past_due" ? (
+                  <PlanStatusBadge data={initialData} />
+                ) : null}
+              </div>
+              {hasSubscription ? (
+                <div className="flex items-center gap-(--space-3)">
+                  {initialData.cancelAtPeriodEnd ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void runBillingAction("resume")}
+                      disabled={!initialData.billingConfigured || pending != null}
+                    >
+                      Resume
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void runBillingAction("cancel_at_period_end")}
+                      disabled={!initialData.billingConfigured || pending != null}
+                    >
+                      Downgrade to Free
+                    </Button>
+                  )}
+                </div>
               ) : null}
             </div>
             <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
@@ -336,8 +406,8 @@ export function BillingSection({
         {hasSubscription ? (
           <SettingsBlock>
             <div className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-              Changing an active subscription in-app is coming next; until then,
-              manage it in Stripe or contact support@ashicore.app.
+              Subscription changes apply in Stripe immediately. Downgrades to Free
+              take effect at the end of the current billing period.
             </div>
           </SettingsBlock>
         ) : null}

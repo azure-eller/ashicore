@@ -682,6 +682,79 @@ select.ob-input {
   height: 20px;
 }
 
+/* ---- Plan picker ---- */
+.ob-plan-picker {
+  display: grid;
+  gap: 10px;
+  margin: 22px 0 24px;
+}
+.ob-plan-package-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.ob-plan-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 74px;
+  padding: 14px 16px;
+  border-radius: var(--ob-r-md);
+  border: 1.5px solid var(--ob-line);
+  background: var(--ob-surface);
+  color: var(--ob-ink);
+  text-align: left;
+  box-shadow: var(--ob-shadow-xs);
+  transition: border-color 0.16s, box-shadow 0.16s, transform 0.16s,
+    background 0.16s;
+}
+.ob-plan-card:hover {
+  border-color: color-mix(in oklch, var(--ob-accent), var(--ob-ink) 24%);
+  transform: translateY(-1px);
+}
+.ob-plan-card.is-selected {
+  border-color: var(--ob-accent);
+  background: color-mix(in oklch, var(--ob-accent-soft), var(--ob-surface) 58%);
+  box-shadow: var(--ob-shadow-sm);
+}
+.ob-plan-card--compact {
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 92px;
+  align-items: start;
+}
+.ob-plan-card--compact svg {
+  grid-column: 2;
+}
+.ob-plan-card-main {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+.ob-plan-card-title {
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+.ob-plan-card-sub {
+  color: var(--ob-ink-faint);
+  font-size: 12.5px;
+  line-height: 1.35;
+}
+.ob-plan-card-price {
+  white-space: nowrap;
+  color: var(--ob-ink-soft);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .ob-plan-package-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ---- Buttons ---- */
 .ob-btn {
   display: inline-flex;

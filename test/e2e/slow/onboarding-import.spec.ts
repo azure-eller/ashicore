@@ -679,12 +679,14 @@ test.describe("onboarding import operating story", () => {
       return organizationId as string;
     }
 
-    async function uploadImport(selectedPlan: "free" | "paid") {
+    async function uploadImport(selectedPlan: string) {
       const session = await req.post(`${baseUrl}/api/onboarding/session`, {
         data: { selectedPlan, currentStep: "import" },
         headers,
       });
       expect(session.status()).toBe(200);
+      const sessionBody = await session.json();
+      expect(sessionBody.session.selectedPlan).toBe(selectedPlan);
       const upload = await req.post(`${baseUrl}/api/onboarding/imports`, {
         multipart: {
           file: {
@@ -724,7 +726,7 @@ test.describe("onboarding import operating story", () => {
 
     // Paid intent: nothing commits until the org is actually paid.
     const paidOrg = await freshOrg("paidcommit");
-    const paidSession = await uploadImport("paid");
+    const paidSession = await uploadImport("package_soil_landscape");
     const cleanPkg = productsPackage(1, `PCAP-${suffix}`);
     const patched = await patchPackage(paidSession, cleanPkg);
     expect(patched.status()).toBe(200);

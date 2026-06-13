@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";
+import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonError } from "@/lib/api/responses";
 import { assertTeamManagementAccess } from "@/lib/dal/auth";
 import {
@@ -9,18 +11,19 @@ import {
 } from "@/lib/billing/stripe";
 import { getBillingOffer } from "@/lib/billing/types";
 
+const checkoutSchema = z.object({
+  flow: z.literal("onboarding").optional(),
+  lookupKey: z.string().trim().min(1),
+});
+
 export const POST = apiHandler(async (request) => {
   const context = await assertTeamManagementAccess(request.headers);
   const idempotencyKey = requireIdempotencyKey(request, "billingCheckout");
-
-  const body = (await request
-    .clone()
-    .json()
-    .catch(() => null)) as { flow?: unknown; lookupKey?: unknown } | null;
+  const body = await parseJsonBody(request, checkoutSchema);
   const onboarding = body?.flow === "onboarding";
-  const lookupKey = typeof body?.lookupKey === "string" ? body.lookupKey : null;
+  const lookupKey = body.lookupKey;
 
-  if (!lookupKey || !getBillingOffer(lookupKey)) {
+  if (!getBillingOffer(lookupKey)) {
     return jsonError("Unknown catalog item.", 400);
   }
 
