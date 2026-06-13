@@ -276,14 +276,12 @@ export function PurchaseOrderCard({
       ),
     [initialData?.lines],
   );
-  const readOnly = !canWrite || displayStatus === "received";
+  const readOnly = !canWrite;
   const canDeletePurchaseOrder =
     canWrite && (displayStatus === "draft" || displayStatus === "ordered");
-  const materialLinesReadOnly = readOnly || purchaseBillStatus === "pushed";
-  // Prices stay editable after receipt: the DAL revalues received stock from
-  // the new landed cost. Quantities, items, and tax rates stay locked.
-  const linePricesReadOnly = !canWrite || purchaseBillStatus === "pushed";
-  const additionalCostsReadOnly = !canWrite || purchaseBillStatus === "pushed";
+  const materialLinesReadOnly = readOnly;
+  const linePricesReadOnly = !canWrite;
+  const additionalCostsReadOnly = !canWrite;
   const [purchaseOrderSupplierOptions, setPurchaseOrderSupplierOptions] =
     useState<SupplierOption[]>(suppliers);
   useEffect(() => {
@@ -2054,4 +2052,3 @@ export function PurchaseOrderCard({
     </>
   );
 }
-

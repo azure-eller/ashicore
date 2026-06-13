@@ -42,7 +42,8 @@ Xero bill sync:
 - Xero bill creation groups lines by resolved vendor: PO-supplier material lines bill to the PO supplier, while vendor-overridden additional costs bill to their carrier/supplier
 - Xero material bill lines use ordered purchase-unit quantity and unit cost; descriptions include the stock-unit conversion when purchase and stocking units differ
 - Xero bill lines use the account selected in the bill dialog
-- bill-affecting edits are blocked after a successful bill sync
+- bill-affecting edits remain allowed after bill sync; users reconcile the
+  accounting bill separately when needed
 
 ## Accounting Purchase Order Import
 
@@ -55,8 +56,8 @@ provider. It is not the target purchasing workflow.
   conversion set
 - bulk import previews provider POs and applies checked rows
 - unmatched provider suppliers/materials may be created during manual import
-- imported POs update while unreceived, but received line quantities and
-  receipt-time costs are protected
+- imported POs update while unreceived; received rows still cannot be reduced
+  below received quantity
 - delivery address is stored on the purchase order header, not per line
 
 ## Supplier Items
@@ -135,9 +136,9 @@ Update rules:
 - `draft` orders are editable
 - `ordered` orders may be edited, received, or deleted before any receipt
 - `partial` orders may be edited or received; already received lines cannot be removed
-- `received` orders stay correctable for costs: line prices and additional costs
-  may be edited (rebasing landed cost via revaluation); line quantities, items,
-  and tax rates are locked
+- `received` orders may be edited; increasing quantity or adding lines moves the
+  order back to `partial`, while landed-cost changes revalue eligible received
+  stock
 - delete is allowed only before inventory receipt history exists
 
 Valid transitions:
@@ -146,7 +147,7 @@ Valid transitions:
 - edit `draft`
 - edit `ordered`
 - edit `partial`
-- edit `received` (line prices and additional costs only)
+- edit `received`
 - submit `draft` -> `ordered`
 - receive `ordered` -> `partial`
 - receive `ordered` -> `received`
@@ -159,7 +160,6 @@ Invalid transitions:
 
 - reduce ordered quantity below already received quantity
 - remove received purchase order lines
-- change quantities or tax rates, or add materials, on a `received` order
 - delete `partial`
 - delete `received`
 

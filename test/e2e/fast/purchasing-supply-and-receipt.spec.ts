@@ -377,27 +377,27 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       );
     expect(expectedRows).toHaveLength(0);
 
-    const quantityEditResponse = await testFetch(`/api/purchase-orders/${order.id}`, {
+    const impossibleQuantityEditResponse = await testFetch(`/api/purchase-orders/${order.id}`, {
       method: "PUT",
       body: JSON.stringify({
         supplierId: supplier.body.id,
         expectedDate: "2026-05-20",
-        shippingCost: "60.00",
+        shippingCost: "50.00",
         notes: null,
         accountingPurchaseAccountCode: null,
-        lines: [{ itemId, quantityOrdered: "11", unitCost: "10.00" }],
+        lines: [{ itemId, quantityOrdered: "9", unitCost: "10.00" }],
         additionalCosts: [
           {
             costType: "shipping",
             reference: "Freight",
             distributionMethod: "by_value",
             accountingPurchaseAccountCode: null,
-            amount: "60.00",
+            amount: "50.00",
           },
         ],
       }),
     });
-    expect(quantityEditResponse.status, await quantityEditResponse.text()).toBe(400);
+    expect(impossibleQuantityEditResponse.status, await impossibleQuantityEditResponse.text()).toBe(400);
 
     const [reval] = await db
       .select({

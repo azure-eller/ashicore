@@ -543,10 +543,11 @@ test.describe("editable freight revaluation after receipt", () => {
       unitCost: "19.000000",
     });
 
-    // Quantity stays locked on the received card.
+    // Received cards stay editable; impossible reductions remain a DAL concern.
     const quantityCell = page.locator('.ag-cell[col-id="quantityOrdered"]').first();
     await quantityCell.dblclick();
-    await expect(page.locator('.ag-cell[col-id="quantityOrdered"] input')).toHaveCount(0);
+    await expect(page.locator('.ag-cell[col-id="quantityOrdered"] input')).toBeVisible();
+    await page.keyboard.press("Escape");
   });
 
   test("freight edits save for untracked received material but skip v1 revaluation", async ({ db }) => {

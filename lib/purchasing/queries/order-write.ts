@@ -6,6 +6,7 @@ import {
   and,
   eq,
   inArray,
+  isNotNull,
   isNull,
   ne,
   sql,
@@ -617,25 +618,6 @@ export async function duplicatePurchaseOrder(id: string) {
   });
 }
 
-function sameNumericValue(
-  left: string | null | undefined,
-  right: string | null | undefined,
-) {
-  const leftNumber = Number(left ?? "");
-  const rightNumber = Number(right ?? "");
-  if (!Number.isFinite(leftNumber) || !Number.isFinite(rightNumber)) {
-    return (left ?? null) === (right ?? null);
-  }
-  return Math.abs(leftNumber - rightNumber) < 0.000001;
-}
-
-function sameNullableValue(
-  left: string | null | undefined,
-  right: string | null | undefined,
-) {
-  return (left ?? null) === (right ?? null);
-}
-
 export async function updatePurchaseOrder(
   id: string,
   data: UpdatePurchaseOrder,
@@ -646,29 +628,6 @@ export async function updatePurchaseOrder(
 
     if (!order) {
       return null;
-    }
-
-    const [purchaseBillSync] = await tx
-      .select({
-        externalDocumentId: accountingDocumentSyncs.externalDocumentId,
-        pushStatus: accountingDocumentSyncs.pushStatus,
-      })
-      .from(accountingDocumentSyncs)
-      .where(
-        and(
-          eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_PURCHASE_BILL),
-          eq(accountingDocumentSyncs.documentId, id),
-        ),
-      );
-
-    if (
-      purchaseBillSync?.pushStatus === "pushed" &&
-      purchaseBillSync.externalDocumentId
-    ) {
-      throw new PurchasingError(
-        "This purchase order already has an accounting bill. Void it in the accounting provider before editing the purchase order.",
-        409,
-      );
     }
 
     const prepared = await preparePurchaseOrderPayload(tx, orgId, data);
@@ -713,31 +672,11 @@ export async function updatePurchaseOrder(
 
       for (const line of prepared.preparedLines) {
         const existingLine = existingLineByItemId.get(line.itemId);
-        if (order.status === "received" && !existingLine) {
-          throw new PurchasingError(
-            "Materials cannot be added to a received purchase order.",
-            400,
-          );
-        }
         if (existingLine) {
           const quantityReceived = parseFloat(existingLine.quantityReceived);
           const stockQuantityReceived = parseFloat(
             existingLine.stockQuantityReceived,
           );
-          if (
-            order.status === "received" &&
-            (!sameNumericValue(line.quantityOrdered, existingLine.quantityOrdered) ||
-              !sameNumericValue(
-                line.stockQuantityOrdered,
-                existingLine.stockQuantityOrdered,
-              ) ||
-              !sameNullableValue(line.taxRateId, existingLine.taxRateId))
-          ) {
-            throw new PurchasingError(
-              "Received purchase order line quantities and tax rates cannot be changed.",
-              400,
-            );
-          }
           if (
             parseFloat(line.quantityOrdered) < quantityReceived ||
             parseFloat(line.stockQuantityOrdered) < stockQuantityReceived
@@ -964,6 +903,24 @@ export async function updatePurchaseOrder(
               ACCOUNTING_DOCUMENT_PURCHASE_ORDER,
             ),
             eq(accountingDocumentSyncs.documentId, id),
+          ),
+        );
+
+      await tx
+        .update(accountingDocumentSyncs)
+        .set({
+          pushStatus: "pending",
+          pushError: null,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(
+              accountingDocumentSyncs.documentType,
+              ACCOUNTING_DOCUMENT_PURCHASE_BILL,
+            ),
+            eq(accountingDocumentSyncs.documentId, id),
+            isNotNull(accountingDocumentSyncs.externalDocumentId),
           ),
         );
     }

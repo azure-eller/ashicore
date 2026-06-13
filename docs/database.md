@@ -326,7 +326,8 @@ Status and inventory rules:
 
 - `draft` orders are editable and do not affect inventory aggregates
 - `ordered` and `partial` orders contribute remaining quantity to the expected-supply projection
-- `received` and `cancelled` orders are terminal historical states
+- `received` orders have no remaining expected supply; edits that add remaining
+  quantity move them back to `partial`
 - receiving creates positive lots plus `purchase_receipt` and matching `expected_release` events
 
 Expected supply is shared inbound supply:
