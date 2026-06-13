@@ -97,7 +97,8 @@ This file is a constitution + map. Deep reference lives in `docs/` — read the 
 
 1. `pnpm build`, `pnpm lint`, and relevant fast/slow Playwright lanes pass
 2. Inventory-affecting changes also pass `pnpm verify:inventory`
-3. PR body records the local validation that ran
-4. Correct `ci:slow:*` label is set, then `ci:ready` is added last
-5. PR is opened ready for review, not draft
-6. UI changes are left running on a dev server seeded with Paonia data, opened to a page that shows the change
+3. After opening or updating the PR, run `no-mistakes axi run --yes --intent "<user goal / PR intent>"` from the same worktree/branch that owns the PR and address its findings before calling the PR done
+4. PR body records the local validation that ran
+5. Correct `ci:slow:*` label is set, then `ci:ready` is added last
+6. PR is opened ready for review, not draft
+7. UI changes are left running on a dev server seeded with Paonia data, opened to a page that shows the change
