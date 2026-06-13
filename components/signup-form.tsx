@@ -5,18 +5,19 @@ import { useRouter } from "next/navigation"
 import { OnboardingAuthShell } from "@/components/onboarding-auth-shell"
 import { authClient } from "@/lib/auth-client"
 import {
-  orgSetupPathForPlanIntent,
-  type BillingPlanIntent,
+  isPaidBillingSelection,
+  orgSetupPathForBillingSelection,
+  type BillingSelection,
 } from "@/lib/billing/plan-intent"
 
 export function SignupForm({
   plan = "free",
   ...props
-}: React.ComponentProps<"div"> & { plan?: BillingPlanIntent }) {
+}: React.ComponentProps<"div"> & { plan?: BillingSelection }) {
   const router = useRouter()
   const signInHref =
-    plan === "paid"
-      ? `/sign-in?next=${encodeURIComponent(orgSetupPathForPlanIntent(plan))}`
+    isPaidBillingSelection(plan)
+      ? `/sign-in?next=${encodeURIComponent(orgSetupPathForBillingSelection(plan))}`
       : "/sign-in"
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
@@ -39,7 +40,7 @@ export function SignupForm({
       setLoading(false)
       return
     }
-    router.push(orgSetupPathForPlanIntent(plan))
+    router.push(orgSetupPathForBillingSelection(plan))
   }
 
   return (

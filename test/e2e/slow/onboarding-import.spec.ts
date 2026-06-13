@@ -645,7 +645,7 @@ test.describe("onboarding import operating story", () => {
     expect(created?.id).toBeTruthy();
   });
 
-  test("paid intent holds commit until payment; free imports are unmetered", async ({
+  test("package intent holds commit until catalog entitlements land; free imports are unmetered", async ({
     page,
     db,
   }) => {
@@ -724,7 +724,7 @@ test.describe("onboarding import operating story", () => {
     ).toBe(false);
     expect(overBody.preview.blockingIssueCount).toBe(0);
 
-    // Paid intent: nothing commits until the org is actually paid.
+    // Package intent: nothing commits until the org has the selected catalog entitlements.
     const paidOrg = await freshOrg("paidcommit");
     const paidSession = await uploadImport("package_soil_landscape");
     const cleanPkg = productsPackage(1, `PCAP-${suffix}`);
@@ -740,10 +740,24 @@ test.describe("onboarding import operating story", () => {
     );
     expect(earlyApprove.status()).toBe(402);
 
-    // Once payment lands (simulated by flipping the org to core), finalize commits.
+    // Legacy paid plan state is not enough without the package entitlements.
     await db
       .update(organization)
-      .set({ plan: "core", status: "active" })
+      .set({ plan: "core", status: "active", entitlements: [] })
+      .where(eq(organization.id, paidOrg));
+
+    const stalePlanFinalize = await req.post(
+      `${baseUrl}/api/onboarding/imports/${paidSession}/finalize`,
+      { headers, data: {} },
+    );
+    expect(stalePlanFinalize.status()).toBe(402);
+
+    // Once the selected package entitlements land, finalize commits.
+    await db
+      .update(organization)
+      .set({
+        entitlements: ["batch_production", "multi_location", "wholesale_pricing"],
+      })
       .where(eq(organization.id, paidOrg));
 
     const finalize = await req.post(

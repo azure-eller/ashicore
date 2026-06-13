@@ -84,7 +84,8 @@ paid behavior).
 1. **Server (authoritative):** call
    `assertFeatureAccessInTx(tx, orgId, "<plugin>", { route })` inside the DAL
    mutation transaction where the paid action commits. It shadow-logs or
-   throws a 402 `FeatureEntitlementError`. Fails open on errors (Sentry
+   throws a 402 `FeatureEntitlementError` and emits a founder alert for real
+   enforced denials. Fails open on errors (Sentry
    `billing_feature_entitlement`) — a billing bug must never block
    operations; don't "fix" that.
    - **Prefer unconditional gates.** When building a NEW endpoint, factor the

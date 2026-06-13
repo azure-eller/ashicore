@@ -1,6 +1,10 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
-import { PRO_SIGN_UP_URL, SIGN_UP_URL } from "../lib/site";
+import {
+  EVERYTHING_SIGN_UP_URL,
+  SOIL_LANDSCAPE_SIGN_UP_URL,
+  SIGN_UP_URL,
+} from "../lib/site";
 ---
 
 <BaseLayout
@@ -318,7 +322,7 @@ import { PRO_SIGN_UP_URL, SIGN_UP_URL } from "../lib/site";
     <div class="price-head reveal">
       <span class="eyebrow">Pricing</span>
       <h2 class="h-section">Choose how you'd like to start.</h2>
-      <p class="lede">Switch plans anytime — nothing here is permanent. No card required to begin.</p>
+      <p class="lede">Start free. Add only the paid workflows you need.</p>
     </div>
 
     <div class="price-grid">
@@ -327,12 +331,12 @@ import { PRO_SIGN_UP_URL, SIGN_UP_URL } from "../lib/site";
           <span class="plan-name">Free</span>
           <span class="plan-price">$0<span class="per">/mo</span></span>
         </div>
-        <p class="plan-desc">Get up and running fast with AI-assisted data entry, on us.</p>
+        <p class="plan-desc">A complete operating system for small teams.</p>
         <ul class="plan-list">
           <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Unlimited SKUs</li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Manufacturing, sales, purchasing</li>
           <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> AI-assisted data entry</li>
-          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Unlimited users</li>
-          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> 1 location</li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Integrations included</li>
         </ul>
         <a
           href={SIGN_UP_URL}
@@ -346,33 +350,77 @@ import { PRO_SIGN_UP_URL, SIGN_UP_URL } from "../lib/site";
         </a>
       </div>
 
-      <div class="plan rec reveal d1">
-        <span class="plan-tag-rec">Recommended</span>
+      <div class="plan reveal d1">
         <div class="plan-top">
-          <span class="plan-name">Pro</span>
-          <span class="plan-price">$199<span class="per">/mo</span></span>
+          <span class="plan-name">Plugins</span>
+          <span class="plan-price">$99<span class="per">/mo</span></span>
         </div>
-        <p class="plan-desc">Scale up — unlimited SKUs, locations and integrations.</p>
+        <p class="plan-desc">Add focused workflows one at a time.</p>
         <ul class="plan-list">
-          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Unlimited SKUs &amp; recipes</li>
-          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Everything in Free</li>
-          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Multi-location inventory</li>
-          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Integrations (Shopify, QBO…)</li>
-          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Priority onboarding &amp; support</li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Lot tracking</li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Batch production</li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> CRM, pricing, or locations</li>
         </ul>
         <a
-          href={PRO_SIGN_UP_URL}
+          href={SIGN_UP_URL}
+          class="btn btn-ghost"
+          data-analytics-event="pricing_plan_clicked"
+          data-analytics-placement="home-pricing"
+          data-analytics-plan="plugin"
+          data-analytics-signup-start="true"
+        >
+          Start free
+        </a>
+      </div>
+
+      <div class="plan rec reveal d2">
+        <span class="plan-tag-rec">Recommended</span>
+        <div class="plan-top">
+          <span class="plan-name">Packages</span>
+          <span class="plan-price">$199<span class="per">/mo</span></span>
+        </div>
+        <p class="plan-desc">Three-plugin bundles for common operators.</p>
+        <ul class="plan-list">
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Food &amp; Bev</li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Soil &amp; Landscape</li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Wholesale B2B</li>
+        </ul>
+        <a
+          href={SOIL_LANDSCAPE_SIGN_UP_URL}
           class="btn btn-primary"
           data-analytics-event="pricing_plan_clicked"
           data-analytics-placement="home-pricing"
-          data-analytics-plan="paid"
+          data-analytics-plan="package_soil_landscape"
           data-analytics-signup-start="true"
         >
-          Choose Pro <span class="arr">→</span>
+          Choose package <span class="arr">→</span>
+        </a>
+      </div>
+
+      <div class="plan reveal d3">
+        <div class="plan-top">
+          <span class="plan-name">Everything</span>
+          <span class="plan-price">$399<span class="per">/mo</span></span>
+        </div>
+        <p class="plan-desc">Every plugin in one subscription.</p>
+        <ul class="plan-list">
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> All current plugins</li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> 33% bundle discount</li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12l5 5L20 6"/></svg></span> Founding price lock</li>
+        </ul>
+        <a
+          href={EVERYTHING_SIGN_UP_URL}
+          class="btn btn-ghost"
+          data-analytics-event="pricing_plan_clicked"
+          data-analytics-placement="home-pricing"
+          data-analytics-plan="everything"
+          data-analytics-signup-start="true"
+        >
+          Choose Everything
         </a>
       </div>
     </div>
-    <p class="price-foot">No card required to start · switch plans anytime · cancel whenever</p>
+    <p class="price-foot">No card required for Free · switch anytime · monthly only at launch</p>
   </div>
 </section>
 

@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { OrgSetupForm } from "@/components/org-setup-form";
 import { auth } from "@/lib/auth";
-import { parseBillingPlanIntent } from "@/lib/billing/plan-intent";
+import { normalizeBillingSelection } from "@/lib/billing/plan-intent";
 import { getPendingInvitationForEmail, isMfaRequiredForSession } from "@/lib/dal/auth";
 
 export default async function Page({
@@ -11,7 +11,7 @@ export default async function Page({
   searchParams: Promise<{ plan?: string }>;
 }) {
   const params = await searchParams;
-  const plan = params.plan ? parseBillingPlanIntent(params.plan) : null;
+  const plan = params.plan ? normalizeBillingSelection(params.plan) : null;
   const requestHeaders = await headers();
   const session = await auth.api.getSession({ headers: requestHeaders });
 
@@ -22,7 +22,7 @@ export default async function Page({
   if (await isMfaRequiredForSession(session)) {
     redirect(
       `/two-factor?next=${encodeURIComponent(
-        plan ? `/org-setup?plan=${plan}` : "/org-setup"
+        plan ? `/org-setup?plan=${encodeURIComponent(plan)}` : "/org-setup"
       )}`
     );
   }

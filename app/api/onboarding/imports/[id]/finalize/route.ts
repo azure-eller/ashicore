@@ -12,6 +12,9 @@ import {
 import { updateCurrentOnboardingProgress } from "@/lib/onboarding/session";
 import { getBillingStateByOrgId } from "@/lib/billing/dal";
 import { syncOrgBillingFromStripe } from "@/lib/billing/stripe";
+import { getCurrentOnboardingSession } from "@/lib/onboarding/session";
+import { billingSelectionLookupKey } from "@/lib/billing/plan-intent";
+import { getBillingOffer } from "@/lib/billing/types";
 import { env } from "@/lib/env";
 
 export const runtime = "nodejs";
@@ -34,17 +37,26 @@ export const POST = apiHandler(async (request: Request, context: unknown) => {
     });
   }
 
-  // Require a genuinely paid org before the (unlimited) commit. The Stripe webhook
-  // normally flips the plan; pull directly in case the redirect beat the webhook.
-  let plan = (await getBillingStateByOrgId(orgId))?.plan ?? null;
-  if (plan !== "core") {
+  // Require the selected catalog entitlements before committing. The Stripe webhook
+  // normally grants them; pull directly in case the redirect beat the webhook.
+  const onboarding = await getCurrentOnboardingSession();
+  const lookupKey = billingSelectionLookupKey(onboarding?.selectedPlan);
+  const offer = lookupKey ? getBillingOffer(lookupKey) : null;
+  let billing = await getBillingStateByOrgId(orgId);
+  let hasOfferEntitlements =
+    offer != null &&
+    offer.plugins.every((plugin) => billing?.entitlements.includes(plugin));
+  if (!hasOfferEntitlements) {
     try {
-      plan = (await syncOrgBillingFromStripe(orgId))?.plan ?? plan;
+      billing = await syncOrgBillingFromStripe(orgId);
+      hasOfferEntitlements =
+        offer != null &&
+        offer.plugins.every((plugin) => billing?.entitlements.includes(plugin));
     } catch {
       // Stripe unreachable/unconfigured — fall through to the 402 below.
     }
   }
-  if (plan !== "core") {
+  if (!hasOfferEntitlements) {
     return jsonError(
       "Payment isn't confirmed yet. If you just paid, give it a moment and try again.",
       402,

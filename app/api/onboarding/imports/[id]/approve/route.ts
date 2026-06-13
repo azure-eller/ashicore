@@ -15,7 +15,11 @@ import {
   updateCurrentOnboardingProgress,
 } from "@/lib/onboarding/session";
 import { getBillingStateByOrgId } from "@/lib/billing/dal";
-import { isPaidBillingSelection } from "@/lib/billing/plan-intent";
+import {
+  billingSelectionLookupKey,
+  isPaidBillingSelection,
+} from "@/lib/billing/plan-intent";
+import { getBillingOffer } from "@/lib/billing/types";
 import { env } from "@/lib/env";
 
 export const runtime = "nodejs";
@@ -32,13 +36,17 @@ export const POST = apiHandler(async (request: Request, context: unknown) => {
   const onboarding = await getCurrentOnboardingSession();
   if (isPaidBillingSelection(onboarding?.selectedPlan)) {
     const billing = await getBillingStateByOrgId(member.orgId);
-    if (billing?.plan !== "core") {
+    const lookupKey = billingSelectionLookupKey(onboarding?.selectedPlan);
+    const offer = lookupKey ? getBillingOffer(lookupKey) : null;
+    const hasOfferEntitlements =
+      offer != null &&
+      offer.plugins.every((plugin) => billing?.entitlements.includes(plugin));
+    if (!hasOfferEntitlements) {
       return jsonError("Complete payment to import your data.", 402);
     }
   }
 
-  // Free intent (or already-paid org): commit now. The inventory kernel enforces
-  // the free SKU ceiling, so a free org can never commit past the limit.
+  // Free intent (or already-entitled org): commit now.
   const result = await approveImportSession(id, data);
   if (env.BLOB_READ_WRITE_TOKEN) {
     await deletePrivateBlobsIfConfigured(result.storageKeysToDelete);

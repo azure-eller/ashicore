@@ -6,6 +6,7 @@ import { captureAppError } from "@/lib/observability/sentry";
 import {
   asBillingPlugins,
   featureUpgradeMessage,
+  BILLING_PLUGIN_LABELS,
   type BillingPlan,
   type BillingOverview,
   type BillingPlugin,
@@ -58,6 +59,7 @@ export type FeatureAccess = {
   /** True when an enforced gate would deny this org right now. */
   locked: boolean;
   grandfathered: boolean;
+  orgName?: string;
 };
 
 // Pure read of the gate decision — no logging, no throwing. UI mirrors use
@@ -69,6 +71,7 @@ export async function getFeatureAccessInTx(
 ): Promise<FeatureAccess> {
   const [org] = await tx
     .select({
+      name: organization.name,
       entitlements: organization.entitlements,
       createdAt: organization.createdAt,
     })
@@ -82,7 +85,7 @@ export async function getFeatureAccessInTx(
 
   const entitled = asBillingPlugins(org.entitlements).includes(plugin);
   if (entitled || !billingEnforcementEnabled()) {
-    return { entitled, locked: false, grandfathered: false };
+    return { entitled, locked: false, grandfathered: false, orgName: org.name };
   }
 
   const launchAt = enforcementLaunchAt();
@@ -91,6 +94,7 @@ export async function getFeatureAccessInTx(
     entitled,
     locked: !grandfathered && enforcedPlugins().has(plugin),
     grandfathered,
+    orgName: org.name,
   };
 }
 
@@ -136,6 +140,27 @@ export async function assertFeatureAccessInTx(
   }
 
   if (access.locked) {
+    console.warn(
+      "[billing-gate-hit]",
+      JSON.stringify({
+        orgId,
+        orgName: access.orgName ?? null,
+        plugin,
+        route: context?.route ?? null,
+      })
+    );
+    const { sendFounderAlert } = await import("@/lib/internal-alerts");
+    await sendFounderAlert({
+      kind: "feature_gate_hit",
+      subject: `Ashicore feature gate hit: ${BILLING_PLUGIN_LABELS[plugin]}`,
+      idempotencyKey: `founder-alert-feature-gate-${orgId}-${plugin}-${context?.route ?? "unknown"}`,
+      fields: [
+        { label: "Organization", value: access.orgName ?? null },
+        { label: "Organization ID", value: orgId },
+        { label: "Plugin", value: BILLING_PLUGIN_LABELS[plugin] },
+        { label: "Route", value: context?.route ?? null },
+      ],
+    });
     throw new FeatureEntitlementError(plugin);
   }
 

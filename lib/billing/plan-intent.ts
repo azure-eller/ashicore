@@ -40,3 +40,11 @@ export function orgSetupPathForPlanIntent(plan: BillingPlanIntent) {
 export function appEntryPathForPlanIntent(plan: BillingPlanIntent) {
   return plan === "paid" ? "/settings/billing" : "/sales/orders";
 }
+
+export function orgSetupPathForBillingSelection(selection: BillingSelection) {
+  return `/org-setup?plan=${encodeURIComponent(selection)}`;
+}
+
+export function appEntryPathForBillingSelection(selection: BillingSelection) {
+  return isPaidBillingSelection(selection) ? "/settings/billing" : "/sales/orders";
+}
