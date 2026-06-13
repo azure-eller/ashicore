@@ -377,7 +377,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       );
     expect(expectedRows).toHaveLength(0);
 
-    const materialEditResponse = await testFetch(`/api/purchase-orders/${order.id}`, {
+    const quantityEditResponse = await testFetch(`/api/purchase-orders/${order.id}`, {
       method: "PUT",
       body: JSON.stringify({
         supplierId: supplier.body.id,
@@ -397,7 +397,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
         ],
       }),
     });
-    expect(materialEditResponse.status, await materialEditResponse.text()).toBe(400);
+    expect(quantityEditResponse.status, await quantityEditResponse.text()).toBe(400);
 
     const [reval] = await db
       .select({
@@ -447,6 +447,51 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       unitCost: receipt.unitCost,
       extendedCost: receipt.extendedCost,
     });
+
+    // Base price 10 -> 11 with freight 50 => landed unit cost 16.
+    const priceEditResponse = await testFetch(`/api/purchase-orders/${order.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        supplierId: supplier.body.id,
+        expectedDate: "2026-05-20",
+        shippingCost: "50.00",
+        notes: null,
+        accountingPurchaseAccountCode: null,
+        lines: [{ itemId, quantityOrdered: "10", unitCost: "11.00" }],
+        additionalCosts: [
+          {
+            costType: "shipping",
+            reference: "Freight",
+            distributionMethod: "by_value",
+            accountingPurchaseAccountCode: null,
+            amount: "50.00",
+          },
+        ],
+      }),
+    });
+    expect(priceEditResponse.status, await priceEditResponse.text()).toBe(200);
+
+    const [lineAfterPriceEdit] = await db
+      .select({
+        unitCost: purchaseOrderLines.unitCost,
+        stockUnitCost: purchaseOrderLines.stockUnitCost,
+      })
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.id, line.id));
+    expect(Number(lineAfterPriceEdit.unitCost)).toBe(11);
+    expect(Number(lineAfterPriceEdit.stockUnitCost)).toBe(16);
+
+    const [lotAfterPriceEdit] = await db
+      .select({ unitCost: inventoryLotBalances.unitCost })
+      .from(inventoryLotBalances)
+      .where(eq(inventoryLotBalances.lotId, receipt.lotId!));
+    expect(lotAfterPriceEdit.unitCost).toBe("16.000000");
+
+    const [itemAfterPriceEdit] = await db
+      .select({ currentStockUnitCost: items.currentStockUnitCost })
+      .from(items)
+      .where(eq(items.id, itemId));
+    expect(itemAfterPriceEdit.currentStockUnitCost).toBe("16.000000");
   });
 
   test("freight edit after receipt revalues only remaining available stock", async ({

@@ -715,7 +715,7 @@ export async function updatePurchaseOrder(
         const existingLine = existingLineByItemId.get(line.itemId);
         if (order.status === "received" && !existingLine) {
           throw new PurchasingError(
-            "Received purchase order material lines cannot be changed.",
+            "Materials cannot be added to a received purchase order.",
             400,
           );
         }
@@ -731,11 +731,10 @@ export async function updatePurchaseOrder(
                 line.stockQuantityOrdered,
                 existingLine.stockQuantityOrdered,
               ) ||
-              !sameNumericValue(line.unitCost, existingLine.unitCost) ||
               !sameNullableValue(line.taxRateId, existingLine.taxRateId))
           ) {
             throw new PurchasingError(
-              "Received purchase order material lines cannot be changed.",
+              "Received purchase order line quantities and tax rates cannot be changed.",
               400,
             );
           }

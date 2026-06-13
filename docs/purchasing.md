@@ -88,8 +88,11 @@ Purchase orders may store additional costs for `shipping`, `customs`, and
   inventory cost basis users should compare
 - receipt lots use the latest PO line landed stock-unit cost at receipt time, so
   additional-cost edits before receipt affect inventory valuation
-- after a partial receipt, additional-cost edits affect future receipts only;
-  already received lots keep their original unit cost
+- after receipt, editing a line price or a `by_value` additional cost appends a
+  `landed_cost_revaluation` event that rebases eligible on-hand tracked lots and
+  the material's `currentStockUnitCost`; the original `purchase_receipt` event
+  is never mutated, consumed quantities keep their historical cost, and
+  untracked materials save the edit but skip v1 revaluation
 
 - `defaultPurchasePrice` is the price of one purchase unit, not one stock unit
 - `purchaseToStockFactor` means "stock units per 1 purchase unit"
@@ -132,7 +135,9 @@ Update rules:
 - `draft` orders are editable
 - `ordered` orders may be edited, received, or deleted before any receipt
 - `partial` orders may be edited or received; already received lines cannot be removed
-- `received` orders are terminal
+- `received` orders stay correctable for costs: line prices and additional costs
+  may be edited (rebasing landed cost via revaluation); line quantities, items,
+  and tax rates are locked
 - delete is allowed only before inventory receipt history exists
 
 Valid transitions:
@@ -141,6 +146,7 @@ Valid transitions:
 - edit `draft`
 - edit `ordered`
 - edit `partial`
+- edit `received` (line prices and additional costs only)
 - submit `draft` -> `ordered`
 - receive `ordered` -> `partial`
 - receive `ordered` -> `received`
@@ -153,6 +159,7 @@ Invalid transitions:
 
 - reduce ordered quantity below already received quantity
 - remove received purchase order lines
+- change quantities or tax rates, or add materials, on a `received` order
 - delete `partial`
 - delete `received`
 

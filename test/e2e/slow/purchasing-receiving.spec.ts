@@ -488,6 +488,67 @@ test.describe("editable freight revaluation after receipt", () => {
     });
   });
 
+  test("buyer corrects the line price on the received PO card; remaining stock revalues", async ({
+    db,
+    page,
+  }) => {
+    await page.goto(`/purchasing/order/${orderId}`);
+    await expect(page.getByText("Received", { exact: true }).first()).toBeVisible();
+
+    // Supplier's final invoice re-priced the material 10 -> 11; with freight 80
+    // across 10 units the landed unit cost moves 18 -> 19.
+    const priceCell = page.locator('.ag-cell[col-id="unitCost"]').first();
+    await priceCell.dblclick();
+    const editor = page.locator(".ag-cell input").first();
+    await expect(editor).toBeVisible();
+    await editor.fill("11");
+    await editor.press("Enter");
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+
+    await expect
+      .poll(async () => {
+        const [line] = await db
+          .select({ unitCost: purchaseOrderLines.unitCost })
+          .from(purchaseOrderLines)
+          .where(eq(purchaseOrderLines.id, lineId));
+        return Number(line.unitCost);
+      })
+      .toBe(11);
+
+    const revals = await db
+      .select({
+        unitCost: inventoryEvents.unitCost,
+        extendedCost: inventoryEvents.extendedCost,
+      })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, materialId),
+          eq(inventoryEvents.eventType, "landed_cost_revaluation")
+        )
+      )
+      .orderBy(asc(inventoryEvents.occurredAt));
+    expect(revals).toHaveLength(3);
+    expect(revals.at(-1)).toMatchObject({
+      unitCost: "19.000000",
+      extendedCost: "6.000000",
+    });
+
+    const [lot] = await db
+      .select({ quantity: inventoryLotBalances.quantity, unitCost: inventoryLotBalances.unitCost })
+      .from(inventoryLotBalances)
+      .where(eq(inventoryLotBalances.lotId, lotId));
+    expect(lot).toMatchObject({
+      quantity: "6.0000",
+      unitCost: "19.000000",
+    });
+
+    // Quantity stays locked on the received card.
+    const quantityCell = page.locator('.ag-cell[col-id="quantityOrdered"]').first();
+    await quantityCell.dblclick();
+    await expect(page.locator('.ag-cell[col-id="quantityOrdered"] input')).toHaveCount(0);
+  });
+
   test("freight edits save for untracked received material but skip v1 revaluation", async ({ db }) => {
     const created = await createItem({
       itemType: "material",

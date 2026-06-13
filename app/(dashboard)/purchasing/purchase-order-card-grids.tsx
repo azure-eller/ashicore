@@ -167,6 +167,7 @@ export function buildPurchaseOrderLineColumns({
   materialOptions,
   receivedMaterialIds,
   materialLinesReadOnly,
+  linePricesReadOnly,
   taxRates,
   taxRateMap,
 }: {
@@ -181,6 +182,7 @@ export function buildPurchaseOrderLineColumns({
   })[];
   receivedMaterialIds: Set<string>;
   materialLinesReadOnly: boolean;
+  linePricesReadOnly: boolean;
   taxRates: PurchaseOrderTaxRateOption[];
   taxRateMap: Map<string, PurchaseOrderTaxRateOption>;
 }): LineField<PurchaseOrderLineGridRow>[] {
@@ -325,7 +327,7 @@ export function buildPurchaseOrderLineColumns({
         headerTooltip: PURCHASE_UNIT_COST_TOOLTIP,
         minWidth: 132,
         flex: 0.65,
-        editable: !materialLinesReadOnly,
+        editable: !linePricesReadOnly,
         valueSetter: (
           params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>,
         ) => {
