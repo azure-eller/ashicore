@@ -1,11 +1,15 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
-import { PRO_SIGN_UP_URL, SIGN_UP_URL } from "../lib/site";
+import {
+  EVERYTHING_SIGN_UP_URL,
+  SOIL_LANDSCAPE_SIGN_UP_URL,
+  SIGN_UP_URL,
+} from "../lib/site";
 ---
 
 <BaseLayout
   title="Pricing"
-  description="Start Ashicore free, then scale into unlimited SKUs, locations, integrations, and priority onboarding."
+  description="Start Ashicore free, then add plugin upgrades, packages, or Everything when you need them."
   path="/pricing"
 >
   <main class="content-page pricing-page">
@@ -13,7 +17,7 @@ import { PRO_SIGN_UP_URL, SIGN_UP_URL } from "../lib/site";
       <span class="eyebrow">Pricing</span>
       <h1 class="h-section">Choose how you'd like to start.</h1>
       <p class="lede">
-        Switch plans anytime. No card required to begin.
+        Start free. Add only the paid workflows you need.
       </p>
     </div>
 
@@ -24,13 +28,13 @@ import { PRO_SIGN_UP_URL, SIGN_UP_URL } from "../lib/site";
           <span class="plan-price">$0<span class="per">/mo</span></span>
         </div>
         <p class="plan-desc">
-          Get up and running fast with AI-assisted data entry, on us.
+          A complete operating system for small teams.
         </p>
         <ul class="plan-list">
           <li><span class="ck">✓</span> Unlimited SKUs</li>
+          <li><span class="ck">✓</span> Manufacturing, sales, purchasing</li>
           <li><span class="ck">✓</span> AI-assisted data entry</li>
-          <li><span class="ck">✓</span> Unlimited users</li>
-          <li><span class="ck">✓</span> 1 location</li>
+          <li><span class="ck">✓</span> Integrations included</li>
         </ul>
         <a
           href={SIGN_UP_URL}
@@ -44,36 +48,84 @@ import { PRO_SIGN_UP_URL, SIGN_UP_URL } from "../lib/site";
         </a>
       </section>
 
+      <section class="plan">
+        <div class="plan-top">
+          <span class="plan-name">Plugins</span>
+          <span class="plan-price">$99<span class="per">/mo</span></span>
+        </div>
+        <p class="plan-desc">
+          Add focused workflows one at a time.
+        </p>
+        <ul class="plan-list">
+          <li><span class="ck">✓</span> Lot tracking</li>
+          <li><span class="ck">✓</span> Batch production</li>
+          <li><span class="ck">✓</span> CRM, pricing, or locations</li>
+        </ul>
+        <a
+          href={SIGN_UP_URL}
+          class="btn btn-ghost"
+          data-analytics-event="pricing_plan_clicked"
+          data-analytics-placement="pricing-page"
+          data-analytics-plan="plugin"
+          data-analytics-signup-start="true"
+        >
+          Start free
+        </a>
+      </section>
+
       <section class="plan rec">
         <span class="plan-tag-rec">Recommended</span>
         <div class="plan-top">
-          <span class="plan-name">Pro</span>
+          <span class="plan-name">Packages</span>
           <span class="plan-price">$199<span class="per">/mo</span></span>
         </div>
         <p class="plan-desc">
-          Scale up with unlimited SKUs, locations, and integrations.
+          Three-plugin bundles for common operators.
         </p>
         <ul class="plan-list">
-          <li><span class="ck">✓</span> Unlimited SKUs &amp; recipes</li>
-          <li><span class="ck">✓</span> Everything in Free</li>
-          <li><span class="ck">✓</span> Multi-location inventory</li>
-          <li><span class="ck">✓</span> Integrations including Shopify and QBO</li>
-          <li><span class="ck">✓</span> Priority onboarding &amp; support</li>
+          <li><span class="ck">✓</span> Food &amp; Bev</li>
+          <li><span class="ck">✓</span> Soil &amp; Landscape</li>
+          <li><span class="ck">✓</span> Wholesale B2B</li>
         </ul>
         <a
-          href={PRO_SIGN_UP_URL}
+          href={SOIL_LANDSCAPE_SIGN_UP_URL}
           class="btn btn-primary"
           data-analytics-event="pricing_plan_clicked"
           data-analytics-placement="pricing-page"
-          data-analytics-plan="paid"
+          data-analytics-plan="package_soil_landscape"
           data-analytics-signup-start="true"
         >
-          Choose Pro <span class="arr">→</span>
+          Choose package <span class="arr">→</span>
+        </a>
+      </section>
+
+      <section class="plan">
+        <div class="plan-top">
+          <span class="plan-name">Everything</span>
+          <span class="plan-price">$399<span class="per">/mo</span></span>
+        </div>
+        <p class="plan-desc">
+          Every plugin in one subscription.
+        </p>
+        <ul class="plan-list">
+          <li><span class="ck">✓</span> All current plugins</li>
+          <li><span class="ck">✓</span> 33% bundle discount</li>
+          <li><span class="ck">✓</span> Founding price lock</li>
+        </ul>
+        <a
+          href={EVERYTHING_SIGN_UP_URL}
+          class="btn btn-ghost"
+          data-analytics-event="pricing_plan_clicked"
+          data-analytics-placement="pricing-page"
+          data-analytics-plan="everything"
+          data-analytics-signup-start="true"
+        >
+          Choose Everything
         </a>
       </section>
     </div>
     <p class="price-foot">
-      No card required to start · switch plans anytime · cancel whenever
+      No card required for Free · switch anytime · monthly only at launch
     </p>
   </main>
 </BaseLayout>

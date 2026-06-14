@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { BillingPlanIntent } from "@/lib/billing/plan-intent";
+import type { BillingSelection } from "@/lib/billing/plan-intent";
 import {
   OnboardingProgress,
   onboardingStepIndex,
@@ -30,7 +30,7 @@ export function OnboardingAuthShell({
   className,
 }: {
   activeStep: OnboardingAuthStep;
-  plan: BillingPlanIntent;
+  plan: BillingSelection;
   guideTitle: ReactNode;
   guideLines?: string[];
   children: ReactNode;

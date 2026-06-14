@@ -11,7 +11,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { authClient } from "@/lib/auth-client"
-import { type BillingPlanIntent } from "@/lib/billing/plan-intent"
+import { type BillingSelection } from "@/lib/billing/plan-intent"
 import { cn } from "@/lib/utils"
 
 const DEFAULT_APP_ENTRY_PATH = "/sales/orders"
@@ -31,7 +31,7 @@ export function OrgSetupForm({
   ...props
 }: React.ComponentProps<"div"> & {
   organizations: OrganizationOption[]
-  plan?: BillingPlanIntent
+  plan?: BillingSelection
   continueToOnboarding?: boolean
 }) {
   const router = useRouter()

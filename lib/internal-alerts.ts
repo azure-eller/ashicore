@@ -13,7 +13,8 @@ type FounderAlertInput = {
     | "free_signup"
     | "checkout_started"
     | "subscription_active"
-    | "subscription_attention";
+    | "subscription_attention"
+    | "feature_gate_hit";
   subject: string;
   fields: AlertField[];
   idempotencyKey?: string;

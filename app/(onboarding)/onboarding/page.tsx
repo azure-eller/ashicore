@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { hasModuleAccess } from "@/lib/authz";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
 import { OnboardingImportPage } from "./onboarding-import-page";
+import { isBillingSelection } from "@/lib/billing/plan-intent";
 
 export default async function OnboardingPage({
   searchParams,
@@ -19,10 +20,10 @@ export default async function OnboardingPage({
     redirect("/");
   }
 
-  // Pass the plan intent only when the URL actually carries it. On the Stripe
+  // Pass the billing selection only when the URL actually carries it. On the Stripe
   // return (`?checkout=success`) there is no plan param, so we leave it undefined
   // and let the persisted onboarding session remain the source of truth.
   const { plan } = await searchParams;
-  const planIntent = plan === "paid" ? "paid" : plan === "free" ? "free" : undefined;
-  return <OnboardingImportPage plan={planIntent} />;
+  const billingSelection = isBillingSelection(plan) ? plan : undefined;
+  return <OnboardingImportPage plan={billingSelection} />;
 }

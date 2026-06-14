@@ -86,6 +86,7 @@ Stripe setup checklist:
 Verification before marketing paid signup:
 
 - Vercel production env lists all Stripe vars above.
+- `STRIPE_CORE_PRICE_ID` is ignored by the app and should not be used for launch verification.
 - `/settings/billing` shows the plugin catalog with working `Add` checkout buttons for a free organization.
 - A live-mode test checkout reaches Stripe Checkout from the deployed ERP app.
 - Returning from checkout leaves the org entitled to the purchased plugins after the webhook is processed.

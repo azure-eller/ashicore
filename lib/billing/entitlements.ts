@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { eq, isNull, sql, and } from "drizzle-orm";
 import { items, organization } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
@@ -6,6 +7,7 @@ import { captureAppError } from "@/lib/observability/sentry";
 import {
   asBillingPlugins,
   featureUpgradeMessage,
+  BILLING_PLUGIN_LABELS,
   type BillingPlan,
   type BillingOverview,
   type BillingPlugin,
@@ -58,7 +60,49 @@ export type FeatureAccess = {
   /** True when an enforced gate would deny this org right now. */
   locked: boolean;
   grandfathered: boolean;
+  orgName?: string;
 };
+
+function scheduleFeatureGateHitAlert({
+  orgId,
+  orgName,
+  plugin,
+  route,
+}: {
+  orgId: string;
+  orgName?: string;
+  plugin: BillingPlugin;
+  route?: string;
+}) {
+  const deliver = async () => {
+    try {
+      const { sendFounderAlert } = await import("@/lib/internal-alerts");
+      await sendFounderAlert({
+        kind: "feature_gate_hit",
+        subject: `Ashicore feature gate hit: ${BILLING_PLUGIN_LABELS[plugin]}`,
+        idempotencyKey: `founder-alert-feature-gate-${orgId}-${plugin}-${route ?? "unknown"}`,
+        fields: [
+          { label: "Organization", value: orgName ?? null },
+          { label: "Organization ID", value: orgId },
+          { label: "Plugin", value: BILLING_PLUGIN_LABELS[plugin] },
+          { label: "Route", value: route ?? null },
+        ],
+      });
+    } catch (error) {
+      captureAppError(error, {
+        source: "billing_feature_gate_alert",
+        operation: plugin,
+        route,
+      });
+    }
+  };
+
+  try {
+    after(deliver);
+  } catch {
+    void deliver();
+  }
+}
 
 // Pure read of the gate decision — no logging, no throwing. UI mirrors use
 // this so upsell states match exactly what the server gates would do.
@@ -69,6 +113,7 @@ export async function getFeatureAccessInTx(
 ): Promise<FeatureAccess> {
   const [org] = await tx
     .select({
+      name: organization.name,
       entitlements: organization.entitlements,
       createdAt: organization.createdAt,
     })
@@ -82,7 +127,7 @@ export async function getFeatureAccessInTx(
 
   const entitled = asBillingPlugins(org.entitlements).includes(plugin);
   if (entitled || !billingEnforcementEnabled()) {
-    return { entitled, locked: false, grandfathered: false };
+    return { entitled, locked: false, grandfathered: false, orgName: org.name };
   }
 
   const launchAt = enforcementLaunchAt();
@@ -91,6 +136,7 @@ export async function getFeatureAccessInTx(
     entitled,
     locked: !grandfathered && enforcedPlugins().has(plugin),
     grandfathered,
+    orgName: org.name,
   };
 }
 
@@ -136,6 +182,22 @@ export async function assertFeatureAccessInTx(
   }
 
   if (access.locked) {
+    const route = context?.route;
+    console.warn(
+      "[billing-gate-hit]",
+      JSON.stringify({
+        orgId,
+        orgName: access.orgName ?? null,
+        plugin,
+        route: route ?? null,
+      })
+    );
+    scheduleFeatureGateHitAlert({
+      orgId,
+      orgName: access.orgName,
+      plugin,
+      route,
+    });
     throw new FeatureEntitlementError(plugin);
   }
 

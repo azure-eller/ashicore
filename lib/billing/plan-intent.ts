@@ -1,14 +1,8 @@
-import { getBillingOffer } from "./types";
+import { getBillingOffer, type BillingPlugin } from "./types";
 
-export type BillingPlanIntent = "free" | "paid";
 export type BillingSelection = "free" | string;
 
-export const DEFAULT_BILLING_PLAN_INTENT: BillingPlanIntent = "free";
 export const DEFAULT_BILLING_SELECTION: BillingSelection = "free";
-
-export function parseBillingPlanIntent(value: unknown): BillingPlanIntent {
-  return value === "paid" ? "paid" : DEFAULT_BILLING_PLAN_INTENT;
-}
 
 export function normalizeBillingSelection(value: unknown): BillingSelection {
   if (value === "free") return "free";
@@ -33,10 +27,20 @@ export function billingSelectionLookupKey(value: BillingSelection | null | undef
   return null;
 }
 
-export function orgSetupPathForPlanIntent(plan: BillingPlanIntent) {
-  return plan === "paid" ? "/org-setup?plan=paid" : "/org-setup?plan=free";
+export function selectionEntitlementsMet(
+  selection: BillingSelection | null | undefined,
+  billing: { entitlements: BillingPlugin[] } | null | undefined,
+): boolean {
+  const lookupKey = billingSelectionLookupKey(selection);
+  const offer = lookupKey ? getBillingOffer(lookupKey) : null;
+  if (offer == null || billing == null) return false;
+  return offer.plugins.every((plugin) => billing.entitlements.includes(plugin));
 }
 
-export function appEntryPathForPlanIntent(plan: BillingPlanIntent) {
-  return plan === "paid" ? "/settings/billing" : "/sales/orders";
+export function orgSetupPathForBillingSelection(selection: BillingSelection) {
+  return `/org-setup?plan=${encodeURIComponent(selection)}`;
+}
+
+export function appEntryPathForBillingSelection(selection: BillingSelection) {
+  return isPaidBillingSelection(selection) ? "/settings/billing" : "/sales/orders";
 }

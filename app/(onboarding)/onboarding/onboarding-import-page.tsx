@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   billingSelectionLookupKey,
   normalizeBillingSelection,
-  type BillingPlanIntent,
   type BillingSelection,
 } from "@/lib/billing/plan-intent";
 import { BILLING_CATALOG, getBillingOffer } from "@/lib/billing/types";
@@ -499,7 +498,7 @@ function onboardingActiveIndex(step: FlowStep) {
   }
 }
 
-export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
+export function OnboardingImportPage({ plan }: { plan?: BillingSelection }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -523,8 +522,8 @@ export function OnboardingImportPage({ plan }: { plan?: BillingPlanIntent }) {
   const [commitSummary, setCommitSummary] = useState<Record<string, number> | null>(null);
   const [committed, setCommitted] = useState(false);
   const [onboardingReady, setOnboardingReady] = useState(false);
-  // The approve gate: a paid org pays here; a free org over the SKU cap is offered
-  // the upgrade-or-trim choice. Null = no dialog (free + within cap commits directly).
+  // The approve gate: paid selections pay here; free commits directly.
+  // Null = no dialog.
   const [approveDialog, setApproveDialog] = useState<null | "pay">(null);
   const [finalizing, setFinalizing] = useState(false);
 

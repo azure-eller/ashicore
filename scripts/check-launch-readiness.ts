@@ -215,6 +215,16 @@ async function main() {
     );
   }
 
+  if (envValues.has("STRIPE_CATALOG_READY")) {
+    checks.push(
+      check(
+        "Stripe catalog marked ready",
+        envValues.get("STRIPE_CATALOG_READY") === "1",
+        "STRIPE_CATALOG_READY must be exactly 1 after catalog creation"
+      )
+    );
+  }
+
   if (options.marketingUrl) {
     checks.push(...(await checkMarketingSite(options.marketingUrl)));
   }

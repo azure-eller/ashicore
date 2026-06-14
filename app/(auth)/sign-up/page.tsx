@@ -2,8 +2,8 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { SignupForm } from "@/components/signup-form";
 import {
-  appEntryPathForPlanIntent,
-  parseBillingPlanIntent,
+  appEntryPathForBillingSelection,
+  normalizeBillingSelection,
 } from "@/lib/billing/plan-intent";
 import { auth } from "@/lib/auth";
 import { isMfaRequiredForSession } from "@/lib/dal/auth";
@@ -14,14 +14,14 @@ export default async function SignUpPage({
   searchParams: Promise<{ plan?: string }>;
 }) {
   const params = await searchParams;
-  const plan = parseBillingPlanIntent(params.plan);
+  const plan = normalizeBillingSelection(params.plan);
   const requestHeaders = await headers();
   const session = await auth.api.getSession({ headers: requestHeaders });
 
   if (session) {
     const nextPath = session.session.activeOrganizationId
-      ? appEntryPathForPlanIntent(plan)
-      : "/org-setup";
+      ? appEntryPathForBillingSelection(plan)
+      : `/org-setup?plan=${encodeURIComponent(plan)}`;
 
     if (await isMfaRequiredForSession(session)) {
       redirect(`/two-factor?next=${encodeURIComponent(nextPath)}`);

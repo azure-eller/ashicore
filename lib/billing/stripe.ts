@@ -691,7 +691,7 @@ export async function syncOrgBillingFromStripe(orgId: string) {
   );
 
   if (active.length > 1) {
-    console.warn("Stripe customer has duplicate active Core subscriptions.", {
+    console.warn("Stripe customer has duplicate active catalog subscriptions.", {
       orgId,
       stripeCustomerId: billing.stripeCustomerId,
       subscriptionIds: active.map((subscription) => subscription.id),
