@@ -2,6 +2,8 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { purchaseOrders } from "@/lib/db/schema";
 import {
+  clientIdSchema,
+  expectedVersionSchema,
   isNonNegativeNumberString,
   isPositiveNumberString,
   isValidIsoDate,
@@ -35,6 +37,7 @@ export type PurchaseOrderAdditionalCostDistributionMethod =
   (typeof PURCHASE_ORDER_ADDITIONAL_COST_DISTRIBUTION_METHODS)[number];
 
 const rawLineSchema = z.object({
+  id: clientIdSchema,
   itemId: z.string().default(""),
   quantityOrdered: nullableString,
   unitCost: nullableString,
@@ -53,6 +56,7 @@ const rawLineSchema = z.object({
 });
 
 const rawAdditionalCostSchema = z.object({
+  id: clientIdSchema,
   costType: z.enum(PURCHASE_ORDER_ADDITIONAL_COST_TYPES).default("shipping"),
   reference: nullableString,
   supplierId: nullableString.optional(),
@@ -222,6 +226,7 @@ const basePurchaseOrderSchema = createInsertSchema(purchaseOrders, {
 }).omit({
   id: true,
   organizationId: true,
+  version: true,
   supplierName: true,
   parentPurchaseOrderId: true,
   type: true,
@@ -239,10 +244,14 @@ const basePurchaseOrderSchema = createInsertSchema(purchaseOrders, {
   additionalCosts: cleanedAdditionalCostsSchema,
 });
 
-export const insertPurchaseOrderSchema = basePurchaseOrderSchema;
+export const insertPurchaseOrderSchema = basePurchaseOrderSchema.extend({
+  id: clientIdSchema,
+});
 export type InsertPurchaseOrder = z.infer<typeof insertPurchaseOrderSchema>;
 
-export const updatePurchaseOrderSchema = basePurchaseOrderSchema;
+export const updatePurchaseOrderSchema = basePurchaseOrderSchema.extend({
+  expectedVersion: expectedVersionSchema,
+});
 export type UpdatePurchaseOrder = z.infer<typeof updatePurchaseOrderSchema>;
 
 const rawReceiveLineSchema = z.object({

@@ -58,7 +58,6 @@ import { fieldErrorAt, type FieldErrorRecord } from "@/lib/api/field-errors";
 import {
   ADDITIONAL_COST_DISTRIBUTION_LABELS,
   ADDITIONAL_COST_TYPE_LABELS,
-  hasPurchaseOrderAdditionalCostAmount,
   isBlankPurchaseOrderAdditionalCost,
   isBlankPurchaseOrderLine,
   lineTotalLabel,
@@ -162,7 +161,6 @@ export function buildPurchaseOrderLineColumns({
   additionalCostsExpanded,
   fieldErrors,
   landedCostByRowId,
-  lineGridRows,
   materialMap,
   materialOptions,
   receivedMaterialIds,
@@ -174,7 +172,6 @@ export function buildPurchaseOrderLineColumns({
   additionalCostsExpanded: boolean;
   fieldErrors: FieldErrorRecord | null;
   landedCostByRowId: Map<string, LandedCostLineResult>;
-  lineGridRows: PurchaseOrderLineGridRow[];
   materialMap: Map<string, PurchaseOrderMaterialOption>;
   materialOptions: (PurchaseOrderMaterialOption & {
     displayName: string;
@@ -186,17 +183,10 @@ export function buildPurchaseOrderLineColumns({
   taxRates: PurchaseOrderTaxRateOption[];
   taxRateMap: Map<string, PurchaseOrderTaxRateOption>;
 }): LineField<PurchaseOrderLineGridRow>[] {
-    const nonBlankRows = lineGridRows.filter(
-      (row) => !isBlankPurchaseOrderLine(row),
-    );
-    const rowErrorIndex = (row: PurchaseOrderLineGridRow) =>
-      nonBlankRows.findIndex(
-        (current) => current.clientRowId === row.clientRowId,
-      );
-    const cellError = (row: PurchaseOrderLineGridRow, key: PurchaseOrderLineColumnKey) => {
-      const index = rowErrorIndex(row);
-      return index >= 0 ? fieldErrorAt(fieldErrors, ["lines", index, key]) : null;
-    };
+    // Field errors are keyed by row id (the kernel translates the server's
+    // index paths through the payload it sent), so no index math is needed.
+    const cellError = (row: PurchaseOrderLineGridRow, key: PurchaseOrderLineColumnKey) =>
+      fieldErrorAt(fieldErrors, ["lines", row.clientRowId, key]);
     const hasCellError =
       (key: PurchaseOrderLineColumnKey) =>
       (params: CellClassParams<PurchaseOrderLineGridRow>) =>
@@ -411,34 +401,22 @@ export function buildPurchaseOrderLineColumns({
 }
 
 export function buildPurchaseOrderAdditionalCostColumns({
-  additionalCostGridRows,
   fieldErrors,
   additionalCostsReadOnly,
   createAdditionalCostSupplier,
   rememberSupplierForCurrentMaterials,
   supplierOptionsSorted,
 }: {
-  additionalCostGridRows: PurchaseOrderAdditionalCostGridRow[];
   fieldErrors: FieldErrorRecord | null;
   additionalCostsReadOnly: boolean;
   createAdditionalCostSupplier: () => Promise<{ value: string } | null>;
   rememberSupplierForCurrentMaterials: (supplierId: string | null) => void;
   supplierOptionsSorted: SupplierOption[];
 }): LineField<PurchaseOrderAdditionalCostGridRow>[] {
-    const payloadRows = additionalCostGridRows.filter(
-      hasPurchaseOrderAdditionalCostAmount,
-    );
-    const rowErrorIndex = (row: PurchaseOrderAdditionalCostGridRow) =>
-      payloadRows.findIndex(
-        (current) => current.clientRowId === row.clientRowId,
-      );
     const cellError = (
       row: PurchaseOrderAdditionalCostGridRow,
       key: PurchaseOrderAdditionalCostColumnKey,
-    ) => {
-      const index = rowErrorIndex(row);
-      return index >= 0 ? fieldErrorAt(fieldErrors, ["additionalCosts", index, key]) : null;
-    };
+    ) => fieldErrorAt(fieldErrors, ["additionalCosts", row.clientRowId, key]);
     const hasCellError =
       (key: PurchaseOrderAdditionalCostColumnKey) =>
       (params: CellClassParams<PurchaseOrderAdditionalCostGridRow>) =>

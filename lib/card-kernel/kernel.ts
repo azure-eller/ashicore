@@ -45,6 +45,8 @@ export type CardKernelConfig<TDoc, TPayload> = {
   /** Entity uuid — client-generated for never-persisted docs. */
   id: string;
   initialServerDoc: TDoc | null;
+  /** Optional live draft seed for new docs whose pristine baseline differs. */
+  initialDraft?: TDoc;
   makeNewDoc: (id: string) => TDoc;
   collections?: CollectionSpec;
   /** Pure, idempotent cascade math (totals, derived quantities). */
@@ -66,6 +68,9 @@ export type CardKernelConfig<TDoc, TPayload> = {
     },
   ) => Promise<TDoc>;
   readVersion?: (doc: TDoc) => number | null;
+  /** Convert a 409 conflict body's `current` into TDoc when the API's
+   *  document shape differs from the card's draft shape. */
+  readConflictDoc?: (current: unknown) => TDoc;
   /**
    * Persisted entity id for update calls when the server assigns ids on
    * create (the kernel's own id stays the client-side registry key).
@@ -117,6 +122,44 @@ function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
+/**
+ * The doc paths a serialized payload actually covered: top-level payload keys
+ * for scalars, and — via the serializer's alias map — every emitted row and
+ * row leaf for collections. Dirt outside this set (blank rows the serializer
+ * filtered) must survive the post-save rebase.
+ */
+function sentDocPaths(
+  payload: unknown,
+  aliases: Record<string, string> | undefined,
+  collections: CollectionSpec | undefined,
+): { covers: (path: string) => boolean } {
+  const sent = new Set<string>();
+  const collectionKeys = new Set(Object.keys(collections ?? {}));
+  for (const key of Object.keys((payload as Record<string, unknown>) ?? {})) {
+    if (!collectionKeys.has(key)) sent.add(key);
+  }
+  const orderedCollections = new Set<string>();
+  for (const value of Object.values(aliases ?? {})) {
+    sent.add(value);
+    const [collection, rowId] = value.split(".");
+    if (collection && rowId) {
+      sent.add(`${collection}.${rowId}`);
+      orderedCollections.add(collection);
+    }
+  }
+  return {
+    covers: (path: string) => {
+      if (sent.has(path)) return true;
+      const [collection, rowId, leaf] = path.split(".");
+      if (!collectionKeys.has(collection)) return false;
+      if (rowId === "$order") return orderedCollections.has(collection);
+      // A leaf on a sent row counts as covered even if the serializer doesn't
+      // emit that particular field (it is server-owned for sent rows).
+      return leaf != null && sent.has(`${collection}.${rowId}`);
+    },
+  };
+}
+
 function translateErrorPaths(
   errors: FieldErrorRecord,
   aliases: Record<string, string> | undefined,
@@ -157,7 +200,10 @@ export class CardKernel<TDoc, TPayload> {
     this.serverDoc = config.initialServerDoc
       ? structuredClone(config.initialServerDoc)
       : null;
-    this.draft = this.derive(config.initialServerDoc ?? structuredClone(this.pristineDoc));
+    this.draft = this.derive(
+      config.initialServerDoc ??
+        structuredClone(config.initialDraft ?? this.pristineDoc),
+    );
     this.version = config.initialServerDoc
       ? this.readVersion(config.initialServerDoc)
       : null;
@@ -260,6 +306,11 @@ export class CardKernel<TDoc, TPayload> {
       incoming != null &&
       incoming < this.version
     ) {
+      return;
+    }
+    // Content-equal docs are a no-op: callers may rebuild the same doc every
+    // render, and adopting it would re-render forever.
+    if (this.serverDoc != null && deepEqual(doc, this.serverDoc)) {
       return;
     }
     this.rebaseOnto(doc);
@@ -396,15 +447,28 @@ export class CardKernel<TDoc, TPayload> {
           : await this.config.create(payload, { idempotencyKey });
 
         this.lastAttempt = null;
+        // Reapply two kinds of dirt on top of the fresh doc: edits made while
+        // the request was in flight, and pre-flight dirt the payload never
+        // carried (e.g. blank grid rows the serializer filters out).
         const editedDuringFlight = diffDocs(
           draftAtSend,
           this.draft,
           this.config.collections,
         );
+        const sent = sentDocPaths(payload, pathAliases, this.config.collections);
+        const preFlightDirt = diffDocs(
+          this.derive(structuredClone(serverDocAtSend ?? this.pristineDoc)),
+          draftAtSend,
+          this.config.collections,
+        );
+        const unsentDirt = [...preFlightDirt].filter(
+          (path) => !sent.covers(path),
+        );
+        const stillDirty = new Set([...unsentDirt, ...editedDuringFlight]);
         this.serverDoc = structuredClone(fresh);
         this.version = this.readVersion(fresh);
         this.draft = this.derive(
-          applyPaths(fresh, editedDuringFlight, this.draft, this.config.collections),
+          applyPaths(fresh, stillDirty, this.draft, this.config.collections),
         );
         this.status = this.isPayloadDirty() ? "dirty" : "idle";
         this.notify();
@@ -417,8 +481,11 @@ export class CardKernel<TDoc, TPayload> {
         const body = errorBody(error);
 
         if (status === 409 && body?.conflict === true && body.current != null) {
+          const current = this.config.readConflictDoc
+            ? this.config.readConflictDoc(body.current)
+            : (body.current as TDoc);
           return this.handleConflict(
-            body.current as TDoc,
+            current,
             serverDocAtSend,
             draftAtSend,
             retriedAfterConflict,

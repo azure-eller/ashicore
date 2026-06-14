@@ -22,6 +22,7 @@ export function makeDraftOrder(timeZone: string): SalesOrderDetail {
     customerProjectName: null,
     orderNumber: "",
     status: "open",
+    version: 0,
     orderDate: today,
     shipDate: null,
     requestedDate: null,
@@ -119,7 +120,7 @@ export function makeDraftLine(input: {
     taxRatePercent: input.taxRatePercent,
   });
   return {
-    id: `draft-${crypto.randomUUID()}`,
+    id: crypto.randomUUID(),
     itemId: input.itemId,
     itemName: input.itemName,
     masterName: input.itemName,
@@ -232,51 +233,7 @@ export function orderToUpdatePayload(
     shippingFeeAmount: order.shippingFeeAmount,
     shippingFeeTaxAmount: order.shippingFeeTaxAmount,
     lines: lines.map((line) => ({
-      itemId: line.itemId,
-      quantity: line.quantity,
-      listUnitPrice: line.listUnitPrice,
-      unitPrice: line.unitPrice,
-      taxRateId: line.taxRateId,
-      discountPercent: line.discountPercent,
-      suggestedUnitPrice: line.suggestedUnitPrice,
-      pricingSourceType: line.pricingSourceType,
-      pricingScheduleName: line.pricingScheduleName,
-      pricingBreakLabel: line.pricingBreakLabel,
-      isPriceOverridden: line.isPriceOverridden,
-    })),
-  } as InsertSalesOrder;
-}
-
-/** Assemble the create payload from the local draft order. */
-export function draftToInsertPayload(
-  draft: SalesOrderDetail,
-  options?: { useServerOrderNumber?: boolean },
-): InsertSalesOrder {
-  return {
-    orderNumber: options?.useServerOrderNumber ? null : draft.orderNumber.trim() || null,
-    customerId: draft.customerId,
-    customerProjectId: draft.customerProjectId,
-    status: "open",
-    orderDate: draft.orderDate,
-    shipDate: draft.shipDate,
-    requestedDate: draft.requestedDate,
-    notes: draft.notes,
-    shipLine1: draft.shipLine1,
-    shipLine2: draft.shipLine2,
-    shipCity: draft.shipCity,
-    shipRegion: draft.shipRegion,
-    shipPostcode: draft.shipPostcode,
-    shipCountry: draft.shipCountry,
-    billingLine1: draft.billingLine1,
-    billingLine2: draft.billingLine2,
-    billingCity: draft.billingCity,
-    billingRegion: draft.billingRegion,
-    billingPostcode: draft.billingPostcode,
-    billingCountry: draft.billingCountry,
-    shippingFeeDescription: draft.shippingFeeDescription,
-    shippingFeeAmount: draft.shippingFeeAmount,
-    shippingFeeTaxAmount: draft.shippingFeeTaxAmount,
-    lines: draft.lines.map((line) => ({
+      id: line.id || undefined,
       itemId: line.itemId,
       quantity: line.quantity,
       listUnitPrice: line.listUnitPrice,

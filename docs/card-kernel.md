@@ -17,14 +17,16 @@ owns: "the card draft lifecycle pattern: one engine, per-card adapters, bound fi
 > outcome), full-doc responses rebased under still-dirty paths, idempotent
 > create via client ids or stable idempotency keys, and optimistic
 > concurrency (`expectedVersion` → 409 `{conflict, current}` → auto-rebase).
-> Supplier, customer, and item cards are converted; PO/SO/MO follow, then
-> the old engine is deleted. **The op-queue engine is frozen: converting
-> cards only, no new adopters.**
+> Supplier, customer, item, purchase order, and sales order cards are
+> converted; the manufacturing order card is the last to follow, then the
+> old engine is deleted. **The op-queue engine is frozen: converting cards
+> only, no new adopters.**
 
-Every remaining op-queue card (sales order, purchase order, manufacturing
-order) is built on **one** draft lifecycle engine:
+The manufacturing order card is the one remaining op-queue card, built on
+**one** draft lifecycle engine:
 [`lib/hooks/use-draft-save-engine.ts`](../lib/hooks/use-draft-save-engine.ts).
-Do not write a new save controller — configure this one.
+New cards use the document-sync kernel above; either way, do not write a new
+save controller — configure the engine.
 
 ## What the engine owns (never reimplement)
 
@@ -40,22 +42,20 @@ Do not write a new save controller — configure this one.
 
 | Config | Job |
 |---|---|
-| `TOp` + `applyOp` | The card's edit vocabulary and pure reducer, including cascade recomputes (sales totals, MO batch quantities) |
+| `TOp` + `applyOp` | The card's edit vocabulary and pure reducer, including cascade recomputes (MO batch quantities) |
 | `create` / `save` | Persistence strategy: patch, snapshot, or hybrid — the card's choice |
 | `mergeServerOwnedFields` | Conflict resolution: which server fields win, what survives when `hasNewerLocalEdits` |
 | `coalesceOps` (optional) | Collapse queued ops (entity cards merge patches into one) |
 | `isSaveable` | Gate flushing until the draft is creatable (e.g. has a name/product) |
 
-Reference adapters, simplest first: supplier-card (single patch op, coalesced),
-customer-card (`customer-draft.ts`), sales order
-(`use-sales-order-draft-controller.ts` — per-line ops, full-replace on
-structural changes), purchase order (bulk row replace + blank-row
-preservation via `clientRowId`), manufacturing order (header patches +
-ingredient snapshots, batch cascades).
+Reference adapter: manufacturing order
+(`use-manufacturing-order-draft-controller.ts` — header patches + ingredient
+snapshots, batch cascades). The converted cards (item, supplier, customer,
+purchase order, sales order) configure the document-sync kernel instead of
+the op-queue config above.
 
 Per-card domain logic is **supposed** to live in the adapter. Do not try to
-genericize totals recomputation, ingredient alternates, or blank-row
-preservation into the engine.
+genericize totals recomputation or ingredient alternates into the engine.
 
 ## Bound fields
 

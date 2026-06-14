@@ -5,7 +5,7 @@ import {
   type RouteContext,
 } from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";
-import { jsonError, jsonNotFound, jsonSuccess } from "@/lib/api/responses";
+import { jsonConflict, jsonError, jsonNotFound, jsonSuccess } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { updatePurchaseOrderSchema } from "@/lib/schemas/purchase-orders";
 import { deletePurchaseOrder, updatePurchaseOrder } from "@/lib/purchasing/queries/order-write";
@@ -34,13 +34,16 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   const data = await parseJsonBody(request, updatePurchaseOrderSchema);
   const idempotencyKey = requireIdempotencyKey(request, "updatePurchaseOrder");
 
-  const order = await updatePurchaseOrder(id, data, { idempotencyKey });
+  const result = await updatePurchaseOrder(id, data, { idempotencyKey });
 
-  if (!order) {
+  if (!result) {
     return jsonNotFound("Purchase order not found");
   }
+  if (result.kind === "conflict") {
+    return jsonConflict("This purchase order was changed elsewhere.", result.order);
+  }
 
-  return NextResponse.json(order);
+  return NextResponse.json(result.order);
 });
 
 export const DELETE = apiHandler(async (_request: Request, ctx: unknown) => {

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";
-import { jsonNotFound, jsonSuccess } from "@/lib/api/responses";
+import { jsonConflict, jsonNotFound, jsonSuccess } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import {
   patchSalesOrderHeaderSchema,
@@ -51,13 +51,19 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
   const data = await parseJsonBody(request, updateSalesOrderSchema);
 
-  const order = await updateSalesOrder(id, data, { idempotencyKey });
+  const result = await updateSalesOrder(id, data, { idempotencyKey });
 
-  if (!order) {
+  if (!result) {
     return jsonNotFound("Order not found");
   }
+  if (result.kind === "conflict") {
+    return jsonConflict(
+      "This sales order was changed elsewhere.",
+      result.order,
+    );
+  }
 
-  return NextResponse.json(order);
+  return NextResponse.json(result.order);
 });
 
 export const DELETE = apiHandler(async (request: Request, ctx: unknown) => {

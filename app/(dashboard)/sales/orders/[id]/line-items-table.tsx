@@ -62,6 +62,26 @@ export function LineItemsTable({
   controller,
 }: LineItemsTableProps) {
   const [confirmDelete, setConfirmDelete] = useState<SalesOrderDetailLine | null>(null);
+  const persistedLineIds = controller.persistedLineIds;
+  const lineGuards = useMemo(() => {
+    const isPersistedLine = (line: SalesOrderDetailLine | undefined) =>
+      Boolean(line?.id && persistedLineIds.has(line.id) && line.itemId);
+    const isDraftLineSaveAttempt = (
+      change: EditableLineDataGridChange<SalesOrderDetailLine>,
+    ): change is EditableLineDataGridChange<SalesOrderDetailLine> & {
+      row: SalesOrderDetailLine;
+      field: "itemId" | "quantity" | "unitPrice" | "taxRateId";
+    } =>
+      change.type === "cell_edit_committed" &&
+      change.row != null &&
+      (change.field === "itemId" ||
+        change.field === "quantity" ||
+        change.field === "unitPrice" ||
+        change.field === "taxRateId") &&
+      !isPersistedLine(change.row);
+    return { isPersistedLine, isDraftLineSaveAttempt };
+  }, [persistedLineIds]);
+  const { isPersistedLine, isDraftLineSaveAttempt } = lineGuards;
   const [pricingLookupError, setPricingLookupError] = useState<string | null>(null);
   const [rows, setRows] = useState(order.lines);
   const savedDraftLineIdsRef = useRef(new Set<string>());
@@ -70,10 +90,10 @@ export function LineItemsTable({
     setRows(order.lines);
     savedDraftLineIdsRef.current = new Set(
       order.lines
-        .filter((line) => line.id.startsWith("draft-") && !isBlankSalesOrderLine(line))
+        .filter((line) => !persistedLineIds.has(line.id) && !isBlankSalesOrderLine(line))
         .map((line) => line.id),
     );
-  }, [order.lines]);
+  }, [order.lines, persistedLineIds]);
 
   const nonBlankRows = rows.filter((line) => !isBlankSalesOrderLine(line));
   const totalQuantity = sumNumeric(nonBlankRows.map((line) => line.quantity));
@@ -307,7 +327,7 @@ export function LineItemsTable({
           ) : null,
       },
     ],
-    [editable, existingItemIds, itemMap, itemOptions, order.status, order.taxRates, taxRateMap, defaultTaxRate],
+    [editable, existingItemIds, isPersistedLine, itemMap, itemOptions, order.status, order.taxRates, taxRateMap, defaultTaxRate],
   );
 
   const handleRowsChange = async (
@@ -542,26 +562,6 @@ function isBlankSalesOrderLine(line: SalesOrderDetailLine | undefined) {
   return !line?.itemId;
 }
 
-function isPersistedLine(line: SalesOrderDetailLine | undefined) {
-  return Boolean(line?.id && !line.id.startsWith("draft-") && line.itemId);
-}
-
-function isDraftLineSaveAttempt(
-  change: EditableLineDataGridChange<SalesOrderDetailLine>,
-): change is EditableLineDataGridChange<SalesOrderDetailLine> & {
-  row: SalesOrderDetailLine;
-    field: "itemId" | "quantity" | "unitPrice" | "taxRateId";
-} {
-  return (
-    change.type === "cell_edit_committed" &&
-    change.row != null &&
-    (change.field === "itemId" ||
-      change.field === "quantity" ||
-      change.field === "unitPrice" ||
-      change.field === "taxRateId") &&
-    !isPersistedLine(change.row)
-  );
-}
 
 function isSavableDraftLine(line: SalesOrderDetailLine) {
   const quantity = Number(line.quantity);

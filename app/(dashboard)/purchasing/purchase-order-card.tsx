@@ -61,7 +61,6 @@ import {
 import { CardField } from "@/components/card-page/card-field";
 import type {
   PurchaseOrderAccountingGroupState,
-  PurchaseOrderDetail,
   PurchaseOrderEditData,
   PurchaseOrderMaterialOption,
   PurchaseOrderTaxRateOption,
@@ -114,7 +113,6 @@ import {
   lineTotalBeforeTax,
   normalizeDeliveryAddress,
   parseNonNegative,
-  purchaseOrderValidationErrors,
   todayIsoDate,
   type AdditionalCostSupplierDialogValues,
   type AddressDialogValues,
@@ -315,41 +313,10 @@ export function PurchaseOrderCard({
     [defaultTaxRate?.id, defaultValues, initialData],
   );
 
-  const persistPurchaseOrder = useCallback(
-    async (orderId: string | null, values: InsertPurchaseOrder) => {
-      const validationErrors = purchaseOrderValidationErrors(values);
-      if (validationErrors) {
-        const message = firstFieldErrorMessage(validationErrors, "Fix highlighted fields.");
-        throw new ApiJsonError(message, 400, {
-          error: message,
-          errors: validationErrors,
-        });
-      }
-
-      setFormError(null);
-      try {
-        return await apiJson<PurchaseOrderDetail>(
-          orderId ? `/api/purchase-orders/${orderId}` : "/api/purchase-orders",
-          {
-            method: orderId ? "PUT" : "POST",
-            headers: createIdempotencyHeaders("savePurchaseOrder"),
-            body: values,
-            fallbackError: "Failed to save purchase order.",
-          },
-        );
-      } catch (error) {
-        if (error instanceof ApiJsonError) setFormError(error.message);
-        throw error;
-      }
-    },
-    [],
-  );
-
   const purchaseOrderController = usePurchaseOrderDraftController({
     initialData,
     defaultValues: defaultValues ?? purchaseOrderDefaultValues,
     defaultTaxRateId: defaultTaxRate?.id ?? null,
-    persist: persistPurchaseOrder,
     queryClient,
     onPersisted: (id) => {
       savedOrderIdRef.current = id;
@@ -377,8 +344,8 @@ export function PurchaseOrderCard({
     [purchaseOrderController],
   );
   const flushBeforeStatusTransition = useCallback(async () => {
-    await purchaseOrderController.flush();
-    if (purchaseOrderController.hasPendingOps()) {
+    const outcome = await purchaseOrderController.flush();
+    if (outcome.outcome !== "saved") {
       throw new Error("Save changes before changing status.");
     }
   }, [purchaseOrderController]);
@@ -544,7 +511,6 @@ export function PurchaseOrderCard({
         additionalCostsExpanded,
         fieldErrors,
         landedCostByRowId,
-        lineGridRows,
         materialMap,
         materialOptions,
         receivedMaterialIds,
@@ -557,7 +523,6 @@ export function PurchaseOrderCard({
       additionalCostsExpanded,
       fieldErrors,
       landedCostByRowId,
-      lineGridRows,
       materialMap,
       materialOptions,
       receivedMaterialIds,
@@ -586,7 +551,6 @@ export function PurchaseOrderCard({
   >(
     () =>
       buildPurchaseOrderAdditionalCostColumns({
-        additionalCostGridRows,
         fieldErrors,
         additionalCostsReadOnly,
         createAdditionalCostSupplier,
@@ -594,7 +558,6 @@ export function PurchaseOrderCard({
         supplierOptionsSorted,
       }),
     [
-      additionalCostGridRows,
       fieldErrors,
       additionalCostsReadOnly,
       createAdditionalCostSupplier,
@@ -655,7 +618,6 @@ export function PurchaseOrderCard({
     entity: "purchase-order-action",
     getId: () => savedOrderIdRef.current,
     flush: purchaseOrderController.flush,
-    hasPendingOps: purchaseOrderController.hasPendingOps,
     invalidateQueryKeys: [queryKeys.purchaseOrders.root],
     missingIdError: "Save the purchase order first.",
     onMutate: () => setFormError(null),

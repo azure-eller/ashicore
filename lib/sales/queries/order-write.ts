@@ -12,14 +12,15 @@ import { beginInventoryOperationInTx, deriveInventoryIdempotencyKey, finishInven
 import { generateShortDocumentNumberInTx } from "@/lib/document-numbers";
 import { calculateDiscountPercentString, calculateSalesLineAmounts } from "@/lib/sales/order-calculations";
 import type { BulkConfirmSalesOrders, InsertSalesOrder, PatchSalesOrderHeader, PatchSalesOrderLine, UpdateSalesOrder } from "@/lib/schemas/sales-orders";
-import type { PricingSourceType } from "../types";
+import type { PricingSourceType, SalesOrderDetail } from "../types";
 import { SalesError } from "./errors";
 import { withSalesTransactionRetry, isEditableOpenSalesOrderStatus, isOpenSalesOrderStatus, rerankOpenSalesOrdersInTx, getOrderLinesInTx, getLockedSalesOrderInTx, normalizeShipQuantity, getSalesOrderLineShipStatesInTx } from "./shared";
 import { type SalesItemValidationRow, getValidatedCustomerInTx, getValidatedCustomerProjectInTx, getValidatedSalesItemsInTx } from "./validation";
 import { getPricingScheduleLookupForProductsInTx, resolvePricingForProduct } from "./pricing";
-import { getSalesOrder } from "./orders-read";
+import { getSalesOrder, getSalesOrderInTx } from "./orders-read";
 
 type PreparedOrderLineBase = {
+  id?: string;
   salesOrderLineId?: string;
   itemId: string;
   itemName: string;
@@ -479,6 +480,7 @@ async function prepareOrderPayload(
     });
 
     return {
+      id: line.id,
       itemId: item.id,
       itemName: item.displayName,
       itemSku: item.sku,
@@ -734,7 +736,11 @@ export async function updateSalesOrder(
   options?: { idempotencyKey?: string }
 ) {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
-    const replay = await beginInventoryOperationInTx<{ id: string } | null>(tx, {
+    const replay = await beginInventoryOperationInTx<
+      | { kind: "updated"; order: SalesOrderDetail }
+      | { kind: "conflict"; order: SalesOrderDetail }
+      | null
+    >(tx, {
       organizationId: orgId,
       operationName: "updateSalesOrder",
       idempotencyKey: options?.idempotencyKey ?? null,
@@ -754,6 +760,20 @@ export async function updateSalesOrder(
         result: null,
       });
       return null;
+    }
+
+    if (
+      data.expectedVersion != null &&
+      existingOrder.version !== data.expectedVersion
+    ) {
+      const current = await getSalesOrderInTx(tx, orgId, id);
+      const result = current ? { kind: "conflict" as const, order: current } : null;
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result,
+      });
+      return result;
     }
 
     const existingLines = await getOrderLinesInTx(tx, id);
@@ -856,6 +876,7 @@ export async function updateSalesOrder(
         subtotalAmount: prepared.subtotalAmount,
         taxAmount: prepared.taxAmount,
         totalAmount: prepared.totalAmount,
+        version: sql`${salesOrders.version} + 1`,
         updatedAt: new Date(),
       })
       .where(eq(salesOrders.id, id));
@@ -875,7 +896,11 @@ export async function updateSalesOrder(
       })),
     });
 
-    const result = { id };
+    const updated = await getSalesOrderInTx(tx, orgId, id);
+    if (!updated) {
+      throw new SalesError("Sales order not found after update.", 500);
+    }
+    const result = { kind: "updated" as const, order: updated };
 
     await finishInventoryOperationInTx(tx, {
       organizationId: orgId,
@@ -1073,6 +1098,7 @@ export async function patchSalesOrderHeader(
 
     if (Object.keys(updates).length > 0) {
       updates.updatedAt = new Date();
+      updates.version = sql`${salesOrders.version} + 1`;
       await tx
         .update(salesOrders)
         .set(updates)
@@ -1356,6 +1382,7 @@ export async function patchSalesOrderLine(
             Number(existingOrder.shippingFeeAmount ?? 0) +
             Number(existingOrder.shippingFeeTaxAmount ?? 0)
         ),
+        version: sql`${salesOrders.version} + 1`,
         updatedAt: new Date(),
       })
       .where(eq(salesOrders.id, orderId));

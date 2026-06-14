@@ -104,6 +104,106 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     expect(row.version).toBe(2);
   });
 
+  test("purchase order card save replays the committed result for the same idempotency key", async ({ db }) => {
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast PO Replay Material ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-PO-REPLAY-${ts}`,
+      category: `Fast Purchasing ${ts}`,
+      description: null,
+      defaultPurchasePrice: "7.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status).toBe(201);
+
+    const supplier = await createSupplier({ name: `Fast PO Replay Supplier ${ts}` });
+    expect(supplier.status).toBe(201);
+
+    const order = await createPurchaseOrder({
+      supplierId: supplier.body.id,
+      expectedDate: "2026-05-06",
+      lines: [
+        {
+          itemId: material.body.id,
+          quantityOrdered: "4",
+          unitCost: "7.00",
+        },
+      ],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+
+    const payload = {
+      orderNumber: order.body.orderNumber,
+      supplierId: supplier.body.id,
+      expectedDate: "2026-05-06",
+      shippingCost: "0",
+      notes: "committed once",
+      accountingPurchaseAccountCode: null,
+      shipLine1: null,
+      shipLine2: null,
+      shipCity: null,
+      shipRegion: null,
+      shipPostcode: null,
+      shipCountry: null,
+      expectedVersion: order.body.version,
+      lines: [
+        {
+          id: order.body.lines[0].id,
+          itemId: material.body.id,
+          quantityOrdered: "5",
+          unitCost: "7.00",
+          taxRateId: null,
+          accountingPurchaseAccountCode: null,
+          shipAddressEntryId: null,
+          shipContactName: null,
+          shipContactPhone: null,
+          shipLine1: null,
+          shipLine2: null,
+          shipCity: null,
+          shipRegion: null,
+          shipPostcode: null,
+          shipCountry: null,
+          shipDeliveryInstructions: null,
+        },
+      ],
+      additionalCosts: [],
+    };
+    const body = JSON.stringify(payload);
+    const headers = {
+      "Idempotency-Key": `test:purchase-order-replay:${order.body.id}`,
+    };
+
+    const first = await testFetch(`/api/purchase-orders/${order.body.id}`, {
+      method: "PUT",
+      body,
+      headers,
+    });
+    expect(first.status, await first.text()).toBe(200);
+    const firstBody = await first.json();
+    expect(firstBody.version).toBe(order.body.version + 1);
+
+    const replay = await testFetch(`/api/purchase-orders/${order.body.id}`, {
+      method: "PUT",
+      body,
+      headers,
+    });
+    expect(replay.status, await replay.text()).toBe(200);
+    const replayBody = await replay.json();
+    expect(replayBody.version).toBe(firstBody.version);
+    expect(replayBody.notes).toBe("committed once");
+
+    const [row] = await db
+      .select({ notes: purchaseOrders.notes, version: purchaseOrders.version })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, order.body.id));
+    expect(row.notes).toBe("committed once");
+    expect(row.version).toBe(firstBody.version);
+  });
+
   test("purchase order submit creates expected supply", async ({ db }) => {
     const material = await createItem({
       itemType: "material",

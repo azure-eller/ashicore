@@ -180,6 +180,7 @@ export async function getLockedSalesOrderInTx(tx: Tx, id: string) {
       id: salesOrders.id,
       orderNumber: salesOrders.orderNumber,
       status: salesOrders.status,
+      version: salesOrders.version,
       customerId: salesOrders.customerId,
       customerProjectId: salesOrders.customerProjectId,
       customerName: salesOrders.customerName,

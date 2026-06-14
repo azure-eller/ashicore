@@ -1,18 +1,18 @@
 "use client";
 
-import { useCallback, useMemo, useRef, type RefObject } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import { queryKeys } from "@/lib/client/query-keys";
+import { apiJson } from "@/lib/client/api";
 import type { FieldErrorRecord } from "@/lib/api/field-errors";
 import {
   insertPurchaseOrderSchema,
+  updatePurchaseOrderSchema,
   type InsertPurchaseOrder,
 } from "@/lib/schemas/purchase-orders";
-import {
-  useDraftSaveEngine,
-  type DraftServerMergeContext,
-} from "@/lib/hooks/use-draft-save-engine";
+import type { FlushOutcome } from "@/lib/card-kernel/kernel";
+import { useCardKernel } from "@/lib/card-kernel/use-card-kernel";
 import type {
   PurchaseOrderDetail,
   PurchaseOrderEditData,
@@ -26,31 +26,29 @@ type PurchaseOrderAdditionalCostPayloadRow = NonNullable<
   InsertPurchaseOrder["additionalCosts"]
 >[number];
 
-export type PurchaseOrderLineDraftRow = PurchaseOrderLinePayloadRow & {
+export type PurchaseOrderLineDraftRow = Omit<PurchaseOrderLinePayloadRow, "id"> & {
   id: string | null;
   clientRowId: string;
   quantityReceived?: string | null;
   stockQuantityReceived?: string | null;
 };
 
-export type PurchaseOrderAdditionalCostDraftRow =
-  PurchaseOrderAdditionalCostPayloadRow & {
-    id: string | null;
-    clientRowId: string;
-  };
+export type PurchaseOrderAdditionalCostDraftRow = Omit<
+  PurchaseOrderAdditionalCostPayloadRow,
+  "id"
+> & {
+  id: string | null;
+  clientRowId: string;
+};
 
 export type PurchaseOrderDraft = Omit<
   PurchaseOrderFormValues,
-  "lines" | "additionalCosts"
+  "id" | "lines" | "additionalCosts"
 > & {
+  version: number;
   lines: PurchaseOrderLineDraftRow[];
   additionalCosts: PurchaseOrderAdditionalCostDraftRow[];
 };
-
-type PurchaseOrderDraftOp =
-  | { type: "patchHeader"; patch: Partial<Omit<PurchaseOrderDraft, "lines" | "additionalCosts">> }
-  | { type: "replaceLines"; rows: PurchaseOrderLineDraftRow[] }
-  | { type: "replaceAdditionalCosts"; rows: PurchaseOrderAdditionalCostDraftRow[] };
 
 export type PurchaseOrderDraftController = {
   draft: PurchaseOrderDraft;
@@ -68,9 +66,8 @@ export type PurchaseOrderDraftController = {
     rows: PurchaseOrderAdditionalCostDraftRow[],
     delayMs?: number,
   ) => void;
-  flush: () => Promise<void>;
+  flush: () => Promise<FlushOutcome>;
   resetToSaved: () => void;
-  hasPendingOps: () => boolean;
 };
 
 const QUICK_FLUSH_DELAY_MS = 150;
@@ -104,7 +101,7 @@ const blankPurchaseOrderAdditionalCost = {
 };
 
 export function isBlankPurchaseOrderLine(
-  line: PurchaseOrderLinePayloadRow | undefined,
+  line: Omit<PurchaseOrderLinePayloadRow, "id"> | undefined,
 ) {
   const itemId = line?.itemId?.trim() ?? "";
   const quantityOrdered = line?.quantityOrdered?.trim() ?? "";
@@ -124,12 +121,40 @@ export function createPurchaseOrderLineRow(
   };
 }
 
+const LINE_PAYLOAD_KEYS = [
+  "itemId",
+  "quantityOrdered",
+  "unitCost",
+  "taxRateId",
+  "shipAddressEntryId",
+  "shipContactName",
+  "shipContactPhone",
+  "shipLine1",
+  "shipLine2",
+  "shipCity",
+  "shipRegion",
+  "shipPostcode",
+  "shipCountry",
+  "shipDeliveryInstructions",
+] as const;
+
+const ADDITIONAL_COST_PAYLOAD_KEYS = [
+  "costType",
+  "reference",
+  "supplierId",
+  "distributionMethod",
+  "amount",
+] as const;
+
 export function toPurchaseOrderLinePayloadRows(
   rows: PurchaseOrderLineDraftRow[],
 ): PurchaseOrderLinePayloadRow[] {
   return rows
     .filter((row) => !isBlankPurchaseOrderLine(row))
     .map((row) => ({
+      // The row id is the persisted line id: existing rows carry their DB id,
+      // new rows mint one the server persists, so identity survives saves.
+      id: row.clientRowId,
       itemId: row.itemId ?? "",
       quantityOrdered: row.quantityOrdered ?? null,
       unitCost: row.unitCost ?? null,
@@ -149,7 +174,7 @@ export function toPurchaseOrderLinePayloadRows(
 }
 
 export function isBlankPurchaseOrderAdditionalCost(
-  cost: PurchaseOrderAdditionalCostPayloadRow | undefined,
+  cost: Omit<PurchaseOrderAdditionalCostPayloadRow, "id"> | undefined,
 ) {
   const reference = cost?.reference?.trim() ?? "";
   const amount = cost?.amount?.trim() ?? "";
@@ -188,19 +213,20 @@ export function toPurchaseOrderAdditionalCostPayloadRows(
 ): PurchaseOrderAdditionalCostPayloadRow[] {
   return rows
     .filter(hasPurchaseOrderAdditionalCostAmount)
-    .map(({ costType, reference, supplierId, distributionMethod, amount }) => ({
-      costType: costType ?? "shipping",
-      reference: reference ?? null,
-      supplierId: supplierId ?? null,
-      distributionMethod: distributionMethod ?? "by_value",
+    .map((row) => ({
+      id: row.clientRowId,
+      costType: row.costType ?? "shipping",
+      reference: row.reference ?? null,
+      supplierId: row.supplierId ?? null,
+      distributionMethod: row.distributionMethod ?? "by_value",
       accountingPurchaseAccountCode: null,
-      amount: amount ?? null,
+      amount: row.amount ?? null,
     }));
 }
 
 export function purchaseOrderDraftToPayload(
   draft: PurchaseOrderDraft,
-): InsertPurchaseOrder {
+): Omit<InsertPurchaseOrder, "id"> {
   return {
     orderNumber: draft.orderNumber ?? null,
     supplierId: draft.supplierId,
@@ -219,6 +245,26 @@ export function purchaseOrderDraftToPayload(
   };
 }
 
+function serializePurchaseOrder(draft: PurchaseOrderDraft): {
+  payload: Omit<InsertPurchaseOrder, "id">;
+  pathAliases: Record<string, string>;
+} {
+  const payload = purchaseOrderDraftToPayload(draft);
+  const pathAliases: Record<string, string> = {};
+  payload.lines.forEach((line, index) => {
+    for (const key of LINE_PAYLOAD_KEYS) {
+      pathAliases[`lines.${index}.${key}`] = `lines.${line.id}.${key}`;
+    }
+  });
+  (payload.additionalCosts ?? []).forEach((cost, index) => {
+    for (const key of ADDITIONAL_COST_PAYLOAD_KEYS) {
+      pathAliases[`additionalCosts.${index}.${key}`] =
+        `additionalCosts.${cost.id}.${key}`;
+    }
+  });
+  return { payload, pathAliases };
+}
+
 export function purchaseOrderDefaultDraft({
   defaultValues,
   defaultTaxRateId,
@@ -229,16 +275,18 @@ export function purchaseOrderDefaultDraft({
   const values = defaultValues ?? purchaseOrderDefaultValuesFallback;
   return {
     ...values,
+    version: 0,
     orderNumber: values.orderNumber ?? null,
     accountingPurchaseAccountCode: null,
     lines: values.lines.map((line) =>
       createPurchaseOrderLineRow({
         ...line,
+        id: null,
         taxRateId: line.taxRateId ?? defaultTaxRateId,
       }),
     ),
     additionalCosts: (values.additionalCosts ?? []).map((cost) =>
-      createPurchaseOrderAdditionalCostRow(cost),
+      createPurchaseOrderAdditionalCostRow({ ...cost, id: null }),
     ),
   };
 }
@@ -253,6 +301,7 @@ export function purchaseOrderEditDataToDraft(
     shippingCost: data.shippingCost,
     notes: data.notes,
     accountingPurchaseAccountCode: null,
+    version: data.version,
     shipLine1: data.shipLine1,
     shipLine2: data.shipLine2,
     shipCity: data.shipCity,
@@ -262,6 +311,7 @@ export function purchaseOrderEditDataToDraft(
     lines: data.lines.map((line) =>
       createPurchaseOrderLineRow({
         id: line.id ?? null,
+        clientRowId: line.id ?? undefined,
         itemId: line.itemId,
         quantityOrdered: line.quantityOrdered,
         quantityReceived: line.quantityReceived,
@@ -284,6 +334,7 @@ export function purchaseOrderEditDataToDraft(
     additionalCosts: data.additionalCosts.map((cost) =>
       createPurchaseOrderAdditionalCostRow({
         id: cost.id ?? null,
+        clientRowId: cost.id ?? undefined,
         costType: cost.costType,
         reference: cost.reference,
         supplierId: cost.supplierId,
@@ -297,17 +348,7 @@ export function purchaseOrderEditDataToDraft(
 
 export function purchaseOrderDetailToDraft(
   detail: PurchaseOrderDetail,
-  previous?: PurchaseOrderDraft,
 ): PurchaseOrderDraft {
-  const previousLineIdByItem = new Map(
-    previous?.lines.map((line) => [line.itemId, line.clientRowId]) ?? [],
-  );
-  const previousCostIdById = new Map(
-    previous?.additionalCosts
-      .filter((cost) => cost.id)
-      .map((cost) => [cost.id, cost.clientRowId]) ?? [],
-  );
-
   return {
     orderNumber: detail.orderNumber,
     supplierId: detail.supplierId,
@@ -315,6 +356,7 @@ export function purchaseOrderDetailToDraft(
     shippingCost: detail.shippingCost,
     notes: detail.notes,
     accountingPurchaseAccountCode: detail.accountingPurchaseAccountCode,
+    version: detail.version,
     shipLine1: detail.shipLine1,
     shipLine2: detail.shipLine2,
     shipCity: detail.shipCity,
@@ -324,7 +366,7 @@ export function purchaseOrderDetailToDraft(
     lines: detail.lines.map((line) =>
       createPurchaseOrderLineRow({
         id: line.id,
-        clientRowId: previousLineIdByItem.get(line.itemId),
+        clientRowId: line.id,
         itemId: line.itemId,
         quantityOrdered: line.quantityOrdered,
         quantityReceived: line.quantityReceived,
@@ -347,7 +389,7 @@ export function purchaseOrderDetailToDraft(
     additionalCosts: detail.additionalCosts.map((cost) =>
       createPurchaseOrderAdditionalCostRow({
         id: cost.id,
-        clientRowId: previousCostIdById.get(cost.id),
+        clientRowId: cost.id,
         costType: cost.costType,
         reference: cost.reference,
         supplierId: cost.supplierId,
@@ -363,7 +405,6 @@ export function usePurchaseOrderDraftController({
   initialData,
   defaultValues,
   defaultTaxRateId,
-  persist,
   queryClient,
   onPersisted,
   onResult,
@@ -371,91 +412,84 @@ export function usePurchaseOrderDraftController({
   initialData?: PurchaseOrderEditData;
   defaultValues?: InsertPurchaseOrder;
   defaultTaxRateId: string | null;
-  persist: (
-    orderId: string | null,
-    values: InsertPurchaseOrder,
-  ) => Promise<PurchaseOrderDetail>;
   queryClient: QueryClient;
   onPersisted?: (id: string) => void;
   onResult?: (result: PurchaseOrderDetail, draft: PurchaseOrderDraft) => void;
 }): PurchaseOrderDraftController {
-  const headerRevisionRef = useRef<Partial<Record<keyof PurchaseOrderDraft, number>>>({});
-  const latestLineRevisionRef = useRef(0);
-  const latestAdditionalCostRevisionRef = useRef(0);
-  const initialDraft = useMemo(
-    () =>
-      initialData
-        ? purchaseOrderEditDataToDraft(initialData)
-        : purchaseOrderDefaultDraft({ defaultValues, defaultTaxRateId }),
-    [defaultTaxRateId, defaultValues, initialData],
+  const [newOrderId] = useState(() => crypto.randomUUID());
+  const orderId = initialData?.id ?? newOrderId;
+  const initialServerDoc = useMemo(
+    () => (initialData ? purchaseOrderEditDataToDraft(initialData) : null),
+    [initialData],
   );
 
-  const applyOp = useCallback(
-    (current: PurchaseOrderDraft, op: PurchaseOrderDraftOp, revision: number) => {
-      switch (op.type) {
-        case "patchHeader":
-          for (const key of Object.keys(op.patch) as Array<keyof PurchaseOrderDraft>) {
-            headerRevisionRef.current[key] = revision;
-          }
-          return { ...current, ...op.patch };
-        case "replaceLines":
-          latestLineRevisionRef.current = revision;
-          return { ...current, lines: op.rows };
-        case "replaceAdditionalCosts":
-          latestAdditionalCostRevisionRef.current = revision;
-          return { ...current, additionalCosts: op.rows };
-      }
-    },
-    [],
-  );
-
-  const engine = useDraftSaveEngine<PurchaseOrderDraft, PurchaseOrderDraftOp, PurchaseOrderDetail>({
-    initialDraft,
-    initialServerSnapshot: initialData ? purchaseOrderEditDataToDraft(initialData) : null,
-    initialId: initialData?.id ?? null,
-    isSaveable: (draft) => Boolean(draft.supplierId?.trim()),
-    applyOp,
-    create: async (draft) => persist(null, purchaseOrderDraftToPayload(draft)),
-    save: async (orderId, draft, ops) => {
-      if (ops.length === 0) return null;
-      return persist(orderId, purchaseOrderDraftToPayload(draft));
-    },
-    getResultId: (result) => result.id,
-    applyPersistedIdentity: (draft, result) => ({
-      ...draft,
-      orderNumber: draft.orderNumber ?? result.orderNumber,
-    }),
-    mergeServerOwnedFields: (draft, result, context) =>
-      mergePurchaseOrderServerResult(draft, result, context, {
-        headerRevisionRef,
-        latestLineRevisionRef,
-        latestAdditionalCostRevisionRef,
-      }),
-    onPersisted,
-    onResult: (result, draft) => {
-      queryClient.setQueryData(queryKeys.purchaseOrders.detail(result.id), result);
+  const handleDetail = useCallback(
+    (detail: PurchaseOrderDetail) => {
+      const draft = purchaseOrderDetailToDraft(detail);
+      queryClient.setQueryData(queryKeys.purchaseOrders.detail(detail.id), detail);
       void queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.root });
-      onResult?.(result, draft);
+      onResult?.(detail, draft);
+      return draft;
     },
-    getErrorMessage: (error) =>
-      error instanceof Error ? error.message : "Failed to save purchase order.",
+    [onResult, queryClient],
+  );
+
+  const kernel = useCardKernel<PurchaseOrderDraft, Omit<InsertPurchaseOrder, "id">>({
+    entityType: "purchase-order",
+    id: orderId,
+    initialServerDoc,
+    makeNewDoc: () =>
+      purchaseOrderDefaultDraft({ defaultValues, defaultTaxRateId }),
+    collections: {
+      lines: { idKey: "clientRowId" },
+      additionalCosts: { idKey: "clientRowId" },
+    },
+    schema: updatePurchaseOrderSchema,
+    serialize: serializePurchaseOrder,
+    readVersion: (doc) => (doc.version > 0 ? doc.version : null),
+    readConflictDoc: (current) =>
+      purchaseOrderDetailToDraft(current as PurchaseOrderDetail),
+    create: async (payload, opts) =>
+      handleDetail(
+        await apiJson<PurchaseOrderDetail>("/api/purchase-orders", {
+          method: "POST",
+          body: { ...payload, id: orderId },
+          idempotencyKey: opts.idempotencyKey,
+          keepalive: opts.keepalive,
+          fallbackError: "Failed to save purchase order.",
+        }),
+      ),
+    update: async (id, payload, opts) =>
+      handleDetail(
+        await apiJson<PurchaseOrderDetail>(`/api/purchase-orders/${id}`, {
+          method: "PUT",
+          body: { ...payload, expectedVersion: opts.expectedVersion ?? undefined },
+          idempotencyKey: opts.idempotencyKey,
+          keepalive: opts.keepalive,
+          fallbackError: "Failed to save purchase order.",
+        }),
+      ),
+    onCreated: () => {
+      onPersisted?.(orderId);
+    },
   });
 
+  const update = kernel.update;
   const patchHeader = useCallback(
     (
       patch: Partial<Omit<PurchaseOrderDraft, "lines" | "additionalCosts">>,
       delayMs = TEXT_FLUSH_DELAY_MS,
     ) => {
-      engine.applyLocalOp({ type: "patchHeader", patch }, delayMs);
+      update((draft) => ({ ...draft, ...patch }), { debounceMs: delayMs });
     },
-    [engine],
+    [update],
   );
 
   const replaceLines = useCallback(
     (rows: PurchaseOrderLineDraftRow[], delayMs = QUICK_FLUSH_DELAY_MS) => {
-      engine.applyLocalOp({ type: "replaceLines", rows }, delayMs);
+      update((draft) => ({ ...draft, lines: rows }), { debounceMs: delayMs });
     },
-    [engine],
+    [update],
   );
 
   const replaceAdditionalCosts = useCallback(
@@ -463,91 +497,36 @@ export function usePurchaseOrderDraftController({
       rows: PurchaseOrderAdditionalCostDraftRow[],
       delayMs = QUICK_FLUSH_DELAY_MS,
     ) => {
-      engine.applyLocalOp({ type: "replaceAdditionalCosts", rows }, delayMs);
+      update((draft) => ({ ...draft, additionalCosts: rows }), {
+        debounceMs: delayMs,
+      });
     },
-    [engine],
+    [update],
   );
 
   return useMemo(
     () => ({
-      draft: engine.draft,
-      currentOrderId: engine.currentId,
-      hasPersistedOrder: engine.hasPersistedEntity,
-      status: engine.status,
-      error: engine.error,
-      fieldErrors: engine.fieldErrors,
+      draft: kernel.draft,
+      currentOrderId: kernel.isPersisted ? orderId : null,
+      hasPersistedOrder: kernel.isPersisted,
+      status:
+        kernel.status === "blocked"
+          ? "error"
+          : kernel.status === "idle"
+            ? kernel.isPersisted
+              ? "saved"
+              : "idle"
+            : kernel.status,
+      error: kernel.error,
+      fieldErrors: kernel.fieldErrors,
       patchHeader,
       replaceLines,
       replaceAdditionalCosts,
-      flush: engine.flush,
-      resetToSaved: engine.resetToServer,
-      hasPendingOps: engine.hasPendingOps,
+      flush: kernel.flush,
+      resetToSaved: kernel.resetToServer,
     }),
-    [engine, patchHeader, replaceAdditionalCosts, replaceLines],
+    [kernel, orderId, patchHeader, replaceAdditionalCosts, replaceLines],
   );
-}
-
-function mergePurchaseOrderServerResult(
-  draft: PurchaseOrderDraft,
-  server: PurchaseOrderDetail,
-  context: DraftServerMergeContext<PurchaseOrderDraftOp>,
-  refs: {
-    headerRevisionRef: RefObject<Partial<Record<keyof PurchaseOrderDraft, number>>>;
-    latestLineRevisionRef: RefObject<number>;
-    latestAdditionalCostRevisionRef: RefObject<number>;
-  },
-): PurchaseOrderDraft {
-  const next = purchaseOrderDetailToDraft(server, draft);
-  const hasNewerLineEdits =
-    refs.latestLineRevisionRef.current > context.saveStartedRevision;
-  const hasNewerAdditionalCostEdits =
-    refs.latestAdditionalCostRevisionRef.current > context.saveStartedRevision;
-
-  if (context.hasNewerLocalEdits) {
-    for (const key of Object.keys(draft) as Array<keyof PurchaseOrderDraft>) {
-      if (key === "lines" || key === "additionalCosts") continue;
-      const changedAt = refs.headerRevisionRef.current[key] ?? 0;
-      if (changedAt > context.saveStartedRevision) {
-        (next as unknown as Record<string, unknown>)[key] = draft[key];
-      }
-    }
-    if (hasNewerLineEdits) next.lines = draft.lines;
-    if (hasNewerAdditionalCostEdits) next.additionalCosts = draft.additionalCosts;
-  }
-
-  if (!hasNewerLineEdits) {
-    next.lines = appendBlankPurchaseOrderLineRows(next.lines, draft.lines);
-  }
-  if (!hasNewerAdditionalCostEdits) {
-    next.additionalCosts = appendIncompletePurchaseOrderAdditionalCostRows(
-      next.additionalCosts,
-      draft.additionalCosts,
-    );
-  }
-
-  return next;
-}
-
-function appendBlankPurchaseOrderLineRows(
-  serverRows: PurchaseOrderLineDraftRow[],
-  draftRows: PurchaseOrderLineDraftRow[],
-) {
-  const blankDraftRows = draftRows.filter(
-    (row) => !row.id && isBlankPurchaseOrderLine(row),
-  );
-  return blankDraftRows.length === 0 ? serverRows : [...serverRows, ...blankDraftRows];
-}
-
-function appendIncompletePurchaseOrderAdditionalCostRows(
-  serverRows: PurchaseOrderAdditionalCostDraftRow[],
-  draftRows: PurchaseOrderAdditionalCostDraftRow[],
-) {
-  const incompleteDraftRows = draftRows.filter(
-    (row) => !row.id && !hasPurchaseOrderAdditionalCostAmount(row),
-  );
-  return incompleteDraftRows.length === 0
-    ? serverRows
-    : [...serverRows, ...incompleteDraftRows];
 }
 
 const purchaseOrderDefaultValuesFallback: InsertPurchaseOrder = {

@@ -37,19 +37,23 @@ import {
 } from "@/lib/purchasing/landed-cost";
 import { calculateTaxAmount, calculateTaxedLineTotal } from "@/lib/tax/calc";
 import {
+  beginInventoryOperationInTx,
   deriveInventoryIdempotencyKey,
   editExpectedFromPurchaseInTx,
+  finishInventoryOperationInTx,
   releaseExpectedFromPurchaseInTx,
   revaluePurchaseLandedCostInTx,
 } from "@/lib/inventory/kernel";
 import { generateShortDocumentNumberInTx } from "@/lib/document-numbers";
 import type { InsertPurchaseOrder, UpdatePurchaseOrder } from "@/lib/schemas/purchase-orders";
+import type { PurchaseOrderDetail } from "@/lib/purchasing/types";
 import { softDeleteLinkedAdditionalCostPurchaseOrdersInTx } from "./additional-costs";
 import { PurchasingError } from "./errors";
-import { getPurchaseOrder } from "./orders-read";
+import { getPurchaseOrder, getPurchaseOrderInTx } from "./orders-read";
 import { getLockedPurchaseOrderInTx, getPurchaseOrderLinesInTx, getValidatedPurchasableItemsInTx } from "./shared";
 
 type PreparedPurchaseOrderLine = {
+  id?: string;
   itemId: string;
   itemName: string;
   itemSku: string | null;
@@ -83,6 +87,7 @@ type PreparedPurchaseOrderLine = {
 };
 
 type PreparedPurchaseOrderAdditionalCost = {
+  id?: string;
   organizationId: string;
   costType: "shipping" | "customs" | "other";
   reference: string | null;
@@ -326,6 +331,7 @@ export async function preparePurchaseOrderPayload(
     }
   }
   const preparedAdditionalCosts = additionalCostInputs.map((cost, index) => ({
+    id: cost.id,
     organizationId: orgId,
     costType: cost.costType,
     reference: cost.reference?.trim() || null,
@@ -406,6 +412,7 @@ export async function preparePurchaseOrderPayload(
     const lineTotal = calculateTaxedLineTotal(lineSubtotal, lineTaxAmount, 4);
 
     return {
+      id: line.id,
       itemId: material.id,
       itemName: material.name,
       itemSku: material.sku,
@@ -496,9 +503,11 @@ export async function createPurchaseOrderInTx(
       ? await generateOrderNumber(tx, orgId)
       : await resolvePurchaseOrderNumberInTx(tx, orgId, data.orderNumber));
 
-  const [order] = await tx
+  const clientId = "id" in data ? data.id : undefined;
+  const inserted = await tx
     .insert(purchaseOrders)
     .values({
+      ...(clientId ? { id: clientId } : {}),
       organizationId: orgId,
       orderNumber,
       supplierId: prepared.supplierId,
@@ -518,10 +527,28 @@ export async function createPurchaseOrderInTx(
       taxAmount: prepared.taxAmount,
       totalAmount: prepared.totalAmount,
     })
+    .onConflictDoNothing({ target: purchaseOrders.id })
     .returning({
       id: purchaseOrders.id,
       orderNumber: purchaseOrders.orderNumber,
     });
+
+  if (inserted.length === 0) {
+    // Idempotent replay of a client-id create: the order (and its rows)
+    // already exist; return it without re-inserting lines.
+    const [existing] = await tx
+      .select({
+        id: purchaseOrders.id,
+        orderNumber: purchaseOrders.orderNumber,
+      })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, clientId!));
+    if (!existing) {
+      throw new PurchasingError("Purchase order id is already in use.", 409);
+    }
+    return existing;
+  }
+  const order = inserted[0];
 
   if (
     options.accountingPushStatus === "pushed" &&
@@ -623,11 +650,41 @@ export async function updatePurchaseOrder(
   data: UpdatePurchaseOrder,
   options?: { idempotencyKey?: string },
 ) {
-  const updatedId = await withAuthedOrgContext(async (tx, orgId, userId) => {
+  const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
+    const replay = await beginInventoryOperationInTx<
+      | { kind: "updated"; order: PurchaseOrderDetail }
+      | { kind: "conflict"; order: PurchaseOrderDetail }
+      | null
+    >(tx, {
+      organizationId: orgId,
+      operationName: "updatePurchaseOrder",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { id, data },
+    });
+    if (replay.replayed) {
+      return replay.result;
+    }
+
     const order = await getLockedPurchaseOrderInTx(tx, id);
 
     if (!order) {
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result: null,
+      });
       return null;
+    }
+
+    if (data.expectedVersion != null && order.version !== data.expectedVersion) {
+      const current = await getPurchaseOrderInTx(tx, orgId, id);
+      const result = current ? { kind: "conflict" as const, order: current } : null;
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result,
+      });
+      return result;
     }
 
     const prepared = await preparePurchaseOrderPayload(tx, orgId, data);
@@ -641,6 +698,7 @@ export async function updatePurchaseOrder(
     const existingLineByItemId = new Map(
       existingLines.map((line) => [line.itemId, line]),
     );
+    const existingLineIds = new Set(existingLines.map((line) => line.id));
     await lockItemsInTx(tx, [
       ...new Set([
         ...existingLines.map((line) => line.itemId),
@@ -747,11 +805,15 @@ export async function updatePurchaseOrder(
           continue;
         }
 
+        const { id: clientLineId, ...lineFields } = line;
         const [insertedLine] = await tx
           .insert(purchaseOrderLines)
           .values({
+            ...(clientLineId && !existingLineIds.has(clientLineId)
+              ? { id: clientLineId }
+              : {}),
             purchaseOrderId: id,
-            ...line,
+            ...lineFields,
           })
           .returning({ id: purchaseOrderLines.id });
 
@@ -856,6 +918,7 @@ export async function updatePurchaseOrder(
         subtotalAmount: prepared.subtotalAmount,
         taxAmount: prepared.taxAmount,
         totalAmount: prepared.totalAmount,
+        version: sql`${purchaseOrders.version} + 1`,
         status:
           order.status === "received" &&
           prepared.preparedLines.some((line) => {
@@ -925,16 +988,21 @@ export async function updatePurchaseOrder(
         );
     }
 
-    return id;
+    const updated = await getPurchaseOrderInTx(tx, orgId, id);
+    if (!updated) {
+      throw new PurchasingError("Purchase order not found after update.", 500);
+    }
+    const result = { kind: "updated" as const, order: updated };
+    await finishInventoryOperationInTx(tx, {
+      organizationId: orgId,
+      idempotencyKey: options?.idempotencyKey ?? null,
+      result,
+    });
+
+    return result;
   });
 
-  if (!updatedId) return null;
-
-  const updated = await getPurchaseOrder(updatedId);
-  if (!updated) {
-    throw new PurchasingError("Purchase order not found after update.", 500);
-  }
-  return updated;
+  return result;
 }
 
 export async function deletePurchaseOrder(

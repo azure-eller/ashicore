@@ -109,6 +109,9 @@ export function OrderCard({
   const controller = useSalesOrderDraftController({
     initialOrder,
     initialDraft,
+    timeZone,
+    taxRates,
+    defaultTaxRateId,
     queryClient,
     createMode: initialOrder == null ? "auto-number" : "custom-number",
     onPersisted: (id) => {
@@ -149,7 +152,6 @@ export function OrderCard({
     entity: "sales-order-action",
     getId: () => controller.currentOrderId,
     flush: controller.flush,
-    hasPendingOps: controller.hasPendingOps,
     invalidateQueryKeys: [queryKeys.salesOrders.root],
     onMutate: () => setActionError(null),
     onError: (error) => setActionError(error.message),
@@ -197,13 +199,17 @@ export function OrderCard({
   });
 
   const handleCloseAfterFlush = useCallback(() => {
-    void controller.flush().then(handleClose).catch((error) => {
-      setActionError(error instanceof Error ? error.message : "Failed to save order.");
+    void controller.flush().then((outcome) => {
+      if (outcome.outcome === "saved" || outcome.outcome === "blocked") {
+        handleClose();
+        return;
+      }
+      setActionError(outcome.error);
     });
   }, [controller, handleClose]);
   const flushBeforeStatusTransition = useCallback(async () => {
-    await controller.flush();
-    if (controller.hasPendingOps()) {
+    const outcome = await controller.flush();
+    if (outcome.outcome !== "saved") {
       throw new Error("Save changes before changing status.");
     }
   }, [controller]);

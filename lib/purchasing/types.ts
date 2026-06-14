@@ -161,6 +161,7 @@ export type PurchaseOrderDetail = {
   supplierEmail: string | null;
   orderNumber: string;
   status: PurchaseOrderStatus;
+  version: number;
   expectedDate: string | null;
   notes: string | null;
   accountingPurchaseAccountCode: string | null;
@@ -217,6 +218,7 @@ export type PurchaseOrderEditData = {
   supplierId: string;
   supplierEmail: string | null;
   status: PurchaseOrderStatus;
+  version: number;
   expectedDate: string | null;
   notes: string | null;
   accountingPurchaseAccountCode: string | null;

@@ -1216,11 +1216,12 @@ export async function getSalesShippingQueue(): Promise<SalesShippingQueueRow[]> 
   });
 }
 
-export async function getSalesOrder(
+export async function getSalesOrderInTx(
+  tx: Tx,
+  orgId: string,
   id: string,
   options?: { includeDeleted?: boolean; accountingProvider?: AccountingProvider }
 ): Promise<SalesOrderDetail | null> {
-  return withAuthedOrgContext(async (tx, orgId) => {
     const orderConditions = [eq(salesOrders.id, id)];
     if (!options?.includeDeleted) {
       orderConditions.push(isNull(salesOrders.deletedAt));
@@ -1236,6 +1237,7 @@ export async function getSalesOrder(
         customerProjectName: customerProjects.name,
         orderNumber: salesOrders.orderNumber,
         status: salesOrders.status,
+        version: salesOrders.version,
         priorityRank: salesOrders.priorityRank,
         orderDate: salesOrders.orderDate,
         shipDate: salesOrders.shipDate,
@@ -1802,7 +1804,15 @@ export async function getSalesOrder(
       }),
       linkedManufacturingOrders: linkedManufacturingOrderRows,
     };
-  });
+}
+
+export async function getSalesOrder(
+  id: string,
+  options?: { includeDeleted?: boolean; accountingProvider?: AccountingProvider }
+): Promise<SalesOrderDetail | null> {
+  return withAuthedOrgContext((tx, orgId) =>
+    getSalesOrderInTx(tx, orgId, id, options)
+  );
 }
 
 export async function getEditableSalesOrder(id: string): Promise<SalesOrderEditData | null> {

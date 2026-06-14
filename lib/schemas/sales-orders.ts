@@ -4,6 +4,8 @@ import { DEFAULT_COUNTRY } from "@/lib/addresses";
 import { salesOrders } from "@/lib/db/schema";
 import { normalizeMoney } from "@/lib/format";
 import {
+  clientIdSchema,
+  expectedVersionSchema,
   isNonNegativeNumberString,
   isPositiveNumberString,
   isValidIsoDate,
@@ -19,6 +21,7 @@ export const SALES_ORDER_STATUSES = ["open", "done"] as const;
 export type SalesOrderStatus = (typeof SALES_ORDER_STATUSES)[number];
 
 const rawOrderLineSchema = z.object({
+  id: clientIdSchema,
   itemId: z.string().default(""),
   quantity: nullableString,
   listUnitPrice: nullableString.optional(),
@@ -159,6 +162,7 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
 }).omit({
   id: true,
   organizationId: true,
+  version: true,
   customerName: true,
   shippedAt: true,
   priorityRank: true,
@@ -178,7 +182,9 @@ export const insertSalesOrderSchema = baseSalesOrderSchema;
 
 export type InsertSalesOrder = z.infer<typeof insertSalesOrderSchema>;
 
-export const updateSalesOrderSchema = baseSalesOrderSchema;
+export const updateSalesOrderSchema = baseSalesOrderSchema.extend({
+  expectedVersion: expectedVersionSchema,
+});
 export type UpdateSalesOrder = z.infer<typeof updateSalesOrderSchema>;
 
 const patchNullableString = nullableStringStrict.optional();

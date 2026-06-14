@@ -504,6 +504,7 @@ export type SalesOrderDetail = {
   customerProjectName: string | null;
   orderNumber: string;
   status: SalesOrderStatus;
+  version: number;
   orderDate: string;
   shipDate: string | null;
   requestedDate: string | null;

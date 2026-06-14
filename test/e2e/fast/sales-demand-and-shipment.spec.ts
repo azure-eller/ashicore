@@ -217,6 +217,58 @@ test.describe("sales demand and shipping heartbeat", () => {
     });
   });
 
+  test("sales order inline patches bump the card document version", async ({
+    db,
+  }) => {
+    const productId = await createStockedProduct("PatchVersion", "10");
+    const customer = await createCustomer({
+      name: `Fast Patch Version Customer ${ts}`,
+    });
+    expect(customer.status).toBe(201);
+
+    const order = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: "2026-05-01",
+      lines: [{ itemId: productId, quantity: "2", unitPrice: "12.00" }],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+
+    const [created] = await db
+      .select({ version: salesOrders.version })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, order.body.id));
+    expect(created.version).toBe(1);
+
+    const headerPatch = await testFetch(`/api/sales-orders/${order.body.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ notes: "inline header edit" }),
+    });
+    expect(headerPatch.status, await headerPatch.text()).toBe(200);
+    const headerBody = await headerPatch.json();
+    expect(headerBody.version).toBe(2);
+
+    const [line] = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, order.body.id));
+    const linePatch = await testFetch(
+      `/api/sales-orders/${order.body.id}/lines/${line.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ quantity: "3" }),
+      },
+    );
+    expect(linePatch.status, await linePatch.text()).toBe(200);
+    const lineBody = await linePatch.json();
+    expect(lineBody.version).toBe(3);
+
+    const [updated] = await db
+      .select({ version: salesOrders.version })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, order.body.id));
+    expect(updated.version).toBe(3);
+  });
+
   test("sales order duplicate preserves the full source number with a copy suffix", async ({
     db,
   }) => {

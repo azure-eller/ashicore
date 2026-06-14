@@ -372,11 +372,12 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderListRow[]> {
   );
 }
 
-export async function getPurchaseOrder(
+export async function getPurchaseOrderInTx(
+  tx: Tx,
+  orgId: string,
   id: string,
   options?: { includeDeleted?: boolean; accountingProvider?: AccountingProvider },
 ): Promise<PurchaseOrderDetail | null> {
-  return withAuthedOrgContext(async (tx, orgId) => {
     const conditions = [eq(purchaseOrders.id, id)];
 
     if (!options?.includeDeleted) {
@@ -391,6 +392,7 @@ export async function getPurchaseOrder(
         supplierName: purchaseOrders.supplierName,
         supplierEmail: suppliers.email,
         status: purchaseOrders.status,
+        version: purchaseOrders.version,
         expectedDate: purchaseOrders.expectedDate,
         notes: purchaseOrders.notes,
         accountingPurchaseAccountCode:
@@ -534,7 +536,15 @@ export async function getPurchaseOrder(
       accountingGroupStates,
       attachments,
     };
-  });
+}
+
+export async function getPurchaseOrder(
+  id: string,
+  options?: { includeDeleted?: boolean; accountingProvider?: AccountingProvider },
+): Promise<PurchaseOrderDetail | null> {
+  return withAuthedOrgContext((tx, orgId) =>
+    getPurchaseOrderInTx(tx, orgId, id, options)
+  );
 }
 
 export async function getEditablePurchaseOrder(
@@ -549,6 +559,7 @@ export async function getEditablePurchaseOrder(
         supplierId: purchaseOrders.supplierId,
         supplierEmail: suppliers.email,
         status: purchaseOrders.status,
+        version: purchaseOrders.version,
         expectedDate: purchaseOrders.expectedDate,
         notes: purchaseOrders.notes,
         accountingPurchaseAccountCode:

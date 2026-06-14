@@ -1,10 +1,8 @@
 import {
   type PurchaseOrderAdditionalCostDistributionMethod,
   type PurchaseOrderAdditionalCostType,
-  insertPurchaseOrderSchema,
 } from "@/lib/schemas/purchase-orders";
 import { formatAddressLines, normalizeAddressFields } from "@/lib/addresses";
-import { fieldErrorsFromIssues, type FieldErrorRecord } from "@/lib/api/field-errors";
 import {
   formatPrice,
   parsePositive,
@@ -117,7 +115,7 @@ export type PurchaseOrderLineColumnKey =
   | "unitCost";
 
 export function isBlankPurchaseOrderLine(
-  line: PurchaseOrderFormValues["lines"][number] | undefined,
+  line: Omit<PurchaseOrderFormValues["lines"][number], "id"> | undefined,
 ) {
   const itemId = line?.itemId?.trim() ?? "";
   const quantityOrdered = line?.quantityOrdered?.trim() ?? "";
@@ -126,7 +124,7 @@ export function isBlankPurchaseOrderLine(
 }
 
 export function createPurchaseOrderLineRow(
-  values?: Partial<PurchaseOrderLinePayloadRow>,
+  values?: Partial<PurchaseOrderLineGridRow>,
 ): PurchaseOrderLineGridRow {
   return {
     ...blankPurchaseOrderLine,
@@ -142,7 +140,7 @@ export function createPurchaseOrderLineRow(
 
 export function isBlankPurchaseOrderAdditionalCost(
   cost:
-    | NonNullable<PurchaseOrderFormValues["additionalCosts"]>[number]
+    | Omit<NonNullable<PurchaseOrderFormValues["additionalCosts"]>[number], "id">
     | undefined,
 ) {
   const reference = cost?.reference?.trim() ?? "";
@@ -165,7 +163,7 @@ export function hasPurchaseOrderAdditionalCostAmount(
 }
 
 export function createPurchaseOrderAdditionalCostRow(
-  values?: Partial<PurchaseOrderAdditionalCostPayloadRow>,
+  values?: Partial<PurchaseOrderAdditionalCostGridRow>,
 ): PurchaseOrderAdditionalCostGridRow {
   return {
     clientRowId:
@@ -428,7 +426,16 @@ export function addressEntryToOption(
   );
 }
 
-export function collectDeliveryAddressOptions(values: PurchaseOrderFormValues) {
+export function collectDeliveryAddressOptions(values: {
+  shipAddressEntryId?: string | null;
+  shipLine1?: string | null;
+  shipLine2?: string | null;
+  shipCity?: string | null;
+  shipRegion?: string | null;
+  shipPostcode?: string | null;
+  shipCountry?: string | null;
+  lines?: Array<DeliveryAddressFields>;
+}) {
   const options = new Map<string, DeliveryAddressOption>();
   const candidates: DeliveryAddressFields[] = [values, ...(values.lines ?? [])];
 
@@ -446,13 +453,3 @@ export function deliveryInfoNote(instructions: string) {
   if (/^delivery info:/i.test(value)) return value;
   return `Delivery info:\n${value}`;
 }
-
-
-export function purchaseOrderValidationErrors(
-  values: PurchaseOrderFormValues,
-): FieldErrorRecord | null {
-  const parsed = insertPurchaseOrderSchema.safeParse(values);
-  if (parsed.success) return null;
-  return fieldErrorsFromIssues(parsed.error.issues);
-}
-
