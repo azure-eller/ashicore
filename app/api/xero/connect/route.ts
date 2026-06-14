@@ -8,9 +8,17 @@ import { getAccountingOAuthStateCookieOptions } from "@/lib/accounting/oauth-coo
 import { ACCOUNTING_PROVIDER_XERO } from "@/lib/accounting/constants";
 import { assertNoOtherAccountingConnection } from "@/lib/dal/accounting";
 
-export const GET = apiHandler(async () => {
+const XERO_CONNECT_RETURN_COOKIE = "xero_oauth_return_to";
+
+function normalizeReturnTo(value: string | null) {
+  return value === "onboarding" ? value : null;
+}
+
+export const GET = apiHandler(async (request: Request) => {
   const context = await requireModuleWriteAccess("sales");
   await assertNoOtherAccountingConnection(context.orgId, ACCOUNTING_PROVIDER_XERO);
+  const url = new URL(request.url);
+  const returnTo = normalizeReturnTo(url.searchParams.get("returnTo"));
 
   const state = randomBytes(24).toString("hex");
   const client = createXeroClient();
@@ -29,5 +37,20 @@ export const GET = apiHandler(async () => {
 
   const response = NextResponse.redirect(consentUrl);
   response.cookies.set("xero_oauth_state", state, getAccountingOAuthStateCookieOptions());
+  if (returnTo) {
+    response.cookies.set(
+      XERO_CONNECT_RETURN_COOKIE,
+      returnTo,
+      getAccountingOAuthStateCookieOptions(),
+    );
+  } else {
+    // Clear any return cookie left over from an abandoned onboarding connect so a
+    // later settings reconnect isn't bounced back into /onboarding. Match the set
+    // options (incl. production domain) so the delete actually clears it.
+    response.cookies.set(XERO_CONNECT_RETURN_COOKIE, "", {
+      ...getAccountingOAuthStateCookieOptions(),
+      maxAge: 0,
+    });
+  }
   return response;
 });

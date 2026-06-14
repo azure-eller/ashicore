@@ -8,14 +8,19 @@ import {
   normalizeBillingSelection,
   type BillingSelection,
 } from "@/lib/billing/plan-intent";
-import { BILLING_CATALOG, getBillingOffer } from "@/lib/billing/types";
+import { getBillingOffer } from "@/lib/billing/types";
 import type { CellValueChangedEvent, ColDef, ICellRendererParams } from "ag-grid-community";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, CheckmarkCircle02Icon, Delete02Icon } from "@hugeicons/core-free-icons";
+import { Add01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
 import { ERPDataGrid } from "@/components/erp-data-grid";
 import { OnboardingProgress, onboardingStepIndex } from "@/components/onboarding-stepper";
 import { OnboardingSplit } from "@/components/onboarding-rail";
 import { ProgressMeter } from "@/components/progress-meter";
+import { ShopifyConnectDialog } from "@/app/(dashboard)/settings/shopify-connect-dialog";
+import {
+  AccountingPurchaseOrderImportButton,
+  XeroImportSection,
+} from "@/app/(dashboard)/settings/integrations/xero-import-section";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -27,6 +32,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  ACCOUNTING_PROVIDER_QUICKBOOKS,
+  ACCOUNTING_PROVIDERS,
+  type AccountingProvider,
+} from "@/lib/accounting/constants";
 import { apiJson } from "@/lib/client/api";
 import { formatBytes } from "@/lib/format";
 import { getAccessPresetKeys, formatAccessPresetLabel, type AccessPresetKey } from "@/lib/authz";
@@ -157,6 +167,11 @@ type OnboardingSessionResponse = {
 type FlowStep = "invite" | "import" | "extract" | "review" | "connect" | "done";
 type EntityTab = "items" | "suppliers" | "customers" | "openingStock" | "boms" | "units";
 type InviteRow = { id: string; email: string; presetKey: AccessPresetKey };
+type OnboardingIntegrationState = {
+  xero: { connected: boolean; tenantName?: string };
+  quickbooks: { connected: boolean; tenantName?: string };
+  shopify: { connected: boolean; tenantName?: string };
+};
 
 type ReviewRow = {
   id: string;
@@ -188,14 +203,27 @@ const supportedTypes = [".csv", ".xlsx", ".pdf", "images", "screenshots"];
 const inviteRoleOptions: Array<{ value: AccessPresetKey; label: string }> =
   getAccessPresetKeys().map((value) => ({ value, label: formatAccessPresetLabel(value) }));
 const integrationTiles = [
-  ["Shopify", "Orders & products", false],
-  ["QuickBooks", "Invoices & costs", false],
-  ["Stripe", "Payments", false],
-  ["ShipStation", "Fulfillment", false],
-  ["Xero", "Accounting", true],
-  ["Square", "POS sales", false],
+  {
+    key: "xero",
+    name: "Xero",
+    purpose: "Accounting, contacts, suppliers, and purchase orders.",
+    href: "/api/xero/connect?returnTo=onboarding",
+  },
+  {
+    key: "quickbooks",
+    name: "QuickBooks",
+    purpose: "Accounting defaults and purchase order import.",
+    href: "/api/quickbooks/connect?returnTo=onboarding",
+  },
+  {
+    key: "shopify",
+    name: "Shopify",
+    purpose: "Paid order import from your storefront.",
+  },
 ] as const;
-const onboardingPaidOffers = BILLING_CATALOG.filter((offer) => offer.kind !== "plugin");
+const integrationDisplayNames: Record<string, string> = Object.fromEntries(
+  integrationTiles.map((tile) => [tile.key, tile.name]),
+);
 
 function selected(review?: ReviewMeta) {
   return review?.selected !== false;
@@ -498,7 +526,26 @@ function onboardingActiveIndex(step: FlowStep) {
   }
 }
 
-export function OnboardingImportPage({ plan }: { plan?: BillingSelection }) {
+const connectErrorReasons: Record<string, string> = {
+  state_mismatch: "your session expired before we could finish",
+  quickbooks_state_mismatch: "your session expired before we could finish",
+  callback_failed: "we couldn't complete the connection",
+  quickbooks_callback_failed: "we couldn't complete the connection",
+  access_denied: "access was declined",
+};
+
+function connectErrorMessage(code: string | null) {
+  const reason = code ? connectErrorReasons[code] : null;
+  return reason ? `Connection failed — ${reason}.` : "Connection failed. Please try again.";
+}
+
+export function OnboardingImportPage({
+  plan,
+  integrations,
+}: {
+  plan?: BillingSelection;
+  integrations: OnboardingIntegrationState;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -526,6 +573,11 @@ export function OnboardingImportPage({ plan }: { plan?: BillingSelection }) {
   // Null = no dialog.
   const [approveDialog, setApproveDialog] = useState<null | "pay">(null);
   const [finalizing, setFinalizing] = useState(false);
+  const [shopifyDialogOpen, setShopifyDialogOpen] = useState(false);
+  const [quickBooksImportSummary, setQuickBooksImportSummary] = useState<{
+    created: number;
+    updated: number;
+  } | null>(null);
 
   const startMutation = useMutation({
     mutationFn: () =>
@@ -764,6 +816,18 @@ export function OnboardingImportPage({ plan }: { plan?: BillingSelection }) {
   }, [billingSelection]);
 
   const paymentCanceled = searchParams.get("checkout") === "cancel" && !committed;
+  const connectedIntegration = searchParams.get("integration");
+  const integrationError = searchParams.get("error");
+
+  const connectedAccountingName = integrations.xero.connected
+    ? "Xero"
+    : integrations.quickbooks.connected
+      ? "QuickBooks"
+      : null;
+
+  const justConnectedName = connectedIntegration?.endsWith("_connected")
+    ? integrationDisplayNames[connectedIntegration.replace("_connected", "")] ?? null
+    : null;
 
   const counts = useMemo(
     () =>
@@ -985,15 +1049,6 @@ export function OnboardingImportPage({ plan }: { plan?: BillingSelection }) {
     validateMutation.mutate();
   }
 
-  async function selectBillingPlan(nextSelection: BillingSelection) {
-    setBillingSelection(nextSelection);
-    try {
-      await progressMutation.mutateAsync({ selectedPlan: nextSelection });
-    } catch {
-      setMessage("Could not save your plan choice. Try again.");
-    }
-  }
-
   function enterWorkspace() {
     progressMutation.mutate({ status: "completed", currentStep: "done" });
     router.push("/");
@@ -1072,42 +1127,6 @@ export function OnboardingImportPage({ plan }: { plan?: BillingSelection }) {
           <p className="ob-form-sub ob-stagger">
             Add the people who&apos;ll work in your ERP. Skip if it&apos;s just you for now.
           </p>
-          <div className="ob-plan-picker ob-stagger" aria-label="Choose billing plan">
-            <button
-              type="button"
-              className={cn("ob-plan-card", billingSelection === "free" && "is-selected")}
-              onClick={() => void selectBillingPlan("free")}
-            >
-              <span className="ob-plan-card-main">
-                <span className="ob-plan-card-title">Free</span>
-                <span className="ob-plan-card-sub">Unlimited SKUs, users, and orders</span>
-              </span>
-              <span className="ob-plan-card-price">$0/mo</span>
-              {billingSelection === "free" ? (
-                <HugeiconsIcon icon={CheckmarkCircle02Icon} size={18} />
-              ) : null}
-            </button>
-            <div className="ob-plan-package-grid">
-              {onboardingPaidOffers.map((offer) => {
-                const selected = billingSelection === offer.lookupKey;
-                return (
-                  <button
-                    key={offer.lookupKey}
-                    type="button"
-                    className={cn("ob-plan-card ob-plan-card--compact", selected && "is-selected")}
-                    onClick={() => void selectBillingPlan(offer.lookupKey)}
-                  >
-                    <span className="ob-plan-card-main">
-                      <span className="ob-plan-card-title">{offer.name}</span>
-                      <span className="ob-plan-card-sub">{offer.blurb}</span>
-                    </span>
-                    <span className="ob-plan-card-price">${offer.monthlyUsd}/mo</span>
-                    {selected ? <HugeiconsIcon icon={CheckmarkCircle02Icon} size={18} /> : null}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
           <div className="ob-form-stack ob-form-stack--tight">
             {inviteRows.map((row, index) => (
               <div key={row.id} className="ob-invite-row">
@@ -1459,28 +1478,104 @@ export function OnboardingImportPage({ plan }: { plan?: BillingSelection }) {
                 Keep inventory and orders in sync automatically. Add these now or anytime later.
               </p>
             </div>
+            {justConnectedName ? (
+              <p className="ob-connect-banner">
+                <span className="ob-connect-banner-glyph">
+                  <CheckGlyph />
+                </span>
+                {justConnectedName} connected. Import existing records below, or continue
+                and do it later.
+              </p>
+            ) : null}
+            {connectedIntegration?.endsWith("_error") ? (
+              <p className="ob-form-error">{connectErrorMessage(integrationError)}</p>
+            ) : null}
             <div className="ob-tool-grid">
-              {integrationTiles.map(([name, purpose, live]) => (
-                <div key={name} className={cn("ob-tool", !live && "is-soon")}>
-                  <span className="ob-tool-logo">{name.charAt(0)}</span>
-                  <div className="ob-tool-name">{name}</div>
-                  <div className="ob-tool-sub">{purpose}</div>
-                  {live ? (
-                    <div className="ob-tool-action">
-                      <button
-                        type="button"
-                        className="ob-btn ob-btn--ghost ob-btn--block"
-                        onClick={() => router.push("/settings/integrations")}
-                      >
-                        Connect
-                      </button>
+              {integrationTiles.map((integration) => {
+                const state = integrations[integration.key];
+                const blockedByOtherAccounting =
+                  !state.connected &&
+                  connectedAccountingName !== null &&
+                  ACCOUNTING_PROVIDERS.includes(integration.key as AccountingProvider);
+                return (
+                  <div
+                    key={integration.key}
+                    className={cn(
+                      "ob-tool",
+                      state.connected && "ob-tool--connected",
+                      blockedByOtherAccounting && "ob-tool--blocked",
+                    )}
+                  >
+                    <span className="ob-tool-logo">{integration.name.charAt(0)}</span>
+                    <div className="ob-tool-name">{integration.name}</div>
+                    <div className="ob-tool-sub">
+                      {state.connected && state.tenantName
+                        ? state.tenantName
+                        : blockedByOtherAccounting
+                          ? `${connectedAccountingName} is already connected.`
+                          : integration.purpose}
                     </div>
-                  ) : (
-                    <div className="ob-tool-soon">Coming soon</div>
-                  )}
-                </div>
-              ))}
+                    <div className="ob-tool-action">
+                      {state.connected ? (
+                        <span className="ob-tool-status ob-tool-status--connected">
+                          <span className="ob-tool-status-glyph">
+                            <CheckGlyph />
+                          </span>
+                          Connected
+                        </span>
+                      ) : blockedByOtherAccounting ? (
+                        <span className="ob-tool-status ob-tool-status--blocked">
+                          Unavailable
+                        </span>
+                      ) : integration.key === "shopify" ? (
+                        <button
+                          type="button"
+                          className="ob-btn ob-btn--ghost ob-btn--block"
+                          onClick={() => setShopifyDialogOpen(true)}
+                        >
+                          Connect
+                        </button>
+                      ) : (
+                        <a
+                          className="ob-btn ob-btn--ghost ob-btn--block"
+                          href={integration.href}
+                        >
+                          Connect
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
+            {integrations.xero.connected ? (
+              <div className="ob-integration-import">
+                <h2 className="ob-section-title">Import from Xero</h2>
+                <XeroImportSection canImportCustomers canImportSuppliers />
+              </div>
+            ) : null}
+            {integrations.quickbooks.connected ? (
+              <div className="ob-integration-import">
+                <h2 className="ob-section-title">Import from QuickBooks</h2>
+                <div className="ob-inline-actions">
+                  <AccountingPurchaseOrderImportButton
+                    provider={ACCOUNTING_PROVIDER_QUICKBOOKS}
+                    onComplete={setQuickBooksImportSummary}
+                  />
+                </div>
+                {quickBooksImportSummary ? (
+                  <p className="ob-form-note">
+                    Purchase orders: {quickBooksImportSummary.created} imported,{" "}
+                    {quickBooksImportSummary.updated} updated.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+            <ShopifyConnectDialog
+              open={shopifyDialogOpen}
+              connection={null}
+              onOpenChange={setShopifyDialogOpen}
+            />
             <div className="ob-form-actions ob-form-actions--center">
               <button type="button" className="ob-btn ob-btn--quiet" onClick={proceedToDone}>
                 Skip for now

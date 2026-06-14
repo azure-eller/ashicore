@@ -29,6 +29,7 @@ import {
 } from "@/lib/xero/signup-intents";
 
 const XERO_CONNECT_OAUTH_STATE_COOKIE = "xero_oauth_state";
+const XERO_CONNECT_RETURN_COOKIE = "xero_oauth_return_to";
 const XERO_SIGNUP_OAUTH_STATE_COOKIE = "xero_signup_oauth_state";
 
 type XeroIdentityClaims = {
@@ -40,9 +41,18 @@ type XeroIdentityClaims = {
   sub?: string;
 };
 
-function settingsRedirect(baseUrl: string, error?: string) {
-  const url = new URL("/settings/integrations", baseUrl);
-  if (error) url.searchParams.set("error", error);
+function connectRedirect(request: Request, error?: string) {
+  const returnTo = readCookie(request, XERO_CONNECT_RETURN_COOKIE);
+  const url = new URL(
+    returnTo === "onboarding" ? "/onboarding" : "/settings/integrations",
+    request.url,
+  );
+  if (returnTo === "onboarding") {
+    url.searchParams.set("integration", error ? "xero_error" : "xero_connected");
+    if (error) url.searchParams.set("error", error);
+  } else if (error) {
+    url.searchParams.set("error", error);
+  }
   return NextResponse.redirect(url);
 }
 
@@ -156,8 +166,9 @@ async function handleConnectCallback(request: Request, cookieState: string) {
     },
   });
 
-  const response = settingsRedirect(request.url);
+  const response = connectRedirect(request);
   response.cookies.delete(XERO_CONNECT_OAUTH_STATE_COOKIE);
+  response.cookies.delete(XERO_CONNECT_RETURN_COOKIE);
   return response;
 }
 
@@ -247,9 +258,11 @@ export const GET = apiHandler(async (request: Request) => {
         host: url.host,
       });
     }
-    return signupCookieState
+    const response = signupCookieState
       ? xeroSignupErrorRedirect(request.url, "state_mismatch")
-      : settingsRedirect(request.url, "state_mismatch");
+      : connectRedirect(request, "state_mismatch");
+    response.cookies.delete(XERO_CONNECT_RETURN_COOKIE);
+    return response;
   }
 
   const errorParam = url.searchParams.get("error");
@@ -260,9 +273,11 @@ export const GET = apiHandler(async (request: Request) => {
         error: errorParam,
       });
     }
-    return isSignupCallback
+    const response = isSignupCallback
       ? xeroSignupErrorRedirect(request.url, errorParam)
-      : settingsRedirect(request.url, errorParam);
+      : connectRedirect(request, errorParam);
+    if (!isSignupCallback) response.cookies.delete(XERO_CONNECT_RETURN_COOKIE);
+    return response;
   }
 
   try {
@@ -299,8 +314,10 @@ export const GET = apiHandler(async (request: Request) => {
         accountingAuditErrorMetadata(error)
       );
     }
-    return isSignupCallback
+    const response = isSignupCallback
       ? xeroSignupErrorRedirect(request.url, "callback_failed")
-      : settingsRedirect(request.url, "callback_failed");
+      : connectRedirect(request, "callback_failed");
+    if (!isSignupCallback) response.cookies.delete(XERO_CONNECT_RETURN_COOKIE);
+    return response;
   }
 });

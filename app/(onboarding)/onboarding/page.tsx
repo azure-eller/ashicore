@@ -1,6 +1,9 @@
 import { redirect } from "next/navigation";
 import { hasModuleAccess } from "@/lib/authz";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
+import { getQuickBooksConnection } from "@/lib/dal/accounting";
+import { getShopifyConnection } from "@/lib/dal/shopify";
+import { getXeroConnection } from "@/lib/dal/xero";
 import { OnboardingImportPage } from "./onboarding-import-page";
 import { isBillingSelection } from "@/lib/billing/plan-intent";
 
@@ -25,5 +28,27 @@ export default async function OnboardingPage({
   // and let the persisted onboarding session remain the source of truth.
   const { plan } = await searchParams;
   const billingSelection = isBillingSelection(plan) ? plan : undefined;
-  return <OnboardingImportPage plan={billingSelection} />;
+  const [xeroConnection, quickBooksConnection, shopifyConnection] =
+    await Promise.all([
+      getXeroConnection(),
+      getQuickBooksConnection(),
+      getShopifyConnection(),
+    ]);
+
+  return (
+    <OnboardingImportPage
+      plan={billingSelection}
+      integrations={{
+        xero: xeroConnection
+          ? { connected: true, tenantName: xeroConnection.tenantName }
+          : { connected: false },
+        quickbooks: quickBooksConnection
+          ? { connected: true, tenantName: quickBooksConnection.tenantName }
+          : { connected: false },
+        shopify: shopifyConnection
+          ? { connected: true, tenantName: shopifyConnection.shopDomain }
+          : { connected: false },
+      }}
+    />
+  );
 }
