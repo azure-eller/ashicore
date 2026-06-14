@@ -902,6 +902,7 @@ export async function getManufacturingOrder(
         salesOrderNumber: manufacturingOrders.salesOrderNumber,
         salesCustomerName: manufacturingOrders.salesCustomerName,
         status: manufacturingOrders.status,
+        version: manufacturingOrders.version,
         isBlocked: manufacturingOrders.isBlocked,
         manufacturingMode: manufacturingOrders.manufacturingMode,
         numberOfBatches: manufacturingOrders.numberOfBatches,

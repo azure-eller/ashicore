@@ -70,7 +70,6 @@ export function ManufacturingOrderCard({
     entity: "mo-action",
     getId: () => controller.currentOrderId,
     flush: controller.flush,
-    hasPendingOps: controller.hasPendingOps,
     invalidateQueryKeys: [queryKeys.manufacturingOrders.root],
     onMutate: () => setActionError(null),
     onError: (error) => setActionError(error.message),
@@ -123,8 +122,12 @@ export function ManufacturingOrderCard({
     [order.ingredients, productOptions],
   );
   const handleClose = useCallback(() => {
-    void controller.flush().then(goBack).catch((error) => {
-      setActionError(error instanceof Error ? error.message : "Failed to save manufacturing order.");
+    void controller.flush().then((outcome) => {
+      if (outcome.outcome === "saved" || outcome.outcome === "blocked") {
+        goBack();
+        return;
+      }
+      setActionError(outcome.error);
     });
   }, [controller, goBack]);
 

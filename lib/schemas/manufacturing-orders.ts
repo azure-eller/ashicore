@@ -2,6 +2,8 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { manufacturingOrders } from "@/lib/db/schema";
 import {
+  clientIdSchema,
+  expectedVersionSchema,
   isNonNegativeNumberString,
   isValidIsoDate,
   nullableString,
@@ -137,6 +139,7 @@ const baseManufacturingOrderSchema = createInsertSchema(manufacturingOrders, {
   .omit({
     id: true,
     organizationId: true,
+    version: true,
     orderNumber: true,
     productName: true,
     productSku: true,
@@ -167,7 +170,9 @@ const baseManufacturingOrderSchema = createInsertSchema(manufacturingOrders, {
   })
   .strict();
 
-export const insertManufacturingOrderSchema = baseManufacturingOrderSchema;
+export const insertManufacturingOrderSchema = baseManufacturingOrderSchema.extend({
+  id: clientIdSchema,
+});
 export type InsertManufacturingOrder = z.input<
   typeof insertManufacturingOrderSchema
 >;
@@ -235,6 +240,7 @@ export const updateManufacturingOrderSchema = baseManufacturingOrderSchema
   })
   .extend({
     productId: z.string().min(1, "Product is required").optional(),
+    expectedVersion: expectedVersionSchema,
   });
 export type UpdateManufacturingOrder = z.infer<
   typeof updateManufacturingOrderSchema

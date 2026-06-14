@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";
-import { jsonError, jsonNotFound, jsonSuccess } from "@/lib/api/responses";
+import { jsonConflict, jsonError, jsonNotFound, jsonSuccess } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import {
   patchManufacturingOrderSchema,
@@ -33,6 +33,12 @@ export const PUT = apiHandler(async (request: Request, ctx: unknown) => {
 
   if (!updated) {
     return jsonNotFound("Order not found");
+  }
+  if ("conflict" in updated) {
+    return jsonConflict(
+      "This manufacturing order was changed elsewhere.",
+      await getManufacturingOrder(id),
+    );
   }
 
   const order = await getManufacturingOrder(id);

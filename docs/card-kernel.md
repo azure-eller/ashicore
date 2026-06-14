@@ -17,12 +17,12 @@ owns: "the card draft lifecycle pattern: one engine, per-card adapters, bound fi
 > outcome), full-doc responses rebased under still-dirty paths, idempotent
 > create via client ids or stable idempotency keys, and optimistic
 > concurrency (`expectedVersion` → 409 `{conflict, current}` → auto-rebase).
-> Supplier, customer, item, purchase order, and sales order cards are
-> converted; the manufacturing order card is the last to follow, then the
-> old engine is deleted. **The op-queue engine is frozen: converting cards
-> only, no new adopters.**
+> Supplier, customer, item, purchase order, sales order, and manufacturing
+> order cards are converted; the stocktake detail is the last op-queue
+> surface to follow, then the old engine is deleted. **The op-queue engine
+> is frozen: converting cards only, no new adopters.**
 
-The manufacturing order card is the one remaining op-queue card, built on
+The stocktake detail is the one remaining op-queue card, built on
 **one** draft lifecycle engine:
 [`lib/hooks/use-draft-save-engine.ts`](../lib/hooks/use-draft-save-engine.ts).
 New cards use the document-sync kernel above; either way, do not write a new
@@ -42,17 +42,19 @@ save controller — configure the engine.
 
 | Config | Job |
 |---|---|
-| `TOp` + `applyOp` | The card's edit vocabulary and pure reducer, including cascade recomputes (MO batch quantities) |
+| `TOp` + `applyOp` | The card's edit vocabulary and pure reducer (stocktake count merges) |
 | `create` / `save` | Persistence strategy: patch, snapshot, or hybrid — the card's choice |
 | `mergeServerOwnedFields` | Conflict resolution: which server fields win, what survives when `hasNewerLocalEdits` |
 | `coalesceOps` (optional) | Collapse queued ops (entity cards merge patches into one) |
 | `isSaveable` | Gate flushing until the draft is creatable (e.g. has a name/product) |
 
-Reference adapter: manufacturing order
-(`use-manufacturing-order-draft-controller.ts` — header patches + ingredient
-snapshots, batch cascades). The converted cards (item, supplier, customer,
-purchase order, sales order) configure the document-sync kernel instead of
-the op-queue config above.
+Reference adapter: the stocktake detail (`stocktake-detail.tsx` —
+count-update merges). The converted cards (item, supplier, customer, purchase
+order, sales order, manufacturing order) configure the document-sync kernel
+instead of the op-queue config above; the manufacturing order controller
+(`use-manufacturing-order-draft-controller.ts`) is the reference kernel
+adapter — a pure `derive` cascade (planned and remaining quantities),
+`serialize`, idempotent client-id create, and `expectedVersion` concurrency.
 
 Per-card domain logic is **supposed** to live in the adapter. Do not try to
 genericize totals recomputation or ingredient alternates into the engine.

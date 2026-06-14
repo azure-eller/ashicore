@@ -438,6 +438,8 @@ export async function createManufacturingOrderDraftFromPlanning(
       confirmShortage: false,
     });
   });
-  await notifyManufacturingOrderCreated(notifyOrgId, created.id);
-  return created;
+  if (!created.replayed) {
+    await notifyManufacturingOrderCreated(notifyOrgId, created.id);
+  }
+  return { id: created.id };
 }

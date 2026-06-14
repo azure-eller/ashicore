@@ -2,7 +2,7 @@ import "server-only";
 
 import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
 
-import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { bomRevisions, items, manufacturingOrderBatches, manufacturingOrderOperationCosts, manufacturingOrderOutputs, manufacturingOrderIngredientConstraints, manufacturingOrderIngredients, manufacturingOrders, salesOrderLines, salesOrders, unitDefinitions } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import { normalizeNumeric, normalizeQuantityNumber, roundQuantity } from "@/lib/format";
@@ -821,6 +821,7 @@ async function insertManufacturingOrderInTx(
   tx: Tx,
   orgId: string,
   values: {
+    id?: string;
     product: ProductSnapshot;
     bomRevisionId: string | null;
     salesLink: SalesLineSnapshot | null;
@@ -846,6 +847,7 @@ async function insertManufacturingOrderInTx(
   const [order] = await tx
     .insert(manufacturingOrders)
     .values({
+      ...(values.id ? { id: values.id } : {}),
       organizationId: orgId,
       orderNumber,
       productId: values.product.id,
@@ -1110,8 +1112,17 @@ export async function createManufacturingOrderInTx(
   orgId: string,
   payload: InsertManufacturingOrder,
   actorUserId?: string | null
-): Promise<{ id: string }> {
+): Promise<{ id: string; replayed: boolean }> {
   await lockManufacturingPriorityQueueInTx(tx, orgId);
+
+  if (payload.id) {
+    // Idempotent replay of a client-id create: the order already exists.
+    const [existing] = await tx
+      .select({ id: manufacturingOrders.id })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, payload.id));
+    if (existing) return { id: existing.id, replayed: true };
+  }
 
   const product = await getValidatedProductInTx(tx, payload.productId);
   const plannedQuantity = Number(payload.plannedQuantity);
@@ -1129,6 +1140,7 @@ export async function createManufacturingOrderInTx(
   );
   const scalingPlan = deriveScalingPlan(plannedQuantity, ingredients);
   const order = await insertManufacturingOrderInTx(tx, orgId, {
+    id: payload.id,
     product,
     bomRevisionId,
     salesLink,
@@ -1151,7 +1163,7 @@ export async function createManufacturingOrderInTx(
     actorUserId,
   });
 
-  return { id: order.id };
+  return { id: order.id, replayed: false };
 }
 
 export async function createManufacturingOrder(
@@ -1162,8 +1174,10 @@ export async function createManufacturingOrder(
     notifyOrgId = orgId;
     return createManufacturingOrderInTx(tx, orgId, payload, userId);
   });
-  await notifyManufacturingOrderCreated(notifyOrgId, created.id);
-  return created;
+  if (!created.replayed) {
+    await notifyManufacturingOrderCreated(notifyOrgId, created.id);
+  }
+  return { id: created.id };
 }
 
 export async function duplicateManufacturingOrder(
@@ -1361,10 +1375,57 @@ export async function createManufacturingOrdersFromSalesOrder(
   return result;
 }
 
+async function isManufacturingMetadataOnlyEditInTx(
+  tx: Tx,
+  id: string,
+  existing: LockedManufacturingOrder,
+  payload: UpdateManufacturingOrder
+): Promise<boolean> {
+  const nextProductId = payload.productId ?? existing.productId;
+  if (nextProductId !== existing.productId) return false;
+
+  if (
+    hasManufacturingQuantityChanged(existing.plannedQuantity, payload.plannedQuantity)
+  ) {
+    return false;
+  }
+
+  const nextSalesOrderId = payload.salesOrderId ?? existing.salesOrderId;
+  const nextSalesOrderLineId = payload.salesOrderLineId ?? existing.salesOrderLineId;
+  if (
+    nextSalesOrderId !== existing.salesOrderId ||
+    nextSalesOrderLineId !== existing.salesOrderLineId
+  ) {
+    return false;
+  }
+
+  const existingIngredients = await tx
+    .select({
+      itemId: manufacturingOrderIngredients.itemId,
+      quantityPerUnit: manufacturingOrderIngredients.quantityPerUnit,
+    })
+    .from(manufacturingOrderIngredients)
+    .where(eq(manufacturingOrderIngredients.manufacturingOrderId, id))
+    .orderBy(asc(manufacturingOrderIngredients.sortOrder));
+
+  if (payload.ingredients.length !== existingIngredients.length) return false;
+
+  return payload.ingredients.every((ingredient, index) => {
+    const current = existingIngredients[index];
+    return (
+      current.itemId === ingredient.itemId &&
+      !hasManufacturingQuantityChanged(
+        current.quantityPerUnit,
+        ingredient.quantityPerUnit
+      )
+    );
+  });
+}
+
 export async function updateManufacturingOrder(
   id: string,
   payload: UpdateManufacturingOrder
-): Promise<{ id: string } | null> {
+): Promise<{ id: string } | { conflict: true } | null> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
     await lockManufacturingPriorityQueueInTx(tx, orgId);
 
@@ -1374,8 +1435,30 @@ export async function updateManufacturingOrder(
       return null;
     }
 
+    if (
+      payload.expectedVersion != null &&
+      existing.version !== payload.expectedVersion
+    ) {
+      return { conflict: true } as const;
+    }
+
     if (existing.status !== "open") {
       throw new ManufacturingError("Only open orders can be edited", 400);
+    }
+
+    if (await isManufacturingMetadataOnlyEditInTx(tx, id, existing, payload)) {
+      const [order] = await tx
+        .update(manufacturingOrders)
+        .set({
+          plannedDate: payload.plannedDate ?? null,
+          notes: payload.notes ?? null,
+          version: sql`${manufacturingOrders.version} + 1`,
+          updatedAt: new Date(),
+        })
+        .where(eq(manufacturingOrders.id, id))
+        .returning({ id: manufacturingOrders.id });
+
+      return order ?? null;
     }
 
     if (isOpenManufacturingOrder(existing)) {
@@ -1479,6 +1562,7 @@ export async function updateManufacturingOrder(
         priorityRank: null,
         plannedDate: payload.plannedDate ?? null,
         notes: payload.notes ?? null,
+        version: sql`${manufacturingOrders.version} + 1`,
         updatedAt: new Date(),
       })
       .where(eq(manufacturingOrders.id, id))
@@ -1602,7 +1686,10 @@ export async function patchManufacturingOrder(
       throw new ManufacturingError("Only open orders can be edited.", 400);
     }
 
-    const updates: Record<string, unknown> = { updatedAt: new Date() };
+    const updates: Record<string, unknown> = {
+      version: sql`${manufacturingOrders.version} + 1`,
+      updatedAt: new Date(),
+    };
 
     if (payload.plannedDate !== undefined) {
       updates.plannedDate = payload.plannedDate ?? null;

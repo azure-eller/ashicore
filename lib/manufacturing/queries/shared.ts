@@ -55,6 +55,7 @@ export type LockedManufacturingOrder = {
   priorityRank: number | null;
   bomRevisionId: string | null;
   startedAt: Date | null;
+  version: number;
 };
 
 export function isOpenManufacturingOrder(
@@ -120,6 +121,7 @@ export async function getLockedManufacturingOrderInTx(
       salesOrderLineId: manufacturingOrders.salesOrderLineId,
       salesOrderNumber: manufacturingOrders.salesOrderNumber,
       salesCustomerName: manufacturingOrders.salesCustomerName,
+      version: manufacturingOrders.version,
       requestedQuantity: trimScale(manufacturingOrders.requestedQuantity).as(
         "requestedQuantity"
       ),

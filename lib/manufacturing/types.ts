@@ -289,6 +289,7 @@ export type ManufacturingOrderOperationCostDetail = {
 export type ManufacturingOrderDetail = {
   id: string;
   orderNumber: string;
+  version: number;
   productId: string;
   productName: string;
   productSku: string | null;

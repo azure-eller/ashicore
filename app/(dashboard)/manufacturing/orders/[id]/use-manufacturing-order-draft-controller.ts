@@ -1,20 +1,11 @@
 "use client";
 
-import { useCallback, useMemo, useRef } from "react";
-import type { RefObject } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { QueryClient } from "@tanstack/react-query";
-import {
-  createManufacturingOrder,
-  fetchManufacturingOrder,
-  patchManufacturingOrder,
-  saveManufacturingOrderIngredients,
-  type CreateManufacturingOrderInput,
-} from "@/lib/api/clients/manufacturing-orders";
-import {
-  useDraftSaveEngine,
-  type DraftServerMergeContext,
-  type QueuedDraftOp,
-} from "@/lib/hooks/use-draft-save-engine";
+import { apiJson } from "@/lib/client/api";
+import { useCardKernel } from "@/lib/card-kernel/use-card-kernel";
+import type { FlushOutcome } from "@/lib/card-kernel/kernel";
+import { updateManufacturingOrderSchema } from "@/lib/schemas/manufacturing-orders";
 import type { PatchManufacturingOrder } from "@/lib/schemas/manufacturing-orders";
 import type {
   ManufacturingOrderDetail,
@@ -45,39 +36,53 @@ export type ManufacturingOrderDraftController = {
   ) => void;
   removeIngredient: (ingredientId: string) => void;
   reorderIngredients: (ingredientIds: string[]) => void;
-  flush: () => Promise<void>;
-  hasPendingOps: () => boolean;
+  flush: () => Promise<FlushOutcome>;
   refreshFromServer: () => Promise<void>;
 };
 
-type ManufacturingOrderDraftOp =
-  | { type: "patchHeader"; patch: ManufacturingOrderDraftHeaderPatch }
-  | { type: "selectProduct"; product: ManufacturingProductOption }
-  | { type: "updatePlannedInput"; inputQuantity: string; plannedQuantity: string }
-  | { type: "addIngredient"; ingredient: ManufacturingOrderIngredientDetail }
-  | {
-      type: "updateIngredient";
-      ingredientId: string;
-      patch: Partial<Pick<ManufacturingOrderIngredientDetail, "itemId" | "quantityPerUnit">> &
-        Partial<ManufacturingOrderIngredientDetail>;
-    }
-  | { type: "removeIngredient"; ingredientId: string }
-  | { type: "reorderIngredients"; ingredientIds: string[] };
+type ManufacturingOrderPayload = {
+  productId: string;
+  plannedQuantity: string;
+  plannedDate: string | null;
+  notes: string | null;
+  salesOrderId: string | null;
+  salesOrderLineId: string | null;
+  ingredients: Array<{ itemId: string; quantityPerUnit: string }>;
+};
 
 const QUICK_FLUSH_DELAY_MS = 150;
 const TEXT_FLUSH_DELAY_MS = 850;
 
-const HEADER_KEYS = [
-  "plannedDate",
-  "notes",
-  "salesOrderId",
-  "salesOrderLineId",
-  "salesOrderNumber",
-  "salesCustomerName",
-  "isBlocked",
-] as const satisfies ReadonlyArray<keyof ManufacturingOrderDraftHeaderPatch>;
-
-type HeaderKey = (typeof HEADER_KEYS)[number];
+function serializeManufacturingOrder(draft: ManufacturingOrderDetail): {
+  payload: ManufacturingOrderPayload;
+  pathAliases: Record<string, string>;
+} {
+  const payloadIngredients = draft.ingredients.filter(
+    (ingredient) => ingredient.itemId && Number(ingredient.quantityPerUnit) > 0,
+  );
+  const pathAliases: Record<string, string> = {};
+  payloadIngredients.forEach((ingredient, index) => {
+    for (const key of ["itemId", "quantityPerUnit"] as const) {
+      pathAliases[`ingredients.${index}.${key}`] =
+        `ingredients.${ingredient.id}.${key}`;
+    }
+  });
+  return {
+    payload: {
+      productId: draft.productId,
+      plannedQuantity: draft.plannedQuantity,
+      plannedDate: draft.plannedDate,
+      notes: draft.notes,
+      salesOrderId: draft.salesOrderId,
+      salesOrderLineId: draft.salesOrderLineId,
+      ingredients: payloadIngredients.map((ingredient) => ({
+        itemId: ingredient.itemId,
+        quantityPerUnit: ingredient.quantityPerUnit,
+      })),
+    },
+    pathAliases,
+  };
+}
 
 export function useManufacturingOrderDraftController({
   initialOrder,
@@ -90,45 +95,105 @@ export function useManufacturingOrderDraftController({
   queryClient: QueryClient;
   onPersisted?: (id: string) => void;
 }): ManufacturingOrderDraftController {
-  const headerRevisionRef = useRef<Partial<Record<HeaderKey, number>>>({});
-  const editableSnapshotRevisionRef = useRef(0);
+  const [newOrderId] = useState(() => crypto.randomUUID());
+  const orderId = initialOrder?.id ?? newOrderId;
 
-  const applyOp = useCallback(
-    (
-      current: ManufacturingOrderDetail,
-      op: ManufacturingOrderDraftOp,
-      revision: number,
-    ) => {
-      switch (op.type) {
-        case "patchHeader":
-          for (const key of HEADER_KEYS) {
-            if (key in op.patch) headerRevisionRef.current[key] = revision;
-          }
-          return recomputeManufacturingDraft({
-            ...current,
-            ...op.patch,
-          } as ManufacturingOrderDetail);
-        case "selectProduct": {
-          editableSnapshotRevisionRef.current = revision;
+  const handleDetail = useCallback(
+    (detail: ManufacturingOrderDetail) => {
+      queryClient.setQueryData(
+        queryKeys.manufacturingOrders.detail(detail.id),
+        detail,
+      );
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.manufacturingOrders.root,
+      });
+      return detail;
+    },
+    [queryClient],
+  );
+
+  const kernel = useCardKernel<ManufacturingOrderDetail, ManufacturingOrderPayload>({
+    entityType: "manufacturing-order",
+    id: orderId,
+    initialServerDoc: initialOrder,
+    makeNewDoc: () => initialDraft,
+    collections: { ingredients: { idKey: "id" } },
+    schema: updateManufacturingOrderSchema,
+    serialize: serializeManufacturingOrder,
+    derive: recomputeManufacturingDraft,
+    readVersion: (doc) => (doc.version > 0 ? doc.version : null),
+    readId: (doc) => doc.id,
+    create: async (payload, opts) =>
+      handleDetail(
+        await apiJson<ManufacturingOrderDetail>("/api/manufacturing-orders", {
+          method: "POST",
+          body: { ...payload, id: orderId },
+          idempotencyKey: opts.idempotencyKey,
+          keepalive: opts.keepalive,
+          fallbackError: "Failed to save manufacturing order.",
+        }),
+      ),
+    update: async (id, payload, opts) =>
+      handleDetail(
+        await apiJson<ManufacturingOrderDetail>(
+          `/api/manufacturing-orders/${id}`,
+          {
+            method: "PUT",
+            body: { ...payload, expectedVersion: opts.expectedVersion ?? undefined },
+            idempotencyKey: opts.idempotencyKey,
+            keepalive: opts.keepalive,
+            fallbackError: "Failed to save manufacturing order.",
+          },
+        ),
+      ),
+    onCreated: (doc) => {
+      onPersisted?.(doc.id);
+    },
+  });
+
+  const update = kernel.update;
+  const flush = kernel.flush;
+  const adoptServerDoc = kernel.adoptServerDoc;
+  const getPersistedId = kernel.getPersistedId;
+
+  const patchHeader = useCallback(
+    (patch: ManufacturingOrderDraftHeaderPatch) => {
+      update(
+        (draft) => ({ ...draft, ...patch }) as ManufacturingOrderDetail,
+        {
+          debounceMs: isQuickHeaderPatch(patch)
+            ? QUICK_FLUSH_DELAY_MS
+            : TEXT_FLUSH_DELAY_MS,
+        },
+      );
+    },
+    [update],
+  );
+
+  const selectProduct = useCallback(
+    (product: ManufacturingProductOption) => {
+      if (product.id === kernel.draft.productId && kernel.isPersisted) return;
+      update(
+        (current) => {
           const inputQuantity = plannedInputValue(current);
           const plannedQuantity =
             resolvePlannedOutputQuantity({
               inputQuantity,
-              manufacturingMode: op.product.manufacturingMode,
-              expectedBatchYield: op.product.expectedBatchYield,
+              manufacturingMode: product.manufacturingMode,
+              expectedBatchYield: product.expectedBatchYield,
             }) ?? "1";
           const ingredientMultiplier =
-            op.product.manufacturingMode === "batch" ? inputQuantity : plannedQuantity;
-          return recomputeManufacturingDraft({
+            product.manufacturingMode === "batch" ? inputQuantity : plannedQuantity;
+          return {
             ...current,
-            productId: op.product.id,
-            productName: op.product.displayName || op.product.name,
-            productSku: op.product.sku,
-            unitName: op.product.unitName,
-            manufacturingMode: op.product.manufacturingMode,
-            expectedBatchYield: op.product.expectedBatchYield,
+            productId: product.id,
+            productName: product.displayName || product.name,
+            productSku: product.sku,
+            unitName: product.unitName,
+            manufacturingMode: product.manufacturingMode,
+            expectedBatchYield: product.expectedBatchYield,
             numberOfBatches:
-              op.product.manufacturingMode === "batch"
+              product.manufacturingMode === "batch"
                 ? Number(plannedInputValue(current))
                 : null,
             requestedQuantity: plannedQuantity,
@@ -137,174 +202,58 @@ export function useManufacturingOrderDraftController({
             salesOrderLineId: null,
             salesOrderNumber: null,
             salesCustomerName: null,
-            ingredients: op.product.bom.map((ingredient, index) =>
+            ingredients: product.bom.map((ingredient, index) =>
               makeDraftIngredient(ingredient, ingredientMultiplier, index),
             ),
             operationCosts: [],
-          });
-        }
-        case "updatePlannedInput":
-          editableSnapshotRevisionRef.current = revision;
-          return recomputeManufacturingDraft({
-            ...current,
-            requestedQuantity: op.plannedQuantity,
-            plannedQuantity: op.plannedQuantity,
-            numberOfBatches:
-              current.manufacturingMode === "batch"
-                ? Number(op.inputQuantity)
-                : current.numberOfBatches,
-            ingredients: current.ingredients.map((ingredient) => ({
-              ...ingredient,
-              plannedQuantity: multiplyQuantityString(
-                ingredient.quantityPerUnit,
-                ingredientRequirementMultiplier({
-                  ...current,
-                  plannedQuantity: op.plannedQuantity,
-                  numberOfBatches:
-                    current.manufacturingMode === "batch"
-                      ? Number(op.inputQuantity)
-                      : current.numberOfBatches,
-                }),
-              ),
-            })),
-          });
-        case "addIngredient":
-          editableSnapshotRevisionRef.current = revision;
-          return recomputeManufacturingDraft({
-            ...current,
-            ingredients: [
-              ...current.ingredients,
-              {
-                ...op.ingredient,
-                sortOrder: current.ingredients.length,
-                plannedQuantity: multiplyQuantityString(
-                  op.ingredient.quantityPerUnit,
-                  ingredientRequirementMultiplier(current),
-                ),
-              },
-            ],
-          });
-        case "updateIngredient":
-          editableSnapshotRevisionRef.current = revision;
-          return recomputeManufacturingDraft({
-            ...current,
-            ingredients: current.ingredients.map((ingredient) => {
-              if (ingredient.id !== op.ingredientId) return ingredient;
-              const next = { ...ingredient, ...op.patch };
-              return {
-                ...next,
-                plannedQuantity: multiplyQuantityString(
-                  next.quantityPerUnit,
-                  ingredientRequirementMultiplier(current),
-                ),
-              };
-            }),
-          });
-        case "removeIngredient":
-          editableSnapshotRevisionRef.current = revision;
-          return recomputeManufacturingDraft({
-            ...current,
-            ingredients: current.ingredients
-              .filter((ingredient) => ingredient.id !== op.ingredientId)
-              .map((ingredient, index) => ({ ...ingredient, sortOrder: index })),
-          });
-        case "reorderIngredients": {
-          editableSnapshotRevisionRef.current = revision;
-          const byId = new Map(
-            current.ingredients.map((ingredient) => [ingredient.id, ingredient]),
-          );
-          return recomputeManufacturingDraft({
-            ...current,
-            ingredients: op.ingredientIds
-              .map((id, index) => {
-                const ingredient = byId.get(id);
-                return ingredient ? { ...ingredient, sortOrder: index } : null;
-              })
-              .filter(
-                (ingredient): ingredient is ManufacturingOrderIngredientDetail =>
-                  ingredient != null,
-              ),
-          });
-        }
-      }
-    },
-    [],
-  );
-
-  const engine = useDraftSaveEngine<
-    ManufacturingOrderDetail,
-    ManufacturingOrderDraftOp,
-    ManufacturingOrderDetail
-  >({
-    initialDraft: initialOrder ?? initialDraft,
-    initialServerSnapshot: initialOrder,
-    initialId: initialOrder?.id ?? null,
-    isSaveable,
-    applyOp,
-    create: (draft) => createManufacturingOrder(createPayload(draft)),
-    save: async (orderId, draft, ops) => {
-      if (ops.length === 0) return null;
-      return saveManufacturingOrderOps(orderId, draft, ops);
-    },
-    getResultId: (result) => result.id,
-    applyPersistedIdentity: (draft, result) => ({
-      ...draft,
-      id: draft.id || result.id,
-      orderNumber: draft.orderNumber || result.orderNumber,
-    }),
-    mergeServerOwnedFields: (draft, result, context) =>
-      mergeManufacturingServerResult(draft, result, context, {
-        headerRevisionRef,
-        editableSnapshotRevisionRef,
-      }),
-    onPersisted,
-    onResult: (result, draft) => {
-      queryClient.setQueryData(queryKeys.manufacturingOrders.detail(result.id), draft);
-      void queryClient.invalidateQueries({ queryKey: queryKeys.manufacturingOrders.root });
-    },
-  });
-
-  const patchHeader = useCallback(
-    (patch: ManufacturingOrderDraftHeaderPatch) => {
-      engine.applyLocalOp(
-        { type: "patchHeader", patch },
-        isQuickHeaderPatch(patch) ? QUICK_FLUSH_DELAY_MS : TEXT_FLUSH_DELAY_MS,
+          };
+        },
+        { debounceMs: QUICK_FLUSH_DELAY_MS },
       );
     },
-    [engine],
-  );
-
-  const selectProduct = useCallback(
-    (product: ManufacturingProductOption) => {
-      if (product.id === engine.draft.productId && engine.currentId != null) return;
-      engine.applyLocalOp({ type: "selectProduct", product }, QUICK_FLUSH_DELAY_MS);
-    },
-    [engine],
+    [kernel.draft.productId, kernel.isPersisted, update],
   );
 
   const updatePlannedInput = useCallback(
     (inputQuantity: string) => {
-      const plannedQuantity = resolvePlannedOutputQuantity({
-        inputQuantity,
-        manufacturingMode: engine.draft.manufacturingMode,
-        expectedBatchYield: engine.draft.expectedBatchYield,
-      }) ?? inputQuantity;
-      engine.applyLocalOp(
-        { type: "updatePlannedInput", inputQuantity, plannedQuantity },
-        QUICK_FLUSH_DELAY_MS,
+      update(
+        (current) => {
+          const plannedQuantity =
+            resolvePlannedOutputQuantity({
+              inputQuantity,
+              manufacturingMode: current.manufacturingMode,
+              expectedBatchYield: current.expectedBatchYield,
+            }) ?? inputQuantity;
+          return {
+            ...current,
+            requestedQuantity: plannedQuantity,
+            plannedQuantity,
+            numberOfBatches:
+              current.manufacturingMode === "batch"
+                ? Number(inputQuantity)
+                : current.numberOfBatches,
+          };
+        },
+        { debounceMs: QUICK_FLUSH_DELAY_MS },
       );
     },
-    [engine],
+    [update],
   );
 
   const addIngredient = useCallback(
     (ingredient: ManufacturingOrderIngredientDetail) => {
-      engine.applyLocalOp(
-        { type: "addIngredient", ingredient },
-        QUICK_FLUSH_DELAY_MS,
+      update(
+        (current) => ({
+          ...current,
+          ingredients: [
+            ...current.ingredients,
+            { ...ingredient, sortOrder: current.ingredients.length },
+          ],
+        }),
+        { debounceMs: QUICK_FLUSH_DELAY_MS },
       );
     },
-    [engine],
+    [update],
   );
 
   const updateIngredient = useCallback(
@@ -313,48 +262,85 @@ export function useManufacturingOrderDraftController({
       patch: Partial<Pick<ManufacturingOrderIngredientDetail, "itemId" | "quantityPerUnit">> &
         Partial<ManufacturingOrderIngredientDetail>,
     ) => {
-      engine.applyLocalOp(
-        { type: "updateIngredient", ingredientId, patch },
-        QUICK_FLUSH_DELAY_MS,
+      update(
+        (current) => ({
+          ...current,
+          ingredients: current.ingredients.map((ingredient) =>
+            ingredient.id === ingredientId
+              ? { ...ingredient, ...patch }
+              : ingredient,
+          ),
+        }),
+        { debounceMs: QUICK_FLUSH_DELAY_MS },
       );
     },
-    [engine],
+    [update],
   );
 
   const removeIngredient = useCallback(
     (ingredientId: string) => {
-      engine.applyLocalOp(
-        { type: "removeIngredient", ingredientId },
-        QUICK_FLUSH_DELAY_MS,
+      update(
+        (current) => ({
+          ...current,
+          ingredients: current.ingredients.filter(
+            (ingredient) => ingredient.id !== ingredientId,
+          ),
+        }),
+        { debounceMs: QUICK_FLUSH_DELAY_MS },
       );
     },
-    [engine],
+    [update],
   );
 
   const reorderIngredients = useCallback(
     (ingredientIds: string[]) => {
-      engine.applyLocalOp(
-        { type: "reorderIngredients", ingredientIds },
-        QUICK_FLUSH_DELAY_MS,
+      update(
+        (current) => {
+          const byId = new Map(
+            current.ingredients.map((ingredient) => [ingredient.id, ingredient]),
+          );
+          return {
+            ...current,
+            ingredients: ingredientIds
+              .map((id) => byId.get(id))
+              .filter(
+                (ingredient): ingredient is ManufacturingOrderIngredientDetail =>
+                  ingredient != null,
+              ),
+          };
+        },
+        { debounceMs: QUICK_FLUSH_DELAY_MS },
       );
     },
-    [engine],
+    [update],
   );
 
   const refreshFromServer = useCallback(async () => {
-    const orderId = engine.currentId;
-    if (!orderId || engine.hasPendingOps()) return;
-    const next = await fetchManufacturingOrder(orderId);
-    engine.mergeServerResult(next);
-  }, [engine]);
+    const persistedId = getPersistedId();
+    if (!persistedId) return;
+    const next = await apiJson<ManufacturingOrderDetail>(
+      `/api/manufacturing-orders/${persistedId}`,
+      { fallbackError: "Failed to load manufacturing order." },
+    );
+    adoptServerDoc(next);
+  }, [adoptServerDoc, getPersistedId]);
 
   return useMemo(
     () => ({
-      draft: engine.draft,
-      currentOrderId: engine.currentId,
-      hasPersistedOrder: engine.hasPersistedEntity,
-      status: engine.status,
-      error: engine.error,
+      draft: kernel.draft,
+      currentOrderId: kernel.persistedId,
+      hasPersistedOrder: kernel.isPersisted,
+      status:
+        kernel.status === "blocked"
+          ? kernel.isPersisted
+            ? "error"
+            : "idle"
+          : kernel.status === "idle"
+            ? kernel.isPersisted
+              ? "saved"
+              : "idle"
+            : kernel.status,
+      error: kernel.error,
       patchHeader,
       selectProduct,
       updatePlannedInput,
@@ -362,13 +348,13 @@ export function useManufacturingOrderDraftController({
       updateIngredient,
       removeIngredient,
       reorderIngredients,
-      flush: engine.flush,
-      hasPendingOps: engine.hasPendingOps,
+      flush,
       refreshFromServer,
     }),
     [
       addIngredient,
-      engine,
+      flush,
+      kernel,
       patchHeader,
       refreshFromServer,
       removeIngredient,
@@ -410,6 +396,7 @@ export function makeDraftManufacturingOrder(): ManufacturingOrderDetail {
     actualOperationsCost: null,
     actualCostPerUnit: null,
     notes: null,
+    version: 0,
     startedAt: null,
     completedAt: null,
     cancelledAt: null,
@@ -486,239 +473,33 @@ export function resolvePlannedOutputQuantity({
   return formatDecimal(batchCount * batchYield);
 }
 
-async function saveManufacturingOrderOps(
-  orderId: string,
-  draft: ManufacturingOrderDetail,
-  queuedOps: Array<QueuedDraftOp<ManufacturingOrderDraftOp>>,
-) {
-  let latest: ManufacturingOrderDetail | null = null;
-  const structuralOps = queuedOps.filter((queued) => queued.op.type !== "patchHeader");
-
-  if (structuralOps.length > 0) {
-    latest = await saveManufacturingOrderIngredients(
-      orderId,
-      snapshotHeader(draft),
-      snapshotIngredients(draft),
-    );
-    removeQueuedOps(queuedOps, (queued) => queued.op.type !== "patchHeader");
-  }
-
-  const headerPatch = persistedHeaderPatch(mergeHeaderPatches(queuedOps));
-  if (Object.keys(headerPatch).length > 0) {
-    latest = await patchManufacturingOrder(orderId, headerPatch);
-    removeQueuedOps(queuedOps, (queued) => queued.op.type === "patchHeader");
-  }
-
-  return latest;
-}
-
-function isSaveable(order: ManufacturingOrderDetail) {
-  return (
-    order.productId.trim().length > 0 &&
-    resolvePlannedOutputQuantity({
-      inputQuantity: plannedInputValue(order),
-      manufacturingMode: order.manufacturingMode,
-      expectedBatchYield: order.expectedBatchYield,
-    }) != null
-  );
-}
-
 function isQuickHeaderPatch(patch: ManufacturingOrderDraftHeaderPatch) {
   return Object.keys(patch).some((key) => key !== "notes");
 }
 
-function persistedHeaderPatch(
-  patch: Partial<ManufacturingOrderDraftHeaderPatch>,
-): PatchManufacturingOrder {
-  const persisted: Partial<PatchManufacturingOrder> = {};
-  for (const key of ["plannedDate", "notes", "salesOrderId", "salesOrderLineId", "isBlocked"] as const) {
-    if (key in patch) {
-      (persisted as Record<string, unknown>)[key] = patch[key];
-    }
-  }
-  return persisted as PatchManufacturingOrder;
-}
-
-function snapshotHeader(order: ManufacturingOrderDetail) {
-  return {
-    productId: order.productId,
-    plannedQuantity: order.plannedQuantity,
-    plannedDate: order.plannedDate,
-    notes: order.notes,
-    salesOrderId: order.salesOrderId,
-    salesOrderLineId: order.salesOrderLineId,
-  };
-}
-
-function snapshotIngredients(order: ManufacturingOrderDetail) {
-  return order.ingredients
-    .filter((ingredient) => ingredient.itemId && Number(ingredient.quantityPerUnit) > 0)
-    .map((ingredient) => ({
-      itemId: ingredient.itemId,
-      quantityPerUnit: ingredient.quantityPerUnit,
-    }));
-}
-
-function createPayload(order: ManufacturingOrderDetail): CreateManufacturingOrderInput {
-  return {
-    productId: order.productId,
-    plannedQuantity: order.plannedQuantity,
-    plannedDate: order.plannedDate,
-    notes: order.notes,
-    ingredients: snapshotIngredients(order),
-  };
-}
-
-function mergeManufacturingServerResult(
-  draft: ManufacturingOrderDetail,
-  server: ManufacturingOrderDetail,
-  context: DraftServerMergeContext<ManufacturingOrderDraftOp>,
-  refs: {
-    headerRevisionRef: RefObject<Partial<Record<HeaderKey, number>>>;
-    editableSnapshotRevisionRef: RefObject<number>;
-  },
-): ManufacturingOrderDetail {
-  const savedStructuralOps = context.savedOps.filter(
-    (queued) => queued.op.type !== "patchHeader",
-  );
-  const hasNewerSnapshotEdits =
-    refs.editableSnapshotRevisionRef.current > context.saveStartedRevision;
-  let next = mergeServerOwnedFields(draft, server);
-
-  if (
-    (context.source === "create" || context.source === "save") &&
-    savedStructuralOps.length > 0 &&
-    !hasNewerSnapshotEdits
-  ) {
-    next = keepEditableSnapshot(next, {
-      ...draft,
-      ingredients: server.ingredients,
-      operationCosts: server.operationCosts,
-    });
-  }
-
-  if (context.hasNewerLocalEdits) {
-    next = {
-      ...next,
-      id: draft.id || server.id,
-      orderNumber: server.orderNumber,
-    };
-    for (const key of HEADER_KEYS) {
-      const changedAt = refs.headerRevisionRef.current[key] ?? 0;
-      if (changedAt > context.saveStartedRevision) {
-        (next as unknown as Record<string, unknown>)[key] = draft[key];
-      }
-    }
-    if (hasNewerSnapshotEdits) {
-      next = keepEditableSnapshot(next, draft);
-    }
-  } else if (context.source === "save" && savedStructuralOps.length === 0) {
-    next = keepEditableSnapshot(next, draft);
-  } else if (context.source === "refresh") {
-    next = keepEditableSnapshot(next, draft);
-  }
-
-  for (const key of savedHeaderKeys(context.savedOps)) {
-    const changedAt = refs.headerRevisionRef.current[key] ?? 0;
-    if (changedAt >= context.saveStartedRevision) {
-      (next as unknown as Record<string, unknown>)[key] = draft[key];
-    }
-  }
-
-  return recomputeManufacturingDraft(next);
-}
-
-function mergeServerOwnedFields(
-  draft: ManufacturingOrderDetail,
-  server: ManufacturingOrderDetail,
-): ManufacturingOrderDetail {
-  return {
-    ...draft,
-    id: draft.id || server.id,
-    orderNumber: server.orderNumber,
-    productLotTrackingMode: server.productLotTrackingMode,
-    status: server.status,
-    isBlocked: server.isBlocked,
-    priorityRank: server.priorityRank,
-    actualQuantity: server.actualQuantity,
-    pickProgressStatus: server.pickProgressStatus,
-    actualMaterialCost: server.actualMaterialCost,
-    actualOperationsCost: server.actualOperationsCost,
-    actualCostPerUnit: server.actualCostPerUnit,
-    startedAt: server.startedAt,
-    completedAt: server.completedAt,
-    cancelledAt: server.cancelledAt,
-    deletedAt: server.deletedAt,
-    createdAt: server.createdAt,
-    updatedAt: server.updatedAt,
-    operationCosts: server.operationCosts,
-    batches: server.batches,
-    producedLots: server.producedLots,
-  };
-}
-
-function keepEditableSnapshot(
-  base: ManufacturingOrderDetail,
-  current: ManufacturingOrderDetail,
-) {
-  return {
-    ...base,
-    productId: current.productId,
-    productName: current.productName,
-    productSku: current.productSku,
-    productLotTrackingMode: current.productLotTrackingMode,
-    unitName: current.unitName,
-    manufacturingMode: current.manufacturingMode,
-    numberOfBatches: current.numberOfBatches,
-    expectedBatchYield: current.expectedBatchYield,
-    requestedQuantity: current.requestedQuantity,
-    plannedQuantity: current.plannedQuantity,
-    plannedDate: current.plannedDate,
-    notes: current.notes,
-    salesOrderId: current.salesOrderId,
-    salesOrderLineId: current.salesOrderLineId,
-    salesOrderNumber: current.salesOrderNumber,
-    salesCustomerName: current.salesCustomerName,
-    ingredients: current.ingredients,
-  };
-}
-
-function mergeHeaderPatches(
-  ops: Array<QueuedDraftOp<ManufacturingOrderDraftOp>>,
-) {
-  return ops.reduce<Partial<ManufacturingOrderDraftHeaderPatch>>((patch, queued) => {
-    if (queued.op.type !== "patchHeader") return patch;
-    return { ...patch, ...queued.op.patch };
-  }, {});
-}
-
-function savedHeaderKeys(ops: Array<QueuedDraftOp<ManufacturingOrderDraftOp>>) {
-  const keys = new Set<HeaderKey>();
-  for (const queued of ops) {
-    if (queued.op.type !== "patchHeader") continue;
-    for (const key of HEADER_KEYS) {
-      if (key in queued.op.patch) keys.add(key);
-    }
-  }
-  return keys;
-}
-
+/**
+ * Pure cascade math: planned quantities follow quantityPerUnit × requirement
+ * multiplier, and remaining follows planned minus the server-owned picked
+ * quantity (so post-pick docs stay truthful through every rebase).
+ */
 function recomputeManufacturingDraft(order: ManufacturingOrderDetail) {
   const requirementMultiplier = ingredientRequirementMultiplier(order);
   return {
     ...order,
-    ingredients: order.ingredients.map((ingredient, index) => ({
-      ...ingredient,
-      sortOrder: index,
-      plannedQuantity: multiplyQuantityString(
+    ingredients: order.ingredients.map((ingredient, index) => {
+      const plannedQuantity = multiplyQuantityString(
         ingredient.quantityPerUnit,
         requirementMultiplier,
-      ),
-      remainingQuantity: multiplyQuantityString(
-        ingredient.quantityPerUnit,
-        requirementMultiplier,
-      ),
-    })),
+      );
+      const remaining =
+        Number(plannedQuantity || 0) - Number(ingredient.pickedQuantity || 0);
+      return {
+        ...ingredient,
+        sortOrder: index,
+        plannedQuantity,
+        remainingQuantity: formatDecimal(Math.max(remaining, 0)),
+      };
+    }),
   };
 }
 
@@ -762,13 +543,4 @@ export function multiplyQuantityString(left: string, right: string | number) {
 function formatDecimal(value: number) {
   if (!Number.isFinite(value)) return "";
   return value.toFixed(6).replace(/\.?0+$/, "");
-}
-
-function removeQueuedOps<TOp>(
-  ops: Array<QueuedDraftOp<TOp>>,
-  predicate: (queued: QueuedDraftOp<TOp>) => boolean,
-) {
-  for (let index = ops.length - 1; index >= 0; index -= 1) {
-    if (predicate(ops[index])) ops.splice(index, 1);
-  }
 }
