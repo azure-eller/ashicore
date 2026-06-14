@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { normalizeMoney, normalizeNumeric } from "@/lib/format";
 
+/**
+ * Same normalization as nullableString but preserves undefined as undefined.
+ * Use in partial-update (PUT/PATCH) schemas that merge only the fields sent, so
+ * omitted fields are skipped on update instead of being wiped to null; an
+ * explicit empty string still clears the value.
+ */
 export const nullableStringPreserveUndefined = z
   .string()
   .nullable()

@@ -485,6 +485,8 @@ defaultValues: {
 }
 ```
 
+For partial-update schemas (PUT/PATCH that merge only the fields sent), use `nullableStringPreserveUndefined` instead. It keeps `undefined` as `undefined` so omitted fields are skipped on update rather than wiped to `null`; an explicit empty string still clears the value. Using plain `nullableString` here coerces omitted fields to `null` and silently clears stored values on every partial save.
+
 ## Schema Naming
 
 - Database columns: `snake_case`

@@ -1,7 +1,11 @@
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { stocktakes } from "@/lib/db/schema";
-import { isNonNegativeNumberString, nullableString } from "./shared";
+import {
+  isNonNegativeNumberString,
+  nullableString,
+  nullableStringPreserveUndefined,
+} from "./shared";
 
 export const STOCKTAKE_SCOPE_ITEM_TYPES = ["material", "product"] as const;
 export type StocktakeScopeItemType = (typeof STOCKTAKE_SCOPE_ITEM_TYPES)[number];
@@ -136,13 +140,13 @@ export type CloneStocktake = z.infer<typeof cloneStocktakeSchema>;
 const rawCountLineSchema = z.object({
   lineId: z.string().min(1),
   countedQty: nullableString,
-  notes: nullableString.optional(),
+  notes: nullableStringPreserveUndefined,
 });
 
 const rawCountLotLineSchema = z.object({
   lotLineId: z.string().min(1),
   countedQty: nullableString,
-  notes: nullableString.optional(),
+  notes: nullableStringPreserveUndefined,
 });
 
 const rawDeleteFoundLotLineSchema = z.object({
@@ -155,7 +159,7 @@ const rawFoundLotLineSchema = z.object({
   stocktakeItemId: z.string().min(1),
   lotNumber: z.string(),
   countedQty: nullableString,
-  notes: nullableString.optional(),
+  notes: nullableStringPreserveUndefined,
 });
 
 const rawLotLineSchema = z.union([
@@ -185,8 +189,8 @@ export const updateStocktakeSchema = z
       .max(255, "Name must be 255 characters or fewer")
       .optional(),
     scope: stocktakeScopeSchema.optional(),
-    notes: nullableString.optional(),
-    reason: nullableString.optional(),
+    notes: nullableStringPreserveUndefined,
+    reason: nullableStringPreserveUndefined,
     itemIds: z.array(z.string().uuid()).optional(),
     lines: z.array(rawCountLineSchema).optional().default([]),
     lotLines: z.array(rawLotLineSchema).optional().default([]),

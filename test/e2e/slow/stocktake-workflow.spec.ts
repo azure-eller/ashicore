@@ -34,7 +34,7 @@ test.describe("stocktake workflow operating story", () => {
         name: `Stocktake Story ${Date.now()}`,
         scope: "all",
         reason: "Cycle count",
-        notes: null,
+        notes: "Back shelf recount",
         itemIds: [materialId],
       }),
     });
@@ -61,6 +61,15 @@ test.describe("stocktake workflow operating story", () => {
   });
 
   test("saves sparse draft counts and reloads the persisted count", async ({ db, page }) => {
+    const noteResponse = await testFetch(`/api/stocktakes/${stocktakeId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        lines: [{ lineId, countedQty: null, notes: "Line recount note" }],
+        lotLines: [],
+      }),
+    });
+    expect(noteResponse.status).toBe(200);
+
     const saveResponse = await testFetch(`/api/stocktakes/${stocktakeId}`, {
       method: "PUT",
       body: JSON.stringify({
@@ -71,11 +80,23 @@ test.describe("stocktake workflow operating story", () => {
     expect(saveResponse.status).toBe(200);
 
     const [savedLine] = await db
-      .select()
+      .select({
+        countedQty: stocktakeItems.countedQty,
+        varianceQty: stocktakeItems.varianceQty,
+        notes: stocktakeItems.notes,
+      })
       .from(stocktakeItems)
       .where(eq(stocktakeItems.id, lineId));
     expect(savedLine.countedQty).toBe("4.0000");
     expect(savedLine.varianceQty).toBe("4.0000");
+    expect(savedLine.notes).toBe("Line recount note");
+
+    const [savedStocktake] = await db
+      .select({ notes: stocktakes.notes, reason: stocktakes.reason })
+      .from(stocktakes)
+      .where(eq(stocktakes.id, stocktakeId));
+    expect(savedStocktake.notes).toBe("Back shelf recount");
+    expect(savedStocktake.reason).toBe("Cycle count");
 
     await page.goto(`/inventory/stocktakes/${stocktakeId}`);
     await expect(page.locator("main")).toContainText("Draft");
@@ -110,9 +131,16 @@ test.describe("stocktake workflow operating story", () => {
   });
 
   test("commits the saved count as authoritative stock truth", async ({ db }) => {
-    const complete = await testFetch(`/api/stocktakes/${stocktakeId}/complete`, {
+    const complete = await testFetch("/api/inventory/reconciliations", {
       method: "POST",
-      body: JSON.stringify({ confirmStale: false, reason: "Cycle count" }),
+      body: JSON.stringify({
+        source: {
+          kind: "stocktake",
+          stocktakeId,
+          confirmStale: false,
+        },
+        lines: [],
+      }),
     });
     expect(complete.status).toBe(200);
 
