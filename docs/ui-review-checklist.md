@@ -11,7 +11,6 @@ Before judging pixels, resolve the current theme from:
 - `app/styles/theme.css`
 - `docs/design/README.md`
 - `docs/design/foundations.md`
-- `docs/design/tokens.md`
 - `CLAUDE.md`
 
 Do not bake hex values, radius values, or palette names into this checklist.

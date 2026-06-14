@@ -1,11 +1,10 @@
 ---
-read_when:
-  - Rewriting slow Playwright specs
-  - Deciding whether old slow coverage should stay, fold, delete, or become verification
-  - Adding or reviewing entries in test/e2e/slow/SLOW_TEST_STORIES.md
+status: archived
 ---
 
 # Slow Suite Audit
+
+> **Archived — historical record, not current reference.** The rewrite shipped; the live registry is `test/e2e/slow/SLOW_TEST_STORIES.md`. See `docs/archive/README.md`.
 
 ## Goal
 

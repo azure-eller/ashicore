@@ -75,7 +75,7 @@ Slow tests are operating stories, not bug archives. A slow spec must be a realis
 - Use UI where it proves workflow usability or persistence; use API helpers for setup and mutation seams when UI breadth would make the story brittle.
 - Assert API responses on important mutations and prove business state with DB/domain/read-model evidence.
 - Every slow spec must be listed in `test/e2e/slow/SLOW_TEST_STORIES.md`.
-- Keep customer, cost, planning, and stocktake stories bounded by the active slow-suite registry and audit in `docs/slow-suite-audit.md`.
+- Keep customer, cost, planning, and stocktake stories bounded by the active slow-suite registry `test/e2e/slow/SLOW_TEST_STORIES.md`.
 
 ## Writing tests
 

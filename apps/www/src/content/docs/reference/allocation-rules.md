@@ -9,9 +9,9 @@ Use this page when deciding whether demand is covered, reordered, released, or p
 
 ## Active demand
 
-Sales allocation demand includes only non-deleted lines on confirmed or partially shipped sales orders.
+Sales allocation demand includes only non-deleted lines on open sales orders.
 
-Draft, shipped, cancelled, and deleted sales orders do not create active allocation demand.
+Done and deleted sales orders do not create active allocation demand.
 
 Sales order line demand represents the unplanned remainder:
 
@@ -28,7 +28,7 @@ Eligible supply can be:
 - available inventory lots
 - released manufacturing-order output supply
 
-Draft manufacturing orders are excluded. They are planning work, not supply.
+Unreleased manufacturing orders are excluded. They are planning work, not supply.
 
 Blocked and rejected lots are excluded from normal allocation.
 
@@ -52,19 +52,19 @@ Coverage should not make on-hand stock change. It changes the planning answer, n
 
 Demand and physical stock should be updated through the inventory kernel. No feature should mutate availability directly.
 
-## Planning relationship
+## Demand coverage relationship
 
-Planning uses confirmed sales demand, released manufacturing component demand, safety stock, on-hand stock, open purchase supply, and released manufacturing supply.
+Demand coverage weighs open sales demand, released manufacturing component demand, safety stock, on-hand stock, open purchase supply, and released manufacturing supply.
 
 Allocation is a priority decision inside that world. It does not remove the need to buy, make, receive, pick, complete, or ship.
 
 ## Troubleshooting
 
-If an item looks short after coverage, check whether stock is blocked, claimed by earlier demand, or only expected from a draft manufacturing order.
+If an item looks short after coverage, check whether stock is blocked, claimed by earlier demand, or only expected from an unreleased manufacturing order.
 
 If a shipment has no supply but the order line does, check whether allocation was moved from order-line demand to shipment-line demand when the shipment was created.
 
-If available quantity seems too low, inspect demand-queue coverage for confirmed sales orders, planned shipments, and released manufacturing ingredient demand.
+If available quantity seems too low, inspect demand-queue coverage for open sales orders, planned shipments, and released manufacturing ingredient demand.
 
 ## Related docs
 

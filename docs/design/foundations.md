@@ -1,11 +1,17 @@
 ---
 title: Foundations
 status: living
-read_when: "before changing the visual language or introducing a new UI convention"
-owns: "design intent for density, color semantics, typography roles, corners, and motion"
+read_when: "before changing the visual language, introducing a new UI convention, or adding/referencing a design token"
+owns: "design intent and the token source-of-truth rule: density, color semantics, typography roles, corners, motion, and tokens"
 ---
 
 # Foundations
+
+## Tokens
+
+App-wide runtime token values live only in [app/styles/theme.css](../../app/styles/theme.css). Docs name tokens and explain when to use them; they must not restate raw values. Need an exact color, size, radius, height, font, shadow, or duration? Read `app/styles/theme.css`.
+
+Raw color literals belong only in the primitive `--paint-*` palette. When a component needs a new surface, state, border, or text treatment, add a semantic alias or derive it with `color-mix()`. When a token is missing, add it to `app/styles/theme.css`, use it in code, and update the relevant intent doc only if the meaning changed.
 
 ## Values
 

@@ -22,7 +22,7 @@ Design intent lives in `docs/design/`. App-wide runtime token values live in `ap
 - **Colors:** use shadcn semantic classes (`bg-primary`, `bg-card`, `bg-muted`, `text-foreground`, `text-muted-foreground`, `border-border`, `bg-destructive`) by default. Reach for `var(--color-*)` only when shadcn has no name for the state (`hover:bg-[var(--color-accent-hover)]`, `bg-[var(--color-surface-sunk)]`). Never hardcode Tailwind colors (`text-red-500`).
 - **Spacing / sizing / type:** always raw app tokens via Tailwind arbitrary syntax — `gap-(--space-3)`, `px-(--space-6)`, `h-(--height-input-md)`, `text-[length:var(--text-sm)]`, `leading-[var(--leading-sm)]`. There is no shadcn scale for these.
 - **Radii:** use shared radius tokens. Do not hard-code radii in page code.
-- **Status:** use shared status primitives (`StatusBlock`, `StatusLabel`, `StatusRibbon`) rather than local chips.
+- **Status:** use shared status primitives (`StatusBlock`, `StatusLabel`) rather than local chips.
 - **Numerics:** order IDs, currency, counts, and dates in tabular context use `font-mono` + `tabular-nums`.
 - **Font:** use the global font variables. See `docs/design/foundations.md` for roles.
 - **shadcn config:** `radix-nova` style with `stone` base color — see `components.json` for component aliases.
@@ -44,6 +44,9 @@ snapshots, and small input tables that do not need grid behavior.
 Feature code must not import `@/components/ui/table` directly. That file is the
 raw shadcn primitive; route product code through `TableFrame`, `FramedTable`,
 `FramedTableHeaderCell`, `FramedTableCell`, and `FramedTableEmptyRow` instead.
+
+Grid footers should carry useful state — row count, sync, sort, filter, and
+version when available.
 
 ## Dashboard Module Layouts
 
@@ -77,12 +80,13 @@ it must not unmount the dashboard route tree to show loading. Segment
 
 ## Icons
 
-HugeIcons only:
+HugeIcons only — render the `HugeiconsIcon` component with a named icon:
 
 ```tsx
-import { IconName } from "@hugeicons/react";
-// or for tree-shaking:
-import { IconName } from "@hugeicons/core";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Cancel01Icon } from "@hugeicons/core-free-icons";
+
+<HugeiconsIcon icon={Cancel01Icon} />;
 ```
 
 Never use Lucide, Heroicons, or any other icon package.
@@ -109,7 +113,7 @@ Then follow this pattern exactly:
 />
 ```
 
-Canonical reference: `app/(dashboard)/inventory/item-form/index.tsx` (with `dialogs/` and `fields/` siblings)
+Canonical reference: `app/(dashboard)/inventory/product/page.tsx` (the product create/edit form). Use visible labels for ambiguous numeric fields; placeholders are examples, not labels.
 
 ## Standalone Form Pages
 
@@ -405,8 +409,8 @@ The cursor stays the default arrow. Don't use the `cursor-help` Tailwind class a
 Pick the trigger that's already on screen:
 
 ```tsx
-// Sortable column header — the button is the trigger
-<SortableHeader column={column} label="Calculated Stock" tooltip="Stock - demand + expected - safety stock." />
+// AG Grid column header — set headerTooltip on the column def
+{ field: "calculatedStock", headerName: "Calculated Stock", headerTooltip: "Stock - demand + expected - safety stock." }
 
 // Non-sortable header or inline label — dotted underline, default cursor
 <TooltipHeader label="Available" tooltip="Physical stock available on hand." />

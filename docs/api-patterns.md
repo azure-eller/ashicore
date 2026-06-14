@@ -219,5 +219,5 @@ const mutation = useApiMutation({
 ## Canonical References
 
 - API handler wrapper: `lib/api/handler.ts`
-- Example mutation form: `app/(dashboard)/inventory/materials/material-form.tsx`
+- Example editable card: `app/(dashboard)/inventory/materials/[id]/material-card.tsx`
 - Example API routes: `app/api/items/`

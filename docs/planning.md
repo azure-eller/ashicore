@@ -7,7 +7,16 @@ read_when:
 
 # Planning
 
-MRP-lite is deterministic and read-first. It builds one `PlanningSnapshot` from current projected inventory, confirmed demand, safety stock, open expected supply, and current BOM revisions. It does not persist runs, forecast, schedule capacity, or create autonomous supply.
+> **Dormant / legacy — not wired into the product UI.** There is no planning
+> page or nav entry, and planning is excluded from the billing plugin set. The
+> service (`lib/planning/*`) and `/api/planning/*` routes still exist and are
+> tested, but no web surface consumes them. Do not build new UI on this or
+> propose planning features without checking with the owner first. (The agent's
+> production-planning context is a separate service,
+> `lib/agent/production-planning-context/`, not this module.) The contract below
+> documents the service as it stands.
+
+MRP-lite is deterministic and read-first. It builds one `PlanningSnapshot` from current projected inventory, open sales demand, safety stock, open expected supply, and current BOM revisions. It does not persist runs, forecast, schedule capacity, or create autonomous supply.
 
 ## Snapshot Contract
 
@@ -37,7 +46,7 @@ Production downstream rows are customer-demand attribution, not BOM/MO/source-re
 
 Demand sources:
 
-- confirmed, non-deleted sales order lines
+- non-deleted sales order lines on open orders
 - safety stock targets
 - remaining released manufacturing ingredient demand
 - component demand from BOM explosion of parent shortages
@@ -48,7 +57,7 @@ Supply sources:
 - ordered or partially received purchase-order remaining quantities
 - released manufacturing-order remaining output
 
-Demand coverage follows the same active-demand boundary: confirmed and partially shipped sales orders are included, while draft sales orders and draft MOs are ignored.
+Demand coverage follows the same active-demand boundary: open, non-deleted sales orders are included, while done and deleted sales orders, and unreleased manufacturing orders, are ignored.
 
 Netting uses:
 
@@ -58,7 +67,7 @@ shortageQuantity = Math.max(0, -projectedQuantity)
 availableStock = Math.max(0, onHand)
 ```
 
-`availableStock` is physical display context only. Queue coverage decides which demand is covered by that stock; the planning formula does not persist or subtract soft planning claims because confirmed sales and released manufacturing component needs are already demand facts.
+`availableStock` is physical display context only. Queue coverage decides which demand is covered by that stock; the planning formula does not persist or subtract soft planning claims because open sales and released manufacturing component needs are already demand facts.
 
 ## Replenishment Status
 

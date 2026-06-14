@@ -7,11 +7,11 @@ order: 330
 
 ## Statuses
 
-Draft purchase orders are editable planning records. Ordered purchase orders represent expected inbound supply. Partial purchase orders have at least one receipt and at least one remaining quantity. Received purchase orders are complete.
+Draft purchase orders are editable planning records. Ordered purchase orders represent expected inbound supply. Partial purchase orders have at least one receipt and at least one remaining quantity. Received purchase orders have completed receiving history; they may still allow controlled non-history-rewriting edits such as future quantity increases or landed-cost revaluation.
 
 ## Allowed transitions
 
-Draft can become ordered. Ordered can be partially received or fully received. Partial can become received when all remaining quantities are received.
+Draft can become ordered. Ordered can be partially received or fully received. Partial can become received when all remaining quantities are received. Increasing quantity or adding lines to a received order can move it back to partial for future receiving.
 
 ## Blocked transitions
 

@@ -47,11 +47,13 @@ Release does not consume stock. It moves the order from planning into operationa
 
 - finished-product output becomes expected supply
 - ingredient requirements become demand
-- direct ingredient lot allocations may be recorded when the user reviewed or requested them
 
-Release should not silently hold ingredient lots in flows that do not show a lot-review surface.
+Release should not silently hold ingredient lots. Lot selection happens during
+picking, where the worker can use selected lots or FIFO according to the
+execution policy.
 
-Only released manufacturing orders can be selected as future supply for sales allocation.
+Only open manufacturing orders that have been released into execution can be
+selected as future supply for sales allocation.
 
 ## Picking behavior
 

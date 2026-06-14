@@ -37,7 +37,51 @@ Explicitly out of scope today:
 - Playwright
 - pnpm
 
-## Quick Start
+## Agent Quick Start
+
+This repo is optimized for coding agents working in isolated worktrees. The
+repo-root checkout should stay on `main`; do not edit feature files there.
+
+1. Read `AGENTS.md` first. It is a symlink to `CLAUDE.md`, which is the
+   repo-wide source of truth.
+
+2. Create a dedicated worktree from the repo root:
+
+```bash
+git worktree add .worktrees/<branch-name> -b <branch-name>
+cd .worktrees/<branch-name>
+```
+
+3. For feature work, start the agent dev environment:
+
+```bash
+pnpm boot
+```
+
+`pnpm boot` installs dependencies when needed, prepares the worktree-local
+database, runs migrations, creates the test session, starts the dev server on a
+free port, and writes `.tmp/agent-session.json`.
+
+4. For live triage against the Paonia production-copy data, use sandbox mode
+   instead of boot:
+
+```bash
+pnpm sandbox [path]
+```
+
+5. Finish docs-only PRs with:
+
+```bash
+pnpm review <path> --docs-only
+```
+
+For code changes, follow the relevant domain docs and finish with the slow
+domains required by `docs/testing.md`.
+
+## Manual Local Setup
+
+Use this only for maintainer/manual development. Agents should prefer the quick
+start above.
 
 1. Install dependencies:
 
@@ -51,7 +95,8 @@ pnpm install
 cp .env.example .env.local
 ```
 
-3. Fill the non-database values you need in `.env.local` like `BETTER_AUTH_SECRET`.
+3. Fill the non-database values you need in `.env.local` like
+   `BETTER_AUTH_SECRET`.
 
 4. In each worktree, create that worktree's local DB and env:
 
@@ -59,22 +104,10 @@ cp .env.example .env.local
 pnpm db:local:setup
 ```
 
-`pnpm db:local:setup` auto-starts the shared local Postgres container if needed.
-
-Worktrees still fall back to the repo-root `.env.local` for shared settings, but they do not inherit `DATABASE_URL` or `DATABASE_URL_APP` from it.
-
 5. Start the app:
 
 ```bash
 pnpm dev
-```
-
-6. Validate changes:
-
-```bash
-pnpm build
-pnpm lint
-pnpm test
 ```
 
 Playwright requires the dev server to be running first.
@@ -125,11 +158,25 @@ pnpm lint
 pnpm test
 ```
 
-Focused tests:
+Focused fast tests:
 
 ```bash
-pnpm test:inventory
-pnpm test:sales
+pnpm test:fast:inventory
+pnpm test:fast:sales
+pnpm test:fast:purchasing
+pnpm test:fast:manufacturing
+pnpm test:fast:planning
+```
+
+Focused slow stories:
+
+```bash
+pnpm test:slow:sales
+pnpm test:slow:purchasing
+pnpm test:slow:manufacturing
+pnpm test:slow:planning
+pnpm test:slow:stocktake
+pnpm test:slow:auth
 ```
 
 Database:
@@ -161,8 +208,12 @@ pnpm drizzle-kit migrate
 
 ## Where To Read Next
 
-Start with `AGENTS.md` for repo-wide rules, then load the relevant domain doc:
+Start with `AGENTS.md` for repo-wide rules. It is symlinked to `CLAUDE.md` so
+agent tools that look for either name load the same instructions. Then load the
+relevant domain doc:
 
+- `docs/worktrees.md`
+- `docs/testing.md`
 - `docs/architecture.md`
 - `docs/database.md`
 - `docs/api-patterns.md`
@@ -172,7 +223,3 @@ Start with `AGENTS.md` for repo-wide rules, then load the relevant domain doc:
 - `docs/manufacturing.md`
 - `docs/purchasing.md`
 - `docs/stocktakes.md`
-
-For the current milestone sequence, see:
-
-- `docs/small-scale-mrp-roadmap.md`

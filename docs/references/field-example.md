@@ -1,360 +1,70 @@
 ---
 title: Field
-description: Combine labels, controls, and help text to compose accessible form fields and grouped inputs.
+description: The repo's accessible form-field building blocks and how we compose them.
 read_when:
   - Writing or editing form fields
   - Adding labels, help text, or error display to inputs
-base: radix
-component: true
 ---
 
-<ComponentPreview
-  styleName="radix-nova"
-  name="field-demo"
-  previewClassName="h-[800px] p-6 md:h-[850px]"
-/>
+# Field
 
-## Installation
+`Field` is the shared wrapper that gives every form control a label, optional
+help text, accessible error display, and consistent spacing. Compose it — do not
+hand-roll `<label>` + control + error markup.
 
-<CodeTabs>
+Source of truth for the full API (props, variants): `components/ui/field.tsx`.
+TypeScript owns the prop types; this doc owns how we use them.
 
-<TabsList>
-  <TabsTrigger value="cli">Command</TabsTrigger>
-  <TabsTrigger value="manual">Manual</TabsTrigger>
-</TabsList>
-<TabsContent value="cli">
+## Import
 
-```bash
-npx shadcn@latest add field
-```
-
-</TabsContent>
-
-<TabsContent value="manual">
-
-<Steps className="mb-0 pt-2">
-
-<Step>Copy and paste the following code into your project.</Step>
-
-<ComponentSource
-  name="field"
-  title="components/ui/field.tsx"
-  styleName="radix-nova"
-/>
-
-<Step>Update the import paths to match your project setup.</Step>
-
-</Steps>
-
-</TabsContent>
-
-</CodeTabs>
-
-## Usage
-
-```tsx showLineNumbers
+```tsx
 import {
   Field,
-  FieldContent,
+  FieldLabel,
   FieldDescription,
   FieldError,
   FieldGroup,
-  FieldLabel,
-  FieldLegend,
-  FieldSeparator,
-  FieldSet,
-  FieldTitle,
-} from "@/components/ui/field"
+} from "@/components/ui/field";
 ```
 
-```tsx showLineNumbers
-<FieldSet>
-  <FieldLegend>Profile</FieldLegend>
-  <FieldDescription>This appears on invoices and emails.</FieldDescription>
-  <FieldGroup>
-    <Field>
-      <FieldLabel htmlFor="name">Full name</FieldLabel>
-      <Input id="name" autoComplete="off" placeholder="Evil Rabbit" />
-      <FieldDescription>This appears on invoices and emails.</FieldDescription>
-    </Field>
-    <Field>
-      <FieldLabel htmlFor="username">Username</FieldLabel>
-      <Input id="username" autoComplete="off" aria-invalid />
-      <FieldError>Choose another username.</FieldError>
-    </Field>
-    <Field orientation="horizontal">
-      <Switch id="newsletter" />
-      <FieldLabel htmlFor="newsletter">Subscribe to the newsletter</FieldLabel>
-    </Field>
-  </FieldGroup>
-</FieldSet>
-```
+`FieldSet` / `FieldLegend` / `FieldContent` / `FieldTitle` / `FieldSeparator`
+also exist for grouped and horizontal layouts — reach for them only when a plain
+stacked field is not enough.
 
 ## Anatomy
 
-The `Field` family is designed for composing accessible forms. A typical field is structured as follows:
-
-```tsx showLineNumbers
-<Field>
-  <FieldLabel htmlFor="input-id">Label</FieldLabel>
-  {/* Input, Select, Switch, etc. */}
-  <FieldDescription>Optional helper text.</FieldDescription>
-  <FieldError>Validation message.</FieldError>
+```tsx
+<Field data-invalid={fieldState.invalid}>
+  <FieldLabel htmlFor="sku">SKU</FieldLabel>
+  <Input id="sku" {...field} />
+  <FieldError errors={[fieldState.error]} />
 </Field>
 ```
 
-- `Field` is the core wrapper for a single field.
-- `FieldContent` is a flex column that groups label and description. Not required if you have no description.
-- Wrap related fields with `FieldGroup`, and use `FieldSet` with `FieldLegend` for semantic grouping.
+- One `Field` per control. Stack related fields inside a `FieldGroup`.
+- `FieldLabel htmlFor` must match the control `id` for accessibility.
+- `FieldError` renders nothing when there is no error — keep it mounted; do not
+  conditionally render it.
+- `FieldDescription` is help text only. Show it in **create** mode where an
+  empty field benefits from guidance; hide it in **edit** mode. Never style a
+  `FieldDescription` as an error.
 
-## Form
+## Error state
 
-See the [Form](/docs/forms) documentation for building forms with the `Field` component and [React Hook Form](/docs/forms/react-hook-form) or [Tanstack Form](/docs/forms/tanstack-form).
+Drive the whole block into its error treatment with `data-invalid` on `Field`
+and `aria-invalid` on the control; let `FieldError` render the message.
 
-## Examples
-
-### Input
-
-<ComponentPreview styleName="radix-nova" name="field-input" />
-
-### Textarea
-
-<ComponentPreview styleName="radix-nova" name="field-textarea" />
-
-### Select
-
-<ComponentPreview styleName="radix-nova" name="field-select" />
-
-### Slider
-
-<ComponentPreview styleName="radix-nova" name="field-slider" />
-
-### Fieldset
-
-<ComponentPreview styleName="radix-nova" name="field-fieldset" />
-
-### Checkbox
-
-<ComponentPreview
-  styleName="radix-nova"
-  name="field-checkbox"
-  previewClassName="h-[32rem]"
-/>
-
-### Radio
-
-<ComponentPreview styleName="radix-nova" name="field-radio" />
-
-### Switch
-
-<ComponentPreview styleName="radix-nova" name="field-switch" />
-
-### Choice Card
-
-Wrap `Field` components inside `FieldLabel` to create selectable field groups. This works with `RadioItem`, `Checkbox` and `Switch` components.
-
-<ComponentPreview styleName="radix-nova" name="field-choice-card" />
-
-### Field Group
-
-Stack `Field` components with `FieldGroup`. Add `FieldSeparator` to divide them.
-
-<ComponentPreview
-  styleName="radix-nova"
-  name="field-group"
-  previewClassName="h-96"
-/>
-
-## RTL
-
-To enable RTL support in shadcn/ui, see the [RTL configuration guide](/docs/rtl).
-
-<ComponentPreview
-  styleName="radix-nova"
-  name="field-rtl"
-  direction="rtl"
-  previewClassName="h-auto p-6"
-/>
-
-## Responsive Layout
-
-- **Vertical fields:** Default orientation stacks label, control, and helper text—ideal for mobile-first layouts.
-- **Horizontal fields:** Set `orientation="horizontal"` on `Field` to align the label and control side-by-side. Pair with `FieldContent` to keep descriptions aligned.
-- **Responsive fields:** Set `orientation="responsive"` for automatic column layouts inside container-aware parents. Apply `@container/field-group` classes on `FieldGroup` to switch orientations at specific breakpoints.
-
-<ComponentPreview
-  styleName="radix-nova"
-  name="field-responsive"
-  previewClassName="h-[650px] p-6 md:h-[500px] md:p-10"
-/>
-
-## Validation and Errors
-
-- Add `data-invalid` to `Field` to switch the entire block into an error state.
-- Add `aria-invalid` on the input itself for assistive technologies.
-- Render `FieldError` immediately after the control or inside `FieldContent` to keep error messages aligned with the field.
-
-```tsx showLineNumbers /data-invalid/ /aria-invalid/
-<Field data-invalid>
+```tsx
+<Field data-invalid={fieldState.invalid}>
   <FieldLabel htmlFor="email">Email</FieldLabel>
-  <Input id="email" type="email" aria-invalid />
-  <FieldError>Enter a valid email address.</FieldError>
+  <Input id="email" type="email" aria-invalid={fieldState.invalid} {...field} />
+  <FieldError errors={[fieldState.error]} />
 </Field>
 ```
 
-## Accessibility
+`FieldError` accepts an `errors` array (e.g. from react-hook-form) or plain
+children, and renders Standard Schema issues (Zod, Valibot, ArkType) directly.
 
-- `FieldSet` and `FieldLegend` keep related controls grouped for keyboard and assistive tech users.
-- `Field` outputs `role="group"` so nested controls inherit labeling from `FieldLabel` and `FieldLegend` when combined.
-- Apply `FieldSeparator` sparingly to ensure screen readers encounter clear section boundaries.
-
-## API Reference
-
-### FieldSet
-
-Container that renders a semantic `fieldset` with spacing presets.
-
-| Prop        | Type     | Default |
-| ----------- | -------- | ------- |
-| `className` | `string` |         |
-
-```tsx
-<FieldSet>
-  <FieldLegend>Delivery</FieldLegend>
-  <FieldGroup>{/* Fields */}</FieldGroup>
-</FieldSet>
-```
-
-### FieldLegend
-
-Legend element for a `FieldSet`. Switch to the `label` variant to align with label sizing.
-
-| Prop        | Type                  | Default    |
-| ----------- | --------------------- | ---------- |
-| `variant`   | `"legend" \| "label"` | `"legend"` |
-| `className` | `string`              |            |
-
-```tsx
-<FieldLegend variant="label">Notification Preferences</FieldLegend>
-```
-
-The `FieldLegend` has two variants: `legend` and `label`. The `label` variant applies label sizing and alignment. Handy if you have nested `FieldSet`.
-
-### FieldGroup
-
-Layout wrapper that stacks `Field` components and enables container queries for responsive orientations.
-
-| Prop        | Type     | Default |
-| ----------- | -------- | ------- |
-| `className` | `string` |         |
-
-```tsx
-<FieldGroup className="@container/field-group flex flex-col gap-6">
-  <Field>{/* ... */}</Field>
-  <Field>{/* ... */}</Field>
-</FieldGroup>
-```
-
-### Field
-
-The core wrapper for a single field. Provides orientation control, invalid state styling, and spacing.
-
-| Prop           | Type                                         | Default      |
-| -------------- | -------------------------------------------- | ------------ |
-| `orientation`  | `"vertical" \| "horizontal" \| "responsive"` | `"vertical"` |
-| `className`    | `string`                                     |              |
-| `data-invalid` | `boolean`                                    |              |
-
-```tsx
-<Field orientation="horizontal">
-  <FieldLabel htmlFor="remember">Remember me</FieldLabel>
-  <Switch id="remember" />
-</Field>
-```
-
-### FieldContent
-
-Flex column that groups control and descriptions when the label sits beside the control. Not required if you have no description.
-
-| Prop        | Type     | Default |
-| ----------- | -------- | ------- |
-| `className` | `string` |         |
-
-```tsx
-<Field>
-  <Checkbox id="notifications" />
-  <FieldContent>
-    <FieldLabel htmlFor="notifications">Notifications</FieldLabel>
-    <FieldDescription>Email, SMS, and push options.</FieldDescription>
-  </FieldContent>
-</Field>
-```
-
-### FieldLabel
-
-Label styled for both direct inputs and nested `Field` children.
-
-| Prop        | Type      | Default |
-| ----------- | --------- | ------- |
-| `className` | `string`  |         |
-| `asChild`   | `boolean` | `false` |
-
-```tsx
-<FieldLabel htmlFor="email">Email</FieldLabel>
-```
-
-### FieldTitle
-
-Renders a title with label styling inside `FieldContent`.
-
-| Prop        | Type     | Default |
-| ----------- | -------- | ------- |
-| `className` | `string` |         |
-
-```tsx
-<FieldContent>
-  <FieldTitle>Enable Touch ID</FieldTitle>
-  <FieldDescription>Unlock your device faster.</FieldDescription>
-</FieldContent>
-```
-
-### FieldDescription
-
-Helper text slot that automatically balances long lines in horizontal layouts.
-
-| Prop        | Type     | Default |
-| ----------- | -------- | ------- |
-| `className` | `string` |         |
-
-```tsx
-<FieldDescription>We never share your email with anyone.</FieldDescription>
-```
-
-### FieldSeparator
-
-Visual divider to separate sections inside a `FieldGroup`. Accepts optional inline content.
-
-| Prop        | Type     | Default |
-| ----------- | -------- | ------- |
-| `className` | `string` |         |
-
-```tsx
-<FieldSeparator>Or continue with</FieldSeparator>
-```
-
-### FieldError
-
-Accessible error container that accepts children or an `errors` array (e.g., from `react-hook-form`).
-
-| Prop        | Type                                       | Default |
-| ----------- | ------------------------------------------ | ------- |
-| `errors`    | `Array<{ message?: string } \| undefined>` |         |
-| `className` | `string`                                   |         |
-
-```tsx
-<FieldError errors={errors.username} />
-```
-
-When the `errors` array contains multiple messages, the component renders a list automatically.
-
-`FieldError` also accepts issues produced by any validator that implements [Standard Schema](https://standardschema.dev/), including Zod, Valibot, and ArkType. Pass the `issues` array from the schema result directly to render a unified error list across libraries.
+For wiring a full form with `useForm` + `Controller` + `zodResolver`, see
+`docs/references/react-hook-form-example.md`. For card-page fields, use the
+`CardField` family instead — see `docs/card-kernel.md`.

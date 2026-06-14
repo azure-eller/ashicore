@@ -17,11 +17,28 @@ For code-changing work, never edit files in `/home/aeller/Projects/erp` (the rep
 
 ## Creating a worktree
 
+For normal agent work, create the worktree from the repo root, enter it, and let
+the workflow command prepare the environment:
+
 ```bash
 git worktree add .worktrees/<branch-name> -b <branch-name>
 cd .worktrees/<branch-name>
+pnpm boot
+```
+
+`pnpm boot` installs dependencies when needed, starts local Postgres, creates the
+worktree-local database, applies migrations, prepares the test session, and
+starts a background dev server.
+
+For live triage, use `pnpm sandbox [path]` instead of `pnpm boot`; sandbox runs
+boot and then loads the Paonia production-copy review data.
+
+Manual setup is still available for maintainers:
+
+```bash
 pnpm install
 pnpm db:local:setup
+pnpm dev
 ```
 
 Worktrees fall back to the repo-root `.env.local` for shared settings (auth secrets, app URLs), but DB URLs must come from the worktree `.env.local` created by `pnpm db:local:setup`. This prevents a new worktree from silently pointing migrations at a shared remote Neon branch.
@@ -29,6 +46,15 @@ Worktrees fall back to the repo-root `.env.local` for shared settings (auth secr
 Local Postgres uses one shared server, but `pnpm db:local:setup` creates one database per worktree. Run `pnpm dev:seed-user` once per new worktree DB to load Paonia-style data into fake org `test-paonia-soil-co`.
 
 Full DB workflow lives in `docs/database.md` under "Local Worktree Database Workflow."
+
+## Local data and orgs
+
+| Command | Data/session prepared | Use for |
+|---------|-----------------------|---------|
+| `pnpm boot` | Isolated `test-org` session and a background dev server | Feature work, scratch tests, fast/slow Playwright lanes |
+| `pnpm sandbox [path]` | Everything from `boot`, plus Paonia production-copy data in `test-paonia-soil-co` and an authenticated review browser | Live-data triage and UI screenshot review |
+| `pnpm review <path> --slow <domains>` | Refreshes boot, seeds Paonia review data, validates, opens browser, and prepares the PR | Finishing feature or docs work |
+| `pnpm dev:seed-user` | Manual local login data for `test@test.com` in `test-paonia-soil-co` | Maintainer/manual dev outside the agent workflow |
 
 ## Keeping worktrees current
 

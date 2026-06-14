@@ -45,7 +45,7 @@ When converting existing PRs into Linear issues:
 - Label every imported PR with `GitHub PR`.
 - Attach the PR URL as a Linear link.
 - Copy enough PR context to make the issue useful: status, branch, author, summary, validation, and known risks.
-- Use `Backburner` + Low priority for parked draft PRs.
+- Use `Backlog` + Low priority for parked draft PRs.
 - Use Medium priority for normal ready PRs unless the user specifies otherwise.
 
 Do not create a second Linear issue when an existing issue already links the PR. Update the existing issue instead.

@@ -1,17 +1,54 @@
 ---
 title: API Reference
-description: A starter map for ERP resources and actions that should become formal public or agent-facing API docs.
+description: Current API and agent-access boundaries for Ashicore resources and actions.
 section: Reference
 order: 350
 ---
 
-This is a product-facing reference map, not a finalized public API contract.
+Ashicore's browser app uses internal REST routes. External agent access is
+narrower: read operational context through the agent surfaces, and stage allowed
+changes for user review. Do not treat inventory quantity as a writable field.
+
+## Shared response rules
+
+API payloads preserve exact decimals as strings. Exact quantities, costs, and
+money values should not be coerced to JavaScript numbers.
+
+Field validation failures use:
+
+```json
+{ "error": "Ship date is required", "errors": { "shipDate": ["Ship date is required"] } }
+```
+
+General failures use:
+
+```json
+{ "error": "Purchase order not found" }
+```
+
+## Agent access
+
+The in-app agent can query live ERP facts through a read-only SQL tool scoped to
+the current organization. Queries must be `SELECT` statements and should include
+`LIMIT`.
+
+For inventory quantities, agents should use the canonical
+`agent_query.items_stock` view. It carries the inventory-kernel math for
+on-hand, demand, available, and expected quantities. Agents should not recompute
+availability directly from lot rows.
+
+Agent writes are staged, not committed. The agent lists allowed actions,
+describes the input schema, validates a draft, and stages it for user review.
+The user reviews, edits, and approves before the app commits anything.
+
+The remote MCP surface exposes read-only production-planning context through the
+agent access settings and token flow.
 
 ## Sales orders
 
 Sales orders represent customer demand before and during fulfillment.
 
-Common actions: create order, edit order, allocate stock, create shipment, ship order, delete draft or eligible order.
+Common actions: create order, edit eligible open order, allocate stock, create shipment, ship order, delete eligible open order.
 
 Important entities: sales orders, sales order lines, shipments, shipment lines, customers, addresses, allocations.
 
@@ -35,4 +72,4 @@ Important entities: manufacturing orders, recipe snapshots, material lines, outp
 
 Inventory resources expose item cards, lots, ledger entries, balances, stocktakes, demand coverage, and expected supply.
 
-Any future public API must preserve inventory invariants rather than exposing direct quantity mutation.
+Any public or agent-facing API must preserve inventory invariants rather than exposing direct quantity mutation. Stock, lots, costs, demand, expected supply, dispositions, and physical execution go through the inventory/domain paths.

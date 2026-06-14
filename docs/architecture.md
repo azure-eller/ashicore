@@ -33,7 +33,7 @@ Page component
   → TanStack Query (useQuery / useMutation)
     → fetch to API route (app/api/...)
       → apiHandler wrapper (lib/api/handler.ts)
-        → DAL query function (app/(dashboard)/inventory/queries.ts)
+        → DAL query function (lib/inventory/queries/)
           → withAuthedOrgContext (lib/dal/auth.ts)
             → withOrgContext sets RLS (lib/db/with-org-context.ts)
               → Drizzle ORM query
@@ -68,11 +68,11 @@ Page component
 | Zod schemas | `lib/schemas/` |
 | API handler wrapper | `lib/api/handler.ts` |
 | shadcn component config | `components.json` |
-| Canonical form example | `app/(dashboard)/inventory/materials/material-form.tsx` |
+| Canonical card example | `app/(dashboard)/inventory/materials/[id]/material-card.tsx` |
 | Canonical table example | `app/(dashboard)/inventory/data-table.tsx` |
-| Sales form example | `app/(dashboard)/sales/order-form.tsx` |
+| Sales card example | `app/(dashboard)/sales/orders/[id]/order-card.tsx` |
 | Sales table example | `app/(dashboard)/sales/orders-table.tsx` |
-| Manufacturing form example | `app/(dashboard)/manufacturing/manufacturing-order-form.tsx` |
+| Manufacturing card example | `app/(dashboard)/manufacturing/orders/[id]/manufacturing-order-card.tsx` |
 | Manufacturing table example | `app/(dashboard)/manufacturing/orders-table.tsx` |
 | Purchasing card example | `app/(dashboard)/purchasing/purchase-order-card.tsx` |
 | Purchasing table example | `app/(dashboard)/purchasing/orders-table.tsx` |

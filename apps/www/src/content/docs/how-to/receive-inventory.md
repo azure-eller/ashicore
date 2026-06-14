@@ -32,7 +32,9 @@ Ashicore writes one purchase receipt inventory event per received lot. The recei
 
 The system also releases the matching expected supply. A purchase order for 100 gallons that receives 40 gallons should now show 40 received and 60 remaining expected.
 
-Receipt lot cost is saved at receipt time. Later edits to purchase order costs should not rewrite already received lot cost.
+Receipt lot cost is saved at receipt time. Later landed-cost edits may create
+controlled revaluation events for eligible on-hand tracked lots; they should not
+silently rewrite receipt history.
 
 ## Partial receipts
 
@@ -54,7 +56,9 @@ Receiving against the wrong unit creates bad cost and quantity history. Check wh
 
 Receiving before arrival hides purchasing problems and can make sales or manufacturing believe stock is usable.
 
-Editing a purchase order after partial receipt should affect future receipts only. It should not rewrite lots that already exist.
+Editing quantities after partial receipt should affect future receipts only.
+Landed-cost edits use the controlled revaluation path instead of silently
+rewriting lots that already exist.
 
 ## Related docs
 

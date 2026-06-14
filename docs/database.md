@@ -142,11 +142,11 @@ Before applying that migration to production, verify `SHOW timezone;` and repres
 |------------|----------------|
 | Master data (items, units, customers, suppliers) | Soft delete: `deletedAt = new Date()` |
 | Line / detail tables (BOM lines) | Hard delete |
-| Sales order lines | Hard delete + replace on draft edits |
-| Purchase order lines | Hard delete + replace on draft edits |
-| Purchase orders | Soft delete on `draft`, `received`, or `cancelled` only |
-| Manufacturing orders | Soft delete on `draft`, `completed`, or `cancelled` only |
-| Manufacturing ingredient rows | Hard delete + replace on draft edits |
+| Sales order lines | Hard delete + replace on eligible open-order edits |
+| Purchase order lines | Hard delete + replace on draft edits; received lines are protected |
+| Purchase orders | Soft delete on `draft` or unreceived `ordered` only |
+| Manufacturing orders | Soft delete on `open` only while inventory effects can be reversed |
+| Manufacturing ingredient rows | Hard delete + replace before execution starts |
 
 Filter soft-deleted records with `isNull`:
 
@@ -160,7 +160,7 @@ Never hard-delete master data via API.
 
 Sales order lines follow the same replace-in-transaction pattern as BOM rows:
 
-- editing a draft order deletes all existing lines, then inserts the fresh set
+- editing an eligible open order deletes all existing lines, then inserts the fresh set
 - deleting an order soft-deletes only the order row; the saved lines remain attached to that order for history
 - demand coverage ignores soft-deleted orders
 
@@ -172,7 +172,7 @@ Manufacturing now uses a header/ingredient/batch/allocation split:
 - `manufacturing.manufacturing_order_ingredients` stores copied ingredient snapshots plus planned, picked, and actual quantities
 - `manufacturing.manufacturing_order_batches` stores execution batches for batch-mode orders
 - `manufacturing.manufacturing_pick_allocations` stores the FIFO lot allocations captured at pick time
-- `salesOrderLineId` is stored as a plain UUID snapshot reference, not an FK, because draft sales-order edits replace line rows
+- `salesOrderLineId` is stored as a plain UUID snapshot reference, not an FK, because sales-order edits replace line rows
 
 Draft manufacturing edits still replace ingredient rows in one transaction:
 
@@ -278,13 +278,13 @@ For any change that touches:
 use this workflow before calling the change done:
 
 1. Run the normal fast lane: `pnpm test`
-2. Run the affected slow domain specs:
-   - inventory: `pnpm test:e2e:inventory:slow`
-   - purchasing: `pnpm test:e2e:purchasing:slow`
-   - manufacturing: `pnpm test:e2e:manufacturing:slow`
-   - sales: `pnpm test:e2e:sales:slow`
-   - stocktake: `pnpm test:e2e:stocktake:slow`
-   - cross-domain inventory work: `pnpm test:e2e:slow`
+2. Run the affected slow domain story (there is no inventory slow lane — route by workflow):
+   - receiving / expected supply: `pnpm test:slow:purchasing`
+   - manufacturing stock or output cost: `pnpm test:slow:manufacturing`
+   - stocktake / reconciliation: `pnpm test:slow:stocktake`
+   - sales shipment / consumption: `pnpm test:slow:sales`
+   - kernel / projection / math: `pnpm test:fast:inventory`
+   - cross-domain: `pnpm test:slow`
 3. Run `pnpm verify:inventory`
 
 `pnpm verify:inventory` is the standard post-test inventory integrity check:
@@ -683,4 +683,4 @@ export const itemSkuIdx = uniqueIndex("items_sku_idx")
 - Schema pattern (RLS, policies): `lib/db/schema/items.ts`
 - DAL auth wrapper: `lib/dal/auth.ts`
 - Org context setter: `lib/db/with-org-context.ts`
-- All inventory DAL queries: `app/(dashboard)/inventory/queries.ts`
+- All inventory DAL queries: `lib/inventory/queries/`

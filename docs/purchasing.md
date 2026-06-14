@@ -154,7 +154,6 @@ Valid transitions:
 - receive `partial` -> `received`
 - soft-delete `draft`
 - soft-delete `ordered`
-- soft-delete `received`
 
 Invalid transitions:
 

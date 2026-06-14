@@ -54,6 +54,11 @@ Allowed transitions:
 
 No revert-to-open in v1.
 
+Only `open` and `done` are persisted top-level statuses. Elsewhere this doc uses
+execution-phase words for an open order: *draft* (before release) and *released*
+(after release); *complete* means the transition to `done`, and *cancel* means
+soft-deleting an open order.
+
 Deleting an open manufacturing order releases expected supply and ingredient
 demand, and reverses picked ingredient state in the same
 transaction. Completed orders, completed batches, and produced lots block
@@ -231,7 +236,6 @@ Discrete completion can be done incrementally from the execution screen:
 - the first output creates the produced lot; later output appends to that same lot
 - logged output consumes ingredients proportionally to planned output
 - the order remains `released` until the worker closes it
-- the mobile MO execution handoff at `/home/aeller/Downloads/mobile MO execution.zip` is the UI source of truth; implement Option A only
 
 One-shot completion remains available as the complete-all path:
 
@@ -313,11 +317,11 @@ Produced output still cannot be cancelled in v1.
 
 Manufacturing may optionally link one sales order line:
 
-- eligible lines come from non-deleted `draft` or `confirmed` sales orders
+- eligible lines come from non-deleted, open sales orders
 - the linked line must match the selected finished product
 - the link is informational only; it does not create or complete anything in sales
 - the link blocks duplicate sales-driven MO creation for that line
-- linked MOs in `draft`, `released`, or `completed` keep claiming the line; only `cancelled` frees it
+- a linked MO keeps claiming the line while it exists (open or done); deleting (cancelling) the MO frees it
 
 `salesOrderLineId` stays a snapshot reference because sales draft edits replace line rows. Draft manufacturing-order edits should preserve or relink unchanged snapshots when possible.
 
@@ -325,7 +329,7 @@ Manufacturing may optionally link one sales order line:
 
 Inventory items cannot be soft-deleted if they are used by an active manufacturing order:
 
-- the finished product on a `draft` or `released` order blocks delete
-- any ingredient row on a `draft` or `released` order blocks delete
+- the finished product on an open order blocks delete
+- any ingredient row on an open order blocks delete
 
-Completed and cancelled manufacturing orders rely on snapshots for history, so item deletion may proceed once no active manufacturing order references the item.
+Done or deleted manufacturing orders rely on snapshots for history, so item deletion may proceed once no active manufacturing order references the item.

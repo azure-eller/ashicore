@@ -122,7 +122,7 @@ Invalid transitions:
 - deleting an open order soft-deletes the order row, deletes linked open
   manufacturing orders created specifically for that sales order, and releases
   open demand
-- editing a draft order hard-deletes all existing lines, then inserts a fresh set
+- editing an eligible open order hard-deletes all existing lines, then inserts a fresh set
 - shipped fulfillment, finalized invoices, accounting pushes, completed
   manufacturing output, and finalized inventory consumption block deletion
 - active list and selector reads exclude soft-deleted rows
@@ -163,7 +163,7 @@ controls which open orders claim stock first; exact lots are chosen when shippin
 
 - allocation demand includes only non-deleted sales order lines on `open` orders
 - `done` orders are excluded from allocation demand
-- draft sales orders must not create demand or hold stock
+- non-open sales orders must not create demand or hold stock
 - sales order line demand is `remaining_to_ship`
 - legacy planned shipment rows do not own allocation demand
 - available inventory-lot sources come from current available lot balances for

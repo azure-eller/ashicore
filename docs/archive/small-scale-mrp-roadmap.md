@@ -1,11 +1,10 @@
 ---
-read_when:
-  - Planning next repository milestones
-  - Deciding what "done enough" means for a small-scale MRP rollout
-  - Choosing which features to build now vs defer
+status: archived
 ---
 
 # Small-Scale MRP Roadmap
+
+> **Archived — historical record, not current reference.** Substantially shipped; the "deferred" list is out of date (e.g. multi-location has since landed). See `docs/archive/README.md`.
 
 ## Target Operating Model
 

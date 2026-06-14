@@ -13,11 +13,11 @@ Start with the customer, project or job if relevant, line items, ordered quantit
 
 Saved orders snapshot customer, item, SKU, and unit names. That means historical orders remain readable even if a customer or item is renamed later.
 
-Draft or open orders can be edited while they have no shipped fulfillment history. Once stock has shipped, the order becomes history-driven.
+Open orders can be edited while they have no shipped fulfillment history. Once stock has shipped, the order becomes history-driven.
 
 ## Confirm demand
 
-Confirmed or partially shipped sales order lines contribute open demand. Draft, shipped, cancelled, and deleted orders should not create open demand.
+Non-deleted open sales order lines contribute demand. Done and deleted orders do not create open demand.
 
 Ashicore allows overselling at order-entry time. The stock-consuming step is shipping, not order creation. This keeps sales entry fast while preserving inventory truth.
 

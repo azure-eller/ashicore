@@ -7,7 +7,7 @@ order: 130
 
 ## User problem
 
-Operators need planning visibility without polluting the live stock picture. A draft order is useful, but it should not be treated the same as confirmed customer demand or released production.
+Operators need planning visibility without polluting the live stock picture. A draft recommendation is useful, but it should not be treated the same as open customer demand or released production.
 
 ## Mental model
 

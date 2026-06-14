@@ -1,6 +1,6 @@
 ---
 title: ERP Overview
-description: How Ashicore connects inventory, purchasing, manufacturing, sales, planning, and accounting handoff.
+description: How Ashicore connects inventory, purchasing, manufacturing, sales, and accounting handoff.
 section: Start here
 order: 10
 ---
@@ -25,7 +25,7 @@ Purchasing, manufacturing, sales, and stocktakes all talk to the inventory kerne
 A normal make-and-ship business day usually looks like this:
 
 1. Sales enters customer demand as sales orders.
-2. Planning shows which products are short after on-hand stock and open supply are considered.
+2. Demand coverage shows which products are short once on-hand stock and open supply are considered.
 3. Purchasing creates or imports purchase orders for materials.
 4. Receiving turns arrived purchase order lines into lot-backed inventory.
 5. Manufacturing creates orders from recipes, releases expected output, picks ingredients, and completes product lots.
@@ -58,8 +58,6 @@ Use available quantity to answer "what can I promise right now?"
 Use expected quantity to answer "what is already on its way from purchasing or production?"
 
 Use demand coverage to answer "which sales or production demand is covered by current or expected supply?"
-
-Use planning to answer "what should we buy or make next?"
 
 ## What Ashicore deliberately does not do yet
 

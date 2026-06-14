@@ -12,17 +12,17 @@ The design docs exist to explain intent. Code owns values.
 ## Rules
 
 1. **Code owns values; docs own intent.** App-wide token values live in [app/styles/theme.css](../../app/styles/theme.css). Docs may name tokens and explain when to use them, but must not restate their raw values.
-2. **Separate by time-scale.** Living reference stays here. Decisions are append-only ADRs. Completed handoffs and prototypes live in [archive](./archive/).
+2. **Separate by time-scale.** Living reference stays here. Decisions are append-only ADRs. Completed handoffs and prototypes live in [archive](../archive/).
 3. **Name by stable concern.** Living files use topic names, not numeric prefixes. ADRs are numbered because they are immutable records.
 
 ## Living Docs
 
 | File | Owns |
 |---|---|
-| [foundations.md](./foundations.md) | Design philosophy: density, color semantics, typography roles, corners, motion |
-| [tokens.md](./tokens.md) | The token source-of-truth rule and how to inspect runtime tokens |
+| [foundations.md](./foundations.md) | Design philosophy and the token source-of-truth rule: density, color semantics, typography roles, corners, motion, tokens |
 | [components.md](./components.md) | Reusable UI primitives and when to use them |
-| [patterns.md](./patterns.md) | Forms, tables, cards, dialogs, status, empty/loading states |
+
+Composition patterns (forms, tables, cards, dialogs, status, loading states) live in [`../ui-patterns.md`](../ui-patterns.md).
 
 ## Decision Log
 
