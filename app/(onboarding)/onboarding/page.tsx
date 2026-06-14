@@ -20,7 +20,7 @@ export default async function OnboardingPage({
     redirect("/");
   }
 
-  // Pass the plan intent only when the URL actually carries it. On the Stripe
+  // Pass the billing selection only when the URL actually carries it. On the Stripe
   // return (`?checkout=success`) there is no plan param, so we leave it undefined
   // and let the persisted onboarding session remain the source of truth.
   const { plan } = await searchParams;

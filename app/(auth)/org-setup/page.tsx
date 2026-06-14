@@ -44,7 +44,7 @@ export default async function Page({
       organizations={organizations}
       plan={plan ?? undefined}
       // A brand-new owner (no orgs yet) always continues into onboarding; existing
-      // signed-in users only onboard when they explicitly carried a plan intent
+      // signed-in users only onboard when they explicitly carried a billing selection
       // (preserves the existing-user redirect fix).
       continueToOnboarding={plan != null || organizations.length === 0}
     />
