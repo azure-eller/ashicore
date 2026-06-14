@@ -23,7 +23,6 @@ async function getManufacturingOrderCompletionTarget(id: string) {
       .select({
         id: manufacturingOrders.id,
         manufacturingMode: manufacturingOrders.manufacturingMode,
-        status: manufacturingOrders.status,
       })
       .from(manufacturingOrders)
       .where(and(eq(manufacturingOrders.id, id), isNull(manufacturingOrders.deletedAt)));
