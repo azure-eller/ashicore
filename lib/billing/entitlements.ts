@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { eq, isNull, sql, and } from "drizzle-orm";
 import { items, organization } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
@@ -73,8 +74,8 @@ function scheduleFeatureGateHitAlert({
   plugin: BillingPlugin;
   route?: string;
 }) {
-  setTimeout(() => {
-    void (async () => {
+  const deliver = async () => {
+    try {
       const { sendFounderAlert } = await import("@/lib/internal-alerts");
       await sendFounderAlert({
         kind: "feature_gate_hit",
@@ -87,14 +88,20 @@ function scheduleFeatureGateHitAlert({
           { label: "Route", value: route ?? null },
         ],
       });
-    })().catch((error) => {
+    } catch (error) {
       captureAppError(error, {
         source: "billing_feature_gate_alert",
         operation: plugin,
         route,
       });
-    });
-  }, 0);
+    }
+  };
+
+  try {
+    after(deliver);
+  } catch {
+    void deliver();
+  }
 }
 
 // Pure read of the gate decision — no logging, no throwing. UI mirrors use

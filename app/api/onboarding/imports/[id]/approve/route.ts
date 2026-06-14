@@ -16,10 +16,9 @@ import {
 } from "@/lib/onboarding/session";
 import { getBillingStateByOrgId } from "@/lib/billing/dal";
 import {
-  billingSelectionLookupKey,
   isPaidBillingSelection,
+  selectionEntitlementsMet,
 } from "@/lib/billing/plan-intent";
-import { getBillingOffer } from "@/lib/billing/types";
 import { env } from "@/lib/env";
 
 export const runtime = "nodejs";
@@ -36,12 +35,7 @@ export const POST = apiHandler(async (request: Request, context: unknown) => {
   const onboarding = await getCurrentOnboardingSession();
   if (isPaidBillingSelection(onboarding?.selectedPlan)) {
     const billing = await getBillingStateByOrgId(member.orgId);
-    const lookupKey = billingSelectionLookupKey(onboarding?.selectedPlan);
-    const offer = lookupKey ? getBillingOffer(lookupKey) : null;
-    const hasOfferEntitlements =
-      offer != null &&
-      offer.plugins.every((plugin) => billing?.entitlements.includes(plugin));
-    if (!hasOfferEntitlements) {
+    if (!selectionEntitlementsMet(onboarding?.selectedPlan, billing)) {
       return jsonError("Complete payment to import your data.", 402);
     }
   }

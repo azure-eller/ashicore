@@ -11,11 +11,8 @@ export const SIGN_IN_URL = import.meta.env.DEV
 export const SIGN_UP_URL = import.meta.env.DEV
   ? `${APP_ORIGIN}/sign-up`
   : "/sign-up";
-export const FOOD_BEV_SIGN_UP_URL = `${SIGN_UP_URL}?plan=package_food_bev`;
 export const SOIL_LANDSCAPE_SIGN_UP_URL = `${SIGN_UP_URL}?plan=package_soil_landscape`;
-export const WHOLESALE_B2B_SIGN_UP_URL = `${SIGN_UP_URL}?plan=package_wholesale_b2b`;
 export const EVERYTHING_SIGN_UP_URL = `${SIGN_UP_URL}?plan=everything`;
-export const PRO_SIGN_UP_URL = SOIL_LANDSCAPE_SIGN_UP_URL;
 
 export const navItems = [
   { label: "Pricing", href: "/pricing" },
