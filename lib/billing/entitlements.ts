@@ -62,6 +62,41 @@ export type FeatureAccess = {
   orgName?: string;
 };
 
+function scheduleFeatureGateHitAlert({
+  orgId,
+  orgName,
+  plugin,
+  route,
+}: {
+  orgId: string;
+  orgName?: string;
+  plugin: BillingPlugin;
+  route?: string;
+}) {
+  setTimeout(() => {
+    void (async () => {
+      const { sendFounderAlert } = await import("@/lib/internal-alerts");
+      await sendFounderAlert({
+        kind: "feature_gate_hit",
+        subject: `Ashicore feature gate hit: ${BILLING_PLUGIN_LABELS[plugin]}`,
+        idempotencyKey: `founder-alert-feature-gate-${orgId}-${plugin}-${route ?? "unknown"}`,
+        fields: [
+          { label: "Organization", value: orgName ?? null },
+          { label: "Organization ID", value: orgId },
+          { label: "Plugin", value: BILLING_PLUGIN_LABELS[plugin] },
+          { label: "Route", value: route ?? null },
+        ],
+      });
+    })().catch((error) => {
+      captureAppError(error, {
+        source: "billing_feature_gate_alert",
+        operation: plugin,
+        route,
+      });
+    });
+  }, 0);
+}
+
 // Pure read of the gate decision — no logging, no throwing. UI mirrors use
 // this so upsell states match exactly what the server gates would do.
 export async function getFeatureAccessInTx(
@@ -140,26 +175,21 @@ export async function assertFeatureAccessInTx(
   }
 
   if (access.locked) {
+    const route = context?.route;
     console.warn(
       "[billing-gate-hit]",
       JSON.stringify({
         orgId,
         orgName: access.orgName ?? null,
         plugin,
-        route: context?.route ?? null,
+        route: route ?? null,
       })
     );
-    const { sendFounderAlert } = await import("@/lib/internal-alerts");
-    await sendFounderAlert({
-      kind: "feature_gate_hit",
-      subject: `Ashicore feature gate hit: ${BILLING_PLUGIN_LABELS[plugin]}`,
-      idempotencyKey: `founder-alert-feature-gate-${orgId}-${plugin}-${context?.route ?? "unknown"}`,
-      fields: [
-        { label: "Organization", value: access.orgName ?? null },
-        { label: "Organization ID", value: orgId },
-        { label: "Plugin", value: BILLING_PLUGIN_LABELS[plugin] },
-        { label: "Route", value: context?.route ?? null },
-      ],
+    scheduleFeatureGateHitAlert({
+      orgId,
+      orgName: access.orgName,
+      plugin,
+      route,
     });
     throw new FeatureEntitlementError(plugin);
   }
