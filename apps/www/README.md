@@ -21,6 +21,8 @@ Vercel project settings for the public site:
 - Build command: `npm run build`
 - Output directory: `dist`
 
+`postcss.config.mjs` is an empty config kept on purpose: with the root directory scoped to `apps/www`, it shadows the repo-root `postcss.config.mjs` so the build does not inherit the ERP app's `@tailwindcss/postcss` plugin (which is not installed here). Astro styling goes through `@tailwindcss/vite`, not PostCSS.
+
 `vercel.json` contains static rewrites to `https://erp-orcin-pi.vercel.app`. Replace that host with the ERP project’s stable production origin before assigning `ashicore.app` to this Vercel project. Do not point rewrites back to `https://ashicore.app`.
 
 ## Route Ownership
