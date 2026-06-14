@@ -8,6 +8,7 @@ import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
 import { lockManufacturingPriorityQueueInTx } from "@/lib/manufacturing-priority-lock";
 import { beginInventoryOperationInTx, deriveInventoryIdempotencyKey, finishInventoryOperationInTx, getManufacturingIngredientDemandRowsInTx, produceManufacturedStockInTx, reconcileIngredientActualsInTx, releaseIngredientDemandForManufacturingInTx } from "@/lib/inventory/kernel";
 import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
+import { notifyManufacturingOrderCompleted } from "@/lib/notifications/manufacturing";
 import type { CompleteManufacturingOrder } from "@/lib/schemas/manufacturing-orders";
 import { buildIngredientActualsMap, completeManufacturingBatch, getPickAllocationTotalsInTx, releaseRemainingExpectedOutputInTx } from "./batches";
 import { ManufacturingError } from "./errors";
@@ -32,6 +33,16 @@ async function getManufacturingOrderCompletionTarget(id: string) {
 
     return order;
   });
+}
+
+async function notifyIfManufacturingOrderJustCompleted(result: {
+  id: string;
+  completedOrder: boolean;
+  orgId: string | null;
+}) {
+  if (result.completedOrder && result.orgId) {
+    await notifyManufacturingOrderCompleted(result.orgId, result.id);
+  }
 }
 
 async function completeBatchModeManufacturingOrder(
@@ -154,7 +165,7 @@ async function completeDiscreteManufacturingOrder(
   id: string,
   payload: CompleteManufacturingOrder,
   options?: { idempotencyKey?: string; ingredientTrackedLotDefault?: "unbatched" }
-): Promise<{ id: string }> {
+): Promise<{ id: string; completedOrder: boolean; orgId: string | null }> {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
     await lockManufacturingPriorityQueueInTx(tx, orgId);
 
@@ -166,7 +177,7 @@ async function completeDiscreteManufacturingOrder(
     });
 
     if (replay.replayed) {
-      return replay.result;
+      return { ...replay.result, completedOrder: false, orgId: null };
     }
 
     const order = await getLockedManufacturingOrderInTx(tx, id);
@@ -223,7 +234,7 @@ async function completeDiscreteManufacturingOrder(
         result: completed,
       });
 
-      return completed;
+      return { ...completed, completedOrder: true, orgId };
     }
 
     if (payload.actualQuantity == null) {
@@ -431,7 +442,7 @@ async function completeDiscreteManufacturingOrder(
       result: completed,
     });
 
-    return completed;
+    return { ...completed, completedOrder: true, orgId };
   });
 }
 
@@ -443,8 +454,11 @@ export async function completeManufacturingOrder(
   const order = await getManufacturingOrderCompletionTarget(id);
 
   if (order.manufacturingMode === "batch") {
-    return completeBatchModeManufacturingOrder(id, payload, options);
+    const completed = await completeBatchModeManufacturingOrder(id, payload, options);
+    return completed;
   }
 
-  return completeDiscreteManufacturingOrder(id, payload, options);
+  const completed = await completeDiscreteManufacturingOrder(id, payload, options);
+  await notifyIfManufacturingOrderJustCompleted(completed);
+  return { id: completed.id };
 }

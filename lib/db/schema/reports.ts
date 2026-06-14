@@ -184,11 +184,11 @@ export const notifications = reportingSchema
       index("notifications_entity_idx").on(table.entityType, table.entityId),
       check(
         "notifications_type_check",
-        sql`${table.type} IN ('daily_manufacturing_report', 'manufacturing_order_created')`
+        sql`${table.type} IN ('daily_manufacturing_report', 'manufacturing_order_created', 'manufacturing_order_completed', 'purchase_order_received')`
       ),
       check(
         "notifications_entity_type_check",
-        sql`${table.entityType} IN ('report_run', 'manufacturing_order')`
+        sql`${table.entityType} IN ('report_run', 'manufacturing_order', 'purchase_order')`
       ),
       check(
         "notifications_delivery_status_check",
@@ -231,7 +231,7 @@ export const notificationPreferences = reportingSchema
       ),
       check(
         "notification_preferences_event_type_check",
-        sql`${table.eventType} IN ('manufacturing_order_created')`
+        sql`${table.eventType} IN ('manufacturing_order_created', 'manufacturing_order_completed', 'purchase_order_received')`
       ),
       pgPolicy("notification_preferences_org_isolation", {
         for: "all",

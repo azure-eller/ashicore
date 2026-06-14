@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { test, expect } from "../fixtures";
@@ -11,10 +11,12 @@ import {
   inventoryItemBalances,
   inventoryLotBalances,
   items,
+  notifications,
   purchaseOrderAdditionalCosts,
   purchaseOrderLines,
   purchaseOrders,
   suppliers,
+  user,
 } from "../../../lib/db/schema";
 import { groupPurchaseOrderByResolvedSupplier } from "../../../lib/purchasing/resolved-supplier-groups";
 import {
@@ -36,6 +38,7 @@ import {
 const ACCOUNTING_DOCUMENT_PURCHASE_ORDER = "purchase_order";
 const ACCOUNTING_PROVIDER_XERO = "xero";
 const ATTACHMENT_OWNER_PURCHASE_ORDER = "purchase_order";
+const FCM_OUTBOX_DIR = path.join(process.cwd(), ".tmp", "fcm-outbox");
 
 async function writeFastLocalAttachment(storageKey: string, content: string) {
   const root = process.env.LOCAL_ATTACHMENT_DIR
@@ -256,6 +259,23 @@ test.describe("purchasing supply and receipt heartbeat", () => {
   });
 
   test("receipt converts expected supply into physical stock", async ({ db }) => {
+    await rm(FCM_OUTBOX_DIR, { recursive: true, force: true });
+    await mkdir(FCM_OUTBOX_DIR, { recursive: true });
+    const token = `fast-po-receipt-${ts}`;
+    const pref = await testFetch("/api/notification-preferences", {
+      method: "PUT",
+      body: JSON.stringify({
+        eventType: "purchase_order_received",
+        enabled: true,
+      }),
+    });
+    expect(pref.status).toBe(200);
+    const deviceRes = await testFetch("/api/push-devices", {
+      method: "POST",
+      body: JSON.stringify({ token, platform: "android" }),
+    });
+    expect(deviceRes.status).toBe(200);
+
     const material = await createItem({
       itemType: "material",
       name: `Fast PO Receipt Material ${ts}`,
@@ -327,6 +347,49 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       .from(purchaseOrders)
       .where(eq(purchaseOrders.id, order.body.id));
     expect(savedOrder.status).toBe("received");
+
+    const [testUser] = await db
+      .select({ id: user.id })
+      .from(user)
+      .where(eq(user.email, "test@test.com"));
+    const [notification] = await db
+      .select({
+        id: notifications.id,
+        deliveryStatus: notifications.deliveryStatus,
+      })
+      .from(notifications)
+      .where(
+        and(
+          eq(notifications.entityId, order.body.id),
+          eq(notifications.type, "purchase_order_received"),
+          eq(notifications.userId, testUser.id)
+        )
+      );
+    expect(notification.deliveryStatus).toBe("delivered");
+
+    const payloads = await Promise.all(
+      (await readdir(FCM_OUTBOX_DIR)).map((file) =>
+        readFile(path.join(FCM_OUTBOX_DIR, file), "utf8").then(JSON.parse)
+      )
+    );
+    const payload = payloads.find(
+      (p) => p.token === token && p.data?.notificationId === notification.id
+    );
+    expect(payload).toBeDefined();
+    expect(payload.data).toMatchObject({
+      type: "purchase_order_received",
+      entityType: "purchase_order",
+      entityId: order.body.id,
+    });
+
+    const cleanupPref = await testFetch("/api/notification-preferences", {
+      method: "PUT",
+      body: JSON.stringify({
+        eventType: "purchase_order_received",
+        enabled: false,
+      }),
+    });
+    expect(cleanupPref.status).toBe(200);
   });
 
   test("purchase order edit clears additional costs explicitly", async ({ db }) => {

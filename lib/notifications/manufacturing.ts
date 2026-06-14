@@ -61,3 +61,53 @@ export async function notifyManufacturingOrderCreated(
     });
   }
 }
+
+/** Post-commit announcement; never throws (delegates to notify's guarantee). */
+export async function notifyManufacturingOrderCompleted(
+  orgId: string,
+  orderId: string
+): Promise<void> {
+  try {
+    const [order] = await withOrgContext(orgId, (tx) =>
+      tx
+        .select({
+          orderNumber: manufacturingOrders.orderNumber,
+          productName: manufacturingOrders.productName,
+          actualQuantity: manufacturingOrders.actualQuantity,
+          plannedQuantity: manufacturingOrders.plannedQuantity,
+          unitName: manufacturingOrders.unitName,
+        })
+        .from(manufacturingOrders)
+        .where(eq(manufacturingOrders.id, orderId))
+        .limit(1)
+    );
+    if (!order) return;
+
+    const quantity = [
+      formatQuantity(order.actualQuantity ?? order.plannedQuantity),
+      order.unitName,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    await notify(orgId, {
+      type: NOTIFICATION_TYPES.MANUFACTURING_ORDER_COMPLETED,
+      entityType: NOTIFICATION_ENTITY_TYPES.MANUFACTURING_ORDER,
+      entityId: orderId,
+      title: `MO done — ${order.productName}`.slice(0, 255),
+      body: [order.orderNumber, `${quantity} ${order.productName}`.trim()]
+        .filter(Boolean)
+        .join(": "),
+    });
+  } catch (error) {
+    console.error(
+      "[notifications] manufacturing_order_completed failed",
+      { orgId, orderId },
+      error
+    );
+    captureAppError(error, {
+      module: "notifications",
+      operation: "notify:manufacturing_order_completed",
+    });
+  }
+}

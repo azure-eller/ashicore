@@ -10,6 +10,7 @@ import type { Tx } from "@/lib/db/with-org-context";
 import { lockManufacturingPriorityQueueInTx } from "@/lib/manufacturing-priority-lock";
 import { applyExpectedReferenceDeltasInTx, beginInventoryOperationInTx, deriveInventoryIdempotencyKey, finishInventoryOperationInTx, getDefaultInventoryLocationInTx, produceManufacturedStockInTx, reconcileIngredientActualsInTx, releaseIngredientDemandForManufacturingInTx } from "@/lib/inventory/kernel";
 import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
+import { notifyManufacturingOrderCompleted } from "@/lib/notifications/manufacturing";
 import type { CompleteManufacturingBatch, CompleteManufacturingOrder } from "@/lib/schemas/manufacturing-orders";
 import { ManufacturingError } from "./errors";
 import { assertCurrentExecutionBatch, ensureBatchExecutionRowsInTx, getBatchIngredientsInTx, getBatchRowsInTx, getCurrentExecutionBatch, getLockedBatchStateRowsInTx, getOutputQuantityInTx, getPickAllocationsByIngredientInTx, getProducedLotIdInTx, resolveProducedLotForUnitInTx } from "./execution-state";
@@ -232,7 +233,7 @@ export async function completeManufacturingBatch(
   payload: CompleteManufacturingBatch,
   options?: { idempotencyKey?: string }
 ): Promise<{ id: string }> {
-  return withAuthedOrgContext(async (tx, orgId, userId) => {
+  const result = await withAuthedOrgContext(async (tx, orgId, userId) => {
     await lockManufacturingPriorityQueueInTx(tx, orgId);
 
     const replay = await beginInventoryOperationInTx<{ id: string }>(tx, {
@@ -243,7 +244,7 @@ export async function completeManufacturingBatch(
     });
 
     if (replay.replayed) {
-      return replay.result;
+      return { ...replay.result, completedOrder: false, orgId: null };
     }
 
     const order = await getLockedManufacturingOrderInTx(tx, orderId);
@@ -355,7 +356,7 @@ export async function completeManufacturingBatch(
         result,
       });
 
-      return result;
+      return { ...result, completedOrder: allCompleted, orgId };
     }
 
     const ingredientRows = await getBatchIngredientsInTx(tx, batchId);
@@ -627,6 +628,12 @@ export async function completeManufacturingBatch(
       result,
     });
 
-    return result;
+    return { ...result, completedOrder: allCompleted, orgId };
   });
+
+  if (result.completedOrder && result.orgId) {
+    await notifyManufacturingOrderCompleted(result.orgId, orderId);
+  }
+
+  return { id: result.id };
 }
