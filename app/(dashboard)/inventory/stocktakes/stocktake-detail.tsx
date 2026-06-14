@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { itemDetailHref } from "@/lib/inventory/types";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -58,7 +58,6 @@ import {
 } from "@/components/editable-line-data-grid";
 import { InventoryItemLineCellEditor } from "@/components/editable-lines";
 import type { InventoryItemComboboxOption } from "@/components/inventory-item-combobox";
-import { useDraftSaveEngine } from "@/lib/hooks/use-draft-save-engine";
 import { StocktakeStatusBadge } from "./status-badge";
 import { CloneStocktakeReasonDialog } from "./clone-stocktake-reason-dialog";
 import {
@@ -186,41 +185,55 @@ export function StocktakeDetail({
     await queryClient.invalidateQueries({ queryKey: queryKeys.stocktakes.root });
   };
 
-  const saveEngine = useDraftSaveEngine<
-    StocktakeUpdatePayload,
-    StocktakeUpdatePayload,
-    void
-  >({
-    initialDraft: {},
-    initialId: stocktake.id,
-    isSaveable: () => canEditCounts,
-    applyOp: (draft, op) => mergeStocktakeUpdatePayload(draft, op),
-    create: async () => undefined,
-    save: async (_id, _draft, ops) => {
-      for (const { op } of ops) {
-        setActionError(null);
-        try {
-          await apiJson<void>(`/api/stocktakes/${stocktake.id}`, {
-            method: "PUT",
-            body: updateStocktakeCountsSchema.parse(op),
-            fallbackError: "Failed to save counts.",
-          });
-        } catch (caught) {
-          const error = toApiError(caught, "Failed to save counts.");
-          setActionError(error.error ?? "Failed to save counts.");
-          throw error;
-        }
+  // A small sequential save queue: count edits PUT in order, a failed
+  // payload stays at the head for the next flush. This is a fire-and-forget
+  // batch queue, not a document draft — the card kernel does not apply here.
+  const [saveStatus, setSaveStatus] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  const saveQueueRef = useRef<StocktakeUpdatePayload[]>([]);
+  const saveInFlightRef = useRef<Promise<void> | null>(null);
+  const flushCounts = useCallback(() => {
+    if (saveInFlightRef.current) {
+      return saveInFlightRef.current;
+    }
+    if (saveQueueRef.current.length === 0) {
+      return Promise.resolve();
+    }
+    saveInFlightRef.current = (async () => {
+      setSaveStatus("saving");
+      try {
+        do {
+          while (saveQueueRef.current.length > 0) {
+            const payload = saveQueueRef.current[0];
+            setActionError(null);
+            try {
+              await apiJson<void>(`/api/stocktakes/${stocktake.id}`, {
+                method: "PUT",
+                body: payload,
+                fallbackError: "Failed to save counts.",
+              });
+            } catch (caught) {
+              const error = toApiError(caught, "Failed to save counts.");
+              setActionError(error.error ?? "Failed to save counts.");
+              throw error;
+            }
+            saveQueueRef.current.shift();
+          }
+          await refreshStocktakeQueries();
+        } while (saveQueueRef.current.length > 0);
+        setSaveStatus("saved");
+      } catch (error) {
+        setSaveStatus("error");
+        throw error;
+      } finally {
+        saveInFlightRef.current = null;
       }
-      await refreshStocktakeQueries();
-      return undefined;
-    },
-    getResultId: () => stocktake.id,
-    applyPersistedIdentity: (draft) => draft,
-    mergeServerOwnedFields: (draft) => draft,
-    getErrorMessage: (error) =>
-      (error as ApiError)?.error ??
-      (error instanceof Error ? error.message : "Failed to save counts."),
-  });
+    })();
+    saveInFlightRef.current.catch(() => undefined);
+    return saveInFlightRef.current;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stocktake.id]);
 
   const completeMutation = useMutation<
     void,
@@ -259,7 +272,7 @@ export function StocktakeDetail({
 
   const openCompletionReview = async (confirmStale = false) => {
     try {
-      await saveEngine.flush();
+      await flushCounts();
       const body = await apiJson<StocktakeCompletionPreview>(
         `/api/stocktakes/${stocktake.id}/completion-preview`,
         { fallbackError: "Failed to prepare completion review." }
@@ -365,9 +378,10 @@ export function StocktakeDetail({
   const commitStocktakePatch = useCallback(
     (payload: StocktakeUpdatePayload) => {
       if (!canEditCounts) return;
-      saveEngine.applyLocalOp(updateStocktakeCountsSchema.parse(payload), 0);
+      saveQueueRef.current.push(updateStocktakeCountsSchema.parse(payload));
+      void flushCounts();
     },
-    [canEditCounts, saveEngine]
+    [canEditCounts, flushCounts]
   );
 
   const commitItemIds = useCallback(
@@ -480,7 +494,7 @@ export function StocktakeDetail({
     liveCountedCount > 0 &&
     stocktakeReason.trim() !== "" &&
     !completeMutation.isPending;
-  const cardSaveState = cardSaveStateFromEngine(saveEngine.status);
+  const cardSaveState = cardSaveStateFromEngine(saveStatus);
   const openFoundLotDrawer = useCallback((lineId: string) => {
     setFoundLotLineId(lineId);
     setFoundLotNumber("");
@@ -1169,21 +1183,8 @@ export function StocktakeDetail({
   );
 }
 
-function mergeStocktakeUpdatePayload(
-  current: StocktakeUpdatePayload,
-  patch: StocktakeUpdatePayload
-): StocktakeUpdatePayload {
-  return {
-    ...current,
-    ...patch,
-    lines: patch.lines ?? current.lines,
-    lotLines: patch.lotLines ?? current.lotLines,
-    itemIds: patch.itemIds ?? current.itemIds,
-  };
-}
-
-function cardSaveStateFromEngine(state: "idle" | "dirty" | "saving" | "saved" | "error"): CardSaveState {
-  if (state === "dirty" || state === "saving") return "saving";
+function cardSaveStateFromEngine(state: "idle" | "saving" | "saved" | "error"): CardSaveState {
+  if (state === "saving") return "saving";
   if (state === "error") return "failed";
   return "saved";
 }

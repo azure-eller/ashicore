@@ -3,146 +3,117 @@ read_when:
   - Building or changing a card page (entity or document detail surface)
   - Adding draft/auto-save behavior to any editing surface
   - Tempted to write a new save controller or form state manager
-owns: "the card draft lifecycle pattern: one engine, per-card adapters, bound fields"
+owns: "the card draft lifecycle pattern: one document-sync kernel, per-card serializers, bound fields"
 ---
 
 # Card Kernel
 
-> **Migration in progress — new cards use `lib/card-kernel/`.** The
-> document-sync kernel ([`lib/card-kernel/kernel.ts`](../lib/card-kernel/kernel.ts),
-> bound via [`use-card-kernel.ts`](../lib/card-kernel/use-card-kernel.ts))
-> replaces the op-queue engine below: one draft document + the last
-> server-confirmed document, dirt computed as a diff (never a queued log),
-> validation with the route's own Zod schema (`blocked` is a visible
-> outcome), full-doc responses rebased under still-dirty paths, idempotent
-> create via client ids or stable idempotency keys, and optimistic
-> concurrency (`expectedVersion` → 409 `{conflict, current}` → auto-rebase).
-> Supplier, customer, item, purchase order, sales order, and manufacturing
-> order cards are converted; the stocktake detail is the last op-queue
-> surface to follow, then the old engine is deleted. **The op-queue engine
-> is frozen: converting cards only, no new adopters.**
+Every card page (supplier, customer, item, purchase order, sales order,
+manufacturing order) is built on **one** document-sync kernel:
+[`lib/card-kernel/kernel.ts`](../lib/card-kernel/kernel.ts), bound to React
+via [`use-card-kernel.ts`](../lib/card-kernel/use-card-kernel.ts), with
+dot-path utilities in [`paths.ts`](../lib/card-kernel/paths.ts). Do not write
+a new save controller — configure this one.
 
-The stocktake detail is the one remaining op-queue card, built on
-**one** draft lifecycle engine:
-[`lib/hooks/use-draft-save-engine.ts`](../lib/hooks/use-draft-save-engine.ts).
-New cards use the document-sync kernel above; either way, do not write a new
-save controller — configure the engine.
+## The model: remember what you want, not what you did
 
-## What the engine owns (never reimplement)
+The kernel keeps two documents and a computed diff:
 
-- The status machine: `idle → dirty → saving → saved | error`
-- Debounced flushing with an op queue and monotonic revisions
-- In-flight handling: edits during a save queue up and flush again after
-- Draft→persisted identity: `create` on first save, `currentId` thereafter,
-  `onPersisted` for URL reflection (`reflectPersistedCardUrlWithoutNavigation`)
-- Failure safety: failed ops re-queue for retry; `flush()` deduplicates
-- `mergeServerResult` for external refreshes (skipped while dirty/saving)
+- `draft` — the document the user sees, mutated only through `update()`
+- `serverDoc` — the last server-confirmed document (always a deep clone:
+  grids mutate row objects in place, and an aliased row would change both
+  sides of the diff at once)
+- **dirt is always `diffDocs(derive(serverDoc), draft)`** — a recomputable
+  fact, never a queued log of edits. Failed saves need no re-queue
+  machinery: nothing was consumed, so the diff still shows the dirt.
 
-## What a card supplies (the adapter)
+Collections (`lines`, `additionalCosts`, `ingredients`, `contacts`,
+`variants`) diff by **row id**, never array index: a row on one side only is
+whole-row dirt, shared rows diff per leaf, and changed relative order is
+`$order` dirt. Payload rows carry their row id — existing rows send their DB
+id, new rows mint a uuid the server persists — so identity survives
+delete-and-reinsert reconciliations and the rebase matches rows exactly.
+
+## The flush
+
+`flush()` (debounced after every `update()`) is the whole save protocol:
+
+1. **Serialize** the draft through the card's `serialize`, which also records
+   an index↔rowId alias map for every emitted collection row.
+2. **Validate with the route's own Zod schema** (the same module the API
+   parses). Invalid ⇒ outcome `blocked` with path-keyed `fieldErrors` —
+   visible, nothing sent, never silent.
+3. Payload-clean ⇒ `saved` (status lives in payload space: a blank grid row
+   is doc-dirty but payload-clean, so the pill says Saved and nothing fires).
+4. Send with a **retry-stable idempotency key** and the expected `version`;
+   create is the first save (client-generated ids or server-side
+   idempotency replay make a retried create the same create).
+5. **Rebase** the full-doc response: `draft = response + reapply still-dirty
+   paths` — edits made during the flight plus pre-flight dirt the payload
+   never carried (blank rows), computed from the serializer's own alias map.
+6. 400 ⇒ translate the server's index-keyed error paths through the alias
+   map so errors land on the row the validator actually saw. 409 with
+   `{conflict, current}` ⇒ rebase onto `current` and retry once; surface a
+   conflict only when a locally-dirty path changed on the server.
+   Network/5xx ⇒ backoff (1s/4s/10s) under the same idempotency key.
+
+`flush()` resolves with an outcome — `saved | blocked | conflict | failed` —
+and callers must branch on it (`useCardEntityActions` does; status
+transitions do). It never throws and never silently no-ops.
+
+Kernels live **outside React** in a module registry keyed by entity id:
+unmount can't drop a debounced edit, and payload-dirty kernels flush on
+`pagehide` with `keepalive` fetches.
+
+## What a card supplies
 
 | Config | Job |
 |---|---|
-| `TOp` + `applyOp` | The card's edit vocabulary and pure reducer (stocktake count merges) |
-| `create` / `save` | Persistence strategy: patch, snapshot, or hybrid — the card's choice |
-| `mergeServerOwnedFields` | Conflict resolution: which server fields win, what survives when `hasNewerLocalEdits` |
-| `coalesceOps` (optional) | Collapse queued ops (entity cards merge patches into one) |
-| `isSaveable` | Gate flushing until the draft is creatable (e.g. has a name/product) |
+| `serialize` | Draft → the route's payload shape + the index↔rowId alias map (built in the same loop that emits each row) |
+| `schema` | The route's own Zod schema (imported from `lib/schemas/*`) |
+| `derive` | Pure, idempotent cascade math (SO totals, MO quantity scaling). Runs on both diff sides and after every rebase |
+| `collections` | Which doc arrays diff by row id, and the id key |
+| `create` / `update` | Thin `apiJson` adapters (the thrown `ApiJsonError` carries the body the kernel reads for 409s) |
+| `readVersion` / `readId` / `readConflictDoc` | Version field, server-assigned ids, conflict-body conversion when the API doc shape differs from the draft shape |
+| `onServerDoc` / `onCreated` | Query-cache write-through; URL reflection on first persist |
 
-Reference adapter: the stocktake detail (`stocktake-detail.tsx` —
-count-update merges). The converted cards (item, supplier, customer, purchase
-order, sales order, manufacturing order) configure the document-sync kernel
-instead of the op-queue config above; the manufacturing order controller
-(`use-manufacturing-order-draft-controller.ts`) is the reference kernel
-adapter — a pure `derive` cascade (planned and remaining quantities),
-`serialize`, idempotent client-id create, and `expectedVersion` concurrency.
+A converted controller is the config plus thin `update(fn)` helpers — no op
+vocabulary, no reducers, no coalescing, no merge functions.
 
-Per-card domain logic is **supposed** to live in the adapter. Do not try to
-genericize totals recomputation or ingredient alternates into the engine.
+## Optimistic concurrency
+
+The six card entities carry a `version` column. Card saves send
+`expectedVersion`; a stale save gets **409 `{error, conflict: true, current:
+<full doc>, requestId}`** and the kernel auto-rebases. Absent
+`expectedVersion` preserves last-write-wins — the Android app never sends it.
+Scope note: workflow endpoints (ship, receive, pick, complete) do not bump
+`version`; the column guards the card-edit surface. Server-side reconciliation
+guards (shipped/received-line protection) cover the rest.
 
 ## Bound fields
 
-Header fields bind by patch key instead of hand-wiring value/onCommit pairs —
-[`components/card-page/bound-fields.tsx`](../components/card-page/bound-fields.tsx):
-
-```tsx
-const SupplierFields = createCardFields<PatchSupplier>(); // module scope
-
-<SupplierFields.Provider values={display} commit={commitSupplierPatch}
-                         readOnly={readOnly} idPrefix="supplier">
-  <SupplierFields.Text name="paymentTerms" label="Payment terms"
-                       tooltip={PAYMENT_TERMS_TOOLTIP} />
-</SupplierFields.Provider>
-```
-
-Field names are typechecked against the patch type; ids are
-`${idPrefix}-${kebab(name)}`. Commit semantics (trim, null for empty, no-op
-skip, Enter-to-blur) come from `CommitInput` and stay uniform.
-
-## Field errors (the path-keyed envelope)
-
-Validation errors flow through one flat shape end to end:
-`FieldErrorRecord` (`lib/api/field-errors.ts`) — dot-notation path →
-messages, e.g. `{ "lines.3.unitCost": ["must be ≥ 0"] }`.
-
-- **Server**: `apiHandler` already converts Zod issues into this shape
-  (`fieldErrorsFromIssues`) and returns it as `errors` on 400 responses.
-- **Client**: `apiJson` throws `ApiJsonError` carrying that record.
-- **Engine**: on a failed flush, `getFieldErrors` (default: read
-  `.errors`/`.fieldErrors` off the thrown error) populates
-  `engine.fieldErrors`; it clears when the next flush starts. Client-side
-  pre-validation joins the same channel by throwing
-  `{ error, errors }` from the adapter's `create`/`save`.
-- **Fields**: pass `errors={engine.fieldErrors}` to the bound-fields
-  Provider — each field looks up its own path and renders invalid styling
-  plus the message. Grid columns look up cells with
-  `fieldErrorAt(fieldErrors, ["lines", rowIndex, key])` for
-  `cellClassRules`/`tooltipValueGetter`.
-
-Never convert the record into nested objects or build per-card error
-plumbing — look paths up flat with `fieldErrorAt`.
+[`components/card-page/bound-fields.tsx`](../components/card-page/bound-fields.tsx)
+(`createCardFields<TPatch>()`): one Provider per card (values + commit +
+readOnly + idPrefix + errors), each field binds by patch key. Field errors
+resolve by path via `fieldErrorAt`; grid cells look up
+`["lines", row.id, key]` directly.
 
 ## Header actions (duplicate / delete)
 
-Duplicate and delete are one hook —
-[`components/card-page/use-card-entity-actions.tsx`](../components/card-page/use-card-entity-actions.tsx).
-It owns the ritual: **flush the engine → resolve the persisted id → call the
-endpoint → invalidate → navigate**, plus the delete confirm dialog. Because
-every action flushes first, a pending edit is saved (or its validation error
-aborts the action) before the endpoint runs — never wire a header mutation
-that skips the flush. Pass `hasPendingOps` so duplicate also refuses to copy
-stale server state when a flush no-ops (unsaveable draft); delete ignores
-pending edits by design.
-
-```tsx
-const actions = useCardEntityActions({
-  entity: "supplier-action",
-  getId: () => engine.currentId,
-  flush: engine.flush,
-  invalidateQueryKeys: [queryKeys.suppliers.root],
-  delete: {
-    label: "Delete supplier",
-    run: (id) => deleteSupplier(id),
-    navigateTo: "/purchasing/suppliers",
-    confirm: { title: "Delete supplier?", description: <>…</> },
-  },
-});
-
-<CardPageHeader menuActions={[printAction, actions.deleteAction]} … />
-{actions.dialogs}
-```
-
-Bespoke workflows (PO email/bill dialogs, item-card clone with its custom
-pending UI) stay hand-written — descriptors cover the uniform rituals only.
+[`use-card-entity-actions.tsx`](../components/card-page/use-card-entity-actions.tsx)
+owns the ritual: **flush → branch on outcome → resolve persisted id →
+endpoint → invalidate → navigate**, plus the delete confirm dialog.
+`failed`/`conflict` abort both actions with the outcome's message; `blocked`
+aborts duplicate (copying unsaved state would lie) but not delete (deleting
+discards the draft anyway).
 
 ## Known limitations
 
-- Engine saves carry no idempotency keys; a partial-failure retry can
-  double-apply. Server endpoints behind `save` must tolerate retries. For the
-  same reason `create` must be a single request — a follow-up fetch that fails
-  would re-queue the ops and create the entity again on the next flush.
-- Unmount discards queued (debounced) ops — there is no flush-on-unmount.
-  Keep text-field debounces short enough that navigating away rarely loses an
-  edit.
-- Adapters must throw `Error` instances (`ApiJsonError` / `ApiClientError`,
-  or `{ error, errors }` wrapped in one) — surfaces like the delete confirm
-  dialog render `error.message`.
+- Conflicts are detected at save time only (no live push); after a surfaced
+  conflict, saving again overwrites — warn-once, then user intent wins.
+- The `pagehide` keepalive flush caps bodies at 64KB; an enormous document
+  may skip the unload flush (strictly better than the guaranteed loss it
+  replaced).
+- Stocktake counts are a fire-and-forget batch queue (sequential PUTs in
+  `stocktake-detail.tsx`), not a document draft — the kernel deliberately
+  does not apply there.

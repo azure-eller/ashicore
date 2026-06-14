@@ -13,15 +13,17 @@ type QueryKey = readonly unknown[];
 
 /**
  * Standard duplicate/delete header actions for card pages. Every action
- * flushes the draft engine first, then resolves the persisted id — so a
- * pending edit is saved (or its validation error aborts the action) before
- * the endpoint runs. Returns ready-made CardHeaderAction entries plus the
- * confirm dialog node to render.
+ * flushes the kernel first, then branches on the flush outcome before
+ * resolving the persisted id: a `failed`/`conflict` flush aborts the action
+ * with its message, and a `blocked` (validation) flush aborts duplicate —
+ * copying unsaved state would lie — but not delete, which discards the draft
+ * anyway. Returns ready-made CardHeaderAction entries plus the confirm
+ * dialog node to render.
  *
  *   const actions = useCardEntityActions({
  *     entity: "supplier-action",
  *     getId: () => currentSupplierId,
- *     flush: engine.flush,
+ *     flush: kernel.flush,
  *     invalidateQueryKeys: [queryKeys.suppliers.root],
  *     delete: {
  *       label: "Delete supplier",
@@ -37,7 +39,6 @@ export function useCardEntityActions({
   entity,
   getId,
   flush,
-  hasPendingOps,
   invalidateQueryKeys,
   missingIdError = "Save changes first.",
   onMutate,
@@ -47,12 +48,8 @@ export function useCardEntityActions({
 }: {
   entity: string;
   getId: () => string | null;
-  /** Kernel flushes resolve with an outcome the actions branch on; legacy
-   *  engine flushes resolve void and reject on save failure. */
-  flush?: () => Promise<void | FlushOutcome>;
-  /** Legacy-engine only: lets duplicate refuse to copy stale server state
-   *  when a flush no-ops (unsaveable draft). Delete ignores pending edits. */
-  hasPendingOps?: () => boolean;
+  /** The kernel flush; the actions branch on its outcome. */
+  flush?: () => Promise<FlushOutcome>;
   invalidateQueryKeys: readonly QueryKey[];
   missingIdError?: string;
   onMutate?: () => void;
@@ -97,8 +94,6 @@ export function useCardEntityActions({
           ),
         );
       }
-    } else if (requireSaved && hasPendingOps?.()) {
-      throw new Error("Unsaved changes can't be saved yet — fix them first.");
     }
     const id = getId();
     if (!id) throw new Error(missingIdError);
