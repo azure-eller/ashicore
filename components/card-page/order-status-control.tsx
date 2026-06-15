@@ -57,6 +57,7 @@ export type OrderStatusOption = {
  * - `noop`/`disabled` — not user-actionable (current value or derived display row).
  */
 export type OrderStatusTransitionKind = "noop" | "instant" | "dialog" | "disabled";
+export type OrderStatusDialogBoundary = "beforeOpen" | "bestEffort" | "none";
 
 export type OrderStatusDialogArgs<Ctx> = {
   to: string;
@@ -77,6 +78,13 @@ export type OrderStatusControlConfig<Ctx> = {
   transitionKind: (from: string, to: string, ctx: Ctx) => OrderStatusTransitionKind;
   /** Run an instant transition (PATCH). Required if any option is "instant". */
   runInstant?: (to: string, ctx: Ctx) => Promise<void>;
+  /**
+   * Defaults to `beforeOpen` (block until the draft saves). Dialogs that refetch
+   * persisted server state use `bestEffort` (persist a valid dirty draft so the
+   * refetch reflects it, but still open on an unsavable draft) or `none` (never
+   * flush).
+   */
+  dialogBoundary?: (from: string, to: string, ctx: Ctx) => OrderStatusDialogBoundary;
   /** Render the dialog for a "dialog" transition. Required if any option is "dialog". */
   renderDialog?: (args: OrderStatusDialogArgs<Ctx>) => ReactNode;
 };
@@ -155,7 +163,8 @@ export function OrderStatusControl<Ctx>({
       instant.mutate(to);
       return;
     }
-    if (actionBoundary.flushPolicy === "none") {
+    const dialogBoundary = config.dialogBoundary?.(current, to, ctx) ?? "beforeOpen";
+    if (actionBoundary.flushPolicy === "none" || dialogBoundary === "none") {
       setDialogTarget(to);
       return;
     }
@@ -163,6 +172,10 @@ export function OrderStatusControl<Ctx>({
     void runBoundary()
       .then(() => setDialogTarget(to))
       .catch((error) => {
+        if (dialogBoundary === "bestEffort") {
+          setDialogTarget(to);
+          return;
+        }
         onTransitionError?.(transitionError(error, "Failed to save changes."));
       })
       .finally(() => setPreparingTransition(false));

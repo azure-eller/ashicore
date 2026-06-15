@@ -322,12 +322,30 @@ export function LineItemsTable({
           data ? (
             <ProductionStatusCell
               state={lineProductionState(data)}
+              salesOrderId={order.id}
+              salesOrderStatus={order.status}
+              salesOrderLabel={`${order.orderNumber} - ${order.customerName}`}
+              shipDate={order.shipDate}
               openManufacturingOrders={data.linkedManufacturingOrders ?? []}
             />
           ) : null,
       },
     ],
-    [editable, existingItemIds, isPersistedLine, itemMap, itemOptions, order.status, order.taxRates, taxRateMap, defaultTaxRate],
+    [
+      editable,
+      existingItemIds,
+      isPersistedLine,
+      itemMap,
+      itemOptions,
+      order.customerName,
+      order.id,
+      order.orderNumber,
+      order.shipDate,
+      order.status,
+      order.taxRates,
+      taxRateMap,
+      defaultTaxRate,
+    ],
   );
 
   const handleRowsChange = async (

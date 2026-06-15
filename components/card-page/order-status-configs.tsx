@@ -508,6 +508,8 @@ export const manufacturingOrderStatusConfig: OrderStatusControlConfig<Manufactur
       />
     );
   },
+  dialogBoundary: (_from, to) =>
+    to === "done" || to === "partially_complete" ? "bestEffort" : "beforeOpen",
 };
 
 function hasManufacturingWorkStarted(order: ManufacturingStatusFields) {
@@ -564,6 +566,8 @@ export const purchaseOrderStatusConfig: OrderStatusControlConfig<PurchaseStatusC
   },
   runInstant: (to, { orderId }) =>
     updatePurchaseOrderStatus(orderId, to as PurchaseOrderStatus).then(() => undefined),
+  dialogBoundary: (_from, to) =>
+    to === "partial" || to === "received" ? "bestEffort" : "beforeOpen",
   renderDialog: ({ to, ctx, onClose, onDone }) => {
     if (to !== "partial" && to !== "received") return null;
     return (

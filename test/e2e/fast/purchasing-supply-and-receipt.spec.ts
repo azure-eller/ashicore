@@ -458,6 +458,53 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     expect(row.version).toBe(firstBody.version);
   });
 
+  test("receive dialog stays reachable on an invalid dirty persisted purchase order", async ({
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast PO Receive Reachable Material ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-PO-RECEIVE-REACH-${unique}`,
+      category: `Fast Purchasing ${ts}`,
+      description: null,
+      defaultPurchasePrice: "7.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status).toBe(201);
+
+    const supplier = await createSupplier({
+      name: `Fast PO Receive Reachable Supplier ${unique}`,
+    });
+    expect(supplier.status).toBe(201);
+
+    const order = await createPurchaseOrder({
+      supplierId: supplier.body.id,
+      expectedDate: "2026-05-06",
+      lines: [
+        {
+          itemId: material.body.id,
+          quantityOrdered: "4",
+          unitCost: "7.00",
+        },
+      ],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+    expect((await submitPurchaseOrder(order.body.id)).status).toBe(200);
+
+    await page.goto(`/purchasing/order/${order.body.id}`);
+    await page.locator('input[value^="PO-"]').first().fill(`PO-${"X".repeat(40)}`);
+
+    await page.getByLabel("Change status: Ordered").click();
+    await page.getByRole("menuitem", { name: "Received", exact: true }).click();
+
+    await expect(page.getByRole("dialog", { name: "Receive purchase order" })).toBeVisible();
+  });
+
   test("purchase order create replays under the same idempotency key", async ({
     db,
   }) => {

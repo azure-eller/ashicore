@@ -1214,6 +1214,65 @@ test.describe("inventory mutation kernel heartbeat", () => {
     expect(lot?.quantity).toBe("5.0000");
   });
 
+  test("tracked item lots stay reachable from an invalid untracked draft", async ({
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const item = await createItem({
+      itemType: "material",
+      name: `Fast Lot Reachable ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-LOT-REACH-${unique}`,
+      category: `Fast Lot Reachable ${unique}`,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      lotTrackingMode: "tracked",
+      stock: "5",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(item.status).toBe(201);
+    const itemId = item.body.id as string;
+
+    await page.goto(`/inventory/materials/${itemId}`);
+    await page.getByLabel("Material name").fill("");
+    await page.getByLabel("Lot tracked").uncheck();
+
+    await page.getByRole("button", { name: /Lots/ }).click();
+    await expect(page.getByRole("heading", { name: /Lots · 5 on hand/ })).toBeVisible();
+  });
+
+  test("tracked product lots stay reachable from an invalid untracked draft", async ({
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const item = await createItem({
+      itemType: "product",
+      name: `Fast Product Lot Reachable ${unique}`,
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-PROD-LOT-REACH-${unique}`,
+      category: `Fast Product Lot Reachable ${unique}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "4.00",
+      lotTrackingMode: "tracked",
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(item.status).toBe(201);
+    const itemId = item.body.id as string;
+
+    await page.goto(`/inventory/products/${itemId}`);
+    await page.getByLabel("Product name").fill("");
+    await page.getByLabel("Lot tracked").uncheck();
+
+    await page.getByRole("link", { name: /Lots/ }).click();
+    await expect(page.getByRole("heading", { name: /^Lots/ })).toBeVisible();
+  });
+
   test("stocktake count becomes authoritative stock truth", async ({ db }) => {
     const category = `Fast Stocktake ${ts}`;
     const item = await createItem({

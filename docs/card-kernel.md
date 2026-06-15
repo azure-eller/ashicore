@@ -134,11 +134,19 @@ has a persisted id. The card is the draft: the control remains reachable, and
 the action boundary decides whether to flush first, tolerate validation
 failure, or run without flushing. Pure reachability gates based on a persisted
 id, permission, already-running mutation, or terminal business state are fine.
+Opening a dialog that refetches persisted server state is also reachable: it
+runs a best-effort flush first so a valid dirty draft is persisted before the
+refetch, but an unsavable (blocked/failed) draft is tolerated and the dialog
+still opens on persisted state.
 
 Examples:
 
-- Duplicate, clone, create-MO, create-bill, stock adjustment, recipe save, and
-  operations save are `requireSaved + requiresPersistedId`.
+- Duplicate, clone, create-bill, stock adjustment, recipe save, and operations
+  save are `requireSaved + requiresPersistedId`.
+- Create-MO, receive, and complete dialogs that refetch persisted server state
+  run a best-effort flush before opening (a valid dirty draft is saved so the
+  refetch reflects it; an unsavable draft still opens on persisted state) — they
+  are never blocked on draft state.
 - Delete and close are `tolerateBlocked + requiresPersistedId` when they discard
   the draft rather than copying it.
 - Manual status overrides and bill-management views that act on server state are

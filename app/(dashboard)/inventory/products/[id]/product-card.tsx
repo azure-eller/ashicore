@@ -117,6 +117,9 @@ export function ProductCard({
     !isDraft && controller.status === "saved" && cardQuery.data
       ? cardQuery.data
       : card;
+  const lotTrackingModeForReachability = !isDraft
+    ? (cardQuery.data?.family.lotTrackingMode ?? initialCard.family.lotTrackingMode)
+    : renderedCard.family.lotTrackingMode;
   const visibleVariantIds = useMemo(
     () =>
       new Set(
@@ -281,11 +284,11 @@ export function ProductCard({
           count: lotsCount || undefined,
         },
       ];
-      return renderedCard.family.lotTrackingMode === "tracked"
+      return lotTrackingModeForReachability === "tracked"
         ? nextTabs
         : nextTabs.filter((tab) => tab.value !== "lots");
     },
-    [renderedCard.family.lotTrackingMode, currentItemId, resolvedFocusedItemId, lotsCount],
+    [lotTrackingModeForReachability, currentItemId, resolvedFocusedItemId, lotsCount],
   );
 
   const avgIngredientsCost = getAverageIngredientsCost(renderedCard);

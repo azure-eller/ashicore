@@ -390,6 +390,29 @@ test.describe("manufacturing demand and completion heartbeat", () => {
     expect(saved.isBlocked).toBe(true);
   });
 
+  test("manufacturing completion dialog stays reachable on an invalid dirty draft", async ({
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const fixture = await createBomFixture(`Reach${unique}`);
+    const order = await createManufacturingOrder({
+      productId: fixture.productId,
+      plannedQuantity: "3",
+      plannedDate: "2026-06-10",
+      notes: null,
+      ingredients: [{ itemId: fixture.componentId, quantityPerUnit: "2" }],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+
+    await page.goto(`/manufacturing/order/${order.body.id}`);
+    await page.getByLabel("Quantity").fill("0");
+
+    await page.getByLabel("Change status: Not started").click();
+    await page.getByRole("menuitem", { name: "Done" }).click();
+
+    await expect(page.getByRole("dialog", { name: "Complete order" })).toBeVisible();
+  });
+
   test("released manufacturing order creates ingredient demand", async ({ db }) => {
     const fixture = await createBomFixture("Demand");
     const order = await createManufacturingOrder({

@@ -93,6 +93,9 @@ export function MaterialCard({
     !isDraft && controller.status === "saved" && cardQuery.data
       ? cardQuery.data
       : card;
+  const lotTrackingModeForReachability = !isDraft
+    ? (cardQuery.data?.family.lotTrackingMode ?? initialCard.family.lotTrackingMode)
+    : renderedCard.family.lotTrackingMode;
 
   const actions = useCardEntityActions({
     entity: "item-card-action",
@@ -177,12 +180,12 @@ export function MaterialCard({
           disabledReason: "Enter a material name first.",
         },
       ];
-      return renderedCard.family.lotTrackingMode === "tracked"
+      return lotTrackingModeForReachability === "tracked"
         ? nextTabs
         : nextTabs.filter((tab) => tab.value !== "lots");
     },
     [
-      renderedCard.family.lotTrackingMode,
+      lotTrackingModeForReachability,
       currentItemId,
       initialLots.length,
       usedInBoms.length,
@@ -287,7 +290,7 @@ export function MaterialCard({
               />
             </>
           ),
-          ...(renderedCard.family.lotTrackingMode === "tracked"
+          ...(lotTrackingModeForReachability === "tracked"
             ? {
                 lots: (
                   <LotGridTab

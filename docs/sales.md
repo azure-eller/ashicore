@@ -87,7 +87,9 @@ column and must not influence delivery status.
 The redesign moves a few entry points out of the deprecated tabs:
 
 - **Manufacturing**: Create MOs lives in the header ⋯ menu (only shown when
-  `hasManufacturableLines === true`). The MO list panel is dropped from the
+  `hasManufacturableLines === true`) and, on open orders, in each manufacturable
+  line's production cell (Make to order / Make to stock); both open the same
+  Create Manufacturing Orders dialog. The MO list panel is dropped from the
   order page; linked MOs are visible from each manufacturable item.
 - **Activity**: dropped from the order page entirely. Future audit history
   should live in a global audit panel, not in sales-order tabs.

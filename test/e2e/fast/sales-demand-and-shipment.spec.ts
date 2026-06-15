@@ -1052,13 +1052,13 @@ test.describe("sales demand and shipping heartbeat", () => {
     );
   });
 
-  test("sales order create-MO action blocks when autosave is invalid", async ({
+  test("sales order create-MO action stays reachable on an invalid dirty draft", async ({
     page,
   }) => {
     const unique = randomUUID().slice(0, 8);
-    const productId = await createStockedProduct(`MakeBlocked${unique}`, "0");
+    const productId = await createStockedProduct(`MakeReach${unique}`, "0");
     const customer = await createCustomer({
-      name: `Fast Make Blocked Customer ${unique}`,
+      name: `Fast Make Reachable Customer ${unique}`,
     });
     expect(customer.status).toBe(201);
 
@@ -1080,12 +1080,36 @@ test.describe("sales demand and shipping heartbeat", () => {
     await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menuitem", { name: "Create manufacturing order(s)" }).click();
 
-    await expect(page.getByRole("alert")).toHaveText(
-      "Order number must be 32 characters or fewer",
-    );
     await expect(
       page.getByRole("dialog", { name: "Create Manufacturing Orders" }),
-    ).toBeHidden();
+    ).toBeVisible();
+  });
+
+  test("sales order line production action is reachable on the card", async ({
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const productId = await createStockedProduct(`LineMake${unique}`, "0");
+    const customer = await createCustomer({
+      name: `Fast Line Make Customer ${unique}`,
+    });
+    expect(customer.status).toBe(201);
+
+    const order = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: "2026-05-01",
+      shipDate: "2026-05-02",
+      lines: [{ itemId: productId, quantity: "2", unitPrice: "12.00" }],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+
+    await page.goto(`/sales/order/${order.body.id}`);
+    await page.getByLabel("Production: Make").first().click();
+    await page.getByRole("menuitem", { name: "Make to order" }).click();
+
+    await expect(
+      page.getByRole("dialog", { name: "Create Manufacturing Orders" }),
+    ).toBeVisible();
   });
 
   test("sales order accounting push blocks when autosave is invalid", async ({

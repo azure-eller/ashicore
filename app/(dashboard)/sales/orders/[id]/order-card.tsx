@@ -292,12 +292,8 @@ export function OrderCard({
                       flush: controller.flush,
                       blockedMessage: "Fix the highlighted fields.",
                     })
-                      .then(() => setMakeToOrderOpen(true))
-                      .catch((error) =>
-                        setActionError(
-                          error instanceof Error ? error.message : "Failed to save order.",
-                        ),
-                      );
+                      .catch(() => undefined)
+                      .finally(() => setMakeToOrderOpen(true));
                   },
                 },
               ]
