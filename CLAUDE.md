@@ -100,7 +100,7 @@ This file is a constitution + map. Deep reference lives in `docs/` — read the 
 
 1. `pnpm build`, `pnpm lint`, and relevant fast/slow Playwright lanes pass
 2. Inventory-affecting changes also pass `pnpm verify:inventory`
-3. After opening or updating the PR, run `no-mistakes axi run --yes --intent "<user goal / PR intent>"` from the same worktree/branch that owns the PR and address its findings before calling the PR done
+3. After opening or updating the PR, run `no-mistakes axi run --yes --intent "<user goal / PR intent>"` from the same worktree/branch that owns the PR and address its findings before calling the PR done. If it appears stuck, inspect `no-mistakes axi status` and `no-mistakes axi logs --step <step> --full` before killing it; confirm the run head matches the PR head, and abort/restart stale runs after amending or force-pushing.
 4. PR body records the local validation that ran
 5. Correct `ci:slow:*` label is set, then `ci:ready` is added last
 6. PR is opened ready for review, not draft

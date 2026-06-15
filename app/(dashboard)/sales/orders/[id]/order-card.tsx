@@ -299,8 +299,6 @@ export function OrderCard({
                         ),
                       );
                   },
-                  disabled: !order.hasManufacturableLines,
-                  tooltip: order.manufacturableDisabledReason ?? undefined,
                 },
               ]
             : []),

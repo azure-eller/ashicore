@@ -86,7 +86,7 @@ column and must not influence delivery status.
 
 The redesign moves a few entry points out of the deprecated tabs:
 
-- **Manufacturing**: Create MOs lives in the header ⋯ menu (only enabled when
+- **Manufacturing**: Create MOs lives in the header ⋯ menu (only shown when
   `hasManufacturableLines === true`). The MO list panel is dropped from the
   order page; linked MOs are visible from each manufacturable item.
 - **Activity**: dropped from the order page entirely. Future audit history
