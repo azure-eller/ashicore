@@ -403,6 +403,30 @@ async function withOnlyXeroConnectionUnlocked<T>(
 }
 
 test.describe("Xero purchase bill gates", () => {
+  test("keeps bill management reachable on a dirty persisted purchase order", async ({
+    page,
+  }) => {
+    const ts = Date.now();
+    const { materialId, supplierId } = await createMaterialAndSupplier(ts);
+    const order = await createPurchaseOrder({
+      supplierId,
+      expectedDate: "2026-05-27",
+      lines: [{ itemId: materialId, quantityOrdered: "5", unitCost: "4.00" }],
+    });
+    expect(order.status).toBe(201);
+
+    await page.goto(`/purchasing/orders/${order.body.id}`);
+    await page
+      .getByRole("textbox", { name: "Additional info" })
+      .fill(`Dirty bill gate ${ts}`);
+    await page.keyboard.press("Tab");
+
+    await page.getByLabel("Bill actions").click();
+    await expect(
+      page.getByRole("menuitem", { name: "Manage bills..." }),
+    ).toBeEnabled();
+  });
+
   test("does not block submitted POs before receipt", async ({ db }) => {
     await withNoAccountingConnection(db, async () => {
       const ts = Date.now();

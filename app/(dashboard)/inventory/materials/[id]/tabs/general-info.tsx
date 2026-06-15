@@ -37,6 +37,7 @@ export type MaterialGeneralInfoTabProps = {
   onVariantPatch: (variantId: string, patch: UpdateItemCardVariantInput) => void;
   onVariantReorder: (orderedVariantIds: string[]) => void;
   onCreateVariant: (input: CreateItemCardVariantInput) => Promise<CreateItemCardResult | null>;
+  onBeforeStockAdjustment: (variantId: string) => Promise<void>;
   onFocusedVariantDeleted: (nextVariantId: string) => void;
   onFlush: () => Promise<unknown>;
   variantsEnabled: boolean;
@@ -54,6 +55,7 @@ export function MaterialGeneralInfoTab({
   onVariantPatch,
   onVariantReorder,
   onCreateVariant,
+  onBeforeStockAdjustment,
   onFocusedVariantDeleted,
   onFlush,
   variantsEnabled,
@@ -176,6 +178,7 @@ export function MaterialGeneralInfoTab({
           onVariantPatch={onVariantPatch}
           onVariantReorder={onVariantReorder}
           onCreateVariant={onCreateVariant}
+          onBeforeStockAdjustment={onBeforeStockAdjustment}
           onFocusedVariantDeleted={onFocusedVariantDeleted}
         />
       </CardSection>

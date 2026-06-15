@@ -111,22 +111,40 @@ readOnly + idPrefix + errors), each field binds by patch key. Field errors
 resolve by path via `fieldErrorAt`; grid cells look up
 `["lines", row.id, key]` directly.
 
-## Header actions (duplicate / delete)
+## Card actions
 
-[`use-card-entity-actions.tsx`](../components/card-page/use-card-entity-actions.tsx)
-owns the ritual: **flush → branch on outcome → resolve persisted id →
-endpoint → invalidate → navigate**, plus the delete confirm dialog.
-`failed`/`conflict` abort both actions with the outcome's message; `blocked`
-aborts duplicate (copying unsaved state would lie) but not delete (deleting
-discards the draft anyway).
+[`card-action-boundary.ts`](../components/card-page/card-action-boundary.ts)
+owns the card action boundary. Every action declares two independent facts:
 
-Header actions that trigger a **downstream mutation** rather than a CRUD
-endpoint — order status transitions, clone/duplicate flows, sales create-MO,
-accounting push, purchase-order email/bill/file actions — must use the shared
-saved-flush gate in `use-card-entity-actions.tsx`
-(`flushSavedCardOrThrow` / `resolveSavedCardId`). The gate flushes first,
-proceeds only on `saved`, and surfaces blocked field errors or failure messages
-instead of firing a downstream route on top of unsaved or invalid edits.
+| Axis | Values | Meaning |
+|---|---|---|
+| `flushPolicy` | `none`, `requireSaved`, `tolerateBlocked` | Whether the draft must be flushed before the action runs, and how validation-blocked drafts are handled. |
+| `requiresPersistedId` | `true`, `false` | Whether the action needs an existing server row id. |
+
+`runCardAction` / `resolveCardActionId` apply those facts in one order:
+**flush according to policy → resolve persisted id if required → endpoint →
+invalidate/navigate**. `requireSaved` proceeds only on `saved` and surfaces
+blocked field errors or failure messages. `tolerateBlocked` allows delete/close
+style actions to discard an invalid draft, but still aborts `failed` and
+`conflict`. `none` is for actions that operate on current server truth and do
+not read the unsaved draft.
+
+Do not disable or hide actions on `dirty`, `saving`, or `failed` once the card
+has a persisted id. The card is the draft: the control remains reachable, and
+the action boundary decides whether to flush first, tolerate validation
+failure, or run without flushing. Pure reachability gates based on a persisted
+id, permission, already-running mutation, or terminal business state are fine.
+
+Examples:
+
+- Duplicate, clone, create-MO, create-bill, stock adjustment, recipe save, and
+  operations save are `requireSaved + requiresPersistedId`.
+- Delete and close are `tolerateBlocked + requiresPersistedId` when they discard
+  the draft rather than copying it.
+- Manual status overrides and bill-management views that act on server state are
+  `none + requiresPersistedId`.
+- A never-persisted draft may hide persisted actions or show them disabled with
+  a reason; that is reachability, not a save-state gate.
 
 ## Known limitations
 

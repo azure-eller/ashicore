@@ -44,6 +44,7 @@ function PurchaseStatusCell({ order }: { order: PurchaseOrderListRow }) {
     <OrderStatusControl
       config={purchaseOrderStatusConfig}
       ctx={{ orderId: order.id, status: order.status }}
+      actionBoundary={{ flushPolicy: "none", requiresPersistedId: true }}
       onChanged={() => {
         void queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.root });
       }}

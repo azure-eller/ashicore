@@ -243,7 +243,11 @@ export function OrderCard({
               config={salesOrderStatusConfig}
               ctx={{ order }}
               disabled={isSalesOrderStatusDisabled(order)}
-              beforeTransition={flushBeforeStatusTransition}
+              actionBoundary={{
+                flushPolicy: "requireSaved",
+                requiresPersistedId: true,
+                beforeTransition: flushBeforeStatusTransition,
+              }}
               onTransitionError={(error) => setActionError(error.message)}
               onChanged={() => {
                 void controller.refreshFromServer();

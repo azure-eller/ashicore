@@ -81,14 +81,29 @@ export type OrderStatusControlConfig<Ctx> = {
   renderDialog?: (args: OrderStatusDialogArgs<Ctx>) => ReactNode;
 };
 
+export type OrderStatusActionBoundary =
+  | {
+      flushPolicy: "none";
+      requiresPersistedId: true;
+    }
+  | {
+      flushPolicy: "requireSaved";
+      requiresPersistedId: true;
+      beforeTransition: () => Promise<void>;
+    }
+  | {
+      flushPolicy: "tolerateBlocked";
+      requiresPersistedId: true;
+      beforeTransition: () => Promise<void>;
+    };
+
 export type OrderStatusControlProps<Ctx> = {
   config: OrderStatusControlConfig<Ctx>;
   ctx: Ctx;
   disabled?: boolean;
   footer?: ReactNode;
   actionVariant?: "menu" | "button";
-  /** Persist any dirty local draft before a consequential status transition. */
-  beforeTransition?: () => Promise<void>;
+  actionBoundary: OrderStatusActionBoundary;
   onTransitionError?: (error: Error) => void;
   /** Called after any successful transition so the caller can update local state and invalidate/refetch. */
   onChanged?: (status: string) => void;
@@ -100,7 +115,7 @@ export function OrderStatusControl<Ctx>({
   disabled = false,
   footer,
   actionVariant = "menu",
-  beforeTransition,
+  actionBoundary,
   onTransitionError,
   onChanged,
 }: OrderStatusControlProps<Ctx>) {
@@ -111,6 +126,10 @@ export function OrderStatusControl<Ctx>({
   const options = config.options(ctx);
   const currentOption = options.find((option) => option.value === current);
   const tone = TONE_MAP[currentOption?.tone ?? "neutral"];
+  const runBoundary = () => {
+    if (actionBoundary.flushPolicy === "none") return Promise.resolve();
+    return actionBoundary.beforeTransition();
+  };
 
   const instant = useMutation({
     mutationKey: ["order-status", config.type, "instant"],
@@ -118,7 +137,7 @@ export function OrderStatusControl<Ctx>({
       if (!config.runInstant) {
         throw new Error(`No instant handler for ${config.type}`);
       }
-      await beforeTransition?.();
+      await runBoundary();
       return config.runInstant(to, ctx);
     },
     onError: (error) => {
@@ -136,12 +155,12 @@ export function OrderStatusControl<Ctx>({
       instant.mutate(to);
       return;
     }
-    if (!beforeTransition) {
+    if (actionBoundary.flushPolicy === "none") {
       setDialogTarget(to);
       return;
     }
     setPreparingTransition(true);
-    void beforeTransition()
+    void runBoundary()
       .then(() => setDialogTarget(to))
       .catch((error) => {
         onTransitionError?.(transitionError(error, "Failed to save changes."));

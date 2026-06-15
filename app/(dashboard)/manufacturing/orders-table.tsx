@@ -217,6 +217,7 @@ function ProductionActionCell({ order }: { order: ManufacturingOrderListRow }) {
       ctx={{ order }}
       disabled={isManufacturingStatusDisabled(order)}
       actionVariant="button"
+      actionBoundary={{ flushPolicy: "none", requiresPersistedId: true }}
       onChanged={() => {
         void queryClient.invalidateQueries({ queryKey: queryKeys.manufacturingOrders.root });
         void queryClient.invalidateQueries({ queryKey: queryKeys.items.root });
@@ -758,4 +759,3 @@ function ManufacturingResourceFilter({
     </Select>
   );
 }
-

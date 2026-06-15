@@ -2,60 +2,22 @@
 
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { firstFieldErrorMessage } from "@/lib/api/field-errors";
 import type { FlushOutcome } from "@/lib/card-kernel/kernel";
+import { resolveCardActionId } from "./card-action-boundary";
+export {
+  flushClosableCardOrThrow,
+  flushSavedCardOrThrow,
+  resolveCardActionId,
+  resolveSavedCardId,
+  runCardAction,
+  type CardActionFlushPolicy,
+} from "./card-action-boundary";
 import type { CardHeaderAction } from "./card-page-header";
 import { useConfirmMutation } from "./use-confirm-mutation";
 import { useDeleteEntity } from "./use-delete-entity";
 import { useDuplicateEntity } from "./use-duplicate-entity";
 
 type QueryKey = readonly unknown[];
-
-export async function flushSavedCardOrThrow({
-  flush,
-  blockedMessage = "Unsaved changes can't be saved yet — fix them first.",
-  fallbackError = "Save changes first.",
-}: {
-  flush?: () => Promise<FlushOutcome>;
-  blockedMessage?: string;
-  fallbackError?: string;
-}) {
-  const outcome = await flush?.();
-  if (!outcome || outcome.outcome === "saved") return;
-  if (outcome.outcome === "blocked") {
-    throw new Error(firstFieldErrorMessage(outcome.fieldErrors, blockedMessage));
-  }
-  throw new Error(outcome.error || fallbackError);
-}
-
-export async function flushClosableCardOrThrow({
-  flush,
-}: {
-  flush?: () => Promise<FlushOutcome>;
-}) {
-  const outcome = await flush?.();
-  if (!outcome || outcome.outcome === "saved" || outcome.outcome === "blocked") {
-    return;
-  }
-  throw new Error(outcome.error);
-}
-
-export async function resolveSavedCardId({
-  flush,
-  getId,
-  missingIdError = "Save changes first.",
-  blockedMessage,
-}: {
-  flush?: () => Promise<FlushOutcome>;
-  getId: () => string | null;
-  missingIdError?: string;
-  blockedMessage?: string;
-}) {
-  await flushSavedCardOrThrow({ flush, blockedMessage, fallbackError: missingIdError });
-  const id = getId();
-  if (!id) throw new Error(missingIdError);
-  return id;
-}
 
 /**
  * Standard duplicate/delete header actions for card pages. Every action
@@ -126,12 +88,14 @@ export function useCardEntityActions({
   const router = useRouter();
   const currentId = getId();
 
-  const resolveId = async ({ requireSaved = false } = {}) => {
-    if (requireSaved) {
-      return resolveSavedCardId({ flush, getId, missingIdError });
-    }
-    await flushClosableCardOrThrow({ flush });
-    const id = getId();
+  const resolveId = async ({ requireSaved = false } = {}): Promise<string> => {
+    const id = await resolveCardActionId({
+      flushPolicy: requireSaved ? "requireSaved" : "tolerateBlocked",
+      requiresPersistedId: true,
+      flush,
+      getId,
+      missingIdError,
+    });
     if (!id) throw new Error(missingIdError);
     return id;
   };

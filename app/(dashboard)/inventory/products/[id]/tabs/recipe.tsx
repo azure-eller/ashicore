@@ -29,6 +29,7 @@ import { ActiveVariantSelect } from "@/components/card-page/active-variant-selec
 import { CopyDialog } from "@/components/card-page/copy-bom-dialog";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
 import { useItemCardContext } from "@/components/card-page/item-card-focus-context";
+import { runCardAction } from "@/components/card-page/use-card-entity-actions";
 import {
   BomEditor,
   toBomRevisionPayloadRows,
@@ -123,6 +124,16 @@ export function ProductRecipeTab({
   const editorResetKey = `${activeFocusItemId}:${recipeData?.initialBomRevisionId ?? "none"}`;
   const outputUnitName = card.family.unitName ?? "unit";
   const tabLoading = loadingVariantId === activeFocusItemId;
+  const requireSavedProductCard = () =>
+    runCardAction({
+      flushPolicy: "requireSaved",
+      requiresPersistedId: true,
+      flush: itemCard.controller.flush,
+      getId: () => activeFocusItemId,
+      missingIdError: "Save the product first.",
+      blockedMessage: "Fix the highlighted fields before saving the recipe.",
+      run: () => undefined,
+    });
 
   const loadRecipePayload = (variantId: string) =>
     queryClient.fetchQuery({
@@ -133,14 +144,16 @@ export function ProductRecipeTab({
 
   const saveMutation = useMutation({
     mutationKey: cardSaveMutationKey("item-card", activeFocusItemId, "bom-revision"),
-    mutationFn: (note: string | null) =>
-      saveBomRevision(activeFocusItemId, {
+    mutationFn: async (note: string | null) => {
+      await requireSavedProductCard();
+      return saveBomRevision(activeFocusItemId, {
         recipeBasis,
         expectedBatchYield: recipeBasis === "batch" ? expectedBatchYield : null,
         outputQuantity: recipeBasis === "batch" ? expectedBatchYield : "1",
         bom: toBomRevisionPayloadRows(rows),
         note,
-      }),
+      });
+    },
     onSuccess: () => {
       setDirty(false);
       setRevisionNote("");
@@ -433,6 +446,7 @@ export function ProductRecipeTab({
             direction="to"
             activeVariant={activeVariant}
             siblings={visibleVariants}
+            beforeCopy={requireSavedProductCard}
           />
           <CopyDialog
             open={copyFromOpen}
@@ -442,6 +456,7 @@ export function ProductRecipeTab({
             direction="from"
             activeVariant={activeVariant}
             siblings={visibleVariants}
+            beforeCopy={requireSavedProductCard}
           />
           <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
             <DialogContent size="md">

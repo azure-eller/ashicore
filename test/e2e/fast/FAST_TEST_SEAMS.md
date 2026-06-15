@@ -7,7 +7,7 @@ that is worth running on every serious PR.
 | --- | --- |
 | `auth-org-context.spec.ts` | Authenticated browser context has an active org and can access a protected app/API path. |
 | `billing-entitlements.spec.ts` | Subscription webhooks are the only entitlement writer, and plugin gates make the correct shadow/enforced mutation decision across grant and downgrade. |
-| `inventory-mutation-kernel.spec.ts` | Inventory and item-card mutations preserve projection truth, idempotent replay, card autosave/rebase/conflict behavior, saved-flush clone gating, fresh item-card reads, and SKU-cap accounting. |
+| `inventory-mutation-kernel.spec.ts` | Inventory and item-card mutations preserve kernel projection truth across replay, autosave, rebase, conflicts, fresh reads, and SKU-cap accounting. |
 | `stock-adjustment-route.spec.ts` | Stock adjustment writes reasoned per-item/per-lot stock targets with correct costing, validation, mobile gating metadata, and replay behavior. |
 | `sales-demand-and-shipment.spec.ts` | Sales and customer document mutations preserve demand, idempotent replay, autosave/rebase/conflict behavior, saved-flush downstream-action gating, and shipment replay safety. |
 | `purchasing-supply-and-receipt.spec.ts` | Supplier and purchase-order mutations preserve expected supply, idempotent replay, autosave/rebase/conflict behavior, saved-flush downstream-action gating, validation recovery, and landed-cost truth. |

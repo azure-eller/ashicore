@@ -60,6 +60,8 @@ function rollupBillStatus(params: {
   billableGroupCount?: number;
   busy?: boolean;
 }): BillRollupStatus {
+  if (params.manualStatus) return params.manualStatus;
+
   const realStates = params.groupStates?.map((group) => group.pushStatus) ?? [];
   const failed = realStates.includes("failed") || params.status === "failed";
   if (failed) return "failed";
@@ -77,7 +79,7 @@ function rollupBillStatus(params: {
   if (params.status === "pending" || (params.busy && pushedCount > 0)) {
     return "partly_billed";
   }
-  return params.manualStatus ?? "not_billed";
+  return "not_billed";
 }
 
 export function PurchaseOrderEmailActionControl({

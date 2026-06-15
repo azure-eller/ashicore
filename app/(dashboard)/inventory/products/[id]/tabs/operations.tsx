@@ -16,6 +16,7 @@ import { ActiveVariantSelect } from "@/components/card-page/active-variant-selec
 import { CopyDialog } from "@/components/card-page/copy-bom-dialog";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
 import { useItemCardContext } from "@/components/card-page/item-card-focus-context";
+import { runCardAction } from "@/components/card-page/use-card-entity-actions";
 import {
   toBomRevisionPayloadRows,
   type BomPayloadRow,
@@ -102,6 +103,16 @@ export function ProductOperationsTab({
   const [copyToOpen, setCopyToOpen] = useState(false);
   const [copyFromOpen, setCopyFromOpen] = useState(false);
   const tabLoading = loadingVariantId === activeFocusItemId;
+  const requireSavedProductCard = () =>
+    runCardAction({
+      flushPolicy: "requireSaved",
+      requiresPersistedId: true,
+      flush: itemCard.controller.flush,
+      getId: () => activeFocusItemId,
+      missingIdError: "Save the product first.",
+      blockedMessage: "Fix the highlighted fields before saving operations.",
+      run: () => undefined,
+    });
 
   const loadProductionPayload = (variantId: string) =>
     queryClient.fetchQuery({
@@ -112,8 +123,9 @@ export function ProductOperationsTab({
 
   const saveMutation = useMutation({
     mutationKey: cardSaveMutationKey("item-card", activeFocusItemId, "operation-costs"),
-    mutationFn: () =>
-      saveBomRevision(activeFocusItemId, {
+    mutationFn: async () => {
+      await requireSavedProductCard();
+      return saveBomRevision(activeFocusItemId, {
         outputQuantity: productionData.currentBomOutputQuantity,
         recipeBasis: productionData.currentRecipeBasis,
         expectedBatchYield:
@@ -132,7 +144,8 @@ export function ProductOperationsTab({
             loadedCostPerHour: row.loadedCostPerHour ?? null,
           })),
         note: null,
-      }),
+      });
+    },
     onSuccess: () => {
       setDirty(false);
       void (async () => {
@@ -269,6 +282,7 @@ export function ProductOperationsTab({
             direction="to"
             activeVariant={activeVariant}
             siblings={visibleVariants}
+            beforeCopy={requireSavedProductCard}
           />
           <CopyDialog
             open={copyFromOpen}
@@ -278,6 +292,7 @@ export function ProductOperationsTab({
             direction="from"
             activeVariant={activeVariant}
             siblings={visibleVariants}
+            beforeCopy={requireSavedProductCard}
           />
         </>
       ) : null}

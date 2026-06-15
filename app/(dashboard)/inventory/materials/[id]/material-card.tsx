@@ -8,6 +8,7 @@ import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { CardTabs, type CardTab } from "@/components/card-page/card-tabs";
 import { useCardSaveStatus } from "@/components/card-page/use-card-save-status";
 import {
+  runCardAction,
   resolveSavedCardId,
   useCardEntityActions,
 } from "@/components/card-page/use-card-entity-actions";
@@ -137,6 +138,20 @@ export function MaterialCard({
     },
     [createVariant, router],
   );
+  const handleBeforeStockAdjustment = useCallback(
+    async () => {
+      await runCardAction({
+        flushPolicy: "requireSaved",
+        requiresPersistedId: true,
+        flush: controller.flush,
+        getId: () => controller.currentItemId,
+        missingIdError: "Save the material first.",
+        blockedMessage: "Fix the highlighted fields before adjusting stock.",
+        run: () => undefined,
+      });
+    },
+    [controller],
+  );
   const tabs: CardTab[] = useMemo(
     () => {
       const nextTabs: CardTab[] = [
@@ -257,6 +272,7 @@ export function MaterialCard({
                 onVariantPatch={controller.patchVariant}
                 onVariantReorder={controller.reorderVariants}
                 onCreateVariant={handleCreateVariant}
+                onBeforeStockAdjustment={handleBeforeStockAdjustment}
                 onFocusedVariantDeleted={(nextVariantId) =>
                   router.replace(`/inventory/materials/${nextVariantId}`, { scroll: false })
                 }

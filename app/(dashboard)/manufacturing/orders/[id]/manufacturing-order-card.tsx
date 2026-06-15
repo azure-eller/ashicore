@@ -173,7 +173,11 @@ export function ManufacturingOrderCard({
                 },
               }}
               disabled={isManufacturingStatusDisabled(order)}
-              beforeTransition={flushBeforeStatusTransition}
+              actionBoundary={{
+                flushPolicy: "requireSaved",
+                requiresPersistedId: true,
+                beforeTransition: flushBeforeStatusTransition,
+              }}
               onTransitionError={(error) => setActionError(error.message)}
               onChanged={refreshOrder}
             />

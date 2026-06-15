@@ -55,6 +55,7 @@ import { TotalsSummary } from "@/components/card-page/totals-summary";
 import { type CardSaveState } from "@/components/card-page/card-save-status";
 import {
   flushSavedCardOrThrow,
+  runCardAction,
   useCardEntityActions,
 } from "@/components/card-page/use-card-entity-actions";
 import {
@@ -685,9 +686,18 @@ export function PurchaseOrderCard({
   const purchaseBillMutation = useMutation({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "purchase-bill"],
     mutationFn: async (values: PurchaseBillDialogValues) => {
-      await flushPurchaseOrderOrThrow("Save changes before creating a supplier bill.");
-      const orderId = savedOrderIdRef.current;
-      if (!orderId) throw new Error("Save the purchase order first.");
+      const orderId = await runCardAction({
+        flushPolicy: "requireSaved",
+        requiresPersistedId: true,
+        flush: purchaseOrderController.flush,
+        getId: () => savedOrderIdRef.current,
+        missingIdError: "Save the purchase order first.",
+        blockedMessage: "Save changes before creating a supplier bill.",
+        run: (id) => {
+          if (!id) throw new Error("Save the purchase order first.");
+          return id;
+        },
+      });
       return apiJson<{
         xeroBillId: string | null;
         xeroBillNumber: string | null;
@@ -728,6 +738,7 @@ export function PurchaseOrderCard({
     },
     onError: (error: Error, _values, context) => {
       setPurchaseBillStatus(context?.previousStatus ?? null);
+      setFormError(error.message);
     },
   });
   const purchaseBillManualStatusMutation = useApiMutation({
@@ -740,8 +751,16 @@ export function PurchaseOrderCard({
     mutationFn: async (
       status: "not_billed" | "partly_billed" | "billed",
     ) => {
-      const orderId = savedOrderIdRef.current;
-      if (!orderId) throw new Error("Save the purchase order first.");
+      const orderId = await runCardAction({
+        flushPolicy: "none",
+        requiresPersistedId: true,
+        getId: () => savedOrderIdRef.current,
+        missingIdError: "Save the purchase order first.",
+        run: (id) => {
+          if (!id) throw new Error("Save the purchase order first.");
+          return id;
+        },
+      });
       return apiJson<{
         purchaseBillManualStatus: "not_billed" | "partly_billed" | "billed" | null;
       }>(`/api/purchase-orders/${orderId}/bill-status`, {
@@ -1323,13 +1342,7 @@ export function PurchaseOrderCard({
     return sum + (quantity ?? 0);
   }, 0);
   const billActionDisabledReason =
-    cardSaveState === "saving" ||
-    cardSaveState === "not_saved" ||
-    cardSaveState === "failed"
-      ? "Save changes before creating a supplier bill."
-      : purchaseBillStatus === "pending"
-        ? "Bill sync is already running."
-        : null;
+    purchaseBillStatus === "pending" ? "Bill sync is already running." : null;
   const openPurchaseOrderEmailDialog = () => {
     setPoEmailError(null);
     const groups = emailDialogGroups();
@@ -1392,7 +1405,11 @@ export function PurchaseOrderCard({
                 config={purchaseOrderStatusConfig}
                 ctx={{ orderId: savedOrderId, status: displayStatus }}
                 disabled={!canWrite || statusMutation.isPending}
-                beforeTransition={flushBeforeStatusTransition}
+                actionBoundary={{
+                  flushPolicy: "requireSaved",
+                  requiresPersistedId: true,
+                  beforeTransition: flushBeforeStatusTransition,
+                }}
                 onTransitionError={(error) => setFormError(error.message)}
                 onChanged={(next) => {
                   setDisplayStatus(next as PurchaseOrderStatus);

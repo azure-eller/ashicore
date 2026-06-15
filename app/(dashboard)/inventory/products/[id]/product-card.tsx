@@ -14,6 +14,7 @@ import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { CardTabs, type CardTab } from "@/components/card-page/card-tabs";
 import { useCardSaveStatus } from "@/components/card-page/use-card-save-status";
 import {
+  runCardAction,
   resolveSavedCardId,
   useCardEntityActions,
 } from "@/components/card-page/use-card-entity-actions";
@@ -228,6 +229,20 @@ export function ProductCard({
     },
     [createVariant, setFocusedItemId],
   );
+  const handleBeforeStockAdjustment = useCallback(
+    async () => {
+      await runCardAction({
+        flushPolicy: "requireSaved",
+        requiresPersistedId: true,
+        flush: controller.flush,
+        getId: () => controller.currentItemId,
+        missingIdError: "Save the product first.",
+        blockedMessage: "Fix the highlighted fields before adjusting stock.",
+        run: () => undefined,
+      });
+    },
+    [controller],
+  );
   const tabs: CardTab[] = useMemo(
     () => {
       const tabItemId = currentItemId;
@@ -369,6 +384,7 @@ export function ProductCard({
                 onVariantPatch={controller.patchVariant}
                 onVariantReorder={controller.reorderVariants}
                 onCreateVariant={handleCreateVariant}
+                onBeforeStockAdjustment={handleBeforeStockAdjustment}
                 onFocusedVariantDeleted={(nextVariantId) => {
                   setFocusedItemId(nextVariantId);
                   router.replace(`/inventory/products/${nextVariantId}`, { scroll: false });

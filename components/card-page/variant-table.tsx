@@ -63,6 +63,7 @@ export type VariantTableProps = {
   onVariantPatch: (variantId: string, patch: UpdateItemCardVariantInput) => void;
   onVariantReorder: (orderedVariantIds: string[]) => void;
   onCreateVariant: (input: CreateItemCardVariantInput) => Promise<CreateItemCardResult | null>;
+  onBeforeStockAdjustment: (variantId: string) => Promise<void>;
   onFocusedVariantDeleted?: (nextVariantId: string) => void;
   allowVariantRows?: boolean;
 };
@@ -168,6 +169,7 @@ function StockQuantityAdjustmentDialog({
   adjustment,
   lotTracked,
   unitLabel,
+  onBeforeSave,
   onOpenChange,
   onSaved,
 }: {
@@ -178,6 +180,7 @@ function StockQuantityAdjustmentDialog({
   } | null;
   lotTracked: boolean;
   unitLabel?: string;
+  onBeforeSave: (variantId: string) => Promise<void>;
   onOpenChange: (open: boolean) => void;
   onSaved: () => void;
 }) {
@@ -189,6 +192,7 @@ function StockQuantityAdjustmentDialog({
             adjustment={adjustment}
             lotTracked={lotTracked}
             unitLabel={unitLabel}
+            onBeforeSave={onBeforeSave}
             onCancel={() => onOpenChange(false)}
             onSaved={onSaved}
           />
@@ -202,6 +206,7 @@ function StockQuantityAdjustmentBody({
   adjustment,
   lotTracked,
   unitLabel,
+  onBeforeSave,
   onCancel,
   onSaved,
 }: {
@@ -212,6 +217,7 @@ function StockQuantityAdjustmentBody({
   };
   lotTracked: boolean;
   unitLabel?: string;
+  onBeforeSave: (variantId: string) => Promise<void>;
   onCancel: () => void;
   onSaved: () => void;
 }) {
@@ -262,6 +268,7 @@ function StockQuantityAdjustmentBody({
       if (!reason) {
         throw new Error("Choose a reason.");
       }
+      await onBeforeSave(adjustment.variant.id);
       if (!lotTracked) {
         await apiJson<void>(`/api/items/${adjustment.variant.id}/stock-adjustments`, {
           method: "POST",
@@ -591,6 +598,7 @@ export function VariantTable({
   onVariantPatch,
   onVariantReorder,
   onCreateVariant,
+  onBeforeStockAdjustment,
   onFocusedVariantDeleted,
   allowVariantRows = true,
 }: VariantTableProps) {
@@ -1012,6 +1020,7 @@ export function VariantTable({
         adjustment={stockAdjustment}
         lotTracked={card.family.lotTrackingMode === "tracked"}
         unitLabel={unitName ?? undefined}
+        onBeforeSave={onBeforeStockAdjustment}
         onOpenChange={(open) => {
           if (open) return;
           setStockAdjustment(null);
