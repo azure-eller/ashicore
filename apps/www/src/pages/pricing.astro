@@ -1,14 +1,404 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
-import PricingRadial from "../sections/PricingRadial.astro";
+import { SIGN_UP_URL } from "../lib/site";
+import {
+  DEFAULT_STATE,
+  DEFAULT_EXPLORER_SEL,
+  renderPosVal,
+  renderTicks,
+  renderLocVal,
+  renderGrid,
+  renderNote,
+  renderTotal,
+  renderCta,
+  renderBreak,
+  renderExplorer,
+} from "../lib/pricing";
+
+// SSR the calculator + explorer default state so the page is correct before hydration.
+const s = DEFAULT_STATE;
+const posVal = renderPosVal(s);
+const ticks = renderTicks(s);
+const locVal = renderLocVal(s);
+const grid = renderGrid(s);
+const note = renderNote(s);
+const total = renderTotal(s);
+const cta = renderCta(s);
+const brk = renderBreak(s);
+const explorer = renderExplorer(DEFAULT_EXPLORER_SEL);
 ---
 
 <BaseLayout
   title="Pricing"
-  description="Start Ashicore free, then add plugin upgrades, packages, or Everything when you need them."
+  description="Predictable, published pricing with unlimited users on every plan. Start free, then size Core to your operation with the live calculator."
   path="/pricing"
 >
-  <main class="pricing-page">
-    <PricingRadial placement="pricing-page" />
+  <main id="top">
+    <!-- ===================== HEADER + CARDS ===================== -->
+    <section class="pp-section">
+      <div class="wrap">
+        <div class="pp-head">
+          <span class="eyebrow">Pricing</span>
+          <h1 class="h-display">Pricing you can predict.</h1>
+          <p class="lede">
+            Published prices, no usage meter, and unlimited users on every plan.
+            Pick your size, pick your packages, and see the number before you
+            ever talk to us.
+          </p>
+          <div class="pp-pillrow">
+            <span class="pp-pill">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/></svg>
+              Predictable — no surprise bills
+            </span>
+            <span class="pp-pill">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+              Transparent — prices published
+            </span>
+            <span class="pp-pill">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              Unlimited users — never per seat
+            </span>
+          </div>
+        </div>
+
+        <div class="pp-cards">
+          <!-- Free -->
+          <div class="pp-card">
+            <div class="pp-card-name">Free</div>
+            <div class="pp-card-price"><span class="num">$0</span><span class="per">free forever</span></div>
+            <p class="pp-card-desc">Run ashicore on your real data with up to 30 SKUs — no time limit, no credit card.</p>
+            <span class="pp-card-meta">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg>
+              No credit card required
+            </span>
+            <hr />
+            <ul class="pp-card-list">
+              <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span><b>30 SKUs</b> to get started</span></li>
+              <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span><b>AI onboarding</b> — we read your files for you</span></li>
+              <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span><b>Unlimited users</b> from day one</span></li>
+              <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span>All integrations included</span></li>
+            </ul>
+            <a
+              href={SIGN_UP_URL}
+              class="btn btn-ghost"
+              data-analytics-event="pricing_plan_clicked"
+              data-analytics-placement="pricing-page"
+              data-analytics-plan="free"
+              data-analytics-signup-start="true"
+            >
+              Get started free
+            </a>
+          </div>
+
+          <!-- Core -->
+          <div class="pp-card rec">
+            <span class="pp-card-tag"><i></i> Most popular</span>
+            <div class="pp-card-name">Core plan</div>
+            <div class="pp-card-price"><span class="pre">Starts at</span><span class="num">$299</span><span class="per">/month</span></div>
+            <p class="pp-card-desc">Everything you need to run inventory, manufacturing and sales — priced to your size, never per seat.</p>
+            <a href="#calculator" class="pp-card-calc">Calculate your price <span class="arr">→</span></a>
+            <hr />
+            <ul class="pp-card-list">
+              <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span><b>Unlimited</b> SKUs, users &amp; integrations</span></li>
+              <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span>Real-time inventory, manufacturing &amp; sales</span></li>
+              <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span>Scales by <b>sales-order band</b>, not a live meter</span></li>
+              <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span>Full mobile app included</span></li>
+              <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span><b>Packages &amp; add-ons</b> to fit your operation</span></li>
+            </ul>
+            <a
+              href={SIGN_UP_URL}
+              class="btn btn-primary"
+              data-analytics-event="pricing_plan_clicked"
+              data-analytics-placement="pricing-page"
+              data-analytics-plan="core"
+              data-analytics-signup-start="true"
+            >
+              Get started <span class="arr">→</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== CALCULATOR ===================== -->
+    <section class="pp-section tight" id="calculator" style="background:var(--bg-2); border-block:1px solid var(--line);">
+      <div class="wrap">
+        <div class="pp-head">
+          <span class="eyebrow">Build your plan</span>
+          <h2 class="h-section">Calculate your Core plan price.</h2>
+          <p class="lede">Set your size, add the packages your operation needs, and watch the price update — no quote, no sales call.</p>
+        </div>
+
+        <div class="pp-calc-wrap" id="pp-calc">
+          <div class="pp-calc-grid">
+            <div class="pp-build">
+              <h3>Build your plan</h3>
+              <p class="sub">Adjust to match your operation. Unlimited users, always — you’re never charged per seat.</p>
+
+              <div class="pp-slider">
+                <div class="pp-slider-top">
+                  <div>
+                    <div class="pp-slider-label">Monthly sales orders</div>
+                    <div class="pp-slider-sub">Priced in bands — you only move up when you truly outgrow one.</div>
+                  </div>
+                  <div class="pp-slider-val" data-region="posval" set:html={posVal}></div>
+                </div>
+                <input class="pp-range" id="pp-pos" type="range" min="0" max="4" step="0.01" value="0.55" aria-label="Monthly sales orders" />
+                <div class="pp-band-ticks" data-region="ticks" set:html={ticks}></div>
+              </div>
+
+              <div class="pp-slider">
+                <div class="pp-slider-top">
+                  <div>
+                    <div class="pp-slider-label">Active inventory locations</div>
+                    <div class="pp-slider-sub">One site included · each added site costs less than the last.</div>
+                  </div>
+                  <div class="pp-slider-val" data-region="locval" set:html={locVal}></div>
+                </div>
+                <input class="pp-range" id="pp-loc" type="range" min="1" max="20" step="1" value="1" aria-label="Active inventory locations" />
+                <div class="pp-scale"><span>1</span><span>10</span><span>20+</span></div>
+              </div>
+
+              <hr class="pp-build-divide" />
+
+              <div class="pp-grid-head">
+                <h4>Packages &amp; add-ons</h4>
+                <span class="hint">Pick a package — or check plugins to build your own</span>
+              </div>
+
+              <div class="pp-grid-scroll" data-region="grid" set:html={grid}></div>
+
+              <div class="pp-alacarte-note" data-region="note" set:html={note}></div>
+            </div>
+
+            <aside class="pp-summary">
+              <div class="pp-toggle" role="tablist" aria-label="Billing period">
+                <button type="button" class="on" data-period="monthly" role="tab" aria-selected="true">Monthly</button>
+                <button type="button" data-period="annual" role="tab" aria-selected="false">Annual<span class="save-tag">−17%</span></button>
+              </div>
+
+              <div class="pp-total" data-region="total" set:html={total}></div>
+
+              <div class="pp-summary-cta" data-region="cta" set:html={cta}></div>
+
+              <button type="button" class="pp-break-toggle open" data-break-toggle aria-expanded="true">
+                View price breakdown
+                <svg class="chev" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+              </button>
+              <ul class="pp-break" data-region="break" style="max-height:420px;margin-top:6px;" set:html={brk}></ul>
+
+              <p class="pp-summary-foot">Published prices · no quote-gating · cancel anytime.</p>
+            </aside>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================== PACKAGES & ADD-ONS EXPLAINER ===================== -->
+    <section class="pp-section pp-addons" id="packages">
+      <div class="wrap">
+        <div class="pp-head">
+          <span class="eyebrow">Packages &amp; add-ons</span>
+          <h2 class="h-section">Built for the way you operate.</h2>
+          <p class="lede">Most ERPs sell loose add-ons and let you figure out the combination. We curate them into packages for real operation types — and you can still go à la carte.</p>
+        </div>
+
+        <div id="pp-explorer" class="pp-explorer" set:html={explorer}></div>
+      </div>
+    </section>
+
+    <!-- ===================== FINAL CTA ===================== -->
+    <section class="section cta-band">
+      <div class="wrap">
+        <div class="inner">
+          <span class="eyebrow on-dark">Get started</span>
+          <h2 class="h-section">See your price, then see it run.</h2>
+          <p class="lede">Start free on your own data — no card, no quote. Move to Core when your operation grows.</p>
+          <div class="hero-cta">
+            <a
+              href={SIGN_UP_URL}
+              class="btn btn-primary btn-lg"
+              data-analytics-event="pricing_plan_clicked"
+              data-analytics-placement="pricing-cta"
+              data-analytics-plan="free"
+              data-analytics-signup-start="true"
+            >
+              Get started free <span class="arr">→</span>
+            </a>
+            <a href="/support" class="btn btn-ghost btn-lg" style="color:var(--on-ground); border-color:var(--ground-line);">Book a walkthrough</a>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 </BaseLayout>
+
+<script>
+  import {
+    DEFAULT_STATE,
+    eqSet,
+    renderPosVal,
+    renderTicks,
+    renderLocVal,
+    renderGrid,
+    renderNote,
+    renderTotal,
+    renderCta,
+    renderBreak,
+  } from "../lib/pricing";
+
+  const calcRoot = document.getElementById("pp-calc");
+  if (calcRoot) {
+    const root = calcRoot; // non-null in every closure below
+    const state = { ...DEFAULT_STATE, active: [...DEFAULT_STATE.active] };
+
+    const region = (name: string) =>
+      root.querySelector<HTMLElement>(`[data-region="${name}"]`);
+    const regions = {
+      posval: region("posval"),
+      ticks: region("ticks"),
+      locval: region("locval"),
+      grid: region("grid"),
+      note: region("note"),
+      total: region("total"),
+      cta: region("cta"),
+      break: region("break"),
+    };
+    const posInput = root.querySelector<HTMLInputElement>("#pp-pos");
+    const locInput = root.querySelector<HTMLInputElement>("#pp-loc");
+    const monthlyBtn = root.querySelector<HTMLButtonElement>('[data-period="monthly"]');
+    const annualBtn = root.querySelector<HTMLButtonElement>('[data-period="annual"]');
+    const breakToggle = root.querySelector<HTMLButtonElement>("[data-break-toggle]");
+    const breakList = regions.break;
+
+    const setHTML = (el: HTMLElement | null, html: string) => {
+      if (el) el.innerHTML = html;
+    };
+
+    let rafId = 0;
+    function paint(focusSel?: string) {
+      setHTML(regions.posval, renderPosVal(state));
+      setHTML(regions.ticks, renderTicks(state));
+      setHTML(regions.locval, renderLocVal(state));
+      setHTML(regions.grid, renderGrid(state));
+      setHTML(regions.note, renderNote(state));
+      setHTML(regions.total, renderTotal(state));
+      setHTML(regions.cta, renderCta(state));
+      setHTML(regions.break, renderBreak(state));
+      monthlyBtn?.classList.toggle("on", !state.annual);
+      monthlyBtn?.setAttribute("aria-selected", String(!state.annual));
+      annualBtn?.classList.toggle("on", state.annual);
+      annualBtn?.setAttribute("aria-selected", String(state.annual));
+      if (focusSel) root.querySelector<HTMLElement>(focusSel)?.focus();
+    }
+    // sliders never re-render (so dragging is never interrupted); throttle the
+    // dependent regions to one repaint per frame.
+    function paintThrottled() {
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        paint();
+      });
+    }
+
+    posInput?.addEventListener("input", () => {
+      state.pos = parseFloat(posInput.value);
+      paintThrottled();
+    });
+    locInput?.addEventListener("input", () => {
+      state.loc = parseInt(locInput.value, 10);
+      paintThrottled();
+    });
+
+    function togglePlugin(id: string, focus: boolean) {
+      state.active = state.active.includes(id)
+        ? state.active.filter((x) => x !== id)
+        : [...state.active, id];
+      paint(focus ? `.pp-plug-toggle[data-plugin="${id}"]` : undefined);
+    }
+    function selectRow(plugins: string[], rowId: string, focus: boolean) {
+      state.active = eqSet(state.active, plugins) ? [] : [...plugins];
+      paint(focus ? `tr[data-row="${rowId}"]` : undefined);
+    }
+
+    root.addEventListener("click", (e) => {
+      const target = e.target as HTMLElement;
+      const viaKbd = (e as MouseEvent).detail === 0; // Enter/Space on a button
+      const plug = target.closest<HTMLElement>(".pp-plug-toggle");
+      if (plug) {
+        togglePlugin(plug.dataset.plugin!, viaKbd);
+        return;
+      }
+      if (target.closest("[data-clear]")) {
+        state.active = [];
+        paint();
+        return;
+      }
+      const period = target.closest<HTMLElement>("[data-period]");
+      if (period) {
+        state.annual = period.dataset.period === "annual";
+        paint();
+        return;
+      }
+      const row = target.closest<HTMLElement>("tr[data-row]");
+      if (row) {
+        selectRow(row.dataset.plugins!.split(","), row.dataset.row!, false);
+        return;
+      }
+    });
+
+    // roving radio group: arrows move focus, Enter/Space selects.
+    root.addEventListener("keydown", (e) => {
+      const row = (e.target as HTMLElement).closest<HTMLElement>("tr[data-row]");
+      if (!row) return;
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        selectRow(row.dataset.plugins!.split(","), row.dataset.row!, true);
+      } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const rows = [...root.querySelectorAll<HTMLElement>("tr[data-row]")];
+        const i = rows.indexOf(row);
+        const next =
+          e.key === "ArrowDown"
+            ? rows[Math.min(i + 1, rows.length - 1)]
+            : rows[Math.max(i - 1, 0)];
+        next?.focus();
+      }
+    });
+
+    function applyOpen() {
+      breakToggle?.classList.toggle("open", state.open);
+      breakToggle?.setAttribute("aria-expanded", String(state.open));
+      if (breakList) {
+        breakList.style.maxHeight = state.open ? "420px" : "0px";
+        breakList.style.marginTop = state.open ? "6px" : "0px";
+      }
+    }
+    breakToggle?.addEventListener("click", () => {
+      state.open = !state.open;
+      applyOpen();
+    });
+
+    // sync once (idempotent with the SSR'd default state).
+    paint();
+    applyOpen();
+  }
+</script>
+
+<script>
+  import { DEFAULT_EXPLORER_SEL, renderExplorer } from "../lib/pricing";
+
+  const ex = document.getElementById("pp-explorer");
+  if (ex) {
+    let sel = DEFAULT_EXPLORER_SEL;
+    ex.addEventListener("click", (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-sel]");
+      if (!btn) return;
+      const viaKbd = (e as MouseEvent).detail === 0;
+      sel = btn.dataset.sel!;
+      ex.innerHTML = renderExplorer(sel);
+      // keep keyboard users oriented on the now-selected rail item
+      if (viaKbd) ex.querySelector<HTMLElement>(".pp-ex-item.on")?.focus();
+    });
+  }
+</script>

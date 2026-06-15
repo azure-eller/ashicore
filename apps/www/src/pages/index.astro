@@ -1,6 +1,6 @@
 ---
 import BaseLayout from "../layouts/BaseLayout.astro";
-import PricingRadial from "../sections/PricingRadial.astro";
+import { SIGN_UP_URL } from "../lib/site";
 ---
 
 <BaseLayout
@@ -313,7 +313,71 @@ import PricingRadial from "../sections/PricingRadial.astro";
 </section>
 
 <!-- ===================== PRICING ===================== -->
-<PricingRadial id="pricing" placement="home-pricing" section />
+<section class="section" id="pricing" style="background:var(--bg-2); border-top:1px solid var(--line);">
+  <div class="wrap">
+    <div class="price-head reveal">
+      <span class="eyebrow">Pricing</span>
+      <h2 class="h-section">Pricing you can predict.</h2>
+      <p class="lede">Published prices, unlimited users, and no usage meter. A free plan with 30 SKUs, or Core priced to your size — no card to start.</p>
+    </div>
+
+    <div class="pp-cards">
+      <!-- Free -->
+      <div class="pp-card reveal">
+        <div class="pp-card-name">Free</div>
+        <div class="pp-card-price"><span class="num">$0</span><span class="per">free forever</span></div>
+        <p class="pp-card-desc">Run ashicore on your real data with up to 30 SKUs — no time limit, no credit card.</p>
+        <span class="pp-card-meta">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg>
+          No credit card required
+        </span>
+        <hr />
+        <ul class="pp-card-list">
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span><b>30 SKUs</b> to get started</span></li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span><b>AI onboarding</b> — we read your files for you</span></li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span><b>Unlimited users</b> from day one</span></li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span>All integrations included</span></li>
+        </ul>
+        <a
+          href={SIGN_UP_URL}
+          class="btn btn-ghost"
+          data-analytics-event="pricing_plan_clicked"
+          data-analytics-placement="home-pricing"
+          data-analytics-plan="free"
+          data-analytics-signup-start="true"
+        >
+          Get started free
+        </a>
+      </div>
+
+      <!-- Core -->
+      <div class="pp-card rec reveal d1">
+        <span class="pp-card-tag"><i></i> Most popular</span>
+        <div class="pp-card-name">Core plan</div>
+        <div class="pp-card-price"><span class="pre">Starts at</span><span class="num">$299</span><span class="per">/month</span></div>
+        <p class="pp-card-desc">Everything you need to run inventory, manufacturing and sales — priced to your size, never per seat.</p>
+        <a href="/pricing#calculator" class="pp-card-calc">Calculate your price <span class="arr">→</span></a>
+        <hr />
+        <ul class="pp-card-list">
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span><b>Unlimited</b> SKUs, users &amp; integrations</span></li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span>Real-time inventory, manufacturing &amp; sales</span></li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span>Scales by <b>sales-order band</b>, not a live meter</span></li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span><b>Packages &amp; add-ons</b> to fit your operation</span></li>
+        </ul>
+        <a
+          href="/pricing"
+          class="btn btn-primary"
+          data-analytics-event="pricing_plan_clicked"
+          data-analytics-placement="home-pricing"
+          data-analytics-plan="core"
+        >
+          Get started <span class="arr">→</span>
+        </a>
+      </div>
+    </div>
+    <p class="price-foot">See the size bands, packages &amp; live calculator on the <a href="/pricing" class="price-foot-link">full pricing page →</a></p>
+  </div>
+</section>
 
 <!-- ===================== FINAL CTA ===================== -->
 <section class="section cta-band">
