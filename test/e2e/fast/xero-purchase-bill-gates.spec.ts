@@ -427,6 +427,40 @@ test.describe("Xero purchase bill gates", () => {
     ).toBeEnabled();
   });
 
+  test("keeps bill management reachable when manual billed status masks a pending sync row", async ({
+    db,
+    page,
+  }) => {
+    const ts = Date.now();
+    const orderId = await createReceivedPurchaseOrder(ts);
+
+    await db.insert(accountingDocumentSyncs).values({
+      organizationId: getOrgId(),
+      provider: ACCOUNTING_PROVIDER_XERO,
+      documentType: ACCOUNTING_DOCUMENT_PURCHASE_BILL,
+      documentId: orderId,
+      pushStatus: "pending",
+      lastPushAttemptAt: new Date(),
+    });
+
+    const manualStatusResponse = await testFetch(
+      `/api/purchase-orders/${orderId}/bill-status`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ status: "billed" }),
+      },
+    );
+    expect(manualStatusResponse.status).toBe(200);
+
+    await page.goto(`/purchasing/orders/${orderId}`);
+    await expect(page.getByLabel("Bill actions")).toContainText("Billed");
+
+    await page.getByLabel("Bill actions").click();
+    await expect(
+      page.getByRole("menuitem", { name: "Manage bills..." }),
+    ).toBeEnabled();
+  });
+
   test("does not block submitted POs before receipt", async ({ db }) => {
     await withNoAccountingConnection(db, async () => {
       const ts = Date.now();

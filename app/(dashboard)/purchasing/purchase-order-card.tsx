@@ -1341,8 +1341,6 @@ export function PurchaseOrderCard({
     const quantity = parsePositive(line.quantityOrdered);
     return sum + (quantity ?? 0);
   }, 0);
-  const billActionDisabledReason =
-    purchaseBillStatus === "pending" ? "Bill sync is already running." : null;
   const openPurchaseOrderEmailDialog = () => {
     setPoEmailError(null);
     const groups = emailDialogGroups();
@@ -1435,8 +1433,8 @@ export function PurchaseOrderCard({
                 busy={purchaseBillMutation.isPending}
                 externalId={purchaseBillExternalId}
                 externalNumber={purchaseBillExternalNumber}
-                disabled={!canWrite || Boolean(billActionDisabledReason)}
-                disabledReason={billActionDisabledReason}
+                disabled={!canWrite}
+                disabledReason={null}
                 onSetManualStatus={(status) =>
                   purchaseBillManualStatusMutation.mutate(status)
                 }
