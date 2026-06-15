@@ -53,6 +53,7 @@ export function CardPageBanner({
 }) {
   return (
     <div
+      role="alert"
       className={cn(
         "border-b border-[var(--color-line)] bg-[var(--color-danger-soft)] px-(--space-5) py-(--space-3) text-[length:var(--text-sm)] text-[var(--status-danger-ink)]",
         tone === "destructive" && "text-[var(--status-danger-ink)]",

@@ -84,12 +84,25 @@ export function contactPayload(row: ContactGridRow) {
   };
 }
 
-export function useSyncedRows<TRow extends { id: string }>(sourceRows: TRow[]) {
+export function useSyncedRows<
+  TRow extends { id: string; isNew?: boolean; name?: string | null },
+>(sourceRows: TRow[]) {
   const [rows, setRows] = useState<TRow[]>(sourceRows);
   const [lastSynced, setLastSynced] = useState(sourceRows);
   if (lastSynced !== sourceRows) {
     setLastSynced(sourceRows);
-    setRows(sourceRows);
+    setRows((current) => {
+      const sourceIds = new Set(sourceRows.map((row) => row.id));
+      const unsentBlankRows = current.filter(
+        (row) =>
+          row.isNew === true &&
+          !sourceIds.has(row.id) &&
+          !(row.name ?? "").trim(),
+      );
+      return unsentBlankRows.length > 0
+        ? [...sourceRows, ...unsentBlankRows]
+        : sourceRows;
+    });
   }
   return [rows, setRows] as const;
 }

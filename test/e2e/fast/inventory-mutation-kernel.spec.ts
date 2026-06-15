@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { test, expect } from "../fixtures";
@@ -19,12 +20,10 @@ import {
   stocktakeItems,
   stocktakeLotItems,
   stocktakes,
-  unitDefinitions,
   variantOptionValues,
   variantOptions,
 } from "../../../lib/db/schema";
-import { withOrgContext } from "../../../lib/db/with-org-context";
-import { readTestEnv } from "../../helpers/test-env";
+import { buildStorageState, readTestEnv } from "../../helpers/test-env";
 import {
   consumeStockFifoInTx,
   createPositiveStockEventInTx,
@@ -42,6 +41,33 @@ import {
   testFetch,
   updateItem,
 } from "../../helpers/api";
+
+function editableGrid(page: Page, index = 0) {
+  return page.locator('[data-slot="editable-line-data-grid"]').nth(index);
+}
+
+async function expectRows(page: Page, count: number, gridIndex = 0) {
+  await expect(
+    editableGrid(page, gridIndex).locator(".ag-center-cols-container .ag-row"),
+  ).toHaveCount(count, { timeout: 15_000 });
+}
+
+async function editGridCell(
+  page: Page,
+  colId: string,
+  value: string,
+  rowIndex = 0,
+) {
+  const cell = editableGrid(page)
+    .locator(`.ag-row[row-index="${rowIndex}"] .ag-cell[col-id="${colId}"]`)
+    .first();
+  await expect(cell).toBeVisible();
+  await cell.click();
+  const input = page.locator(".ag-cell-inline-editing input").first();
+  await expect(input).toBeVisible();
+  await input.fill(value);
+  await input.press("Enter");
+}
 
 test.describe("inventory mutation kernel heartbeat", () => {
   const ts = Date.now();
@@ -1510,6 +1536,128 @@ test.describe("inventory mutation kernel heartbeat", () => {
     expect(clonedAssignments).toHaveLength(3);
   });
 
+  test("product clone action flushes dirty autosave before cloning", async ({
+    db,
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const product = await createItem({
+      itemType: "product",
+      name: `Fast Clone UI Product ${unique}`,
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-CLONE-UI-${unique}`,
+      category: `Fast Clone UI ${unique}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "12.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(product.status, JSON.stringify(product.body)).toBe(201);
+    const sourceItemId = product.body.id as string;
+    const description = `Dirty clone description ${unique}`;
+
+    await page.goto(`/inventory/products/${sourceItemId}`);
+    const infoInput = page.getByLabel("Description");
+    await expect(infoInput).toBeVisible();
+    await infoInput.fill(description);
+
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Clone product" }).click();
+    await page.waitForURL((url) => {
+      return (
+        url.pathname.startsWith("/inventory/products/") &&
+        url.pathname !== `/inventory/products/${sourceItemId}`
+      );
+    });
+    const clonedItemId = page.url().split("/").pop();
+    expect(clonedItemId).toBeTruthy();
+    expect(clonedItemId).not.toBe(sourceItemId);
+
+    const itemRows = await db
+      .select({ id: items.id, familyId: items.familyId })
+      .from(items)
+      .where(inArray(items.id, [sourceItemId, clonedItemId as string]));
+    expect(itemRows).toHaveLength(2);
+    const familyIds = itemRows
+      .map((row) => row.familyId)
+      .filter((id): id is string => id != null);
+
+    const familyRows = await db
+      .select({
+        id: itemFamilies.id,
+        description: itemFamilies.description,
+      })
+      .from(itemFamilies)
+      .where(inArray(itemFamilies.id, familyIds));
+    expect(familyRows.map((row) => row.description).sort()).toEqual(
+      [description, description].sort(),
+    );
+  });
+
+  test("material clone action flushes dirty autosave before cloning", async ({
+    db,
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast Clone UI Material ${unique}`,
+      sellable: false,
+      unitDefinitionId: unitId,
+      sku: `FAST-MAT-CLONE-${unique}`,
+      category: `Fast Clone UI ${unique}`,
+      description: null,
+      defaultPurchasePrice: "4.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status, JSON.stringify(material.body)).toBe(201);
+    const sourceItemId = material.body.id as string;
+    const description = `Dirty material clone description ${unique}`;
+
+    await page.goto(`/inventory/materials/${sourceItemId}`);
+    const infoInput = page.getByLabel("Additional info");
+    await expect(infoInput).toBeVisible();
+    await infoInput.fill(description);
+
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Clone material" }).click();
+    await page.waitForURL((url) => {
+      return (
+        url.pathname.startsWith("/inventory/materials/") &&
+        url.pathname !== `/inventory/materials/${sourceItemId}`
+      );
+    });
+    const clonedItemId = page.url().split("/").pop();
+    expect(clonedItemId).toBeTruthy();
+    expect(clonedItemId).not.toBe(sourceItemId);
+
+    const itemRows = await db
+      .select({ id: items.id, familyId: items.familyId })
+      .from(items)
+      .where(inArray(items.id, [sourceItemId, clonedItemId as string]));
+    expect(itemRows).toHaveLength(2);
+    const familyIds = itemRows
+      .map((row) => row.familyId)
+      .filter((id): id is string => id != null);
+
+    const familyRows = await db
+      .select({
+        id: itemFamilies.id,
+        description: itemFamilies.description,
+      })
+      .from(itemFamilies)
+      .where(inArray(itemFamilies.id, familyIds));
+    expect(familyRows.map((row) => row.description).sort()).toEqual(
+      [description, description].sort(),
+    );
+  });
+
   test("recipe-only BOM revision preserves production operations", async ({ db }) => {
     const unique = randomUUID().slice(0, 8);
     const [resource] = await db
@@ -1738,8 +1886,10 @@ test.describe("inventory mutation kernel heartbeat", () => {
     const duplicateValue = option.values.find((value) => value.label === "1 ct");
     expect(duplicateValue?.id).toBeTruthy();
 
+    const createVariantKey = `fast-create-variant-replay:${unique}`;
     const createDuplicateResponse = await testFetch(`/api/item-cards/${itemId}/variant`, {
       method: "POST",
+      headers: { "Idempotency-Key": createVariantKey },
       body: JSON.stringify({
         optionValueIdsByOptionId: {
           [option.id]: duplicateValue!.id,
@@ -1748,6 +1898,24 @@ test.describe("inventory mutation kernel heartbeat", () => {
       }),
     });
     expect(createDuplicateResponse.status).toBe(201);
+    const duplicateBody = await createDuplicateResponse.json();
+
+    const createDuplicateReplayResponse = await testFetch(
+      `/api/item-cards/${itemId}/variant`,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": createVariantKey },
+        body: JSON.stringify({
+          optionValueIdsByOptionId: {
+            [option.id]: duplicateValue!.id,
+          },
+          sku: `FAST-MANUAL-VARIANT-DUP-${unique}`,
+        }),
+      },
+    );
+    expect(createDuplicateReplayResponse.status).toBe(201);
+    const duplicateReplayBody = await createDuplicateReplayResponse.json();
+    expect(duplicateReplayBody.itemId).toBe(duplicateBody.itemId);
 
     const updatedCardResponse = await testFetch(`/api/item-cards/${itemId}`);
     expect(updatedCardResponse.status).toBe(200);
@@ -1767,6 +1935,54 @@ test.describe("inventory mutation kernel heartbeat", () => {
           variant.duplicateCombinationWarnings.length > 0,
       ),
     ).toBe(true);
+  });
+
+  test("item-card create replays under the same idempotency key", async ({ db }) => {
+    const unique = randomUUID().slice(0, 8);
+    const name = `Fast Item Card Create Replay ${unique}`;
+    const payload = {
+      itemType: "material",
+      name,
+      category: `Fast Item Card Create Replay ${unique}`,
+      description: null,
+      unitDefinitionId: unitId,
+      defaultSupplierId: null,
+      purchaseUnitDefinitionId: null,
+      purchaseToStockFactor: null,
+      sku: `FAST-ITEM-CARD-CREATE-${unique}`,
+      sellable: false,
+      defaultSellingPrice: null,
+      defaultPurchasePrice: "4.00",
+      currentStockUnitCost: null,
+      registeredBarcode: null,
+      internalBarcode: null,
+      supplierItemCode: null,
+      defaultLeadTimeDays: null,
+      minimumOrderQuantity: null,
+      lotTrackingMode: "tracked",
+    };
+    const idempotencyKey = `fast-item-card-create-replay:${unique}`;
+    const postCreate = () =>
+      testFetch("/api/item-cards", {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify(payload),
+      });
+
+    const first = await postCreate();
+    const firstBody = await first.json();
+    expect(first.status, JSON.stringify(firstBody)).toBe(201);
+
+    const replay = await postCreate();
+    const replayBody = await replay.json();
+    expect(replay.status, JSON.stringify(replayBody)).toBe(201);
+    expect(replayBody.itemId).toBe(firstBody.itemId);
+
+    const families = await db
+      .select({ id: itemFamilies.id })
+      .from(itemFamilies)
+      .where(eq(itemFamilies.name, name));
+    expect(families).toHaveLength(1);
   });
 
   test("variant document shape changes bump the item-card document version", async ({ db }) => {
@@ -1875,6 +2091,365 @@ test.describe("inventory mutation kernel heartbeat", () => {
       .from(itemFamilies)
       .where(eq(itemFamilies.id, familyId));
     expect(afterDelete.version).toBeGreaterThan(afterCreate.version);
+  });
+
+  test("item-card stale save returns the shared conflict envelope with the fresh card", async ({
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const product = await createItem({
+      itemType: "product",
+      name: `Fast Item Conflict ${unique}`,
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-ITEM-CONFLICT-${unique}`,
+      category: `Fast Item Conflict ${unique}`,
+      description: "before",
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "15.00",
+      registeredBarcode: null,
+      internalBarcode: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(product.status).toBe(201);
+    const itemId = product.body.id as string;
+
+    const detailResponse = await testFetch(`/api/item-cards/${itemId}`);
+    expect(detailResponse.status).toBe(200);
+    const detail = await detailResponse.json();
+    const basePayload = {
+      family: {
+        description: "before",
+      },
+      expectedVersion: detail.family.version,
+    };
+
+    const first = await testFetch(`/api/item-cards/${itemId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        ...basePayload,
+        family: { description: "first item writer" },
+      }),
+    });
+    expect(first.status, await first.text()).toBe(200);
+
+    const stale = await testFetch(`/api/item-cards/${itemId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        ...basePayload,
+        family: { description: "stale item writer" },
+      }),
+    });
+    const staleBody = await stale.json();
+    expect(stale.status, JSON.stringify(staleBody)).toBe(409);
+    expect(staleBody.conflict).toBe(true);
+    expect(staleBody.current.family.description).toBe("first item writer");
+    expect(staleBody.current.family.version).toBe(detail.family.version + 1);
+    expect(staleBody.card).toBeUndefined();
+    expect(staleBody.kind).toBeUndefined();
+
+    const [family] = await db
+      .select({
+        description: itemFamilies.description,
+        version: itemFamilies.version,
+      })
+      .from(itemFamilies)
+      .where(eq(itemFamilies.id, detail.family.id));
+    expect(family.description).toBe("first item writer");
+    expect(family.version).toBe(detail.family.version + 1);
+  });
+
+  test("item-card document autosave preserves grid edits made during an in-flight save", async ({
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast Inflight Material ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-INFLIGHT-MAT-${unique}`,
+      category: `Fast Inflight Material ${unique}`,
+      description: null,
+      defaultPurchasePrice: "4.00",
+      defaultSellingPrice: null,
+      stock: "20",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status).toBe(201);
+    const itemId = material.body.id as string;
+    const description = `Family save in flight ${unique}`;
+    const supplierItemCode = `SUP-${unique}`;
+    let delayedFirstPatch = false;
+
+    await page.route(`**/api/item-cards/${itemId}`, async (route) => {
+      if (route.request().method() === "PATCH" && !delayedFirstPatch) {
+        delayedFirstPatch = true;
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+      }
+      await route.continue();
+    });
+
+    await page.goto(`/inventory/materials/${itemId}`);
+    const infoInput = page.getByLabel("Additional info");
+    await expect(infoInput).toBeVisible();
+    await infoInput.fill(description);
+    await infoInput.blur();
+
+    await page.getByRole("button", { name: "Supply" }).click();
+    await editGridCell(page, "supplierItemCode", supplierItemCode);
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+    await page.reload();
+    await page.getByRole("button", { name: "Supply" }).click();
+
+    await expect(
+      editableGrid(page).locator('.ag-row .ag-cell[col-id="supplierItemCode"]').first(),
+    ).toContainText(supplierItemCode);
+
+    const card = await (await testFetch(`/api/item-cards/${itemId}`)).json();
+    expect(card.family.description).toBe(description);
+    expect(card.variants[0]).toMatchObject({
+      id: itemId,
+      supplierItemCode,
+    });
+  });
+
+  test("item-card autosave preserves an unsent blank variant row through a header rebase", async ({
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const product = await createItem({
+      itemType: "product",
+      name: `Fast Blank Variant Product ${unique}`,
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-BLANK-VAR-${unique}`,
+      category: `Fast Blank Variant ${unique}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "15.00",
+      registeredBarcode: null,
+      internalBarcode: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(product.status).toBe(201);
+    const itemId = product.body.id as string;
+
+    const configResponse = await testFetch(`/api/item-cards/${itemId}/variant-config`, {
+      method: "PUT",
+      body: JSON.stringify({
+        options: [
+          {
+            name: "Pack",
+            values: [{ label: "Single" }, { label: "Case" }],
+          },
+        ],
+      }),
+    });
+    expect(configResponse.status).toBe(200);
+
+    const generateResponse = await testFetch(`/api/item-cards/${itemId}/variants/generate`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    expect(generateResponse.status).toBe(201);
+
+    const description = `blank variant survives rebase ${unique}`;
+    let delayedFirstPatch = false;
+    await page.route(`**/api/item-cards/${itemId}`, async (route) => {
+      if (route.request().method() === "PATCH" && !delayedFirstPatch) {
+        delayedFirstPatch = true;
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+      }
+      await route.continue();
+    });
+
+    await page.goto(`/inventory/products/${itemId}`);
+    await expectRows(page, 2);
+    await page.getByRole("button", { name: "Add row" }).click();
+    await expectRows(page, 3);
+    await page.keyboard.press("Escape");
+
+    const infoInput = page.getByLabel("Description");
+    await expect(infoInput).toBeVisible();
+    await infoInput.fill(description);
+    const savedPatch = page.waitForResponse(
+      (response) =>
+        response.url().includes(`/api/item-cards/${itemId}`) &&
+        response.request().method() === "PATCH" &&
+        response.status() === 200,
+    );
+    await infoInput.blur();
+    await savedPatch;
+    await expectRows(page, 3);
+
+    const saved = await (await testFetch(`/api/item-cards/${itemId}`)).json();
+    expect(saved.family.description).toBe(description);
+    expect(
+      saved.variants.filter(
+        (variant: { deletedAt: string | null }) => variant.deletedAt == null,
+      ),
+    ).toHaveLength(2);
+  });
+
+  test("item-card autosave surfaces same-field conflicts without overwriting and can recover", async ({
+    browser,
+    page,
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast Item Conflict UI Material ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-ITEM-CONFLICT-UI-${unique}`,
+      category: `Fast Item Conflict UI ${unique}`,
+      description: null,
+      defaultPurchasePrice: "4.00",
+      defaultSellingPrice: null,
+      stock: "20",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status).toBe(201);
+    const itemId = material.body.id as string;
+    const firstWriterDescription = `first item writer ${randomUUID()}`;
+    const staleWriterDescription = `stale item writer ${randomUUID()}`;
+    const resolvedDescription = `resolved item writer ${randomUUID()}`;
+    const cardBefore = await (await testFetch(`/api/item-cards/${itemId}`)).json();
+    const familyId = cardBefore.family.id as string;
+    const baseVersion = cardBefore.family.version as number;
+
+    const secondContext = await browser.newContext({
+      baseURL: getBaseUrl(),
+      storageState: buildStorageState(getSessionCookie(), getBaseUrl()),
+    });
+    const secondPage = await secondContext.newPage();
+
+    try {
+      await page.goto(`/inventory/materials/${itemId}`);
+      await secondPage.goto(`/inventory/materials/${itemId}`);
+
+      const firstDescription = secondPage.getByLabel("Additional info");
+      await expect(firstDescription).toHaveValue("");
+      await firstDescription.fill(firstWriterDescription);
+      await firstDescription.blur();
+      await expect(secondPage.getByText("Saved", { exact: true })).toBeVisible({
+        timeout: 15_000,
+      });
+
+      const staleDescription = page.getByLabel("Additional info");
+      await expect(staleDescription).toHaveValue("");
+      await staleDescription.fill(staleWriterDescription);
+      await staleDescription.blur();
+      await expect(
+        page.getByText(
+          "This record was changed elsewhere. Saving again will overwrite those changes.",
+          { exact: true },
+        ),
+      ).toBeVisible({ timeout: 15_000 });
+
+      const [afterConflict] = await db
+        .select({ description: itemFamilies.description, version: itemFamilies.version })
+        .from(itemFamilies)
+        .where(eq(itemFamilies.id, familyId));
+      expect(afterConflict.description).toBe(firstWriterDescription);
+      expect(afterConflict.version).toBe(baseVersion + 1);
+
+      await staleDescription.fill(resolvedDescription);
+      await staleDescription.blur();
+      await expect(page.getByText("Saved", { exact: true })).toBeVisible({
+        timeout: 15_000,
+      });
+      await page.reload();
+      await expect(page.getByLabel("Additional info")).toHaveValue(
+        resolvedDescription,
+      );
+
+      const [afterRecovery] = await db
+        .select({ description: itemFamilies.description, version: itemFamilies.version })
+        .from(itemFamilies)
+        .where(eq(itemFamilies.id, familyId));
+      expect(afterRecovery.description).toBe(resolvedDescription);
+      expect(afterRecovery.version).toBe(baseVersion + 2);
+    } finally {
+      await secondContext.close();
+    }
+  });
+
+  test("product item-card reload renders saved variant sellable state", async ({
+    context,
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const component = await createItem({
+      itemType: "material",
+      name: `Fast Sellable Component ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-SELLABLE-COMP-${unique}`,
+      category: `Fast Sellable ${unique}`,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "25",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(component.status).toBe(201);
+
+    const product = await createItem({
+      itemType: "product",
+      name: `Fast Sellable Product ${unique}`,
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-SELLABLE-PROD-${unique}`,
+      category: `Fast Sellable ${unique}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "9.00",
+      stock: "10",
+      safetyStock: "0",
+      bom: [{ componentId: component.body.id, quantity: "1" }],
+    });
+    expect(product.status).toBe(201);
+
+    const productId = product.body.id as string;
+    const sellableCheckbox = page
+      .locator("label")
+      .filter({ hasText: /^Sellable$/ })
+      .locator('[role="checkbox"]');
+
+    await page.goto(`/inventory/products/${productId}`);
+    await page.getByLabel("Category").fill(`Fast Sellable Saved ${unique}`);
+    await page.getByLabel("Category").blur();
+    await page.keyboard.press("Escape");
+    await page.getByText("Sellable", { exact: true }).click();
+    await expect(sellableCheckbox).not.toBeChecked();
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+
+    const saved = await (await testFetch(`/api/item-cards/${productId}`)).json();
+    expect(saved.variants[0].sellable).toBe(false);
+
+    await page.reload();
+    await expect(sellableCheckbox).not.toBeChecked();
+
+    const freshPage = await context.newPage();
+    await freshPage.goto(`/inventory/products/${productId}`);
+    await expect(
+      freshPage
+        .locator("label")
+        .filter({ hasText: /^Sellable$/ })
+        .locator('[role="checkbox"]'),
+    ).not.toBeChecked();
+    await freshPage.close();
   });
 
   test("item creation is unmetered: a free-plan org far past 50 SKUs keeps creating", async ({

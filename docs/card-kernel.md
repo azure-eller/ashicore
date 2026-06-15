@@ -63,7 +63,12 @@ transitions do). It never throws and never silently no-ops.
 
 Kernels live **outside React** in a module registry keyed by entity id:
 unmount can't drop a debounced edit, and payload-dirty kernels flush on
-`pagehide` with `keepalive` fetches.
+`pagehide` with `keepalive` fetches. A dirty draft is also mirrored to
+`sessionStorage` (keyed by entity, version-gated, 5-minute TTL) on every edit
+and on the `pagehide` flush; on the next mount the kernel rebases that draft
+onto the current server doc and re-flushes, so a reload — or an unload whose
+keepalive flush was skipped or dropped — restores the unsaved edits. The
+mirror clears on the next clean save.
 
 ## What a card supplies
 
@@ -90,6 +95,14 @@ Scope note: workflow endpoints (ship, receive, pick, complete) do not bump
 `version`; the column guards the card-edit surface. Server-side reconciliation
 guards (shipped/received-line protection) cover the rest.
 
+A fresh server doc handed in on mount or after navigation (`adoptServerDoc`)
+is reconciled the same way: the kernel ignores a staler `version` and, while
+the draft is clean, re-adopts the incoming doc wholesale. For that to defeat
+stale overwrites the doc must be current, so card reads are uncached — client
+`apiJson` GETs are `no-store` and the item-card detail routes render
+dynamically (`force-dynamic` + `noStore`) instead of serving a cached
+snapshot.
+
 ## Bound fields
 
 [`components/card-page/bound-fields.tsx`](../components/card-page/bound-fields.tsx)
@@ -107,13 +120,22 @@ endpoint → invalidate → navigate**, plus the delete confirm dialog.
 aborts duplicate (copying unsaved state would lie) but not delete (deleting
 discards the draft anyway).
 
+Header actions that trigger a **downstream mutation** rather than a CRUD
+endpoint — order status transitions, clone/duplicate flows, sales create-MO,
+accounting push, purchase-order email/bill/file actions — must use the shared
+saved-flush gate in `use-card-entity-actions.tsx`
+(`flushSavedCardOrThrow` / `resolveSavedCardId`). The gate flushes first,
+proceeds only on `saved`, and surfaces blocked field errors or failure messages
+instead of firing a downstream route on top of unsaved or invalid edits.
+
 ## Known limitations
 
 - Conflicts are detected at save time only (no live push); after a surfaced
   conflict, saving again overwrites — warn-once, then user intent wins.
 - The `pagehide` keepalive flush caps bodies at 64KB; an enormous document
-  may skip the unload flush (strictly better than the guaranteed loss it
-  replaced).
+  may skip the unload flush, but the `sessionStorage` reload bridge still
+  restores and re-flushes the draft on the next mount (strictly better than
+  the guaranteed loss it replaced).
 - Stocktake counts are a fire-and-forget batch queue (sequential PUTs in
   `stocktake-detail.tsx`), not a document draft — the kernel deliberately
   does not apply there.

@@ -87,7 +87,7 @@ export function LineItemsTable({
   const savedDraftLineIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
-    setRows(order.lines);
+    setRows((current) => mergeUnsentBlankLines(order.lines, current));
     savedDraftLineIdsRef.current = new Set(
       order.lines
         .filter((line) => !persistedLineIds.has(line.id) && !isBlankSalesOrderLine(line))
@@ -562,6 +562,16 @@ function isBlankSalesOrderLine(line: SalesOrderDetailLine | undefined) {
   return !line?.itemId;
 }
 
+function mergeUnsentBlankLines(
+  incoming: SalesOrderDetailLine[],
+  current: SalesOrderDetailLine[],
+) {
+  const incomingIds = new Set(incoming.map((line) => line.id));
+  const unsentBlankRows = current.filter(
+    (line) => isBlankSalesOrderLine(line) && !incomingIds.has(line.id),
+  );
+  return unsentBlankRows.length > 0 ? [...incoming, ...unsentBlankRows] : incoming;
+}
 
 function isSavableDraftLine(line: SalesOrderDetailLine) {
   const quantity = Number(line.quantity);

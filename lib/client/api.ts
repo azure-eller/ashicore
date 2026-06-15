@@ -224,6 +224,7 @@ export async function apiJson<T>(
     method,
     headers: requestHeaders,
     credentials: "same-origin",
+    ...(method === "GET" ? { cache: "no-store" as const } : {}),
     ...(keepalive ? { keepalive: true } : {}),
   };
 

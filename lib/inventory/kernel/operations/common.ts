@@ -84,6 +84,32 @@ export async function finishInventoryOperationInTx<TResult>(
   });
 }
 
+export async function runIdempotentInventoryOperationInTx<TResult>(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    operationName: string;
+    idempotencyKey?: string | null;
+    payload: Record<string, unknown>;
+  },
+  run: () => Promise<TResult>
+): Promise<{ result: TResult; replayed: boolean }> {
+  const replay = await beginInventoryOperationInTx<TResult>(tx, params);
+
+  if (replay.replayed) {
+    return { result: replay.result, replayed: true };
+  }
+
+  const result = await run();
+  await finishInventoryOperationInTx(tx, {
+    organizationId: params.organizationId,
+    idempotencyKey: params.idempotencyKey ?? null,
+    result,
+  });
+
+  return { result, replayed: false };
+}
+
 function summarizeItemDeltas(
   deltas: QuantityReferenceDelta[],
   direction: "demand" | "expected"

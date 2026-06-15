@@ -1,5 +1,6 @@
 import http from "node:http";
 import { randomUUID } from "node:crypto";
+import type { Page } from "@playwright/test";
 import { and, eq, inArray } from "drizzle-orm";
 import { test, expect } from "../fixtures";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
@@ -10,24 +11,77 @@ import {
   inventoryEvents,
   inventoryItemBalances,
   accountingDocumentSyncs,
+  customers,
+  customerContacts,
   salesOrderLines,
   salesOrders,
 } from "../../../lib/db/schema";
 import {
+  addCustomerContact,
   createCustomer,
   createItem,
   createManufacturingOrder,
   createSalesOrder,
   fulfillSalesOrder,
+  getBaseUrl,
   getOrgId,
+  getSessionCookie,
   getUnitId,
   testFetch,
 } from "../../helpers/api";
+import { buildStorageState } from "../../helpers/test-env";
 import { withAccountingConnectionFixtureLock } from "../../helpers/accounting-connection-fixture-lock";
 
 const ACCOUNTING_PROVIDER_XERO = "xero";
 const ACCOUNTING_PROVIDER_QUICKBOOKS = "quickbooks";
 const ACCOUNTING_DOCUMENT_SALES_ORDER = "sales_order";
+
+function editableGrid(page: Page, index = 0) {
+  return page.locator('[data-slot="editable-line-data-grid"]').nth(index);
+}
+
+async function expectRows(page: Page, count: number, gridIndex = 0) {
+  await expect(
+    editableGrid(page, gridIndex).locator(".ag-center-cols-container .ag-row"),
+  ).toHaveCount(count, { timeout: 15_000 });
+}
+
+async function editGridCell(
+  page: Page,
+  colId: string,
+  value: string,
+  rowIndex = 0,
+) {
+  const cell = editableGrid(page)
+    .locator(`.ag-row[row-index="${rowIndex}"] .ag-cell[col-id="${colId}"]`)
+    .first();
+  await expect(cell).toBeVisible();
+  await cell.click();
+  const input = page.locator(".ag-cell-inline-editing input").first();
+  await expect(input).toBeVisible();
+  await input.fill(value);
+  await input.press("Enter");
+}
+
+async function selectInventoryGridItem(
+  page: Page,
+  rowIndex: number,
+  itemName: string,
+) {
+  const cell = editableGrid(page)
+    .locator(`.ag-row[row-index="${rowIndex}"] .ag-cell[col-id="itemId"]`)
+    .first();
+  await expect(cell).toBeVisible();
+  await cell.click();
+  const input = page.getByPlaceholder("Search items...");
+  await expect(input).toBeVisible();
+  await input.fill(itemName);
+  await page
+    .locator('[data-slot="combobox-item"]')
+    .filter({ hasText: itemName })
+    .first()
+    .click();
+}
 
 function isoDaysFromNow(days: number) {
   const date = new Date();
@@ -269,7 +323,609 @@ test.describe("sales demand and shipping heartbeat", () => {
     expect(updated.version).toBe(3);
   });
 
-  test("sales order duplicate preserves the full source number with a copy suffix", async ({
+  test("sales order stale save returns the shared conflict envelope with the fresh order", async ({
+    db,
+  }) => {
+    const productId = await createStockedProduct("ConflictEnvelope", "10");
+    const customer = await createCustomer({
+      name: `Fast Conflict Envelope Customer ${ts}`,
+    });
+    expect(customer.status).toBe(201);
+
+    const order = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: "2026-05-01",
+      lines: [{ itemId: productId, quantity: "2", unitPrice: "12.00" }],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+    const orderDetailResponse = await testFetch(`/api/sales-orders/${order.body.id}`);
+    expect(orderDetailResponse.status).toBe(200);
+    const orderDetail = await orderDetailResponse.json();
+
+    const basePayload = {
+      orderNumber: orderDetail.orderNumber,
+      customerId: customer.body.id,
+      customerProjectId: null,
+      status: "open",
+      orderDate: "2026-05-01",
+      shipDate: null,
+      requestedDate: null,
+      notes: null,
+      shipLine1: null,
+      shipLine2: null,
+      shipCity: null,
+      shipRegion: null,
+      shipPostcode: null,
+      shipCountry: null,
+      billingLine1: null,
+      billingLine2: null,
+      billingCity: null,
+      billingRegion: null,
+      billingPostcode: null,
+      billingCountry: null,
+      shippingFeeDescription: null,
+      shippingFeeAmount: "0",
+      shippingFeeTaxAmount: "0",
+      expectedVersion: orderDetail.version,
+      lines: [
+        {
+          id: orderDetail.lines[0].id,
+          itemId: productId,
+          quantity: "2",
+          listUnitPrice: "12.00",
+          unitPrice: "12.00",
+          taxRateId: null,
+          discountPercent: "0",
+          suggestedUnitPrice: null,
+          pricingSourceType: null,
+          pricingScheduleName: null,
+          pricingBreakLabel: null,
+          isPriceOverridden: false,
+        },
+      ],
+      confirmOversell: true,
+    };
+
+    const first = await testFetch(`/api/sales-orders/${order.body.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ ...basePayload, notes: "first sales writer" }),
+    });
+    expect(first.status, await first.text()).toBe(200);
+
+    const stale = await testFetch(`/api/sales-orders/${order.body.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ ...basePayload, notes: "stale sales writer" }),
+    });
+    const staleBody = await stale.json();
+    expect(stale.status, JSON.stringify(staleBody)).toBe(409);
+    expect(staleBody.conflict).toBe(true);
+    expect(staleBody.current.notes).toBe("first sales writer");
+    expect(staleBody.current.version).toBe(orderDetail.version + 1);
+    expect(staleBody.order).toBeUndefined();
+    expect(staleBody.kind).toBeUndefined();
+
+    const [row] = await db
+      .select({ notes: salesOrders.notes, version: salesOrders.version })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, order.body.id));
+    expect(row.notes).toBe("first sales writer");
+    expect(row.version).toBe(orderDetail.version + 1);
+  });
+
+  test("sales order autosave keeps line edits made while the header save is in flight", async ({
+    db,
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const productId = await createStockedProduct(`Inflight ${unique}`, "20");
+    const customer = await createCustomer({
+      name: `Fast Sales Inflight Customer ${unique}`,
+    });
+    expect(customer.status).toBe(201);
+    const order = await createSalesOrder({
+      customerId: customer.body.id,
+      shipDate: isoDaysFromNow(3),
+      lines: [{ itemId: productId, quantity: "2", unitPrice: "12.00" }],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+    const orderId = order.body.id as string;
+    const notes = `SO save in flight ${unique}`;
+
+    let delayedFirstMutation = false;
+    await page.route(`**/api/sales-orders/${orderId}`, async (route) => {
+      if (
+        (route.request().method() === "PUT" ||
+          route.request().method() === "PATCH") &&
+        !delayedFirstMutation
+      ) {
+        delayedFirstMutation = true;
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+      }
+      await route.continue();
+    });
+
+    await page.goto(`/sales/order/${orderId}`);
+    const notesInput = page.getByPlaceholder("Add notes for the warehouse or customer.");
+    await expect(notesInput).toBeVisible();
+    await notesInput.fill(notes);
+    await notesInput.blur();
+
+    await editGridCell(page, "quantity", "7");
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+    await page.reload();
+
+    await expect(notesInput).toHaveValue(notes);
+    await expect(
+      editableGrid(page).locator('.ag-row .ag-cell[col-id="quantity"]').first(),
+    ).toContainText("7");
+
+    const [row] = await db
+      .select({ notes: salesOrders.notes })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, orderId));
+    expect(row.notes).toBe(notes);
+
+    const [line] = await db
+      .select({ quantity: salesOrderLines.quantity })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, orderId));
+    expect(line.quantity).toBe("7.0000");
+  });
+
+  test("sales order autosave preserves an unsent blank line through a header rebase", async ({
+    db,
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const existingLabel = `BlankA${unique}`;
+    const newLabel = `BlankB${unique}`;
+    const existingProductId = await createStockedProduct(existingLabel, "20");
+    const newProductId = await createStockedProduct(newLabel, "20");
+    const newProductName = `Fast Sales ${newLabel} Product ${ts}`;
+    const customer = await createCustomer({
+      name: `Fast Sales Blank Line Customer ${unique}`,
+    });
+    expect(customer.status).toBe(201);
+    const order = await createSalesOrder({
+      customerId: customer.body.id,
+      shipDate: isoDaysFromNow(3),
+      lines: [{ itemId: existingProductId, quantity: "2", unitPrice: "12.00" }],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+    const orderId = order.body.id as string;
+    const notes = `blank line survives rebase ${unique}`;
+
+    let delayedFirstMutation = false;
+    await page.route(`**/api/sales-orders/${orderId}`, async (route) => {
+      if (
+        (route.request().method() === "PUT" ||
+          route.request().method() === "PATCH") &&
+        !delayedFirstMutation
+      ) {
+        delayedFirstMutation = true;
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+      }
+      await route.continue();
+    });
+
+    await page.goto(`/sales/order/${orderId}`);
+    await expectRows(page, 1);
+    await page.getByRole("button", { name: "Add line" }).click();
+    await expectRows(page, 2);
+
+    const notesInput = page.getByPlaceholder("Add notes for the warehouse or customer.");
+    await notesInput.fill(notes);
+    await notesInput.blur();
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expectRows(page, 2);
+
+    const afterHeaderSave = await db
+      .select({ itemId: salesOrderLines.itemId })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, orderId));
+    expect(afterHeaderSave).toHaveLength(1);
+    expect(afterHeaderSave[0].itemId).toBe(existingProductId);
+
+    await selectInventoryGridItem(page, 1, newProductName);
+    await editGridCell(page, "quantity", "3", 1);
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+    await page.reload();
+    await expectRows(page, 2);
+
+    const savedLines = await db
+      .select({
+        itemId: salesOrderLines.itemId,
+        quantity: salesOrderLines.quantity,
+        unitPrice: salesOrderLines.unitPrice,
+      })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, orderId));
+    expect(savedLines).toHaveLength(2);
+    expect(savedLines).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          itemId: newProductId,
+          quantity: "3.0000",
+        }),
+      ]),
+    );
+  });
+
+  test("sales order autosave surfaces same-field conflicts without overwriting and can recover", async ({
+    browser,
+    page,
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const productId = await createStockedProduct(`Conflict UI ${unique}`, "20");
+    const customer = await createCustomer({
+      name: `Fast Sales Conflict UI Customer ${unique}`,
+    });
+    expect(customer.status).toBe(201);
+    const order = await createSalesOrder({
+      customerId: customer.body.id,
+      shipDate: isoDaysFromNow(3),
+      lines: [{ itemId: productId, quantity: "2", unitPrice: "12.00" }],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+    const orderId = order.body.id as string;
+    const firstWriterNotes = `first sales writer ${randomUUID()}`;
+    const staleWriterNotes = `stale sales writer ${randomUUID()}`;
+    const resolvedNotes = `resolved sales writer ${randomUUID()}`;
+
+    const secondContext = await browser.newContext({
+      baseURL: getBaseUrl(),
+      storageState: buildStorageState(getSessionCookie(), getBaseUrl()),
+    });
+    const secondPage = await secondContext.newPage();
+
+    try {
+      await page.goto(`/sales/order/${orderId}`);
+      await secondPage.goto(`/sales/order/${orderId}`);
+
+      const firstNotes = secondPage.getByPlaceholder(
+        "Add notes for the warehouse or customer.",
+      );
+      await expect(firstNotes).toHaveValue("");
+      await firstNotes.fill(firstWriterNotes);
+      await firstNotes.blur();
+      await expect(secondPage.getByText("Saved", { exact: true })).toBeVisible({
+        timeout: 15_000,
+      });
+
+      const staleNotes = page.getByPlaceholder(
+        "Add notes for the warehouse or customer.",
+      );
+      await expect(staleNotes).toHaveValue("");
+      await staleNotes.fill(staleWriterNotes);
+      await staleNotes.blur();
+      await expect(
+        page.getByText(
+          "This record was changed elsewhere. Saving again will overwrite those changes.",
+          { exact: true },
+        ),
+      ).toBeVisible({ timeout: 15_000 });
+
+      const [afterConflict] = await db
+        .select({ notes: salesOrders.notes, version: salesOrders.version })
+        .from(salesOrders)
+        .where(eq(salesOrders.id, orderId));
+      expect(afterConflict.notes).toBe(firstWriterNotes);
+      expect(afterConflict.version).toBe(2);
+
+      await staleNotes.fill(resolvedNotes);
+      await staleNotes.blur();
+      await expect(page.getByText("Saved", { exact: true })).toBeVisible({
+        timeout: 15_000,
+      });
+      await page.reload();
+      await expect(
+        page.getByPlaceholder("Add notes for the warehouse or customer."),
+      ).toHaveValue(resolvedNotes);
+
+      const [afterRecovery] = await db
+        .select({ notes: salesOrders.notes, version: salesOrders.version })
+        .from(salesOrders)
+        .where(eq(salesOrders.id, orderId));
+      expect(afterRecovery.notes).toBe(resolvedNotes);
+      expect(afterRecovery.version).toBe(3);
+    } finally {
+      await secondContext.close();
+    }
+  });
+
+  test("customer autosave rebase preserves an unsent blank contact row", async ({
+    page,
+  }) => {
+    const customer = await createCustomer({
+      name: `Fast Contact Blank Customer ${Date.now()}`,
+      email: "before@example.com",
+    });
+    expect(customer.status, JSON.stringify(customer.body)).toBe(201);
+    const customerId = customer.body.id as string;
+    const contact = await addCustomerContact(customerId, {
+      name: "Existing Contact",
+      email: "existing@example.com",
+    });
+    expect(contact.status, JSON.stringify(contact.body)).toBe(200);
+    const email = `blank-${Date.now()}@example.com`;
+    let delayedFirstSave = false;
+
+    await page.route(`**/api/customers/${customerId}`, async (route) => {
+      if (route.request().method() === "PUT" && !delayedFirstSave) {
+        delayedFirstSave = true;
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+      }
+      await route.continue();
+    });
+
+    await page.goto(`/sales/customers/${customerId}`);
+    await expectRows(page, 1);
+    await page.getByRole("button", { name: "Add contact" }).click();
+    await expectRows(page, 2);
+
+    await page.getByLabel("Email").fill(email);
+    await page.getByLabel("Email").blur();
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expectRows(page, 2);
+
+    const saved = await (await testFetch(`/api/customers/${customerId}`)).json();
+    expect(saved.email).toBe(email);
+    expect(saved.contacts).toHaveLength(1);
+  });
+
+  test("customer autosave keeps contact edits made while the header save is in flight", async ({
+    page,
+    db,
+  }) => {
+    const customer = await createCustomer({
+      name: `Fast Contact Inflight Customer ${Date.now()}`,
+      email: "before@example.com",
+    });
+    expect(customer.status, JSON.stringify(customer.body)).toBe(201);
+    const customerId = customer.body.id as string;
+    const contact = await addCustomerContact(customerId, {
+      name: "Existing Contact",
+      email: "existing@example.com",
+    });
+    expect(contact.status, JSON.stringify(contact.body)).toBe(200);
+    const headerEmail = `header-${Date.now()}@example.com`;
+    const contactEmail = `contact-${Date.now()}@example.com`;
+
+    let delayedFirstPut = false;
+    let markPutStarted: () => void = () => {};
+    const putStarted = new Promise<void>((resolve) => {
+      markPutStarted = resolve;
+    });
+    await page.route(`**/api/customers/${customerId}`, async (route) => {
+      if (route.request().method() === "PUT" && !delayedFirstPut) {
+        delayedFirstPut = true;
+        markPutStarted();
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+      }
+      await route.continue();
+    });
+
+    await page.goto(`/sales/customers/${customerId}`);
+    await expectRows(page, 1);
+
+    await page.getByLabel("Email").fill(headerEmail);
+    await page.getByLabel("Email").blur();
+    await putStarted;
+
+    await editGridCell(page, "email", contactEmail);
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+    await page.reload();
+
+    await expect(page.getByLabel("Email")).toHaveValue(headerEmail);
+    await expect(
+      editableGrid(page).locator('.ag-row .ag-cell[col-id="email"]').first(),
+    ).toContainText(contactEmail);
+
+    const saved = await (await testFetch(`/api/customers/${customerId}`)).json();
+    expect(saved.email).toBe(headerEmail);
+    expect(saved.contacts).toHaveLength(1);
+    expect(saved.contacts[0].email).toBe(contactEmail);
+
+    const [savedContact] = await db
+      .select({ email: customerContacts.email })
+      .from(customerContacts)
+      .where(eq(customerContacts.id, contact.contactId));
+    expect(savedContact.email).toBe(contactEmail);
+  });
+
+  test("customer autosave surfaces same-field conflicts without overwriting and can recover", async ({
+    browser,
+    page,
+    db,
+  }) => {
+    const customer = await createCustomer({
+      name: `Fast Customer Conflict UI ${Date.now()}`,
+      email: "before@example.com",
+    });
+    expect(customer.status, JSON.stringify(customer.body)).toBe(201);
+    const customerId = customer.body.id as string;
+    const baseVersion = customer.body.version as number;
+    const firstWriterEmail = `first-${randomUUID()}@example.com`;
+    const staleWriterEmail = `stale-${randomUUID()}@example.com`;
+    const resolvedEmail = `resolved-${randomUUID()}@example.com`;
+
+    const secondContext = await browser.newContext({
+      baseURL: getBaseUrl(),
+      storageState: buildStorageState(getSessionCookie(), getBaseUrl()),
+    });
+    const secondPage = await secondContext.newPage();
+
+    try {
+      await page.goto(`/sales/customers/${customerId}`);
+      await secondPage.goto(`/sales/customers/${customerId}`);
+
+      const firstEmail = secondPage.getByLabel("Email");
+      await expect(firstEmail).toHaveValue("before@example.com");
+      await firstEmail.fill(firstWriterEmail);
+      await firstEmail.blur();
+      await expect(secondPage.getByText("Saved", { exact: true })).toBeVisible({
+        timeout: 15_000,
+      });
+
+      const staleEmail = page.getByLabel("Email");
+      await expect(staleEmail).toHaveValue("before@example.com");
+      await staleEmail.fill(staleWriterEmail);
+      await staleEmail.blur();
+      await expect(
+        page.getByText(
+          "This record was changed elsewhere. Saving again will overwrite those changes.",
+          { exact: true },
+        ),
+      ).toBeVisible({ timeout: 15_000 });
+
+      const [afterConflict] = await db
+        .select({ email: customers.email, version: customers.version })
+        .from(customers)
+        .where(eq(customers.id, customerId));
+      expect(afterConflict.email).toBe(firstWriterEmail);
+      expect(afterConflict.version).toBe(baseVersion + 1);
+
+      await staleEmail.fill(resolvedEmail);
+      await staleEmail.blur();
+      await expect(page.getByText("Saved", { exact: true })).toBeVisible({
+        timeout: 15_000,
+      });
+      await page.reload();
+      await expect(page.getByLabel("Email")).toHaveValue(resolvedEmail);
+
+      const [afterRecovery] = await db
+        .select({ email: customers.email, version: customers.version })
+        .from(customers)
+        .where(eq(customers.id, customerId));
+      expect(afterRecovery.email).toBe(resolvedEmail);
+      expect(afterRecovery.version).toBe(baseVersion + 2);
+    } finally {
+      await secondContext.close();
+    }
+  });
+
+  test("customer create replays under the same idempotency key", async ({
+    db,
+  }) => {
+    const email = `create-replay-${randomUUID()}@example.com`;
+    const payload = {
+      name: `Fast Customer Create Replay ${Date.now()}`,
+      customerCategoryId: null,
+      email,
+      phone: null,
+      billingLine1: null,
+      billingLine2: null,
+      billingCity: null,
+      billingRegion: null,
+      billingPostcode: null,
+      billingCountry: null,
+      shipLine1: null,
+      shipLine2: null,
+      shipCity: null,
+      shipRegion: null,
+      shipPostcode: null,
+      shipCountry: null,
+      contacts: [],
+    };
+    const postCreate = () =>
+      testFetch("/api/customers", {
+        method: "POST",
+        headers: {
+          "Idempotency-Key": `fast-customer-create-replay:${email}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+    const first = await postCreate();
+    const firstBody = await first.json();
+    expect(first.status, JSON.stringify(firstBody)).toBe(201);
+
+    const replay = await postCreate();
+    const replayBody = await replay.json();
+    expect(replay.status, JSON.stringify(replayBody)).toBe(201);
+    expect(replayBody.id).toBe(firstBody.id);
+
+    const rows = await db
+      .select({ id: customers.id })
+      .from(customers)
+      .where(eq(customers.email, email));
+    expect(rows).toHaveLength(1);
+  });
+
+  test("customer stale save returns the shared conflict envelope with the fresh customer", async ({
+    db,
+  }) => {
+    const customer = await createCustomer({
+      name: `Fast Customer Conflict ${Date.now()}`,
+      email: "before@example.com",
+    });
+    expect(customer.status, JSON.stringify(customer.body)).toBe(201);
+    const customerId = customer.body.id as string;
+
+    const detailResponse = await testFetch(`/api/customers/${customerId}`);
+    expect(detailResponse.status).toBe(200);
+    const detail = await detailResponse.json();
+    const basePayload = {
+      name: detail.name,
+      customerCategoryId: detail.customerCategoryId,
+      accountState: detail.accountState,
+      accountPriority: detail.accountPriority,
+      email: detail.email,
+      phone: detail.phone,
+      billingLine1: detail.billingLine1,
+      billingLine2: detail.billingLine2,
+      billingCity: detail.billingCity,
+      billingRegion: detail.billingRegion,
+      billingPostcode: detail.billingPostcode,
+      billingCountry: detail.billingCountry,
+      shipLine1: detail.shipLine1,
+      shipLine2: detail.shipLine2,
+      shipCity: detail.shipCity,
+      shipRegion: detail.shipRegion,
+      shipPostcode: detail.shipPostcode,
+      shipCountry: detail.shipCountry,
+      contacts: [],
+      expectedVersion: detail.version,
+    };
+
+    const first = await testFetch(`/api/customers/${customerId}`, {
+      method: "PUT",
+      body: JSON.stringify({ ...basePayload, email: "first-customer@example.com" }),
+    });
+    expect(first.status, await first.text()).toBe(200);
+
+    const stale = await testFetch(`/api/customers/${customerId}`, {
+      method: "PUT",
+      body: JSON.stringify({ ...basePayload, email: "stale-customer@example.com" }),
+    });
+    const staleBody = await stale.json();
+    expect(stale.status, JSON.stringify(staleBody)).toBe(409);
+    expect(staleBody.conflict).toBe(true);
+    expect(staleBody.current.email).toBe("first-customer@example.com");
+    expect(staleBody.current.version).toBe(detail.version + 1);
+    expect(staleBody.customer).toBeUndefined();
+    expect(staleBody.kind).toBeUndefined();
+
+    const [row] = await db
+      .select({ email: customers.email, version: customers.version })
+      .from(customers)
+      .where(eq(customers.id, customerId));
+    expect(row.email).toBe("first-customer@example.com");
+    expect(row.version).toBe(detail.version + 1);
+  });
+
+  test("sales order duplicate replays under the same idempotency key", async ({
     db,
   }) => {
     const productId = await createStockedProduct("DuplicateNumber", "10");
@@ -287,16 +943,22 @@ test.describe("sales demand and shipping heartbeat", () => {
     });
     expect(order.status).toBe(201);
 
-    const duplicate = await testFetch(
-      `/api/sales-orders/${order.body.id}/duplicate`,
-      {
-        method: "POST",
-        headers: createIdempotencyHeaders(`duplicate-number-${ts}`),
-      }
-    );
+    const duplicateKey = `duplicate-number-${ts}`;
+    const duplicate = await testFetch(`/api/sales-orders/${order.body.id}/duplicate`, {
+      method: "POST",
+      headers: { "Idempotency-Key": duplicateKey },
+    });
     expect(duplicate.status).toBe(201);
 
     const duplicatedOrder = (await duplicate.json()) as { id: string };
+    const replay = await testFetch(`/api/sales-orders/${order.body.id}/duplicate`, {
+      method: "POST",
+      headers: { "Idempotency-Key": duplicateKey },
+    });
+    const duplicateReplay = (await replay.json()) as { id: string };
+    expect(replay.status, JSON.stringify(duplicateReplay)).toBe(201);
+    expect(duplicateReplay.id).toBe(duplicatedOrder.id);
+
     const [row] = await db
       .select({ orderNumber: salesOrders.orderNumber })
       .from(salesOrders)
@@ -305,6 +967,175 @@ test.describe("sales demand and shipping heartbeat", () => {
     expect(row.orderNumber).toBe(
       `SO-1182_${ts}`.slice(0, 32 - "_COPY".length) + "_COPY"
     );
+
+    const copiedRows = await db
+      .select({ id: salesOrders.id })
+      .from(salesOrders)
+      .where(eq(salesOrders.orderNumber, row.orderNumber));
+    expect(copiedRows).toHaveLength(1);
+  });
+
+  test("sales order duplicate action flushes dirty autosave before cloning", async ({
+    db,
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const productId = await createStockedProduct(`DupUI${unique}`, "10");
+    const customer = await createCustomer({
+      name: `Fast Duplicate UI Customer ${unique}`,
+    });
+    expect(customer.status).toBe(201);
+
+    const order = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: "2026-05-01",
+      shipDate: "2026-05-02",
+      lines: [{ itemId: productId, quantity: "2", unitPrice: "12.00" }],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+    const orderId = order.body.id as string;
+    const notes = `dirty sales duplicate notes ${unique}`;
+
+    await page.goto(`/sales/order/${orderId}`);
+    const notesInput = page.getByPlaceholder("Add notes for the warehouse or customer.");
+    await expect(notesInput).toBeVisible();
+    await notesInput.fill(notes);
+
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Duplicate" }).click();
+    await page.waitForURL((url) => {
+      return (
+        url.pathname.startsWith("/sales/order/") &&
+        url.pathname !== `/sales/order/${orderId}`
+      );
+    });
+    const duplicatedId = page.url().split("/").pop();
+    expect(duplicatedId).toBeTruthy();
+    expect(duplicatedId).not.toBe(orderId);
+
+    const rows = await db
+      .select({
+        id: salesOrders.id,
+        notes: salesOrders.notes,
+        customerId: salesOrders.customerId,
+      })
+      .from(salesOrders)
+      .where(
+        and(
+          eq(salesOrders.customerId, customer.body.id),
+          eq(salesOrders.notes, notes),
+        ),
+      );
+    expect(rows.map((row) => row.id).sort()).toEqual(
+      [orderId, duplicatedId as string].sort(),
+    );
+
+    const lines = await db
+      .select({
+        salesOrderId: salesOrderLines.salesOrderId,
+        itemId: salesOrderLines.itemId,
+        quantity: salesOrderLines.quantity,
+      })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.itemId, productId));
+    expect(lines).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          salesOrderId: orderId,
+          quantity: "2.0000",
+        }),
+        expect.objectContaining({
+          salesOrderId: duplicatedId,
+          quantity: "2.0000",
+        }),
+      ]),
+    );
+  });
+
+  test("sales order create-MO action blocks when autosave is invalid", async ({
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const productId = await createStockedProduct(`MakeBlocked${unique}`, "0");
+    const customer = await createCustomer({
+      name: `Fast Make Blocked Customer ${unique}`,
+    });
+    expect(customer.status).toBe(201);
+
+    const order = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: "2026-05-01",
+      shipDate: "2026-05-02",
+      lines: [{ itemId: productId, quantity: "2", unitPrice: "12.00" }],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+    const invalidOrderNumber = `SO-${"X".repeat(40)}-${unique}`;
+
+    await page.goto(`/sales/order/${order.body.id}`);
+    await page
+      .locator('input[value^="SO-"]')
+      .first()
+      .fill(invalidOrderNumber);
+
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Create manufacturing order(s)" }).click();
+
+    await expect(page.getByRole("alert")).toHaveText(
+      "Order number must be 32 characters or fewer",
+    );
+    await expect(
+      page.getByRole("dialog", { name: "Create Manufacturing Orders" }),
+    ).toBeHidden();
+  });
+
+  test("sales order accounting push blocks when autosave is invalid", async ({
+    db,
+    page,
+  }) => {
+    await withOnlyQuickBooksConnection(db, async () => {
+      const unique = randomUUID().slice(0, 8);
+      const productId = await createStockedProduct(`AcctBlk${unique}`, "10");
+      const customer = await createCustomer({
+        name: `Fast Accounting Blocked Customer ${unique}`,
+      });
+      expect(customer.status).toBe(201);
+
+      const order = await createSalesOrder({
+        customerId: customer.body.id,
+        orderDate: "2026-05-01",
+        shipDate: "2026-05-02",
+        lines: [{ itemId: productId, quantity: "2", unitPrice: "12.00" }],
+      });
+      expect(order.status, JSON.stringify(order.body)).toBe(201);
+      const invalidOrderNumber = `SO-${"X".repeat(40)}-${unique}`;
+      let pushCalls = 0;
+
+      await page.route(
+        `**/api/sales-orders/${order.body.id}/accounting-push`,
+        async (route) => {
+          pushCalls += 1;
+          await route.fulfill({
+            status: 418,
+            contentType: "application/json",
+            body: JSON.stringify({ error: "accounting push should be blocked" }),
+          });
+        },
+      );
+
+      await page.goto(`/sales/order/${order.body.id}`);
+      await page
+        .locator('input[value^="SO-"]')
+        .first()
+        .fill(invalidOrderNumber);
+
+      await page.getByRole("button", { name: "More actions" }).click();
+      await page.getByRole("menuitem", { name: "Send invoice to QuickBooks" }).click();
+
+      await expect(page.getByRole("alert")).toHaveText(
+        "Order number must be 32 characters or fewer",
+      );
+      expect(pushCalls).toBe(0);
+    });
   });
 
   test("Shopify paid-order import creates sales demand and records external order", async ({
@@ -434,8 +1265,19 @@ test.describe("sales demand and shipping heartbeat", () => {
     });
     expect(order.status).toBe(201);
 
-    const ship = await fulfillSalesOrder(order.body.id);
+    const shipKey = `ship-once-${ts}`;
+    const ship = await testFetch(`/api/sales-orders/${order.body.id}/ship`, {
+      method: "POST",
+      headers: { "Idempotency-Key": shipKey },
+      body: JSON.stringify({}),
+    });
     expect(ship.status).toBe(200);
+    const replay = await testFetch(`/api/sales-orders/${order.body.id}/ship`, {
+      method: "POST",
+      headers: { "Idempotency-Key": shipKey },
+      body: JSON.stringify({}),
+    });
+    expect(replay.status, await replay.text()).toBe(200);
 
     const events = await db
       .select({ quantity: inventoryEvents.quantity })

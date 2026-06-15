@@ -43,6 +43,7 @@ import {
   finishInventoryOperationInTx,
   releaseExpectedFromPurchaseInTx,
   revaluePurchaseLandedCostInTx,
+  runIdempotentInventoryOperationInTx,
 } from "@/lib/inventory/kernel";
 import { generateShortDocumentNumberInTx } from "@/lib/document-numbers";
 import type { InsertPurchaseOrder, UpdatePurchaseOrder } from "@/lib/schemas/purchase-orders";
@@ -587,10 +588,26 @@ export async function createPurchaseOrderInTx(
   return order;
 }
 
-export async function createPurchaseOrder(data: InsertPurchaseOrder) {
-  const created = await withAuthedOrgContext((tx, orgId) =>
-    createPurchaseOrderInTx(tx, orgId, data),
-  );
+export async function createPurchaseOrder(
+  data: InsertPurchaseOrder,
+  options?: { idempotencyKey?: string }
+) {
+  const created = await withAuthedOrgContext(async (tx, orgId) => {
+    const { result } = await runIdempotentInventoryOperationInTx<{
+      id: string;
+      orderNumber: string;
+    }>(
+      tx,
+      {
+        organizationId: orgId,
+        operationName: "createPurchaseOrder",
+        idempotencyKey: options?.idempotencyKey ?? null,
+        payload: data,
+      },
+      () => createPurchaseOrderInTx(tx, orgId, data),
+    );
+    return result;
+  });
   const order = await getPurchaseOrder(created.id);
   if (!order) {
     throw new PurchasingError("Purchase order not found after create.", 500);
@@ -598,51 +615,82 @@ export async function createPurchaseOrder(data: InsertPurchaseOrder) {
   return order;
 }
 
-export async function duplicatePurchaseOrder(id: string) {
-  const order = await getPurchaseOrder(id);
+export async function duplicatePurchaseOrder(
+  id: string,
+  options?: { idempotencyKey?: string }
+) {
+  const created = await withAuthedOrgContext(async (tx, orgId) => {
+    const { result } = await runIdempotentInventoryOperationInTx<{
+      id: string;
+      orderNumber: string;
+    } | null>(
+      tx,
+      {
+        organizationId: orgId,
+        operationName: "duplicatePurchaseOrder",
+        idempotencyKey: options?.idempotencyKey ?? null,
+        payload: { id },
+      },
+      async () => {
+        const order = await getPurchaseOrderInTx(tx, orgId, id);
 
-  if (!order) {
+        if (!order) {
+          return null;
+        }
+
+        return createPurchaseOrderInTx(tx, orgId, {
+          supplierId: order.supplierId,
+          expectedDate: order.expectedDate,
+          shippingCost: order.shippingCost,
+          notes: order.notes,
+          accountingPurchaseAccountCode: order.accountingPurchaseAccountCode,
+          shipLine1: order.shipLine1,
+          shipLine2: order.shipLine2,
+          shipCity: order.shipCity,
+          shipRegion: order.shipRegion,
+          shipPostcode: order.shipPostcode,
+          shipCountry: order.shipCountry,
+          lines: order.lines.map((line) => ({
+            itemId: line.itemId,
+            quantityOrdered: line.quantityOrdered,
+            unitCost: line.unitCost,
+            taxRateId: line.taxRateId,
+            accountingPurchaseAccountCode: line.accountingPurchaseAccountCode,
+            shipAddressEntryId: line.shipAddressEntryId,
+            shipContactName: line.shipContactName,
+            shipContactPhone: line.shipContactPhone,
+            shipLine1: line.shipLine1,
+            shipLine2: line.shipLine2,
+            shipCity: line.shipCity,
+            shipRegion: line.shipRegion,
+            shipPostcode: line.shipPostcode,
+            shipCountry: line.shipCountry,
+            shipDeliveryInstructions: line.shipDeliveryInstructions,
+          })),
+          additionalCosts: order.additionalCosts.map((cost) => ({
+            costType: cost.costType,
+            reference: cost.reference,
+            supplierId: cost.supplierId,
+            distributionMethod: cost.distributionMethod,
+            accountingPurchaseAccountCode: cost.accountingPurchaseAccountCode,
+            amount: cost.amount,
+          })),
+        });
+      },
+    );
+
+    return result;
+  });
+
+  if (!created) {
     return null;
   }
 
-  return createPurchaseOrder({
-    supplierId: order.supplierId,
-    expectedDate: order.expectedDate,
-    shippingCost: order.shippingCost,
-    notes: order.notes,
-    accountingPurchaseAccountCode: order.accountingPurchaseAccountCode,
-    shipLine1: order.shipLine1,
-    shipLine2: order.shipLine2,
-    shipCity: order.shipCity,
-    shipRegion: order.shipRegion,
-    shipPostcode: order.shipPostcode,
-    shipCountry: order.shipCountry,
-    lines: order.lines.map((line) => ({
-      itemId: line.itemId,
-      quantityOrdered: line.quantityOrdered,
-      unitCost: line.unitCost,
-      taxRateId: line.taxRateId,
-      accountingPurchaseAccountCode: line.accountingPurchaseAccountCode,
-      shipAddressEntryId: line.shipAddressEntryId,
-      shipContactName: line.shipContactName,
-      shipContactPhone: line.shipContactPhone,
-      shipLine1: line.shipLine1,
-      shipLine2: line.shipLine2,
-      shipCity: line.shipCity,
-      shipRegion: line.shipRegion,
-      shipPostcode: line.shipPostcode,
-      shipCountry: line.shipCountry,
-      shipDeliveryInstructions: line.shipDeliveryInstructions,
-    })),
-    additionalCosts: order.additionalCosts.map((cost) => ({
-      costType: cost.costType,
-      reference: cost.reference,
-      supplierId: cost.supplierId,
-      distributionMethod: cost.distributionMethod,
-      accountingPurchaseAccountCode: cost.accountingPurchaseAccountCode,
-      amount: cost.amount,
-    })),
-  });
+  const order = await getPurchaseOrder(created.id);
+  if (!order) {
+    throw new PurchasingError("Purchase order not found after create.", 500);
+  }
+  return order;
 }
 
 export async function updatePurchaseOrder(

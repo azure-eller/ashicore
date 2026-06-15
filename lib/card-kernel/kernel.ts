@@ -101,6 +101,8 @@ const DEFAULT_DEBOUNCE_MS = 600;
 const RETRY_BACKOFF_MS = [1_000, 4_000, 10_000];
 const CONFLICT_MESSAGE =
   "This record was changed elsewhere. Saving again will overwrite those changes.";
+const PAGEHIDE_DRAFT_TTL_MS = 5 * 60 * 1_000;
+const RELOAD_DRAFT_DEBOUNCE_MS = 1_000;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -172,6 +174,16 @@ function translateErrorPaths(
   return translated;
 }
 
+function readStoredAttempt(
+  value: unknown,
+): { key: string; payloadJson: string } | null {
+  if (value == null || typeof value !== "object") return null;
+  const { key, payloadJson } = value as { key?: unknown; payloadJson?: unknown };
+  return typeof key === "string" && typeof payloadJson === "string"
+    ? { key, payloadJson }
+    : null;
+}
+
 export class CardKernel<TDoc, TPayload> {
   readonly key: string;
   private config: CardKernelConfig<TDoc, TPayload>;
@@ -187,6 +199,7 @@ export class CardKernel<TDoc, TPayload> {
   private snapshot: KernelSnapshot<TDoc>;
   private listeners = new Set<() => void>();
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private reloadDraftTimer: ReturnType<typeof setTimeout> | null = null;
   private inFlight: Promise<FlushOutcome> | null = null;
   private lastAttempt: { key: string; payloadJson: string } | null = null;
 
@@ -208,6 +221,11 @@ export class CardKernel<TDoc, TPayload> {
       ? this.readVersion(config.initialServerDoc)
       : null;
     this.status = "idle";
+    const restored = this.restorePagehideDraft();
+    if (restored) {
+      this.status = this.isPayloadDirty() ? "dirty" : "idle";
+      if (this.status === "dirty") this.scheduleFlush(0);
+    }
     this.snapshot = this.buildSnapshot();
   }
 
@@ -262,9 +280,11 @@ export class CardKernel<TDoc, TPayload> {
       opts = maybeOpts;
     }
 
+    const dirty = this.isPayloadDirty();
     if (this.status !== "saving" && this.status !== "blocked") {
-      this.status = this.isPayloadDirty() ? "dirty" : "idle";
+      this.status = dirty ? "dirty" : "idle";
     }
+    this.syncReloadDraft(dirty);
     this.notify();
 
     const delay =
@@ -283,13 +303,7 @@ export class CardKernel<TDoc, TPayload> {
   };
 
   resetToServer = () => {
-    this.draft = this.derive(
-      structuredClone(this.serverDoc ?? this.pristineDoc),
-    );
-    this.status = "idle";
-    this.error = null;
-    this.fieldErrors = null;
-    this.notify();
+    this.markClean(this.serverDoc, this.serverDoc ?? this.pristineDoc);
   };
 
   /**
@@ -308,8 +322,22 @@ export class CardKernel<TDoc, TPayload> {
     ) {
       return;
     }
-    // Content-equal docs are a no-op: callers may rebuild the same doc every
-    // render, and adopting it would re-render forever.
+    const clean = !this.inFlight && !this.isPayloadDirty();
+    if (clean) {
+      const nextDraft = this.derive(doc);
+      if (
+        this.serverDoc != null &&
+        deepEqual(doc, this.serverDoc) &&
+        deepEqual(this.draft, nextDraft)
+      ) {
+        return;
+      }
+      this.markClean(doc, doc);
+      return;
+    }
+
+    // Content-equal docs are a no-op while dirty/saving: callers may rebuild
+    // the same doc every render, and adopting it would re-render forever.
     if (this.serverDoc != null && deepEqual(doc, this.serverDoc)) {
       return;
     }
@@ -322,10 +350,17 @@ export class CardKernel<TDoc, TPayload> {
 
   /** Fire-and-forget save for pagehide; skips invalid or clean drafts. */
   flushForPagehide() {
-    if (this.inFlight || !this.isPayloadDirty()) return;
+    if (!this.isPayloadDirty()) return;
     const { payload } = this.config.serialize(this.draft);
     if (!this.config.schema.safeParse(payload).success) return;
-    const idempotencyKey = `${this.key}:${crypto.randomUUID()}`;
+    if (this.inFlight) {
+      this.storePagehideDraft();
+      return;
+    }
+    const payloadJson = JSON.stringify(payload);
+    const idempotencyKey = this.idempotencyKeyFor(payloadJson);
+    this.lastAttempt = { key: idempotencyKey, payloadJson };
+    this.storePagehideDraft();
     const request = this.serverDoc
       ? this.config.update(
           this.config.readId?.(this.serverDoc) ?? this.config.id,
@@ -334,6 +369,12 @@ export class CardKernel<TDoc, TPayload> {
         )
       : this.config.create(payload, { idempotencyKey, keepalive: true });
     void request.catch(() => undefined);
+  }
+
+  private idempotencyKeyFor(payloadJson: string): string {
+    return this.lastAttempt?.payloadJson === payloadJson
+      ? this.lastAttempt.key
+      : `${this.key}:${crypto.randomUUID()}`;
   }
 
   private derive(doc: TDoc) {
@@ -425,14 +466,13 @@ export class CardKernel<TDoc, TPayload> {
     this.fieldErrors = null;
     this.notify();
 
-    const draftAtSend = this.draft;
-    const serverDocAtSend = this.serverDoc;
+    const draftAtSend = structuredClone(this.draft);
+    const serverDocAtSend = this.serverDoc
+      ? structuredClone(this.serverDoc)
+      : null;
     const versionAtSend = this.version;
     const payloadJson = JSON.stringify(payload);
-    const idempotencyKey =
-      this.lastAttempt?.payloadJson === payloadJson
-        ? this.lastAttempt.key
-        : `${this.key}:${crypto.randomUUID()}`;
+    const idempotencyKey = this.idempotencyKeyFor(payloadJson);
     this.lastAttempt = { key: idempotencyKey, payloadJson };
 
     let lastError: unknown;
@@ -470,7 +510,10 @@ export class CardKernel<TDoc, TPayload> {
         this.draft = this.derive(
           applyPaths(fresh, stillDirty, this.draft, this.config.collections),
         );
-        this.status = this.isPayloadDirty() ? "dirty" : "idle";
+        const dirty = this.isPayloadDirty();
+        this.status = dirty ? "dirty" : "idle";
+        if (dirty) this.syncReloadDraft(true);
+        else this.clearCleanSideEffects();
         this.notify();
         this.config.onServerDoc?.(fresh);
         if (!serverDocAtSend) this.config.onCreated?.(fresh);
@@ -535,6 +578,12 @@ export class CardKernel<TDoc, TPayload> {
     this.rebaseOnto(current);
     this.lastAttempt = null;
 
+    if (!this.isPayloadDirty()) {
+      this.markClean(current, this.draft);
+      this.config.onServerDoc?.(current);
+      return { outcome: "saved" };
+    }
+
     if (conflictPaths.length === 0 && !alreadyRetried) {
       return this.attempt(true);
     }
@@ -543,6 +592,137 @@ export class CardKernel<TDoc, TPayload> {
     this.status = "error";
     this.notify();
     return { outcome: "conflict", error: CONFLICT_MESSAGE, conflictPaths };
+  }
+
+  private pagehideDraftStorageKey() {
+    return `card-kernel:pagehide-draft:${this.key}`;
+  }
+
+  private syncReloadDraft(dirty: boolean) {
+    if (!dirty) {
+      this.cancelReloadDraftWrite();
+      this.clearPagehideDraft();
+      return;
+    }
+    if (this.reloadDraftTimer || typeof window === "undefined") return;
+    this.reloadDraftTimer = setTimeout(() => {
+      this.reloadDraftTimer = null;
+      if (this.isPayloadDirty()) this.storePagehideDraft();
+    }, RELOAD_DRAFT_DEBOUNCE_MS);
+  }
+
+  private clearCleanSideEffects() {
+    this.cancelReloadDraftWrite();
+    this.clearPagehideDraft();
+  }
+
+  private markClean(serverDoc: TDoc | null, draftSource: TDoc) {
+    this.serverDoc = serverDoc ? structuredClone(serverDoc) : null;
+    this.version = serverDoc ? this.readVersion(serverDoc) : null;
+    this.draft = this.derive(structuredClone(draftSource));
+    this.status = "idle";
+    this.error = null;
+    this.fieldErrors = null;
+    this.clearCleanSideEffects();
+    this.notify();
+  }
+
+  private cancelReloadDraftWrite() {
+    if (this.reloadDraftTimer) {
+      clearTimeout(this.reloadDraftTimer);
+      this.reloadDraftTimer = null;
+    }
+  }
+
+  private storePagehideDraft() {
+    if (typeof window === "undefined") return;
+    try {
+      window.sessionStorage.setItem(
+        this.pagehideDraftStorageKey(),
+        JSON.stringify({
+          version: this.version,
+          draft: this.draft,
+          attempt: this.lastAttempt,
+          expiresAt: Date.now() + PAGEHIDE_DRAFT_TTL_MS,
+        }),
+      );
+    } catch {
+      // Best-effort reload bridge only; the keepalive save remains canonical.
+    }
+  }
+
+  private restorePagehideDraft() {
+    if (typeof window === "undefined") return false;
+    let stored: {
+      version?: unknown;
+      draft?: unknown;
+      attempt?: unknown;
+      expiresAt?: unknown;
+    };
+    try {
+      const raw = window.sessionStorage.getItem(this.pagehideDraftStorageKey());
+      if (!raw) return false;
+      stored = JSON.parse(raw) as typeof stored;
+    } catch {
+      this.clearPagehideDraft();
+      return false;
+    }
+
+    const expiresAt =
+      typeof stored.expiresAt === "number" ? stored.expiresAt : 0;
+    if (expiresAt < Date.now()) {
+      this.clearPagehideDraft();
+      return false;
+    }
+
+    const version =
+      typeof stored.version === "number" || stored.version == null
+        ? stored.version
+        : null;
+    if (this.version !== version) {
+      this.clearPagehideDraft();
+      return false;
+    }
+
+    if (stored.draft == null || typeof stored.draft !== "object") {
+      this.clearPagehideDraft();
+      return false;
+    }
+
+    try {
+      const base = this.derive(this.serverDoc ?? this.pristineDoc);
+      const normalizedBase = JSON.parse(JSON.stringify(base)) as TDoc;
+      const restored = this.derive(
+        applyPaths(
+          this.serverDoc ?? this.pristineDoc,
+          diffDocs(normalizedBase, stored.draft, this.config.collections),
+          stored.draft as TDoc,
+          this.config.collections,
+        ),
+      );
+      for (const key of Object.keys(this.config.collections ?? {})) {
+        if (!Array.isArray((restored as Record<string, unknown>)[key])) {
+          this.clearPagehideDraft();
+          return false;
+        }
+      }
+      this.config.serialize(restored);
+      this.draft = restored;
+    } catch {
+      this.clearPagehideDraft();
+      return false;
+    }
+    this.lastAttempt = readStoredAttempt(stored.attempt);
+    return true;
+  }
+
+  private clearPagehideDraft() {
+    if (typeof window === "undefined") return;
+    try {
+      window.sessionStorage.removeItem(this.pagehideDraftStorageKey());
+    } catch {
+      // Ignore storage cleanup failures.
+    }
   }
 
   private buildSnapshot(): KernelSnapshot<TDoc> {

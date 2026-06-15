@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { apiHandler } from "@/lib/api/handler";
+import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonError, jsonCreated } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
@@ -17,9 +17,10 @@ export const GET = apiHandler(async (request) => {
 
 export const POST = apiHandler(async (request) => {
   await assertModuleWriteAccess("purchasing", request.headers);
+  const idempotencyKey = requireIdempotencyKey(request, "createPurchaseOrder");
   const data = await parseJsonBody(request, insertPurchaseOrderSchema);
 
-  const order = await createPurchaseOrder(data);
+  const order = await createPurchaseOrder(data, { idempotencyKey });
   return jsonCreated(order);
 });
 

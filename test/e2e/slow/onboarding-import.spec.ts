@@ -705,9 +705,6 @@ test.describe("onboarding import operating story", () => {
     // from prior runs can be picked ahead of ours. Drain the worker until our
     // session is the one that lands validated — `getImportSession` only exposes
     // a preview once the worker has set this session's normalized package.
-    let reviewBody: {
-      preview: { status: string; blockingIssueCount: number; hash: string };
-    };
     await expect
       .poll(
         async () => {
@@ -717,12 +714,19 @@ test.describe("onboarding import operating story", () => {
           expectResponse(worker, 200);
           const review = await testFetch(`/api/onboarding/imports/${sessionId}`);
           expectResponse(review, 200);
-          reviewBody = await review.json();
-          return reviewBody.preview?.status ?? null;
+          const body = (await review.json()) as {
+            preview?: { status: string };
+          };
+          return body.preview?.status ?? null;
         },
         { timeout: 30_000 },
       )
       .toBe("validated");
+    const review = await testFetch(`/api/onboarding/imports/${sessionId}`);
+    expectResponse(review, 200);
+    const reviewBody = (await review.json()) as {
+      preview: { blockingIssueCount: number; hash: string };
+    };
     expect(reviewBody.preview.blockingIssueCount).toBe(0);
 
     const approve = await testFetch(`/api/onboarding/imports/${sessionId}/approve`, {

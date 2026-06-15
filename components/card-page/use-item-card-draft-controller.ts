@@ -20,6 +20,7 @@ import { useCardKernel } from "@/lib/card-kernel/use-card-kernel";
 import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
 import type { ItemType } from "@/lib/inventory/types";
 import { queryKeys } from "@/lib/client/query-keys";
+import { flushSavedCardOrThrow } from "./use-card-entity-actions";
 
 export type ItemCardDraftController = {
   card: ItemCardDto;
@@ -266,8 +267,10 @@ export function useItemCardDraftController({
     ),
     createVariant: useCallback(
       async (input) => {
-        const outcome = await flush();
-        if (outcome.outcome !== "saved") return null;
+        await flushSavedCardOrThrow({
+          flush,
+          blockedMessage: "Fix the highlighted fields before adding a variant.",
+        });
         const sourceItemId = getPersistedId();
         if (!sourceItemId) return null;
         const result = await createItemCardVariant(sourceItemId, input);

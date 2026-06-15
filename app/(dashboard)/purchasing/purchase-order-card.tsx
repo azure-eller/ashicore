@@ -53,7 +53,10 @@ import { DetailHeaderTitle } from "@/components/card-page/detail-header-title";
 import { NotesField } from "@/components/card-page/notes-field";
 import { TotalsSummary } from "@/components/card-page/totals-summary";
 import { type CardSaveState } from "@/components/card-page/card-save-status";
-import { useCardEntityActions } from "@/components/card-page/use-card-entity-actions";
+import {
+  flushSavedCardOrThrow,
+  useCardEntityActions,
+} from "@/components/card-page/use-card-entity-actions";
 import {
   ReadOnlyFieldValue,
   underlineControlClass,
@@ -343,12 +346,19 @@ export function PurchaseOrderCard({
     },
     [purchaseOrderController],
   );
+  const flushPurchaseOrderOrThrow = useCallback(
+    async (fallbackError: string) => {
+      await flushSavedCardOrThrow({
+        flush: purchaseOrderController.flush,
+        blockedMessage: fallbackError,
+        fallbackError,
+      });
+    },
+    [purchaseOrderController],
+  );
   const flushBeforeStatusTransition = useCallback(async () => {
-    const outcome = await purchaseOrderController.flush();
-    if (outcome.outcome !== "saved") {
-      throw new Error("Save changes before changing status.");
-    }
-  }, [purchaseOrderController]);
+    await flushPurchaseOrderOrThrow("Save changes before changing status.");
+  }, [flushPurchaseOrderOrThrow]);
   const addressForm = useForm<AddressDialogValues>({
     defaultValues: EMPTY_ADDRESS_DIALOG_VALUES,
   });
@@ -626,6 +636,7 @@ export function PurchaseOrderCard({
       run: (id) =>
         apiJson<{ id: string }>(`/api/purchase-orders/${id}/duplicate`, {
           method: "POST",
+          idempotencyKey: "purchase-order-duplicate",
           fallbackError: "Failed to duplicate purchase order.",
         }),
       navigateTo: (id) => `/purchasing/order/${id}`,
@@ -653,7 +664,7 @@ export function PurchaseOrderCard({
     invalidates: [queryKeys.purchaseOrders.root],
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "status"],
     mutationFn: async (status: PurchaseOrderStatus) => {
-      await purchaseOrderController.flush();
+      await flushPurchaseOrderOrThrow("Save changes before changing status.");
       const orderId = savedOrderIdRef.current;
       if (!orderId) throw new Error("Save the purchase order first.");
       return apiJson<{ id: string }>(
@@ -674,7 +685,7 @@ export function PurchaseOrderCard({
   const purchaseBillMutation = useMutation({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "purchase-bill"],
     mutationFn: async (values: PurchaseBillDialogValues) => {
-      await purchaseOrderController.flush();
+      await flushPurchaseOrderOrThrow("Save changes before creating a supplier bill.");
       const orderId = savedOrderIdRef.current;
       if (!orderId) throw new Error("Save the purchase order first.");
       return apiJson<{
@@ -748,7 +759,9 @@ export function PurchaseOrderCard({
   const purchaseOrderEmailMutation = useMutation({
     mutationKey: ["purchase-order-action", savedOrderId ?? "__draft__", "email"],
     mutationFn: async () => {
-      await purchaseOrderController.flush();
+      await flushPurchaseOrderOrThrow(
+        "Fix the highlighted fields before sending this purchase order.",
+      );
       const orderId = savedOrderIdRef.current;
       if (!orderId) throw new Error("Save the purchase order first.");
 
@@ -841,7 +854,7 @@ export function PurchaseOrderCard({
   });
 
   const ensureSavedOrder = useCallback(async () => {
-    await purchaseOrderController.flush();
+    await flushPurchaseOrderOrThrow("Choose a supplier before uploading files.");
     const orderId = savedOrderIdRef.current;
     if (!orderId) {
       const firstError = fieldErrors ? firstFieldErrorMessage(fieldErrors, "") : "";
@@ -852,7 +865,7 @@ export function PurchaseOrderCard({
       throw new Error(message);
     }
     return orderId;
-  }, [fieldErrors, purchaseOrderController]);
+  }, [fieldErrors, flushPurchaseOrderOrThrow, purchaseOrderController]);
 
   const handleFileInput = useCallback(async (files: FileList | File[] | null) => {
     const filesToUpload = files ? Array.from(files) : [];
@@ -976,6 +989,7 @@ export function PurchaseOrderCard({
       try {
         const body = await apiJson<{ id: unknown; name?: unknown }>("/api/suppliers", {
           method: "POST",
+          idempotencyKey: "createSupplier",
           body: {
             name: values.name,
             contactName: values.contactName,

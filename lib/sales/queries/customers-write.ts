@@ -5,41 +5,62 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 import { customerActivities, customerContacts, customerProjects, customers } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
+import {
+  runIdempotentInventoryOperationInTx,
+} from "@/lib/inventory/kernel";
 import type { InsertCustomer, PatchCustomer, UpdateCustomer } from "@/lib/schemas/customers";
 import { ensureCustomerCategoryExistsInTx } from "./customer-categories";
 import { reconcileCustomerContactsInTx } from "./crm";
+import { SalesError } from "./errors";
 
 export type CustomerWriteResult =
   | { kind: "updated"; id: string }
   | { kind: "conflict"; id: string }
   | { kind: "not-found" };
 
-export async function createCustomer(data: InsertCustomer) {
+export async function createCustomer(
+  data: InsertCustomer,
+  options?: { idempotencyKey?: string }
+) {
   return withAuthedOrgContext(async (tx, orgId) => {
-    const { contacts, ...fields } = data;
-    await ensureCustomerCategoryExistsInTx(tx, fields.customerCategoryId);
+    const { result } = await runIdempotentInventoryOperationInTx<{ id: string }>(
+      tx,
+      {
+        organizationId: orgId,
+        operationName: "createCustomer",
+        idempotencyKey: options?.idempotencyKey ?? null,
+        payload: data,
+      },
+      async () => {
+        const { contacts, ...fields } = data;
+        await ensureCustomerCategoryExistsInTx(tx, fields.customerCategoryId);
 
-    // Idempotent under client-generated ids: a retried create with the same
-    // id no-ops the insert.
-    const inserted = await tx
-      .insert(customers)
-      .values({ organizationId: orgId, ...fields })
-      .onConflictDoNothing({ target: customers.id })
-      .returning({ id: customers.id });
+        // Idempotent under client-generated ids: a retried create with the same
+        // id no-ops the insert.
+        const inserted = await tx
+          .insert(customers)
+          .values({ organizationId: orgId, ...fields })
+          .onConflictDoNothing({ target: customers.id })
+          .returning({ id: customers.id });
 
-    const id = inserted[0]?.id ?? data.id;
-    if (!id) return null;
+        const id = inserted[0]?.id ?? data.id;
+        if (!id) throw new SalesError("Customer was not created.", 500);
 
-    if (contacts) {
-      await reconcileCustomerContactsInTx(tx, orgId, id, contacts);
-    }
+        if (contacts) {
+          await reconcileCustomerContactsInTx(tx, orgId, id, contacts);
+        }
 
-    return { id };
+        return { id };
+      },
+    );
+
+    return result;
   });
 }
 
 export async function createCustomerInTx(tx: Tx, orgId: string, data: InsertCustomer) {
-  const { contacts: _contacts, ...fields } = data;
+  const { contacts, ...fields } = data;
+  void contacts;
   await ensureCustomerCategoryExistsInTx(tx, fields.customerCategoryId);
 
   const [customer] = await tx

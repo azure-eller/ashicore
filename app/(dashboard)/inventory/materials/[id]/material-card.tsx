@@ -7,7 +7,10 @@ import { CardPage } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { CardTabs, type CardTab } from "@/components/card-page/card-tabs";
 import { useCardSaveStatus } from "@/components/card-page/use-card-save-status";
-import { useCardEntityActions } from "@/components/card-page/use-card-entity-actions";
+import {
+  resolveSavedCardId,
+  useCardEntityActions,
+} from "@/components/card-page/use-card-entity-actions";
 import {
   cloneItemCard,
   deleteItemCard,
@@ -75,14 +78,20 @@ export function MaterialCard({
     queryFn: () => getItemCard(currentItemId as string),
     initialData: initialCard,
     enabled: !isDraft,
-    staleTime: Infinity,
+    staleTime: 0,
+    refetchOnMount: "always",
     refetchOnWindowFocus: false,
   });
   useEffect(() => {
     if (isDraft || !cardQuery.data) return;
-    mergeServerCard(cardQuery.data);
+    const handle = window.setTimeout(() => mergeServerCard(cardQuery.data), 0);
+    return () => window.clearTimeout(handle);
   }, [cardQuery.data, isDraft, mergeServerCard]);
   const card = controller.card;
+  const renderedCard =
+    !isDraft && controller.status === "saved" && cardQuery.data
+      ? cardQuery.data
+      : card;
 
   const actions = useCardEntityActions({
     entity: "item-card-action",
@@ -97,7 +106,7 @@ export function MaterialCard({
         title: "Delete material card?",
         description: (
           <>
-            {card.family.name} and all its variants will be removed. This cannot be undone.
+            {renderedCard.family.name} and all its variants will be removed. This cannot be undone.
           </>
         ),
       },
@@ -105,7 +114,14 @@ export function MaterialCard({
   });
   const cloneCardMutation = useMutation({
     mutationKey: ["item-card-action", currentItemId ?? "__draft__", "clone-card"],
-    mutationFn: () => cloneItemCard(currentItemId as string),
+    mutationFn: async () => {
+      const itemId = await resolveSavedCardId({
+        flush: controller.flush,
+        getId: () => controller.currentItemId,
+        missingIdError: "Save the material first.",
+      });
+      return cloneItemCard(itemId);
+    },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.itemCards.root });
       router.push(`/inventory/materials/${result.itemId}`);
@@ -146,14 +162,19 @@ export function MaterialCard({
           disabledReason: "Enter a material name first.",
         },
       ];
-      return card.family.lotTrackingMode === "tracked"
+      return renderedCard.family.lotTrackingMode === "tracked"
         ? nextTabs
         : nextTabs.filter((tab) => tab.value !== "lots");
     },
-    [card.family.lotTrackingMode, currentItemId, initialLots.length, usedInBoms.length],
+    [
+      renderedCard.family.lotTrackingMode,
+      currentItemId,
+      initialLots.length,
+      usedInBoms.length,
+    ],
   );
 
-  const avgIngredientsCost = getAverageIngredientsCost(card);
+  const avgIngredientsCost = getAverageIngredientsCost(renderedCard);
   const effectiveSaveStatus =
     controller.status === "saving" ||
     actionSaveStatus.status === "saving" ||
@@ -185,7 +206,11 @@ export function MaterialCard({
   return (
     <CardPage>
       <CardPageHeader
-        title={isDraft && !card.family.name.trim() ? "New material" : card.family.name}
+        title={
+          isDraft && !renderedCard.family.name.trim()
+            ? "New material"
+            : renderedCard.family.name
+        }
         fallbackHref="/inventory/materials"
         saveState={saveState}
         saveMessage={saveMessage}
@@ -223,7 +248,7 @@ export function MaterialCard({
           general: (
             <>
               <MaterialGeneralInfoTab
-                card={card}
+                card={renderedCard}
                 focusItemId={currentItemId}
                 unitOptions={unitOptions}
                 onOpenConfig={() => setConfigOpen(true)}
@@ -242,18 +267,18 @@ export function MaterialCard({
               />
               <StockByLocationSection
                 itemId={currentItemId}
-                unitLabel={card.family.unitName}
+                unitLabel={renderedCard.family.unitName}
               />
             </>
           ),
-          ...(card.family.lotTrackingMode === "tracked"
+          ...(renderedCard.family.lotTrackingMode === "tracked"
             ? {
                 lots: (
                   <LotGridTab
-                    card={card}
+                    card={renderedCard}
                     focusItemId={currentItemId ?? ""}
                     lots={initialLots}
-                    unitLabel={card.family.unitName}
+                    unitLabel={renderedCard.family.unitName}
                     lotTrackingLocked={lotTrackingLocked}
                   />
                 ),
@@ -262,7 +287,7 @@ export function MaterialCard({
           "used-in-boms": <MaterialUsedInBomsTab usedInBoms={usedInBoms} />,
           supply: (
             <MaterialSupplyDetailsTab
-              card={card}
+              card={renderedCard}
               unitOptions={unitOptions}
               supplierOptions={supplierOptions}
               onFamilyChange={controller.patchFamily}
@@ -277,7 +302,7 @@ export function MaterialCard({
           <VariantConfigurationDialog
             open={configOpen}
             onOpenChange={setConfigOpen}
-            card={card}
+            card={renderedCard}
             focusItemId={currentItemId}
             onSaved={(nextCard) =>
               setVariantsEnabled(

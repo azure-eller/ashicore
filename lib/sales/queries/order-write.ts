@@ -8,7 +8,7 @@ import { withAuthedOrgContext } from "@/lib/dal/auth";
 import { getTaxSettingsInTx, getTaxRatesByIdInTx } from "@/lib/dal/tax-settings";
 import type { Tx } from "@/lib/db/with-org-context";
 import { lockSalesPriorityQueueInTx } from "@/lib/manufacturing-priority-lock";
-import { beginInventoryOperationInTx, deriveInventoryIdempotencyKey, finishInventoryOperationInTx, lockItemsInTx, releaseSalesDemandForSalesLineInTx, recordSalesDemandInTx, releaseSalesDemandForQuantitiesInTx } from "@/lib/inventory/kernel";
+import { beginInventoryOperationInTx, deriveInventoryIdempotencyKey, finishInventoryOperationInTx, lockItemsInTx, releaseSalesDemandForSalesLineInTx, recordSalesDemandInTx, releaseSalesDemandForQuantitiesInTx, runIdempotentInventoryOperationInTx } from "@/lib/inventory/kernel";
 import { generateShortDocumentNumberInTx } from "@/lib/document-numbers";
 import { calculateDiscountPercentString, calculateSalesLineAmounts } from "@/lib/sales/order-calculations";
 import type { BulkConfirmSalesOrders, InsertSalesOrder, PatchSalesOrderHeader, PatchSalesOrderLine, UpdateSalesOrder } from "@/lib/schemas/sales-orders";
@@ -579,67 +579,83 @@ export async function createSalesOrder(
   options?: { idempotencyKey?: string }
 ) {
   return withSalesTransactionRetry(() => withAuthedOrgContext(async (tx, orgId, userId) => {
-    const replay = await beginInventoryOperationInTx<{ id: string }>(tx, {
-      organizationId: orgId,
-      operationName: "createSalesOrder",
-      idempotencyKey: options?.idempotencyKey ?? null,
-      payload: data,
-    });
-
-    if (replay.replayed) {
-      return replay.result;
-    }
-
-    const prepared = await prepareOrderPayload(tx, orgId, data);
-
-    const orderNumber = await resolveSalesOrderNumberInTx(
+    const { result } = await runIdempotentInventoryOperationInTx<{ id: string }>(
       tx,
-      orgId,
-      data.orderNumber
-    );
-    await lockSalesPriorityQueueInTx(tx, orgId);
-    const [order] = await tx
-      .insert(salesOrders)
-      .values({
+      {
         organizationId: orgId,
-        orderNumber,
-        customerId: prepared.customerId,
-        customerProjectId: prepared.customerProjectId,
-        customerName: prepared.customerName,
-        status: "open",
-        orderDate: prepared.orderDate,
-        shipDate: prepared.shipDate,
-        requestedDate: prepared.requestedDate,
-        notes: prepared.notes,
-        shipLine1: prepared.shipLine1,
-        shipLine2: prepared.shipLine2,
-        shipCity: prepared.shipCity,
-        shipRegion: prepared.shipRegion,
-        shipPostcode: prepared.shipPostcode,
-        shipCountry: prepared.shipCountry,
-        billingLine1: prepared.billingLine1,
-        billingLine2: prepared.billingLine2,
-        billingCity: prepared.billingCity,
-        billingRegion: prepared.billingRegion,
-        billingPostcode: prepared.billingPostcode,
-        billingCountry: prepared.billingCountry,
-        shippingFeeDescription: prepared.shippingFeeDescription,
-        shippingFeeAmount: prepared.shippingFeeAmount,
-        shippingFeeTaxAmount: prepared.shippingFeeTaxAmount,
-        subtotalAmount: prepared.subtotalAmount,
-        taxAmount: prepared.taxAmount,
-        totalAmount: prepared.totalAmount,
-      })
-      .returning({ id: salesOrders.id });
+        operationName: "createSalesOrder",
+        idempotencyKey: options?.idempotencyKey ?? null,
+        payload: data,
+      },
+      () => createSalesOrderInTx(tx, orgId, userId, data, {
+        idempotencyKey: options?.idempotencyKey,
+      }),
+    );
 
-    const insertedLines =
-      prepared.preparedLines.length > 0
-        ? await tx.insert(salesOrderLines).values(
+    return result;
+  }));
+}
+
+async function createSalesOrderInTx(
+  tx: Tx,
+  orgId: string,
+  userId: string,
+  data: InsertSalesOrder,
+  options?: { idempotencyKey?: string }
+) {
+  const prepared = await prepareOrderPayload(tx, orgId, data);
+
+  const orderNumber = await resolveSalesOrderNumberInTx(
+    tx,
+    orgId,
+    data.orderNumber
+  );
+  await lockSalesPriorityQueueInTx(tx, orgId);
+  const [order] = await tx
+    .insert(salesOrders)
+    .values({
+      organizationId: orgId,
+      orderNumber,
+      customerId: prepared.customerId,
+      customerProjectId: prepared.customerProjectId,
+      customerName: prepared.customerName,
+      status: "open",
+      orderDate: prepared.orderDate,
+      shipDate: prepared.shipDate,
+      requestedDate: prepared.requestedDate,
+      notes: prepared.notes,
+      shipLine1: prepared.shipLine1,
+      shipLine2: prepared.shipLine2,
+      shipCity: prepared.shipCity,
+      shipRegion: prepared.shipRegion,
+      shipPostcode: prepared.shipPostcode,
+      shipCountry: prepared.shipCountry,
+      billingLine1: prepared.billingLine1,
+      billingLine2: prepared.billingLine2,
+      billingCity: prepared.billingCity,
+      billingRegion: prepared.billingRegion,
+      billingPostcode: prepared.billingPostcode,
+      billingCountry: prepared.billingCountry,
+      shippingFeeDescription: prepared.shippingFeeDescription,
+      shippingFeeAmount: prepared.shippingFeeAmount,
+      shippingFeeTaxAmount: prepared.shippingFeeTaxAmount,
+      subtotalAmount: prepared.subtotalAmount,
+      taxAmount: prepared.taxAmount,
+      totalAmount: prepared.totalAmount,
+    })
+    .returning({ id: salesOrders.id });
+
+  const insertedLines =
+    prepared.preparedLines.length > 0
+      ? await tx
+          .insert(salesOrderLines)
+          .values(
             prepared.preparedLines.map((line) => ({
               salesOrderId: order.id,
               ...line,
             }))
-          ).returning({
+          )
+          .returning({
             salesOrderLineId: salesOrderLines.id,
             itemId: salesOrderLines.itemId,
             itemName: salesOrderLines.itemName,
@@ -648,86 +664,95 @@ export async function createSalesOrder(
             quantity: salesOrderLines.quantity,
             sortOrder: salesOrderLines.sortOrder,
           })
-        : [];
+      : [];
 
-    await recordSalesDemandInTx(tx, {
-      organizationId: orgId,
-      salesOrderId: order.id,
-      actorUserId: userId,
-      idempotencyKey: deriveInventoryIdempotencyKey(
-        options?.idempotencyKey,
-        "create-open-order"
-      ),
-      lines: insertedLines.map((line) => ({
-        salesOrderLineId: line.salesOrderLineId,
-        itemId: line.itemId,
-        quantity: parseFloat(line.quantity),
-      })),
-    });
+  await recordSalesDemandInTx(tx, {
+    organizationId: orgId,
+    salesOrderId: order.id,
+    actorUserId: userId,
+    idempotencyKey: deriveInventoryIdempotencyKey(
+      options?.idempotencyKey,
+      "create-open-order"
+    ),
+    lines: insertedLines.map((line) => ({
+      salesOrderLineId: line.salesOrderLineId,
+      itemId: line.itemId,
+      quantity: parseFloat(line.quantity),
+    })),
+  });
 
-    if (isOpenSalesOrderStatus(data.status)) {
-      await rerankOpenSalesOrdersInTx(tx, orgId);
-    }
+  if (isOpenSalesOrderStatus(data.status)) {
+    await rerankOpenSalesOrdersInTx(tx, orgId);
+  }
 
-    await finishInventoryOperationInTx(tx, {
-      organizationId: orgId,
-      idempotencyKey: options?.idempotencyKey ?? null,
-      result: order,
-    });
-
-    return order;
-  }));
+  return order;
 }
 
 export async function duplicateSalesOrder(
   id: string,
   options?: { idempotencyKey?: string }
 ) {
-  const order = await getSalesOrder(id);
+  return withSalesTransactionRetry(() => withAuthedOrgContext(async (tx, orgId, userId) => {
+    const { result } = await runIdempotentInventoryOperationInTx<{ id: string } | null>(
+      tx,
+      {
+        organizationId: orgId,
+        operationName: "duplicateSalesOrder",
+        idempotencyKey: options?.idempotencyKey ?? null,
+        payload: { id },
+      },
+      async () => {
+        const order = await getSalesOrderInTx(tx, orgId, id);
 
-  if (!order) {
-    return null;
-  }
+        if (!order) {
+          return null;
+        }
 
-  const orderNumber = await withAuthedOrgContext((tx, orgId) =>
-    generateDuplicateSalesOrderNumberInTx(tx, orgId, order.orderNumber)
-  );
+        const orderNumber = await generateDuplicateSalesOrderNumberInTx(
+          tx,
+          orgId,
+          order.orderNumber
+        );
 
-  return createSalesOrder(
-    {
-      orderNumber,
-      customerId: order.customerId,
-      customerProjectId: order.customerProjectId,
-      status: "open",
-      orderDate: order.orderDate,
-      shipDate: order.shipDate,
-      requestedDate: null,
-      notes: order.notes,
-      shipLine1: order.shipLine1,
-      shipLine2: order.shipLine2,
-      shipCity: order.shipCity,
-      shipRegion: order.shipRegion,
-      shipPostcode: order.shipPostcode,
-      shipCountry: order.shipCountry,
-      billingLine1: order.billingLine1,
-      billingLine2: order.billingLine2,
-      billingCity: order.billingCity,
-      billingRegion: order.billingRegion,
-      billingPostcode: order.billingPostcode,
-      billingCountry: order.billingCountry,
-      shippingFeeDescription: order.shippingFeeDescription,
-      shippingFeeAmount: order.shippingFeeAmount,
-      shippingFeeTaxAmount: order.shippingFeeTaxAmount,
-      lines: order.lines.map((line) => ({
-        itemId: line.itemId,
-        quantity: line.quantity,
-        unitPrice: line.unitPrice,
-        taxRateId: line.taxRateId,
-      })),
-      confirmOversell: true,
-    },
-    options
-  );
+        return createSalesOrderInTx(tx, orgId, userId, {
+          orderNumber,
+          customerId: order.customerId,
+          customerProjectId: order.customerProjectId,
+          status: "open",
+          orderDate: order.orderDate,
+          shipDate: order.shipDate,
+          requestedDate: null,
+          notes: order.notes,
+          shipLine1: order.shipLine1,
+          shipLine2: order.shipLine2,
+          shipCity: order.shipCity,
+          shipRegion: order.shipRegion,
+          shipPostcode: order.shipPostcode,
+          shipCountry: order.shipCountry,
+          billingLine1: order.billingLine1,
+          billingLine2: order.billingLine2,
+          billingCity: order.billingCity,
+          billingRegion: order.billingRegion,
+          billingPostcode: order.billingPostcode,
+          billingCountry: order.billingCountry,
+          shippingFeeDescription: order.shippingFeeDescription,
+          shippingFeeAmount: order.shippingFeeAmount,
+          shippingFeeTaxAmount: order.shippingFeeTaxAmount,
+          lines: order.lines.map((line) => ({
+            itemId: line.itemId,
+            quantity: line.quantity,
+            unitPrice: line.unitPrice,
+            taxRateId: line.taxRateId,
+          })),
+          confirmOversell: true,
+        }, {
+          idempotencyKey: options?.idempotencyKey,
+        });
+      },
+    );
+
+    return result;
+  }));
 }
 
 export async function updateSalesOrder(

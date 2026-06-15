@@ -383,6 +383,20 @@ function makeBlankIngredient(requirementMultiplier: string, sortOrder: number) {
   };
 }
 
+function mergeUnsentBlankIngredients(
+  incoming: ManufacturingOrderIngredientDetail[],
+  current: ManufacturingOrderIngredientDetail[],
+) {
+  const incomingIds = new Set(incoming.map((ingredient) => ingredient.id));
+  const unsentBlankRows = current.filter(
+    (ingredient) =>
+      ingredient.id.startsWith("draft-") &&
+      !ingredient.itemId &&
+      !incomingIds.has(ingredient.id),
+  );
+  return unsentBlankRows.length > 0 ? [...incoming, ...unsentBlankRows] : incoming;
+}
+
 function BatchCountInput({
   id,
   label,
@@ -565,7 +579,7 @@ export function IngredientsSection({
   const [lastSynced, setLastSynced] = useState(ingredients);
   if (lastSynced !== ingredients) {
     setLastSynced(ingredients);
-    setRows(ingredients);
+    setRows((current) => mergeUnsentBlankIngredients(ingredients, current));
   }
 
   const materialCost = ingredients.reduce((total, ingredient) => {

@@ -12,7 +12,11 @@ import {
 } from "@/components/card-page/order-status-configs";
 import { CardPage, CardPageBanner, CardPageBody } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
-import { useCardEntityActions } from "@/components/card-page/use-card-entity-actions";
+import {
+  flushClosableCardOrThrow,
+  flushSavedCardOrThrow,
+  useCardEntityActions,
+} from "@/components/card-page/use-card-entity-actions";
 import { DetailHeaderTitle } from "@/components/card-page/detail-header-title";
 import type { CardSaveState } from "@/components/card-page/card-save-status";
 import type {
@@ -122,14 +126,19 @@ export function ManufacturingOrderCard({
     [order.ingredients, productOptions],
   );
   const handleClose = useCallback(() => {
-    void controller.flush().then((outcome) => {
-      if (outcome.outcome === "saved" || outcome.outcome === "blocked") {
+    void flushClosableCardOrThrow({ flush: controller.flush })
+      .then(() => {
         goBack();
-        return;
-      }
-      setActionError(outcome.error);
-    });
+      })
+      .catch((error) => setActionError((error as Error).message));
   }, [controller, goBack]);
+  const flushBeforeStatusTransition = useCallback(async () => {
+    await flushSavedCardOrThrow({
+      flush: controller.flush,
+      blockedMessage: "Save changes before changing status.",
+      fallbackError: "Save changes before changing status.",
+    });
+  }, [controller]);
 
   return (
     <CardPage>
@@ -164,6 +173,8 @@ export function ManufacturingOrderCard({
                 },
               }}
               disabled={isManufacturingStatusDisabled(order)}
+              beforeTransition={flushBeforeStatusTransition}
+              onTransitionError={(error) => setActionError(error.message)}
               onChanged={refreshOrder}
             />
           ) : null
@@ -217,4 +228,3 @@ export function ManufacturingOrderCard({
     </CardPage>
   );
 }
-

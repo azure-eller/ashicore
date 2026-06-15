@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { unstable_noStore as noStore } from "next/cache";
 import { getLots } from "@/lib/inventory/queries/item-lots";
 import { getUnitDefinitions } from "@/lib/inventory/queries/units";
 import { getUsedInParents } from "@/lib/inventory/queries/bom-read";
@@ -9,11 +10,14 @@ import { getItemCard, ItemCardError } from "@/lib/inventory/item-cards";
 import { getFeatureAccessForCurrentOrg } from "@/lib/billing/dal";
 import { MaterialCard } from "./material-card";
 
+export const dynamic = "force-dynamic";
+
 export default async function MaterialDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
+  noStore();
   const context = await requireModuleReadAccess("inventory");
   const { id } = await params;
   const card = await getItemCard(id).catch((error: unknown) => {

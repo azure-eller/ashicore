@@ -45,7 +45,11 @@ import {
   FramedTableRow,
   TableFrame,
 } from "@/components/table-frame";
-import { useCardEntityActions } from "@/components/card-page/use-card-entity-actions";
+import {
+  flushClosableCardOrThrow,
+  flushSavedCardOrThrow,
+  useCardEntityActions,
+} from "@/components/card-page/use-card-entity-actions";
 import type { CardSaveState } from "@/components/card-page/card-save-status";
 import { makeDraftOrder } from "./order-draft";
 import { useSalesOrderDraftController } from "./use-sales-order-draft-controller";
@@ -183,8 +187,13 @@ export function OrderCard({
   const orderXeroPushMutation = useMutation({
     mutationKey: ["sales-order-action", currentOrderId ?? "draft", "order-xero-push"],
     mutationFn: async () => {
-      await controller.flush();
-      await apiJson<void>(`/api/sales-orders/${currentOrderId}/accounting-push`, {
+      await flushSavedCardOrThrow({
+        flush: controller.flush,
+        blockedMessage: "Fix the highlighted fields.",
+      });
+      const orderId = controller.currentOrderId;
+      if (!orderId) throw new Error("Save the order first.");
+      await apiJson<void>(`/api/sales-orders/${orderId}/accounting-push`, {
         method: "POST",
         idempotencyKey: "retryXeroPushForSalesOrder",
         fallbackError: `Failed to send invoice to ${accountingProviderLabel ?? "accounting"}.`,
@@ -199,19 +208,18 @@ export function OrderCard({
   });
 
   const handleCloseAfterFlush = useCallback(() => {
-    void controller.flush().then((outcome) => {
-      if (outcome.outcome === "saved" || outcome.outcome === "blocked") {
+    void flushClosableCardOrThrow({ flush: controller.flush })
+      .then(() => {
         handleClose();
-        return;
-      }
-      setActionError(outcome.error);
-    });
+      })
+      .catch((error) => setActionError((error as Error).message));
   }, [controller, handleClose]);
   const flushBeforeStatusTransition = useCallback(async () => {
-    const outcome = await controller.flush();
-    if (outcome.outcome !== "saved") {
-      throw new Error("Save changes before changing status.");
-    }
+    await flushSavedCardOrThrow({
+      flush: controller.flush,
+      blockedMessage: "Save changes before changing status.",
+      fallbackError: "Save changes before changing status.",
+    });
   }, [controller]);
 
   return (
@@ -276,12 +284,16 @@ export function OrderCard({
                 {
                   label: "Create manufacturing order(s)",
                   onClick: () => {
-                    void controller
-                      .flush()
+                    void flushSavedCardOrThrow({
+                      flush: controller.flush,
+                      blockedMessage: "Fix the highlighted fields.",
+                    })
                       .then(() => setMakeToOrderOpen(true))
-                      .catch((error) => {
-                        setActionError(error instanceof Error ? error.message : "Failed to save order.");
-                      });
+                      .catch((error) =>
+                        setActionError(
+                          error instanceof Error ? error.message : "Failed to save order.",
+                        ),
+                      );
                   },
                   disabled: !order.hasManufacturableLines,
                   tooltip: order.manufacturableDisabledReason ?? undefined,

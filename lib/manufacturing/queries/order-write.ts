@@ -11,7 +11,7 @@ import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
 import { lockManufacturingPriorityQueueInTx } from "@/lib/manufacturing-priority-lock";
 import { generateShortDocumentNumberInTx } from "@/lib/document-numbers";
-import { addExpectedFromManufacturingInTx, addIngredientDemandForManufacturingInTx, editExpectedFromManufacturingInTx, lockItemsInTx, releaseIngredientDemandForManufacturingInTx } from "@/lib/inventory/kernel";
+import { addExpectedFromManufacturingInTx, addIngredientDemandForManufacturingInTx, editExpectedFromManufacturingInTx, lockItemsInTx, releaseIngredientDemandForManufacturingInTx, runIdempotentInventoryOperationInTx } from "@/lib/inventory/kernel";
 import { getSalesOrderManufacturingSummariesInTx } from "@/lib/manufacturing/sales-order-manufacturability";
 import type { BomComponentConstraint } from "@/lib/bom/constraints";
 import { calculateIngredientPlannedQuantity, normalizeRecipeBasis, type RecipeBasis } from "@/lib/manufacturing/consumption";
@@ -22,7 +22,6 @@ import type { CreateManufacturingOrdersFromSalesOrder, InsertManufacturingOrder,
 import type { ManufacturingOrdersFromSalesOrderResult } from "../types";
 import { ManufacturingError } from "./errors";
 import { ensureBatchExecutionRowsInTx } from "./execution-state";
-import { getManufacturingOrder } from "./orders-read";
 import { type LockedManufacturingOrder, canonicalItemName, getLockedManufacturingOrderInTx, getManufacturingItemDisplayMetadataInTx, isOpenManufacturingOrder, rerankOpenManufacturingOrdersInTx, validateActiveIngredientItemsInTx } from "./shared";
 
 type ProductSnapshot = {
@@ -1111,68 +1110,88 @@ export async function createManufacturingOrderInTx(
   tx: Tx,
   orgId: string,
   payload: InsertManufacturingOrder,
-  actorUserId?: string | null
+  actorUserId?: string | null,
+  options?: { idempotencyKey?: string }
 ): Promise<{ id: string; replayed: boolean }> {
-  await lockManufacturingPriorityQueueInTx(tx, orgId);
-
-  if (payload.id) {
-    // Idempotent replay of a client-id create: the order already exists.
-    const [existing] = await tx
-      .select({ id: manufacturingOrders.id })
-      .from(manufacturingOrders)
-      .where(eq(manufacturingOrders.id, payload.id));
-    if (existing) return { id: existing.id, replayed: true };
-  }
-
-  const product = await getValidatedProductInTx(tx, payload.productId);
-  const plannedQuantity = Number(payload.plannedQuantity);
-
-  const salesLink = await validateSalesLineLinkInTx(tx, {
-    salesOrderId: payload.salesOrderId,
-    salesOrderLineId: payload.salesOrderLineId,
-    productId: payload.productId,
-  });
-  const { bomRevisionId, ingredients } = await prepareCreateIngredientsInTx(
+  let createdNew = false;
+  const { result, replayed } = await runIdempotentInventoryOperationInTx<{ id: string }>(
     tx,
-    payload.productId,
-    plannedQuantity,
-    payload.ingredients
+    {
+      organizationId: orgId,
+      operationName: "createManufacturingOrder",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload,
+    },
+    async () => {
+      await lockManufacturingPriorityQueueInTx(tx, orgId);
+
+      if (payload.id) {
+        // Idempotent under client-generated ids: a retried create with the same
+        // id no-ops the insert.
+        const [existing] = await tx
+          .select({ id: manufacturingOrders.id })
+          .from(manufacturingOrders)
+          .where(eq(manufacturingOrders.id, payload.id));
+        if (existing) {
+          return { id: existing.id };
+        }
+      }
+
+      const product = await getValidatedProductInTx(tx, payload.productId);
+      const plannedQuantity = Number(payload.plannedQuantity);
+
+      const salesLink = await validateSalesLineLinkInTx(tx, {
+        salesOrderId: payload.salesOrderId,
+        salesOrderLineId: payload.salesOrderLineId,
+        productId: payload.productId,
+      });
+      const { bomRevisionId, ingredients } = await prepareCreateIngredientsInTx(
+        tx,
+        payload.productId,
+        plannedQuantity,
+        payload.ingredients
+      );
+      const scalingPlan = deriveScalingPlan(plannedQuantity, ingredients);
+      const order = await insertManufacturingOrderInTx(tx, orgId, {
+        id: payload.id,
+        product,
+        bomRevisionId,
+        salesLink,
+        requestedQuantity: payload.plannedQuantity,
+        plannedQuantity,
+        manufacturingMode: scalingPlan.manufacturingMode,
+        numberOfBatches: scalingPlan.numberOfBatches,
+        expectedBatchYield: scalingPlan.expectedBatchYield,
+        priorityRank: null,
+        plannedDate: payload.plannedDate ?? null,
+        notes: payload.notes ?? null,
+        ingredients,
+      });
+
+      const lockedOrder = await getLockedManufacturingOrderInTx(tx, order.id);
+      if (!lockedOrder) {
+        throw new ManufacturingError("Order not found", 404);
+      }
+      await activateManufacturingOrderInTx(tx, orgId, lockedOrder, {
+        actorUserId,
+      });
+      createdNew = true;
+
+      return { id: order.id };
+    },
   );
-  const scalingPlan = deriveScalingPlan(plannedQuantity, ingredients);
-  const order = await insertManufacturingOrderInTx(tx, orgId, {
-    id: payload.id,
-    product,
-    bomRevisionId,
-    salesLink,
-    requestedQuantity: payload.plannedQuantity,
-    plannedQuantity,
-    manufacturingMode: scalingPlan.manufacturingMode,
-    numberOfBatches: scalingPlan.numberOfBatches,
-    expectedBatchYield: scalingPlan.expectedBatchYield,
-    priorityRank: null,
-    plannedDate: payload.plannedDate ?? null,
-    notes: payload.notes ?? null,
-    ingredients,
-  });
 
-  const lockedOrder = await getLockedManufacturingOrderInTx(tx, order.id);
-  if (!lockedOrder) {
-    throw new ManufacturingError("Order not found", 404);
-  }
-  await activateManufacturingOrderInTx(tx, orgId, lockedOrder, {
-    actorUserId,
-  });
-
-  return { id: order.id, replayed: false };
+  return { id: result.id, replayed: replayed || !createdNew };
 }
 
 export async function createManufacturingOrder(
-  payload: InsertManufacturingOrder
+  payload: InsertManufacturingOrder,
+  options?: { idempotencyKey?: string }
 ): Promise<{ id: string }> {
   let notifyOrgId = "";
   const created = await withAuthedOrgContext((tx, orgId, userId) => {
     notifyOrgId = orgId;
-    return createManufacturingOrderInTx(tx, orgId, payload, userId);
+    return createManufacturingOrderInTx(tx, orgId, payload, userId, options);
   });
   if (!created.replayed) {
     await notifyManufacturingOrderCreated(notifyOrgId, created.id);
@@ -1181,28 +1200,108 @@ export async function createManufacturingOrder(
 }
 
 export async function duplicateManufacturingOrder(
-  id: string
+  id: string,
+  options?: { idempotencyKey?: string }
 ): Promise<{ id: string } | null> {
-  const order = await getManufacturingOrder(id);
+  let notifyOrgId = "";
+  const outcome = await withAuthedOrgContext(async (tx, orgId, userId) => {
+    notifyOrgId = orgId;
+
+    const { result, replayed } = await runIdempotentInventoryOperationInTx<
+      { id: string } | null
+    >(
+      tx,
+      {
+        organizationId: orgId,
+        operationName: "duplicateManufacturingOrder",
+        idempotencyKey: options?.idempotencyKey ?? null,
+        payload: { id },
+      },
+      async () => {
+        const source = await getManufacturingOrderForDuplicateInTx(tx, id);
+
+        if (!source) {
+          return null;
+        }
+
+        const created = await createManufacturingOrderInTx(tx, orgId, {
+          productId: source.productId,
+          salesOrderId: null,
+          salesOrderLineId: null,
+          plannedQuantity: source.requestedQuantity,
+          priorityRank: null,
+          plannedDate: source.plannedDate,
+          notes: source.notes,
+          ingredients: source.ingredients,
+          confirmShortage: false,
+        }, userId);
+
+        return { id: created.id };
+      },
+    );
+
+    return { result, created: !replayed && result != null };
+  });
+
+  if (outcome.created && outcome.result) {
+    await notifyManufacturingOrderCreated(notifyOrgId, outcome.result.id);
+  }
+
+  return outcome.result;
+}
+
+async function getManufacturingOrderForDuplicateInTx(
+  tx: Tx,
+  id: string
+): Promise<{
+  productId: string;
+  requestedQuantity: string;
+  plannedDate: string | null;
+  notes: string | null;
+  ingredients: { itemId: string; quantityPerUnit: string }[];
+} | null> {
+  const [order] = await tx
+    .select({
+      productId: manufacturingOrders.productId,
+      requestedQuantity: trimScale(manufacturingOrders.requestedQuantity).as(
+        "requestedQuantity"
+      ),
+      plannedDate: manufacturingOrders.plannedDate,
+      notes: manufacturingOrders.notes,
+    })
+    .from(manufacturingOrders)
+    .where(and(eq(manufacturingOrders.id, id), isNull(manufacturingOrders.deletedAt)));
 
   if (!order) {
     return null;
   }
 
-  return createManufacturingOrder({
+  const ingredientRows = await tx
+    .select({
+      itemId: manufacturingOrderIngredients.itemId,
+      quantityPerUnit: trimScale(
+        manufacturingOrderIngredients.quantityPerUnit
+      ).as("quantityPerUnit"),
+    })
+    .from(manufacturingOrderIngredients)
+    .where(eq(manufacturingOrderIngredients.manufacturingOrderId, id))
+    .orderBy(asc(manufacturingOrderIngredients.sortOrder));
+
+  const seenItemIds = new Set<string>();
+  const ingredients: { itemId: string; quantityPerUnit: string }[] = [];
+  for (const row of ingredientRows) {
+    if (seenItemIds.has(row.itemId)) continue;
+    seenItemIds.add(row.itemId);
+    ingredients.push({ itemId: row.itemId, quantityPerUnit: row.quantityPerUnit });
+  }
+
+  return {
     productId: order.productId,
-    salesOrderId: null,
-    salesOrderLineId: null,
-    plannedQuantity: order.requestedQuantity,
-    priorityRank: null,
+    requestedQuantity: order.requestedQuantity,
     plannedDate: order.plannedDate,
     notes: order.notes,
-    ingredients: order.ingredients.map((ingredient) => ({
-      itemId: ingredient.itemId,
-      quantityPerUnit: ingredient.quantityPerUnit,
-    })),
-    confirmShortage: false,
-  });
+    ingredients,
+  };
 }
 
 export async function createManufacturingOrdersFromSalesOrderInTx(

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { apiHandler } from "@/lib/api/handler";
+import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonError, jsonNotFound, jsonCreated } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
@@ -29,9 +29,10 @@ export const DELETE = apiHandler(async (request) => {
 
 export const POST = apiHandler(async (request) => {
   await assertModuleWriteAccess("manufacturing", request.headers);
+  const idempotencyKey = requireIdempotencyKey(request, "createManufacturingOrder");
   const data = await parseJsonBody(request, insertManufacturingOrderSchema);
 
-  const created = await createManufacturingOrder(data);
+  const created = await createManufacturingOrder(data, { idempotencyKey });
   const order = await getManufacturingOrder(created.id);
 
   if (!order) {

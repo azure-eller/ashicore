@@ -17,6 +17,9 @@ import {
 import { ACCOUNTING_PROVIDER_XERO } from "@/lib/accounting/sync-state";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
+import {
+  runIdempotentInventoryOperationInTx,
+} from "@/lib/inventory/kernel";
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import type { InsertSupplier, PatchSupplier, UpdateSupplier } from "@/lib/schemas/suppliers";
 import type { SupplierRow } from "../types";
@@ -162,30 +165,45 @@ export async function getSupplier(
   });
 }
 
-export async function createSupplier(data: InsertSupplier): Promise<SupplierRow> {
+export async function createSupplier(
+  data: InsertSupplier,
+  options?: { idempotencyKey?: string }
+): Promise<SupplierRow> {
   return withAuthedOrgContext(async (tx, orgId) => {
-    // Idempotent under client-generated ids: a retried create with the same
-    // id no-ops the insert and returns the existing row.
-    const inserted = await tx
-      .insert(suppliers)
-      .values({ organizationId: orgId, ...data })
-      .onConflictDoNothing({ target: suppliers.id })
-      .returning({ id: suppliers.id });
+    const { result: supplier } = await runIdempotentInventoryOperationInTx<SupplierRow>(
+      tx,
+      {
+        organizationId: orgId,
+        operationName: "createSupplier",
+        idempotencyKey: options?.idempotencyKey ?? null,
+        payload: data,
+      },
+      async () => {
+        // Idempotent under client-generated ids: a retried create with the same
+        // id no-ops the insert and returns the existing row.
+        const inserted = await tx
+          .insert(suppliers)
+          .values({ organizationId: orgId, ...data })
+          .onConflictDoNothing({ target: suppliers.id })
+          .returning({ id: suppliers.id });
 
-    const id = inserted[0]?.id ?? data.id;
-    if (!id) {
-      throw new PurchasingError("Failed to create supplier.", 500);
-    }
+        const id = inserted[0]?.id ?? data.id;
+        if (!id) {
+          throw new PurchasingError("Failed to create supplier.", 500);
+        }
 
-    const [supplier] = await tx
-      .select(supplierRowSelect)
-      .from(suppliers)
-      .where(eq(suppliers.id, id));
+        const [createdSupplier] = await tx
+          .select(supplierRowSelect)
+          .from(suppliers)
+          .where(eq(suppliers.id, id));
 
-    if (!supplier) {
-      throw new PurchasingError("Supplier id is already in use.", 409);
-    }
+        if (!createdSupplier) {
+          throw new PurchasingError("Supplier id is already in use.", 409);
+        }
 
+        return createdSupplier;
+      },
+    );
     return supplier;
   });
 }

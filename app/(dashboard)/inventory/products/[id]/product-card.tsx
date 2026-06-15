@@ -1,13 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CardPage } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import { CardTabs, type CardTab } from "@/components/card-page/card-tabs";
 import { useCardSaveStatus } from "@/components/card-page/use-card-save-status";
-import { useCardEntityActions } from "@/components/card-page/use-card-entity-actions";
+import {
+  resolveSavedCardId,
+  useCardEntityActions,
+} from "@/components/card-page/use-card-entity-actions";
 import {
   cloneItemCard,
   deleteItemCard,
@@ -93,27 +102,34 @@ export function ProductCard({
     queryFn: () => getItemCard(currentItemId as string),
     initialData: initialCard,
     enabled: !isDraft,
-    staleTime: Infinity,
+    staleTime: 0,
+    refetchOnMount: "always",
     refetchOnWindowFocus: false,
   });
   useEffect(() => {
     if (isDraft || !cardQuery.data) return;
-    mergeServerCard(cardQuery.data);
+    const handle = window.setTimeout(() => mergeServerCard(cardQuery.data), 0);
+    return () => window.clearTimeout(handle);
   }, [cardQuery.data, isDraft, mergeServerCard]);
   const card = controller.card;
+  const renderedCard =
+    !isDraft && controller.status === "saved" && cardQuery.data
+      ? cardQuery.data
+      : card;
   const visibleVariantIds = useMemo(
     () =>
       new Set(
-        card.variants
+        renderedCard.variants
           .filter((variant) => variant.deletedAt == null)
           .map((variant) => variant.id),
       ),
-    [card.variants],
+    [renderedCard.variants],
   );
   const fallbackFocusItemId =
     currentItemId && visibleVariantIds.has(currentItemId)
       ? currentItemId
-      : card.variants.find((variant) => variant.deletedAt == null)?.id ?? currentItemId;
+      : renderedCard.variants.find((variant) => variant.deletedAt == null)?.id ??
+        currentItemId;
   const focusedVariantParamIsVisible =
     focusedVariantParam != null && visibleVariantIds.has(focusedVariantParam);
   const resolvedFocusedItemId = focusedVariantParamIsVisible
@@ -183,7 +199,7 @@ export function ProductCard({
         title: "Delete product card?",
         description: (
           <>
-            {card.family.name} and all its variants will be removed. This cannot be undone.
+            {renderedCard.family.name} and all its variants will be removed. This cannot be undone.
           </>
         ),
       },
@@ -191,7 +207,14 @@ export function ProductCard({
   });
   const cloneCardMutation = useMutation({
     mutationKey: ["item-card-action", currentItemId ?? "__draft__", "clone-card"],
-    mutationFn: () => cloneItemCard(currentItemId as string),
+    mutationFn: async () => {
+      const itemId = await resolveSavedCardId({
+        flush: controller.flush,
+        getId: () => controller.currentItemId,
+        missingIdError: "Save the product first.",
+      });
+      return cloneItemCard(itemId);
+    },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.itemCards.root });
       router.push(productCardHrefForTab(result.itemId, getProductCardTabFromPath(pathname)));
@@ -243,14 +266,14 @@ export function ProductCard({
           count: lotsCount || undefined,
         },
       ];
-      return card.family.lotTrackingMode === "tracked"
+      return renderedCard.family.lotTrackingMode === "tracked"
         ? nextTabs
         : nextTabs.filter((tab) => tab.value !== "lots");
     },
-    [card.family.lotTrackingMode, currentItemId, resolvedFocusedItemId, lotsCount],
+    [renderedCard.family.lotTrackingMode, currentItemId, resolvedFocusedItemId, lotsCount],
   );
 
-  const avgIngredientsCost = getAverageIngredientsCost(card);
+  const avgIngredientsCost = getAverageIngredientsCost(renderedCard);
   const resolvedActiveTab = activeTab ?? getProductCardTabFromPath(pathname);
   const effectiveSaveStatus =
     controller.status === "saving" ||
@@ -281,18 +304,22 @@ export function ProductCard({
     (cloneCardMutation.error instanceof Error ? cloneCardMutation.error.message : null);
   const cardContextValue = useMemo(
     () => ({
-      card,
+      card: renderedCard,
       controller,
       focusedItemId: resolvedFocusedItemId ?? currentItemId,
       setFocusedItemId,
     }),
-    [card, controller, currentItemId, resolvedFocusedItemId, setFocusedItemId],
+    [renderedCard, controller, currentItemId, resolvedFocusedItemId, setFocusedItemId],
   );
 
   return (
     <CardPage>
       <CardPageHeader
-        title={isDraft && !card.family.name.trim() ? "New product" : card.family.name}
+        title={
+          isDraft && !renderedCard.family.name.trim()
+            ? "New product"
+            : renderedCard.family.name
+        }
         fallbackHref="/inventory/products"
         saveState={saveState}
         saveMessage={saveMessage}
@@ -332,7 +359,7 @@ export function ProductCard({
           {resolvedActiveTab === "general" || isDraft ? (
             <>
               <ProductGeneralInfoTab
-                card={card}
+                card={renderedCard}
                 focusItemId={resolvedFocusedItemId ?? currentItemId}
                 unitOptions={unitOptions}
                 onOpenConfig={() => setConfigOpen(true)}
@@ -353,7 +380,7 @@ export function ProductCard({
               />
               <StockByLocationSection
                 itemId={isDraft ? null : resolvedFocusedItemId ?? currentItemId}
-                unitLabel={card.family.unitName}
+                unitLabel={renderedCard.family.unitName}
               />
             </>
           ) : (
@@ -367,7 +394,7 @@ export function ProductCard({
           <VariantConfigurationDialog
             open={configOpen}
             onOpenChange={setConfigOpen}
-            card={card}
+            card={renderedCard}
             focusItemId={currentItemId}
             onSaved={(nextCard) =>
               setVariantsEnabled(

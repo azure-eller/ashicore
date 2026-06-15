@@ -1,13 +1,14 @@
-import { apiHandler, type RouteContext } from "@/lib/api/handler";
+import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
 import { jsonNotFound, jsonCreated } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
 import { duplicateManufacturingOrder } from "@/lib/manufacturing/queries/order-write";
 
 export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("manufacturing", request.headers);
+  const idempotencyKey = requireIdempotencyKey(request, "duplicateManufacturingOrder");
   const { id } = await (ctx as RouteContext).params;
 
-  const order = await duplicateManufacturingOrder(id);
+  const order = await duplicateManufacturingOrder(id, { idempotencyKey });
 
   if (!order) {
     return jsonNotFound("Order not found");

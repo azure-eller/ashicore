@@ -64,6 +64,37 @@ return jsonNotFound("Item not found");
 
 Note: **`error`** (singular) for general errors. Never use `errors` for non-field errors.
 
+## Idempotency Keys
+
+Mutations a client may retry require an `Idempotency-Key` header so a retry
+replays the original result instead of creating a duplicate. This now covers the
+customer, supplier, purchase-order, and manufacturing-order create routes plus
+the purchase-order and manufacturing-order duplicate routes, alongside the
+existing sales-order, item-card, and inventory stock writes. Read the header with
+`requireIdempotencyKey` and thread it into the DAL:
+
+```ts
+import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";
+
+export const POST = apiHandler(async (request) => {
+  const idempotencyKey = requireIdempotencyKey(request, "createCustomer");
+  const data = await parseJsonBody(request, insertCustomerSchema);
+  const created = await createCustomer(data, { idempotencyKey });
+  // ...
+});
+```
+
+A missing header is a `400`; reusing one key for a different request body is a
+`409`. Clients pass it through `apiJson`'s `idempotencyKey` option, and the card
+kernel reuses a retry-stable key so an interrupted create or save replays as the
+same write (see [card-kernel.md](./card-kernel.md)).
+
+DAL create/duplicate implementations that use the inventory idempotency ledger
+must go through `runIdempotentInventoryOperationInTx`; do not hand-thread the
+`beginInventoryOperationInTx` / `finishInventoryOperationInTx` pair at each call
+site. The helper claims before reading mutable source rows and always records
+the returned result, including `null` not-found outcomes.
+
 ## Query Params
 
 Use `lib/routing/search-params.ts` for request query parsing instead of rebuilding

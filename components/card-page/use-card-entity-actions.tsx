@@ -11,6 +11,52 @@ import { useDuplicateEntity } from "./use-duplicate-entity";
 
 type QueryKey = readonly unknown[];
 
+export async function flushSavedCardOrThrow({
+  flush,
+  blockedMessage = "Unsaved changes can't be saved yet — fix them first.",
+  fallbackError = "Save changes first.",
+}: {
+  flush?: () => Promise<FlushOutcome>;
+  blockedMessage?: string;
+  fallbackError?: string;
+}) {
+  const outcome = await flush?.();
+  if (!outcome || outcome.outcome === "saved") return;
+  if (outcome.outcome === "blocked") {
+    throw new Error(firstFieldErrorMessage(outcome.fieldErrors, blockedMessage));
+  }
+  throw new Error(outcome.error || fallbackError);
+}
+
+export async function flushClosableCardOrThrow({
+  flush,
+}: {
+  flush?: () => Promise<FlushOutcome>;
+}) {
+  const outcome = await flush?.();
+  if (!outcome || outcome.outcome === "saved" || outcome.outcome === "blocked") {
+    return;
+  }
+  throw new Error(outcome.error);
+}
+
+export async function resolveSavedCardId({
+  flush,
+  getId,
+  missingIdError = "Save changes first.",
+  blockedMessage,
+}: {
+  flush?: () => Promise<FlushOutcome>;
+  getId: () => string | null;
+  missingIdError?: string;
+  blockedMessage?: string;
+}) {
+  await flushSavedCardOrThrow({ flush, blockedMessage, fallbackError: missingIdError });
+  const id = getId();
+  if (!id) throw new Error(missingIdError);
+  return id;
+}
+
 /**
  * Standard duplicate/delete header actions for card pages. Every action
  * flushes the kernel first, then branches on the flush outcome before
@@ -81,20 +127,10 @@ export function useCardEntityActions({
   const currentId = getId();
 
   const resolveId = async ({ requireSaved = false } = {}) => {
-    const outcome = await flush?.();
-    if (outcome) {
-      if (outcome.outcome === "failed" || outcome.outcome === "conflict") {
-        throw new Error(outcome.error);
-      }
-      if (requireSaved && outcome.outcome === "blocked") {
-        throw new Error(
-          firstFieldErrorMessage(
-            outcome.fieldErrors,
-            "Unsaved changes can't be saved yet — fix them first.",
-          ),
-        );
-      }
+    if (requireSaved) {
+      return resolveSavedCardId({ flush, getId, missingIdError });
     }
+    await flushClosableCardOrThrow({ flush });
     const id = getId();
     if (!id) throw new Error(missingIdError);
     return id;

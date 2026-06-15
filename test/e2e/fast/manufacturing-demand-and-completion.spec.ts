@@ -1,5 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
+import type { Page } from "@playwright/test";
 import { and, eq } from "drizzle-orm";
 import { test, expect } from "../fixtures";
 import {
@@ -17,12 +19,37 @@ import {
   completeManufacturingOrder,
   createItem,
   createManufacturingOrder,
+  getBaseUrl,
+  getSessionCookie,
   getUnitId,
   releaseManufacturingOrder,
   testFetch,
 } from "../../helpers/api";
+import { buildStorageState } from "../../helpers/test-env";
 
 const FCM_OUTBOX_DIR = path.join(process.cwd(), ".tmp", "fcm-outbox");
+
+function editableGrid(page: Page, index = 0) {
+  return page.locator('[data-slot="editable-line-data-grid"]').nth(index);
+}
+
+async function editGridCell(page: Page, colId: string, value: string) {
+  const cell = editableGrid(page)
+    .locator(`.ag-row[row-index="0"] .ag-cell[col-id="${colId}"]`)
+    .first();
+  await expect(cell).toBeVisible();
+  await cell.click();
+  const input = page.locator(".ag-cell-inline-editing input").first();
+  await expect(input).toBeVisible();
+  await input.fill(value);
+  await input.press("Enter");
+}
+
+async function expectRows(page: Page, count: number, gridIndex = 0) {
+  await expect(
+    editableGrid(page, gridIndex).locator(".ag-center-cols-container .ag-row"),
+  ).toHaveCount(count, { timeout: 15_000 });
+}
 
 test.describe("manufacturing demand and completion heartbeat", () => {
   const ts = Date.now();
@@ -92,6 +119,276 @@ test.describe("manufacturing demand and completion heartbeat", () => {
     });
     expect(res.status).toBe(200);
   }
+
+  test("manufacturing order create replays under the same idempotency key", async ({
+    db,
+  }) => {
+    const fixture = await createBomFixture("Replay");
+    const notes = `idempotent MO create ${ts}`;
+    const payload = {
+      productId: fixture.productId,
+      plannedQuantity: "3",
+      plannedDate: null,
+      notes,
+      ingredients: [{ itemId: fixture.componentId, quantityPerUnit: "2" }],
+      confirmShortage: false,
+    };
+    const postCreate = () =>
+      testFetch("/api/manufacturing-orders", {
+        method: "POST",
+        headers: {
+          "Idempotency-Key": `fast-mo-create-replay:${ts}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+    const first = await postCreate();
+    const firstBody = await first.json();
+    expect(first.status, JSON.stringify(firstBody)).toBe(201);
+
+    const replay = await postCreate();
+    const replayBody = await replay.json();
+    expect(replay.status, JSON.stringify(replayBody)).toBe(201);
+    expect(replayBody.id).toBe(firstBody.id);
+
+    const rows = await db
+      .select({ id: manufacturingOrders.id })
+      .from(manufacturingOrders)
+      .where(
+        and(
+          eq(manufacturingOrders.productId, fixture.productId),
+          eq(manufacturingOrders.notes, notes)
+        )
+      );
+    expect(rows).toHaveLength(1);
+  });
+
+  test("manufacturing order client-id replay finalizes a different idempotency key", async ({
+    db,
+  }) => {
+    const fixture = await createBomFixture("ClientIdReplay");
+    const orderId = randomUUID();
+    const notes = `client-id MO replay ${ts}`;
+    const payload = {
+      id: orderId,
+      productId: fixture.productId,
+      plannedQuantity: "3",
+      plannedDate: null,
+      notes,
+      ingredients: [{ itemId: fixture.componentId, quantityPerUnit: "2" }],
+      confirmShortage: false,
+    };
+    const postCreate = (idempotencyKey: string) =>
+      testFetch("/api/manufacturing-orders", {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify(payload),
+      });
+
+    const first = await postCreate(`fast-mo-client-id-create:${ts}:first`);
+    const firstBody = await first.json();
+    expect(first.status, JSON.stringify(firstBody)).toBe(201);
+    expect(firstBody.id).toBe(orderId);
+
+    const secondKey = `fast-mo-client-id-create:${ts}:second`;
+    const second = await postCreate(secondKey);
+    const secondBody = await second.json();
+    expect(second.status, JSON.stringify(secondBody)).toBe(201);
+    expect(secondBody.id).toBe(orderId);
+
+    const replaySecondKey = await postCreate(secondKey);
+    const replaySecondKeyBody = await replaySecondKey.json();
+    expect(replaySecondKey.status, JSON.stringify(replaySecondKeyBody)).toBe(201);
+    expect(replaySecondKeyBody.id).toBe(orderId);
+
+    const rows = await db
+      .select({ id: manufacturingOrders.id })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, orderId));
+    expect(rows).toHaveLength(1);
+  });
+
+  test("manufacturing order duplicate replays under the same idempotency key", async ({
+    db,
+  }) => {
+    const fixture = await createBomFixture("Duplicate");
+    const notes = `duplicate MO replay ${ts}`;
+    const order = await createManufacturingOrder({
+      productId: fixture.productId,
+      plannedQuantity: "3",
+      plannedDate: null,
+      notes,
+      ingredients: [{ itemId: fixture.componentId, quantityPerUnit: "2" }],
+      confirmShortage: false,
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+
+    const postDuplicate = () =>
+      testFetch(`/api/manufacturing-orders/${order.body.id}/duplicate`, {
+        method: "POST",
+        headers: {
+          "Idempotency-Key": `fast-mo-duplicate-replay:${ts}`,
+        },
+        body: JSON.stringify({}),
+      });
+
+    const first = await postDuplicate();
+    const firstBody = await first.json();
+    expect(first.status, JSON.stringify(firstBody)).toBe(201);
+
+    const replay = await postDuplicate();
+    const replayBody = await replay.json();
+    expect(replay.status, JSON.stringify(replayBody)).toBe(201);
+    expect(replayBody.id).toBe(firstBody.id);
+
+    const rows = await db
+      .select({ id: manufacturingOrders.id })
+      .from(manufacturingOrders)
+      .where(
+        and(
+          eq(manufacturingOrders.productId, fixture.productId),
+          eq(manufacturingOrders.notes, notes)
+        )
+      );
+    expect(rows).toHaveLength(2);
+  });
+
+  test("manufacturing order duplicate action flushes dirty autosave before cloning", async ({
+    db,
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const fixture = await createBomFixture(`DupUI${unique}`);
+    const order = await createManufacturingOrder({
+      productId: fixture.productId,
+      plannedQuantity: "3",
+      plannedDate: "2026-06-10",
+      notes: null,
+      ingredients: [{ itemId: fixture.componentId, quantityPerUnit: "2" }],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+    const orderId = order.body.id as string;
+    const notes = `dirty manufacturing duplicate notes ${unique}`;
+
+    await page.goto(`/manufacturing/order/${orderId}`);
+    const notesInput = page.getByPlaceholder("Notes for this order…");
+    await expect(notesInput).toBeVisible();
+    await notesInput.fill(notes);
+
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Duplicate" }).click();
+    await page.waitForURL((url) => {
+      return (
+        url.pathname.startsWith("/manufacturing/order/") &&
+        url.pathname !== `/manufacturing/order/${orderId}`
+      );
+    });
+    const duplicatedId = page.url().split("/").pop();
+    expect(duplicatedId).toBeTruthy();
+    expect(duplicatedId).not.toBe(orderId);
+
+    const rows = await db
+      .select({
+        id: manufacturingOrders.id,
+        notes: manufacturingOrders.notes,
+        productId: manufacturingOrders.productId,
+      })
+      .from(manufacturingOrders)
+      .where(
+        and(
+          eq(manufacturingOrders.productId, fixture.productId),
+          eq(manufacturingOrders.notes, notes),
+        ),
+      );
+    expect(rows.map((row) => row.id).sort()).toEqual(
+      [orderId, duplicatedId as string].sort(),
+    );
+
+    const ingredients = await db
+      .select({
+        manufacturingOrderId: manufacturingOrderIngredients.manufacturingOrderId,
+        itemId: manufacturingOrderIngredients.itemId,
+        quantityPerUnit: manufacturingOrderIngredients.quantityPerUnit,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.itemId, fixture.componentId));
+    expect(ingredients).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          manufacturingOrderId: orderId,
+          quantityPerUnit: "2.0000",
+        }),
+        expect.objectContaining({
+          manufacturingOrderId: duplicatedId,
+          quantityPerUnit: "2.0000",
+        }),
+      ]),
+    );
+  });
+
+  test("manufacturing status transition flushes dirty autosave before patching status", async ({
+    db,
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const fixture = await createBomFixture(`StatusFlush${unique}`);
+    const order = await createManufacturingOrder({
+      productId: fixture.productId,
+      plannedQuantity: "3",
+      plannedDate: "2026-06-10",
+      notes: null,
+      ingredients: [{ itemId: fixture.componentId, quantityPerUnit: "2" }],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+    const orderId = order.body.id as string;
+    const notes = `dirty manufacturing status notes ${unique}`;
+    const writes: Array<{ method: string; body: unknown }> = [];
+
+    await page.route(`**/api/manufacturing-orders/${orderId}`, async (route) => {
+      const request = route.request();
+      if (request.method() === "PUT" || request.method() === "PATCH") {
+        writes.push({
+          method: request.method(),
+          body: request.postDataJSON(),
+        });
+      }
+      await route.continue();
+    });
+
+    await page.goto(`/manufacturing/order/${orderId}`);
+    const notesInput = page.getByPlaceholder("Notes for this order…");
+    await expect(notesInput).toBeVisible();
+    await notesInput.fill(notes);
+
+    await page.getByLabel("Change status: Not started").click();
+    await page.getByRole("menuitem", { name: "Blocked" }).click();
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+
+    await expect.poll(() => writes.length, { timeout: 15_000 }).toBeGreaterThanOrEqual(2);
+    expect(writes[0]).toMatchObject({
+      method: "PUT",
+      body: expect.objectContaining({ notes }),
+    });
+    expect(writes[1]).toMatchObject({
+      method: "PATCH",
+      body: expect.objectContaining({ isBlocked: true }),
+    });
+    await expect(page.getByLabel("Change status: Blocked")).toBeVisible({
+      timeout: 15_000,
+    });
+
+    const [saved] = await db
+      .select({
+        notes: manufacturingOrders.notes,
+        isBlocked: manufacturingOrders.isBlocked,
+      })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, orderId));
+    expect(saved.notes).toBe(notes);
+    expect(saved.isBlocked).toBe(true);
+  });
 
   test("released manufacturing order creates ingredient demand", async ({ db }) => {
     const fixture = await createBomFixture("Demand");
@@ -176,14 +473,37 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       warningType: "queue_conflict",
     });
 
+    const confirmedPickKey = `confirmed-pick-${ts}`;
     const confirmedPick = await testFetch(
       `/api/manufacturing-orders/${laterOrder.body.id}/ingredients/${laterIngredient.id}/pick`,
       {
         method: "POST",
+        headers: { "Idempotency-Key": confirmedPickKey },
         body: JSON.stringify({ confirmNegativeStock: true }),
       }
     );
     expect(confirmedPick.status, await confirmedPick.text()).toBe(200);
+    const confirmedReplay = await testFetch(
+      `/api/manufacturing-orders/${laterOrder.body.id}/ingredients/${laterIngredient.id}/pick`,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": confirmedPickKey },
+        body: JSON.stringify({ confirmNegativeStock: true }),
+      }
+    );
+    expect(confirmedReplay.status, await confirmedReplay.text()).toBe(200);
+
+    const componentEvents = await db
+      .select({ quantity: inventoryEvents.quantity })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, fixture.componentId),
+          eq(inventoryEvents.eventType, "manufacturing_ingredient_consumption")
+        )
+      );
+    expect(componentEvents).toHaveLength(1);
+    expect(componentEvents[0].quantity).toBe("10.0000");
   });
 
   test("completion consumes ingredients once and produces output once", async ({
@@ -508,6 +828,249 @@ test.describe("manufacturing demand and completion heartbeat", () => {
 
     expect(saved.plannedQuantity).toBe("2.0000");
     expect(saved.plannedDate).toBe("2026-06-15");
+  });
+
+  test("manufacturing order stale save returns the shared conflict envelope with the fresh order", async ({
+    db,
+  }) => {
+    const fixture = await createBomFixture("ConflictEnvelope");
+    const order = await createManufacturingOrder({
+      productId: fixture.productId,
+      plannedQuantity: "3",
+      plannedDate: "2026-06-10",
+      notes: null,
+      ingredients: [{ itemId: fixture.componentId, quantityPerUnit: "2" }],
+    });
+    expect(order.status).toBe(201);
+    const orderId = order.body.id as string;
+
+    const detailResponse = await testFetch(`/api/manufacturing-orders/${orderId}`);
+    expect(detailResponse.status).toBe(200);
+    const detail = await detailResponse.json();
+    const basePayload = {
+      productId: detail.productId,
+      plannedQuantity: detail.plannedQuantity,
+      plannedDate: detail.plannedDate,
+      notes: detail.notes,
+      salesOrderId: detail.salesOrderId,
+      salesOrderLineId: detail.salesOrderLineId,
+      ingredients: detail.ingredients.map(
+        (ingredient: { itemId: string; quantityPerUnit: string }) => ({
+          itemId: ingredient.itemId,
+          quantityPerUnit: ingredient.quantityPerUnit,
+        }),
+      ),
+      expectedVersion: detail.version,
+    };
+
+    const first = await testFetch(`/api/manufacturing-orders/${orderId}`, {
+      method: "PUT",
+      body: JSON.stringify({ ...basePayload, notes: "first manufacturing writer" }),
+    });
+    expect(first.status, await first.text()).toBe(200);
+
+    const stale = await testFetch(`/api/manufacturing-orders/${orderId}`, {
+      method: "PUT",
+      body: JSON.stringify({ ...basePayload, notes: "stale manufacturing writer" }),
+    });
+    const staleBody = await stale.json();
+    expect(stale.status, JSON.stringify(staleBody)).toBe(409);
+    expect(staleBody.conflict).toBe(true);
+    expect(staleBody.current.notes).toBe("first manufacturing writer");
+    expect(staleBody.current.version).toBe(detail.version + 1);
+    expect(staleBody.order).toBeUndefined();
+    expect(staleBody.kind).toBeUndefined();
+
+    const [savedOrder] = await db
+      .select({ notes: manufacturingOrders.notes, version: manufacturingOrders.version })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, orderId));
+    expect(savedOrder.notes).toBe("first manufacturing writer");
+    expect(savedOrder.version).toBe(detail.version + 1);
+  });
+
+  test("notes autosave rebase preserves an unsent blank ingredient row", async ({
+    page,
+  }) => {
+    const fixture = await createBomFixture("BlankRow");
+    const order = await createManufacturingOrder({
+      productId: fixture.productId,
+      plannedQuantity: "3",
+      plannedDate: "2026-06-10",
+      notes: null,
+      ingredients: [{ itemId: fixture.componentId, quantityPerUnit: "2" }],
+    });
+    expect(order.status).toBe(201);
+    const orderId = order.body.id as string;
+    const notes = `Blank ingredient rebase ${Date.now()}`;
+    let delayedFirstSave = false;
+
+    await page.route(`**/api/manufacturing-orders/${orderId}`, async (route) => {
+      if (route.request().method() === "PUT" && !delayedFirstSave) {
+        delayedFirstSave = true;
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+      }
+      await route.continue();
+    });
+
+    await page.goto(`/manufacturing/order/${orderId}`);
+    await expectRows(page, 1);
+    await page.getByRole("button", { name: "Add ingredient" }).click();
+    await expectRows(page, 2);
+
+    const notesInput = page.getByPlaceholder("Notes for this order…");
+    await notesInput.fill(notes);
+    await notesInput.blur();
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expectRows(page, 2);
+
+    const saved = await (await testFetch(`/api/manufacturing-orders/${orderId}`)).json();
+    expect(saved.notes).toBe(notes);
+    expect(saved.ingredients).toHaveLength(1);
+  });
+
+  test("manufacturing order autosave keeps ingredient edits made during an in-flight header save", async ({
+    page,
+    db,
+  }) => {
+    const fixture = await createBomFixture("InflightIngredient");
+    const order = await createManufacturingOrder({
+      productId: fixture.productId,
+      plannedQuantity: "3",
+      plannedDate: "2026-06-10",
+      notes: null,
+      ingredients: [{ itemId: fixture.componentId, quantityPerUnit: "2" }],
+    });
+    expect(order.status).toBe(201);
+    const orderId = order.body.id as string;
+    const notes = `MO save in flight ${Date.now()}`;
+
+    let delayedFirstPut = false;
+    let markPutStarted: () => void = () => {};
+    const putStarted = new Promise<void>((resolve) => {
+      markPutStarted = resolve;
+    });
+    await page.route(`**/api/manufacturing-orders/${orderId}`, async (route) => {
+      if (route.request().method() === "PUT" && !delayedFirstPut) {
+        delayedFirstPut = true;
+        markPutStarted();
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+      }
+      await route.continue();
+    });
+
+    await page.goto(`/manufacturing/order/${orderId}`);
+    await expectRows(page, 1);
+
+    const notesInput = page.getByPlaceholder("Notes for this order…");
+    await notesInput.fill(notes);
+    await notesInput.blur();
+    await putStarted;
+
+    await editGridCell(page, "quantityPerUnit", "4");
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+    await page.reload();
+
+    await expect(notesInput).toHaveValue(notes);
+    await expect(
+      editableGrid(page).locator('.ag-row .ag-cell[col-id="quantityPerUnit"]').first(),
+    ).toContainText("4");
+
+    const [savedOrder] = await db
+      .select({ notes: manufacturingOrders.notes })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, orderId));
+    expect(savedOrder.notes).toBe(notes);
+
+    const [ingredient] = await db
+      .select({
+        quantityPerUnit: manufacturingOrderIngredients.quantityPerUnit,
+        plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
+    expect(ingredient.quantityPerUnit).toBe("4.0000");
+    expect(ingredient.plannedQuantity).toBe("12.0000");
+  });
+
+  test("manufacturing order autosave surfaces same-field conflicts without overwriting and can recover", async ({
+    browser,
+    page,
+    db,
+  }) => {
+    const fixture = await createBomFixture("ConflictUI");
+    const order = await createManufacturingOrder({
+      productId: fixture.productId,
+      plannedQuantity: "3",
+      plannedDate: "2026-06-10",
+      notes: null,
+      ingredients: [{ itemId: fixture.componentId, quantityPerUnit: "2" }],
+    });
+    expect(order.status).toBe(201);
+    const orderId = order.body.id as string;
+    const firstWriterNotes = `first manufacturing writer ${Date.now()}`;
+    const staleWriterNotes = `stale manufacturing writer ${Date.now()}`;
+    const resolvedNotes = `resolved manufacturing writer ${Date.now()}`;
+
+    const secondContext = await browser.newContext({
+      baseURL: getBaseUrl(),
+      storageState: buildStorageState(getSessionCookie(), getBaseUrl()),
+    });
+    const secondPage = await secondContext.newPage();
+
+    try {
+      await page.goto(`/manufacturing/order/${orderId}`);
+      await secondPage.goto(`/manufacturing/order/${orderId}`);
+
+      const firstNotes = secondPage.getByPlaceholder("Notes for this order…");
+      await expect(firstNotes).toHaveValue("");
+      await firstNotes.fill(firstWriterNotes);
+      await firstNotes.blur();
+      await expect(secondPage.getByText("Saved", { exact: true })).toBeVisible({
+        timeout: 15_000,
+      });
+
+      const staleNotes = page.getByPlaceholder("Notes for this order…");
+      await expect(staleNotes).toHaveValue("");
+      await staleNotes.fill(staleWriterNotes);
+      await staleNotes.blur();
+      await expect(
+        page.getByText(
+          "This record was changed elsewhere. Saving again will overwrite those changes.",
+          { exact: true },
+        ),
+      ).toBeVisible({ timeout: 15_000 });
+
+      const [afterConflict] = await db
+        .select({ notes: manufacturingOrders.notes, version: manufacturingOrders.version })
+        .from(manufacturingOrders)
+        .where(eq(manufacturingOrders.id, orderId));
+      expect(afterConflict.notes).toBe(firstWriterNotes);
+      expect(afterConflict.version).toBe(2);
+
+      await staleNotes.fill(resolvedNotes);
+      await staleNotes.blur();
+      await expect(page.getByText("Saved", { exact: true })).toBeVisible({
+        timeout: 15_000,
+      });
+      await page.reload();
+      await expect(page.getByPlaceholder("Notes for this order…")).toHaveValue(
+        resolvedNotes,
+      );
+
+      const [afterRecovery] = await db
+        .select({ notes: manufacturingOrders.notes, version: manufacturingOrders.version })
+        .from(manufacturingOrders)
+        .where(eq(manufacturingOrders.id, orderId));
+      expect(afterRecovery.notes).toBe(resolvedNotes);
+      expect(afterRecovery.version).toBe(3);
+    } finally {
+      await secondContext.close();
+    }
   });
 
   test("MO lifecycle fans out notifications to subscribed users only", async ({

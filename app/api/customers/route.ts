@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { jsonCreated, jsonError } from "@/lib/api/responses";
-import { apiHandler } from "@/lib/api/handler";
+import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";
 import { deletePrivateBlobsIfConfigured } from "@/lib/blob-storage";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
@@ -18,8 +18,9 @@ export const GET = apiHandler(async (request) => {
 
 export const POST = apiHandler(async (request) => {
   await assertModuleWriteAccess("sales", request.headers);
+  const idempotencyKey = requireIdempotencyKey(request, "createCustomer");
   const data = await parseJsonBody(request, insertCustomerSchema);
-  const created = await createCustomer(data);
+  const created = await createCustomer(data, { idempotencyKey });
   const customer = created ? await getCustomerDetail(created.id) : null;
   if (!customer) {
     return jsonError("Customer id is already in use.", 409);

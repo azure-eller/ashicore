@@ -44,13 +44,11 @@ import { DomainError } from "@/lib/errors/domain-error";
 import {
   beginInventoryOperationInTx,
   finishInventoryOperationInTx,
+  runIdempotentInventoryOperationInTx,
 } from "@/lib/inventory/kernel";
 import { projectedOnHandQty } from "@/lib/inventory/kernel/read";
 import { getEstimatedRecipeCostSummariesByItemIdInTx } from "@/lib/inventory/estimated-cost";
-import {
-  LOT_TRACKING_MODES,
-  type LotTrackingMode,
-} from "@/lib/inventory/lot-tracking";
+import { type LotTrackingMode } from "@/lib/inventory/lot-tracking";
 import {
   consolidateUntrackedFamilyLotsInTx,
   convertUntrackedFamilyLotsToTrackedInTx,
@@ -732,50 +730,51 @@ export async function cloneItemCard(
   options?: { idempotencyKey?: string | null },
 ) {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
-    const replay = await beginInventoryOperationInTx<{
+    const { result } = await runIdempotentInventoryOperationInTx<{
       itemId: string;
       card: ItemCardDto;
-    }>(tx, {
-      organizationId: orgId,
-      operationName: "cloneItemCard",
-      idempotencyKey: options?.idempotencyKey ?? null,
-      payload: { sourceItemId },
-    });
-    if (replay.replayed) return replay.result;
-
-    const sourceFamilyId = await resolveFamilyIdInTx(tx, sourceItemId);
-    const [sourceFamily] = await tx
-      .select()
-      .from(itemFamilies)
-      .where(and(eq(itemFamilies.id, sourceFamilyId), isNull(itemFamilies.deletedAt)))
-      .for("update");
-    if (!sourceFamily) throw new ItemCardError("Item card not found", 404);
-
-    const sourceVariants = await tx
-      .select()
-      .from(items)
-      .where(and(eq(items.familyId, sourceFamilyId), isNull(items.deletedAt)))
-      .orderBy(asc(items.sortOrder), asc(items.createdAt), asc(items.id))
-      .for("update");
-    if (sourceVariants.length === 0) {
-      throw new ItemCardError("Item card has no active variants to clone.", 409);
-    }
-
-    const [clonedFamily] = await tx
-      .insert(itemFamilies)
-      .values({
+    }>(
+      tx,
+      {
         organizationId: orgId,
-        itemType: sourceFamily.itemType,
-        name: cloneName(sourceFamily.name),
-        category: sourceFamily.category,
-        description: sourceFamily.description,
-        unitDefinitionId: sourceFamily.unitDefinitionId,
-        defaultSupplierId: sourceFamily.defaultSupplierId,
-        purchaseUnitDefinitionId: sourceFamily.purchaseUnitDefinitionId,
-        purchaseToStockFactor: sourceFamily.purchaseToStockFactor,
-        lotTrackingMode: sourceFamily.lotTrackingMode,
-      })
-      .returning({ id: itemFamilies.id });
+        operationName: "cloneItemCard",
+        idempotencyKey: options?.idempotencyKey ?? null,
+        payload: { sourceItemId },
+      },
+      async () => {
+        const sourceFamilyId = await resolveFamilyIdInTx(tx, sourceItemId);
+        const [sourceFamily] = await tx
+          .select()
+          .from(itemFamilies)
+          .where(and(eq(itemFamilies.id, sourceFamilyId), isNull(itemFamilies.deletedAt)))
+          .for("update");
+        if (!sourceFamily) throw new ItemCardError("Item card not found", 404);
+
+        const sourceVariants = await tx
+          .select()
+          .from(items)
+          .where(and(eq(items.familyId, sourceFamilyId), isNull(items.deletedAt)))
+          .orderBy(asc(items.sortOrder), asc(items.createdAt), asc(items.id))
+          .for("update");
+        if (sourceVariants.length === 0) {
+          throw new ItemCardError("Item card has no active variants to clone.", 409);
+        }
+
+        const [clonedFamily] = await tx
+          .insert(itemFamilies)
+          .values({
+            organizationId: orgId,
+            itemType: sourceFamily.itemType,
+            name: cloneName(sourceFamily.name),
+            category: sourceFamily.category,
+            description: sourceFamily.description,
+            unitDefinitionId: sourceFamily.unitDefinitionId,
+            defaultSupplierId: sourceFamily.defaultSupplierId,
+            purchaseUnitDefinitionId: sourceFamily.purchaseUnitDefinitionId,
+            purchaseToStockFactor: sourceFamily.purchaseToStockFactor,
+            lotTrackingMode: sourceFamily.lotTrackingMode,
+          })
+          .returning({ id: itemFamilies.id });
 
     const clonedVariantIdsBySourceId = new Map<string, string>();
     for (const source of sourceVariants) {
@@ -934,15 +933,12 @@ export async function cloneItemCard(
       clonedVariantIdsBySourceId.get(sourceVariants[0].id);
     if (!itemId) throw new ItemCardError("Failed to clone item card.", 500);
 
-    const result = {
-      itemId,
-      card: await getItemCardInTx(tx, itemId),
-    };
-    await finishInventoryOperationInTx(tx, {
-      organizationId: orgId,
-      idempotencyKey: options?.idempotencyKey ?? null,
-      result,
-    });
+        return {
+          itemId,
+          card: await getItemCardInTx(tx, itemId),
+        };
+      },
+    );
     return result;
   });
 }
@@ -983,75 +979,72 @@ export async function createItemCardInTx(
   data: z.infer<typeof itemCardCreateSchema>,
   options?: { idempotencyKey?: string | null },
 ) {
-  const replay = await beginInventoryOperationInTx<{
+  const { result } = await runIdempotentInventoryOperationInTx<{
     itemId: string;
     card: ItemCardDto;
-  }>(tx, {
-    organizationId: orgId,
-    operationName: "createItemCard",
-    idempotencyKey: options?.idempotencyKey ?? null,
-    payload: { data },
-  });
-  if (replay.replayed) return replay.result;
-
-  const [family] = await tx
-    .insert(itemFamilies)
-    .values({
+  }>(
+    tx,
+    {
       organizationId: orgId,
-      itemType: data.itemType,
-      name: data.name,
-      category: data.category ?? null,
-      description: data.description ?? null,
-      unitDefinitionId: data.unitDefinitionId,
-      defaultSupplierId:
-        data.itemType === "material" ? data.defaultSupplierId ?? null : null,
-      purchaseUnitDefinitionId:
-        data.itemType === "material" ? data.purchaseUnitDefinitionId ?? null : null,
-      purchaseToStockFactor:
-        data.itemType === "material" ? data.purchaseToStockFactor ?? null : null,
-      lotTrackingMode: data.lotTrackingMode ?? "tracked",
-    })
-    .returning({ id: itemFamilies.id });
+      operationName: "createItemCard",
+      idempotencyKey: options?.idempotencyKey ?? null,
+      payload: { data },
+    },
+    async () => {
+      const [family] = await tx
+        .insert(itemFamilies)
+        .values({
+          organizationId: orgId,
+          itemType: data.itemType,
+          name: data.name,
+          category: data.category ?? null,
+          description: data.description ?? null,
+          unitDefinitionId: data.unitDefinitionId,
+          defaultSupplierId:
+            data.itemType === "material" ? data.defaultSupplierId ?? null : null,
+          purchaseUnitDefinitionId:
+            data.itemType === "material" ? data.purchaseUnitDefinitionId ?? null : null,
+          purchaseToStockFactor:
+            data.itemType === "material" ? data.purchaseToStockFactor ?? null : null,
+          lotTrackingMode: data.lotTrackingMode ?? "tracked",
+        })
+        .returning({ id: itemFamilies.id });
 
-  const [item] = await tx
-    .insert(items)
-    .values({
-      organizationId: orgId,
-      familyId: family.id,
-      optionCombinationKey: "",
-      itemType: data.itemType,
-      name: data.name,
-      category: data.category ?? null,
-      description: data.description ?? null,
-      unitDefinitionId: data.unitDefinitionId,
-      purchaseUnitDefinitionId:
-        data.itemType === "material" ? data.purchaseUnitDefinitionId ?? null : null,
-      purchaseToStockFactor:
-        data.itemType === "material" ? data.purchaseToStockFactor ?? null : null,
-      sku: data.sku ?? null,
-      sellable: data.itemType === "product" ? data.sellable ?? false : false,
-      defaultSellingPrice: data.defaultSellingPrice ?? null,
-      defaultPurchasePrice: data.defaultPurchasePrice ?? null,
-      currentStockUnitCost: data.currentStockUnitCost ?? null,
-      safetyStock: "0",
-      registeredBarcode: data.registeredBarcode ?? null,
-      internalBarcode: data.internalBarcode ?? null,
-      supplierItemCode: data.supplierItemCode ?? null,
-      defaultLeadTimeDays: data.defaultLeadTimeDays ?? null,
-      minimumOrderQuantity: data.minimumOrderQuantity ?? null,
-    })
-    .returning({ id: items.id });
+      const [item] = await tx
+        .insert(items)
+        .values({
+          organizationId: orgId,
+          familyId: family.id,
+          optionCombinationKey: "",
+          itemType: data.itemType,
+          name: data.name,
+          category: data.category ?? null,
+          description: data.description ?? null,
+          unitDefinitionId: data.unitDefinitionId,
+          purchaseUnitDefinitionId:
+            data.itemType === "material" ? data.purchaseUnitDefinitionId ?? null : null,
+          purchaseToStockFactor:
+            data.itemType === "material" ? data.purchaseToStockFactor ?? null : null,
+          sku: data.sku ?? null,
+          sellable: data.itemType === "product" ? data.sellable ?? false : false,
+          defaultSellingPrice: data.defaultSellingPrice ?? null,
+          defaultPurchasePrice: data.defaultPurchasePrice ?? null,
+          currentStockUnitCost: data.currentStockUnitCost ?? null,
+          safetyStock: "0",
+          registeredBarcode: data.registeredBarcode ?? null,
+          internalBarcode: data.internalBarcode ?? null,
+          supplierItemCode: data.supplierItemCode ?? null,
+          defaultLeadTimeDays: data.defaultLeadTimeDays ?? null,
+          minimumOrderQuantity: data.minimumOrderQuantity ?? null,
+        })
+        .returning({ id: items.id });
 
-  const result = {
-    itemId: item.id,
-    card: await getItemCardInTx(tx, item.id),
-  };
-
-  await finishInventoryOperationInTx(tx, {
-    organizationId: orgId,
-    idempotencyKey: options?.idempotencyKey ?? null,
-    result,
-  });
+      return {
+        itemId: item.id,
+        card: await getItemCardInTx(tx, item.id),
+      };
+    },
+  );
   return result;
 }
 
@@ -1295,29 +1288,30 @@ export async function createItemCardVariant(
   options?: { idempotencyKey?: string | null },
 ) {
   return withAuthedOrgContext(async (tx, orgId) => {
-    const replay = await beginInventoryOperationInTx<{
+    const { result } = await runIdempotentInventoryOperationInTx<{
       itemId: string;
       card: ItemCardDto;
-    }>(tx, {
-      organizationId: orgId,
-      operationName: "createItemCardVariant",
-      idempotencyKey: options?.idempotencyKey ?? null,
-      payload: { sourceItemId, data },
-    });
-    if (replay.replayed) return replay.result;
+    }>(
+      tx,
+      {
+        organizationId: orgId,
+        operationName: "createItemCardVariant",
+        idempotencyKey: options?.idempotencyKey ?? null,
+        payload: { sourceItemId, data },
+      },
+      async () => {
+        const [source] = await tx
+          .select()
+          .from(items)
+          .where(and(eq(items.id, sourceItemId), isNull(items.deletedAt)))
+          .for("update");
+        if (!source?.familyId) throw new ItemCardError("Item card not found", 404);
 
-    const [source] = await tx
-      .select()
-      .from(items)
-      .where(and(eq(items.id, sourceItemId), isNull(items.deletedAt)))
-      .for("update");
-    if (!source?.familyId) throw new ItemCardError("Item card not found", 404);
-
-    await tx
-      .select({ id: itemFamilies.id })
-      .from(itemFamilies)
-      .where(and(eq(itemFamilies.id, source.familyId), isNull(itemFamilies.deletedAt)))
-      .for("update");
+        await tx
+          .select({ id: itemFamilies.id })
+          .from(itemFamilies)
+          .where(and(eq(itemFamilies.id, source.familyId), isNull(itemFamilies.deletedAt)))
+          .for("update");
 
     const activeOptions = await tx
       .select({
@@ -1429,15 +1423,12 @@ export async function createItemCardVariant(
     await recomputeVariantKeysInTx(tx, source.familyId);
     await bumpItemFamilyVersionInTx(tx, source.familyId);
 
-    const result = {
-      itemId: variant.id,
-      card: await getItemCardInTx(tx, variant.id),
-    };
-    await finishInventoryOperationInTx(tx, {
-      organizationId: orgId,
-      idempotencyKey: options?.idempotencyKey ?? null,
-      result,
-    });
+        return {
+          itemId: variant.id,
+          card: await getItemCardInTx(tx, variant.id),
+        };
+      },
+    );
     return result;
   });
 }

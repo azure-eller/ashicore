@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { unstable_noStore as noStore } from "next/cache";
 import type { ReactNode } from "react";
 import { getItem } from "@/lib/inventory/queries/item-detail";
 import { getUnitDefinitions } from "@/lib/inventory/queries/units";
@@ -20,6 +21,7 @@ export async function ProductCardShell({
   lotsCount,
   children,
 }: ProductCardShellProps) {
+  noStore();
   const context = await requireModuleReadAccess("inventory");
   const item = await getItem(itemId);
   if (!item || item.itemType !== "product") {

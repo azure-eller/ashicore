@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { jsonCreated } from "@/lib/api/responses";
-import { apiHandler } from "@/lib/api/handler";
+import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
 import { insertSupplierSchema } from "@/lib/schemas/suppliers";
@@ -16,8 +16,9 @@ export const GET = apiHandler(async (request) => {
 
 export const POST = apiHandler(async (request) => {
   await assertModuleWriteAccess("purchasing", request.headers);
+  const idempotencyKey = requireIdempotencyKey(request, "createSupplier");
   const data = await parseJsonBody(request, insertSupplierSchema);
-  const supplier = await createSupplier(data);
+  const supplier = await createSupplier(data, { idempotencyKey });
   return jsonCreated(supplier);
 });
 

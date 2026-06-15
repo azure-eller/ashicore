@@ -625,6 +625,7 @@ export function VariantTable({
     nextQuantity: string;
     previousQuantity: string;
   } | null>(null);
+  const [createVariantError, setCreateVariantError] = useState<string | null>(null);
   const creatingDraftIdsRef = useRef(new Set<string>());
 
   const deleteMutation = useMutation({
@@ -668,6 +669,7 @@ export function VariantTable({
         const input = buildVariantCreateInput(change.row, activeOptions);
         if (!input) return;
         const tempId = change.row.id;
+        setCreateVariantError(null);
         creatingDraftIdsRef.current.add(tempId);
         void onCreateVariant(input)
           .then((result) => {
@@ -682,7 +684,11 @@ export function VariantTable({
               ),
             ]);
           })
-          .catch(() => undefined)
+          .catch((error) => {
+            setCreateVariantError(
+              error instanceof Error ? error.message : "Failed to create variant.",
+            );
+          })
           .finally(() => {
             creatingDraftIdsRef.current.delete(tempId);
           });
@@ -936,6 +942,7 @@ export function VariantTable({
 
   return (
     <>
+      {createVariantError ? <FieldError>{createVariantError}</FieldError> : null}
       <EditableLineDataGrid<ItemCardVariantDto>
         rows={rows}
         columns={columns}
