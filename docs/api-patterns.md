@@ -69,9 +69,10 @@ Note: **`error`** (singular) for general errors. Never use `errors` for non-fiel
 Mutations a client may retry require an `Idempotency-Key` header so a retry
 replays the original result instead of creating a duplicate. This now covers the
 customer, supplier, purchase-order, and manufacturing-order create routes plus
-the purchase-order and manufacturing-order duplicate routes, alongside the
-existing sales-order, item-card, and inventory stock writes. Read the header with
-`requireIdempotencyKey` and thread it into the DAL:
+the purchase-order and manufacturing-order duplicate routes, billing checkout
+and subscription changes, alongside the existing sales-order, item-card, and
+inventory stock writes. Read the header with `requireIdempotencyKey` and thread
+it into the DAL:
 
 ```ts
 import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";

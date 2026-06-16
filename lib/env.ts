@@ -44,6 +44,7 @@ const schema = z.object({
   XERO_RETRY_SECRET: z.string().optional(),
   XERO_SIGNUP_CLEANUP_SECRET: z.string().optional(),
   ACCOUNTING_PURCHASE_ORDER_SYNC_SECRET: z.string().optional(),
+  BILLING_ADJUSTMENTS_SECRET: z.string().optional(),
 
   // Billing
   STRIPE_SECRET_KEY: z.string().optional(),

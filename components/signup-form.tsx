@@ -6,18 +6,23 @@ import { OnboardingAuthShell } from "@/components/onboarding-auth-shell"
 import { authClient } from "@/lib/auth-client"
 import {
   isPaidBillingSelection,
-  orgSetupPathForBillingSelection,
-  type BillingSelection,
+  orgSetupPathForBillingIntent,
+  type BillingIntent,
 } from "@/lib/billing/plan-intent"
 
 export function SignupForm({
-  plan = "free",
+  billingIntent = {
+    selectedPlan: "trial",
+    locationCapacity: 1,
+    addonLookupKeys: [],
+  },
   ...props
-}: React.ComponentProps<"div"> & { plan?: BillingSelection }) {
+}: React.ComponentProps<"div"> & { billingIntent?: BillingIntent }) {
   const router = useRouter()
+  const plan = billingIntent.selectedPlan
   const signInHref =
     isPaidBillingSelection(plan)
-      ? `/sign-in?next=${encodeURIComponent(orgSetupPathForBillingSelection(plan))}`
+      ? `/sign-in?next=${encodeURIComponent(orgSetupPathForBillingIntent(billingIntent))}`
       : "/sign-in"
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
@@ -40,7 +45,7 @@ export function SignupForm({
       setLoading(false)
       return
     }
-    router.push(orgSetupPathForBillingSelection(plan))
+    router.push(orgSetupPathForBillingIntent(billingIntent))
   }
 
   return (

@@ -64,6 +64,11 @@ export const onboardingSessions = inventorySchema
       organizationId: text("organization_id").notNull(),
       createdByUserId: text("created_by_user_id").notNull(),
       selectedPlan: varchar("selected_plan", { length: 32 }),
+      selectedLocationCapacity: integer("selected_location_capacity").notNull().default(1),
+      selectedAddonLookupKeys: jsonb("selected_addon_lookup_keys")
+        .$type<string[]>()
+        .notNull()
+        .default([]),
       status: varchar("status", { length: 32 }).notNull().default("org_created"),
       currentStep: varchar("current_step", { length: 64 }).notNull().default("import"),
       importSessionId: uuid("import_session_id").references(() => importSessions.id, {

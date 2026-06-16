@@ -21,7 +21,11 @@ export default async function SettingsBillingPage({
   const params = await searchParams;
   const initialData: BillingPageData = {
     ...billing,
+    trialEndsAt: billing.trialEndsAt?.toISOString() ?? null,
+    currentPeriodStart: billing.currentPeriodStart?.toISOString() ?? null,
     currentPeriodEnd: billing.currentPeriodEnd?.toISOString() ?? null,
+    billingUsagePeriodStart: billing.billingUsagePeriodStart?.toISOString() ?? null,
+    billingUsagePeriodEnd: billing.billingUsagePeriodEnd?.toISOString() ?? null,
     billingConfigured: isStripeConfigured(),
     checkoutConfigured: isCheckoutConfigured(),
   };

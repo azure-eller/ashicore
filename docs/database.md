@@ -48,11 +48,16 @@ When adding a new org-scoped table:
 - `.enableRLS()` + an org-isolation `pgPolicy` in the Drizzle schema
 - `ALTER TABLE ... FORCE ROW LEVEL SECURITY` in the migration SQL (Drizzle has no `.forceRLS()` helper). Without `FORCE`, the owner bypasses RLS.
 
-The `system` schema (Better Auth tables) keeps RLS **off**, but `app_user` still needs `USAGE` on the schema plus CRUD on its tables because both the app runtime and Better Auth use `DATABASE_URL_APP`.
+Better Auth tables in the `system` schema keep RLS **off**, but app-owned
+org-scoped tables may live in `system` when they extend organization/account
+state. Those app-owned tables still need org-isolation RLS, `FORCE ROW LEVEL
+SECURITY`, and explicit `app_user` grants.
 
 ## Row Level Security (RLS)
 
-All non-system tables (inventory schema and any future schemas) **must** have RLS enabled.
+All app-owned org-scoped tables **must** have RLS enabled, including app-owned
+tables in the `system` schema. Better Auth tables in `system` remain the
+exception and keep RLS off.
 
 Define RLS in the schema file using `pgPolicy` + `.enableRLS()`:
 
@@ -70,7 +75,9 @@ export const itemsOrgPolicy = pgPolicy("items_org_policy", {
 
 Define policies in schema files, but still patch generated SQL when needed for repo requirements such as `FORCE ROW LEVEL SECURITY`, schema grants, or sequences. See the manufacturing and sales migrations for the current pattern.
 
-The `system` schema (Better Auth tables) must **never** have RLS enabled, but `app_user` still needs `USAGE` on the schema plus CRUD on its tables because the normal app runtime and Better Auth both use `DATABASE_URL_APP`.
+Better Auth tables in the `system` schema must **never** have RLS enabled, but
+`app_user` still needs `USAGE` on the schema plus CRUD on its tables because the
+normal app runtime and Better Auth both use `DATABASE_URL_APP`.
 
 ## Org Scoping in Queries
 

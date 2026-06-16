@@ -34,17 +34,63 @@ function formatDate(value: string | null) {
   }).format(new Date(value));
 }
 
+function formatUsageWindow(start: string | null, end: string | null) {
+  if (!start) return "this period";
+
+  const startDate = new Date(start);
+  if (Number.isNaN(startDate.getTime())) return "this period";
+
+  const endDate = end ? new Date(new Date(end).getTime() - 1) : null;
+  if (!endDate || Number.isNaN(endDate.getTime())) {
+    return `since ${formatDate(start) ?? "this period"}`;
+  }
+
+  const startMonth = startDate.getUTCMonth();
+  const endMonth = endDate.getUTCMonth();
+  const startYear = startDate.getUTCFullYear();
+  const endYear = endDate.getUTCFullYear();
+  const fullDate = new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+
+  if (startMonth !== endMonth || startYear !== endYear) {
+    return `${fullDate.format(startDate)}-${fullDate.format(endDate)}`;
+  }
+
+  const month = new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    timeZone: "UTC",
+  }).format(startDate);
+  return `${month} ${startDate.getUTCDate()}-${endDate.getUTCDate()}, ${startYear}`;
+}
+
+function formatUsageCount(data: BillingPageData, showWindow: boolean) {
+  const orderLabel = data.salesOrderCount === 1 ? "order" : "orders";
+  const windowLabel = showWindow
+    ? `in ${formatUsageWindow(
+        data.billingUsagePeriodStart,
+        data.billingUsagePeriodEnd
+      )}`
+    : "this period";
+  return `${data.salesOrderCount} shipped ${orderLabel} ${windowLabel}`;
+}
+
 function offerIncluded(offer: BillingOffer, entitlements: BillingPlugin[]) {
+  if (offer.kind === "core") return false;
   return offer.plugins.every((plugin) => entitlements.includes(plugin));
 }
 
 // The display name for what the org currently has: Everything beats an exact
 // package match beats a list of plugin names beats Free.
-function describeCurrentPlan(entitlements: BillingPlugin[]) {
-  if (entitlements.length === 0) return "Free";
+function describeCurrentPlan(data: BillingPageData) {
+  const entitlements = data.entitlements;
+  if (data.plan === "trial") return "Free trial";
   const everything = BILLING_CATALOG.find((offer) => offer.kind === "everything");
   if (everything && everything.plugins.every((p) => entitlements.includes(p))) {
-    return everything.name;
+    return data.plan === "core" ? `Core + ${everything.name}` : everything.name;
   }
   const exactPackage = BILLING_CATALOG.find(
     (offer) =>
@@ -52,12 +98,14 @@ function describeCurrentPlan(entitlements: BillingPlugin[]) {
       offer.plugins.length === entitlements.length &&
       offer.plugins.every((p) => entitlements.includes(p))
   );
-  if (exactPackage) return exactPackage.name;
-  return BILLING_CATALOG.filter(
+  if (exactPackage) return data.plan === "core" ? `Core + ${exactPackage.name}` : exactPackage.name;
+  const addOns = BILLING_CATALOG.filter(
     (offer) => offer.kind === "plugin" && offerIncluded(offer, entitlements)
   )
     .map((offer) => offer.name)
     .join(" · ");
+  if (data.plan === "core") return addOns ? `Core + ${addOns}` : "Core";
+  return addOns || "Free trial";
 }
 
 function PlanStatusBadge({ data }: { data: BillingPageData }) {
@@ -100,9 +148,16 @@ export function BillingSection({
   const [isProcessing, setIsProcessing] = useState(checkoutSuccess);
   const [pending, setPending] = useState<string | null>(null);
   const periodEnd = formatDate(initialData.currentPeriodEnd);
+  const trialEnd = formatDate(initialData.trialEndsAt);
   const entitlements = initialData.entitlements;
   const hasSubscription =
     Boolean(initialData.stripeSubscriptionId) && initialData.status !== "canceled";
+  const coreStarterOffer = BILLING_CATALOG.find(
+    (offer) =>
+      offer.kind === "core" &&
+      offer.salesOrderBand === "starter" &&
+      offer.interval === "monthly"
+  );
 
   const runBillingAction = useCallback(
     async (
@@ -325,7 +380,7 @@ export function BillingSection({
             <div className="flex min-w-0 flex-wrap items-center justify-between gap-(--space-5)">
               <div className="flex min-w-0 items-center gap-(--space-5)">
                 <span className="text-[length:var(--text-xl)] leading-[var(--leading-xl)] font-semibold tracking-[var(--tracking-tight)] text-[var(--color-ink)]">
-                  {describeCurrentPlan(entitlements)}
+                  {describeCurrentPlan(initialData)}
                 </span>
                 {hasSubscription || initialData.status === "past_due" ? (
                   <PlanStatusBadge data={initialData} />
@@ -356,9 +411,11 @@ export function BillingSection({
               ) : null}
             </div>
             <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-              {entitlements.length === 0
-                ? `Unlimited SKUs, users, and orders · ${initialData.skuCount} SKUs in use`
+              {initialData.plan === "trial"
+                ? `Trial${trialEnd ? ` ends ${trialEnd}` : ""} · ${initialData.skuCount} SKUs · ${formatUsageCount(initialData, false)} · ${initialData.locationCount}/${initialData.locationCapacity} locations`
                 : [
+                    `${initialData.salesOrderBand} order band · ${formatUsageCount(initialData, true)}`,
+                    `${initialData.locationCount}/${initialData.locationCapacity} locations`,
                     `Unlimited SKUs · ${initialData.skuCount} in use`,
                     renewal,
                   ]
@@ -368,6 +425,30 @@ export function BillingSection({
           </div>
         </SettingsBlock>
       </SettingsCard>
+
+      {initialData.plan !== "core" && coreStarterOffer ? (
+        <SettingsCard>
+          <SettingsBlock>
+            <SettingsQuietRow
+              title="Core"
+              sub="Full ERP with unlimited users, SKUs, integrations, and the starter sales-order band."
+              action={
+                <div className="flex items-center gap-(--space-5)">
+                  <OfferPrice offer={coreStarterOffer} />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void startCheckout(coreStarterOffer.lookupKey)}
+                    disabled={!initialData.checkoutConfigured || pending != null}
+                  >
+                    Start Core
+                  </Button>
+                </div>
+              }
+            />
+          </SettingsBlock>
+        </SettingsCard>
+      ) : null}
 
       <SettingsCard>
         <SettingsBlock>
@@ -394,7 +475,7 @@ export function BillingSection({
             Three plugins picked for your kind of operation, or everything at once.
           </div>
         </SettingsBlock>
-        {BILLING_CATALOG.filter((offer) => offer.kind !== "plugin").map((offer) => (
+        {BILLING_CATALOG.filter((offer) => offer.kind === "package" || offer.kind === "everything").map((offer) => (
           <SettingsBlock key={offer.lookupKey}>
             <SettingsQuietRow
               title={offer.name}

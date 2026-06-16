@@ -9,7 +9,7 @@ import {
   inventoryLotBalances,
   stocktakes,
 } from "@/lib/db/schema";
-import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
+import { assertLocationCapacityInTx } from "@/lib/billing/entitlements";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
 import type { Tx } from "@/lib/db/with-org-context";
@@ -182,7 +182,7 @@ export async function createInventoryLocation(data: InsertLocation) {
     // The auto-created default location is free; every location created
     // through this path is an additional one, which is the gated action.
     await getDefaultInventoryLocationInTx(tx, orgId);
-    await assertFeatureAccessInTx(tx, orgId, "multi_location", {
+    await assertLocationCapacityInTx(tx, orgId, {
       route: "/api/locations",
     });
     await assertCodeAvailableInTx(tx, orgId, data.code);

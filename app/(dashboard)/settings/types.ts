@@ -1,5 +1,12 @@
 import type { AppRole, DerivedAccessPresetKey, ModuleAccessMap } from "@/lib/authz";
-import type { BillingPlugin } from "@/lib/billing/types";
+import type {
+  BillingAddonLookupKey,
+  BillingInterval,
+  BillingPlan,
+  BillingPlugin,
+  BillingStatus,
+  SalesOrderBand,
+} from "@/lib/billing/types";
 
 export type TeamMemberRow = {
   id: string;
@@ -74,14 +81,24 @@ export type AgentAccessPageData = {
 };
 
 export type BillingPageData = {
-  plan: "free" | "core";
-  status: "active" | "past_due" | "canceled";
+  plan: BillingPlan;
+  status: BillingStatus;
+  trialEndsAt: string | null;
+  billingInterval: BillingInterval;
+  salesOrderBand: SalesOrderBand;
+  locationCapacity: number;
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
   entitlements: BillingPlugin[];
+  billingAddons: BillingAddonLookupKey[];
   cancelAtPeriodEnd: boolean;
+  currentPeriodStart: string | null;
   currentPeriodEnd: string | null;
+  billingUsagePeriodStart: string | null;
+  billingUsagePeriodEnd: string | null;
   skuCount: number;
+  salesOrderCount: number;
+  locationCount: number;
   billingConfigured: boolean;
   checkoutConfigured: boolean;
 };

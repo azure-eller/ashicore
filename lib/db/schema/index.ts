@@ -19,5 +19,6 @@ export * from "./accounting";
 export * from "./integrations";
 export * from "./tax-settings";
 export * from "./auth";
+export * from "./billing";
 export * from "./reports";
 export * from "./onboarding-imports";

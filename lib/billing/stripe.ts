@@ -10,12 +10,27 @@ import {
 } from "./dal";
 import { sendFounderAlert } from "@/lib/internal-alerts";
 import {
-  BILLING_CATALOG,
+  STRIPE_BILLING_CATALOG,
+  DEFAULT_BILLING_INTERVAL,
+  DEFAULT_LOCATION_CAPACITY,
+  DEFAULT_SALES_ORDER_BAND,
+  EXTRA_LOCATION_LOOKUP_KEY,
+  asBillingInterval,
+  asSalesOrderBand,
+  asBillingAddonLookupKeys,
+  billingLineItemsForCoreSelection,
+  canonicalRecurringLookupKey,
   getBillingOffer,
+  getCorePlanSelection,
   pluginsFromLookupKeys,
+  recurringLookupKeyForBillingInterval,
+  type BillingAddonLookupKey,
+  type BillingInterval,
   type BillingPlan,
   type BillingPlugin,
   type BillingStatus,
+  type CoreBillingSelection,
+  type SalesOrderBand,
 } from "./types";
 import { env } from "@/lib/env";
 import { isCheckoutConfigured } from "./config";
@@ -107,7 +122,7 @@ export async function createCheckoutSession({
   orgId,
   orgName,
   userEmail,
-  lookupKey,
+  selection,
   idempotencyKey,
   successPath,
   cancelPath,
@@ -115,7 +130,7 @@ export async function createCheckoutSession({
   orgId: string;
   orgName: string;
   userEmail: string;
-  lookupKey: string;
+  selection: CoreBillingSelection;
   idempotencyKey: string;
   // Where Stripe sends the user back. Defaults to the billing settings page; the
   // onboarding flow overrides these so the user returns into the guided flow to
@@ -123,10 +138,7 @@ export async function createCheckoutSession({
   successPath?: string;
   cancelPath?: string;
 }) {
-  const offer = getBillingOffer(lookupKey);
-  if (!offer) {
-    throw new BillingConfigError(`Unknown catalog item: ${lookupKey}`);
-  }
+  const requestedLineItems = billingLineItemsForCoreSelection(selection);
   if (!isCheckoutConfigured()) {
     throw new BillingConfigError("Stripe checkout catalog is not configured.");
   }
@@ -178,17 +190,22 @@ export async function createCheckoutSession({
     }
   }
 
-  const prices = await stripe.prices.list({
-    lookup_keys: [lookupKey],
-    active: true,
-    limit: 1,
+  const pricesByLookupKey = new Map(
+    await Promise.all(
+      requestedLineItems.map(async (item) => {
+        const price = await getActivePriceForLookupKey(stripe, item.lookupKey);
+        return [item.lookupKey, price] as const;
+      })
+    )
+  );
+  const lineItems = requestedLineItems.map((item) => {
+    const price = pricesByLookupKey.get(item.lookupKey);
+    if (!price) throw new BillingConfigError();
+    return { price: price.id, quantity: item.quantity };
   });
-  const price = prices.data[0];
-  if (!price) {
-    throw new BillingConfigError(
-      `No active Stripe price has the lookup key ${lookupKey}. Run scripts/stripe-create-catalog.ts.`
-    );
-  }
+  const selectionKey = requestedLineItems
+    .map((item) => `${item.lookupKey}x${item.quantity}`)
+    .join("-");
 
   const session = await stripe.checkout.sessions.create(
     {
@@ -211,7 +228,7 @@ export async function createCheckoutSession({
             "Start your Ashicore workspace. You can manage billing from settings after checkout.",
         },
       },
-      line_items: [{ price: price.id, quantity: 1 }],
+      line_items: lineItems,
       success_url: appUrl(successPath ?? "/settings/billing?success=1"),
       cancel_url: appUrl(cancelPath ?? "/settings/billing"),
       metadata: { organizationId: orgId },
@@ -219,7 +236,7 @@ export async function createCheckoutSession({
         metadata: { organizationId: orgId },
       },
     },
-    { idempotencyKey: `org-checkout-${orgId}-${lookupKey}-${idempotencyKey}` }
+    { idempotencyKey: `org-checkout-${orgId}-${selectionKey}-${idempotencyKey}` }
   );
 
   await sendFounderAlert({
@@ -228,7 +245,10 @@ export async function createCheckoutSession({
     idempotencyKey: `founder-alert-checkout-started-${session.id}`,
     fields: [
       { label: "Organization", value: orgName },
-      { label: "Catalog item", value: offer.name },
+      {
+        label: "Catalog items",
+        value: requestedLineItems.map((item) => item.lookupKey).join(", "),
+      },
       { label: "User email", value: userEmail },
       { label: "Organization ID", value: orgId },
       { label: "Stripe customer ID", value: stripeCustomerId },
@@ -280,35 +300,57 @@ function currentBillingLookupKeys(subscription: Stripe.Subscription) {
     .filter((key): key is string => key !== null);
 }
 
+function coreIntervalFromLookupKeys(lookupKeys: string[]): BillingInterval {
+  return (
+    lookupKeys.map((key) => getCorePlanSelection(key)).find(Boolean)?.interval ??
+    DEFAULT_BILLING_INTERVAL
+  );
+}
+
 function nextLookupKeysForOffer(currentLookupKeys: string[], lookupKey: string) {
   const offer = getBillingOffer(lookupKey);
   if (!offer) {
     throw new BillingSubscriptionError("Unknown catalog item.");
   }
 
-  if (offer.kind === "everything") {
-    return [lookupKey];
-  }
+  const interval =
+    offer.kind === "core"
+      ? asBillingInterval(offer.interval)
+      : coreIntervalFromLookupKeys(currentLookupKeys);
+  const nextLookupKey = recurringLookupKeyForBillingInterval(
+    canonicalRecurringLookupKey(lookupKey) ?? lookupKey,
+    interval
+  );
 
   const next = new Set(
-    currentLookupKeys.filter((currentKey) => {
+    currentLookupKeys.flatMap((currentKey) => {
       const currentOffer = getBillingOffer(currentKey);
-      if (!currentOffer) return false;
-      if (currentOffer.kind === "everything") return false;
-      if (offer.kind === "package" && currentOffer.kind === "package") return false;
+      if (!currentOffer) return [];
+      if (offer.kind === "core" && currentOffer.kind === "core") return [];
+      if (
+        offer.kind === "everything" &&
+        ["plugin", "package", "everything"].includes(currentOffer.kind)
+      ) {
+        return [];
+      }
+      if (currentOffer.kind === "everything") return [];
+      if (offer.kind === "package" && currentOffer.kind === "package") return [];
       if (
         offer.kind === "package" &&
         currentOffer.kind === "plugin" &&
         currentOffer.plugins.every((plugin) => offer.plugins.includes(plugin))
       ) {
-        return false;
+        return [];
       }
-      return true;
+      const canonicalKey = canonicalRecurringLookupKey(currentKey) ?? currentKey;
+      return [
+        recurringLookupKeyForBillingInterval(canonicalKey, interval),
+      ];
     })
   );
-  next.add(lookupKey);
+  next.add(nextLookupKey);
 
-  return BILLING_CATALOG.map((catalogOffer) => catalogOffer.lookupKey).filter((key) =>
+  return STRIPE_BILLING_CATALOG.map((catalogOffer) => catalogOffer.lookupKey).filter((key) =>
     next.has(key)
   );
 }
@@ -317,6 +359,28 @@ function sameLookupKeySet(left: string[], right: string[]) {
   if (left.length !== right.length) return false;
   const rightSet = new Set(right);
   return left.every((key) => rightSet.has(key));
+}
+
+function currentBillingLineItems(subscription: Stripe.Subscription) {
+  return subscription.items.data
+    .map((item) => {
+      const lookupKey = knownBillingLookupKey(item);
+      return lookupKey ? { id: item.id, lookupKey, quantity: item.quantity ?? 1 } : null;
+    })
+    .filter((item): item is { id: string; lookupKey: string; quantity: number } =>
+      item !== null
+    );
+}
+
+function sameLineItemSelection(
+  current: Array<{ lookupKey: string; quantity: number }>,
+  next: Array<{ lookupKey: string; quantity: number }>
+) {
+  if (current.length !== next.length) return false;
+  const currentByKey = new Map(
+    current.map((item) => [item.lookupKey, item.quantity] as const)
+  );
+  return next.every((item) => currentByKey.get(item.lookupKey) === item.quantity);
 }
 
 async function getCurrentSubscription(stripe: Stripe, orgId: string) {
@@ -419,6 +483,104 @@ export async function changeSubscriptionOffer({
   return updated;
 }
 
+export async function changeSubscriptionSelection({
+  orgId,
+  orgName,
+  selection,
+  preserveCurrentLocationCapacity = false,
+  preserveCurrentAddons = false,
+  idempotencyKey,
+}: {
+  orgId: string;
+  orgName: string;
+  selection: CoreBillingSelection;
+  preserveCurrentLocationCapacity?: boolean;
+  preserveCurrentAddons?: boolean;
+  idempotencyKey: string;
+}) {
+  if (!isCheckoutConfigured()) {
+    throw new BillingConfigError("Stripe checkout catalog is not configured.");
+  }
+
+  const stripe = getStripeClient();
+  const subscription = await getCurrentSubscription(stripe, orgId);
+  const currentItems = currentBillingLineItems(subscription);
+  const nextItems = billingLineItemsForCoreSelection({
+    ...selection,
+    locationCapacity: preserveCurrentLocationCapacity
+      ? locationCapacityFromSubscription(subscription)
+      : selection.locationCapacity,
+    addonLookupKeys: preserveCurrentAddons
+      ? purchasedAddonsFromSubscription(subscription)
+      : selection.addonLookupKeys,
+  });
+
+  if (sameLineItemSelection(currentItems, nextItems) && !subscription.cancel_at_period_end) {
+    return subscription;
+  }
+
+  const pricesByLookupKey = new Map(
+    await Promise.all(
+      nextItems.map(async (item) => {
+        const price = await getActivePriceForLookupKey(stripe, item.lookupKey);
+        return [item.lookupKey, price] as const;
+      })
+    )
+  );
+  const nextByLookupKey = new Map(
+    nextItems.map((item) => [item.lookupKey, item] as const)
+  );
+  const currentByLookupKey = new Map(
+    currentItems.map((item) => [item.lookupKey, item] as const)
+  );
+  const items: Stripe.SubscriptionUpdateParams.Item[] = [];
+
+  for (const current of currentItems) {
+    const next = nextByLookupKey.get(current.lookupKey);
+    if (!next) {
+      items.push({ id: current.id, deleted: true });
+    } else if (next.quantity !== current.quantity) {
+      items.push({ id: current.id, quantity: next.quantity });
+    }
+  }
+
+  for (const next of nextItems) {
+    if (currentByLookupKey.has(next.lookupKey)) continue;
+    const price = pricesByLookupKey.get(next.lookupKey);
+    if (!price) throw new BillingConfigError();
+    items.push({ price: price.id, quantity: next.quantity });
+  }
+
+  const updated = await stripe.subscriptions.update(
+    subscription.id,
+    {
+      cancel_at_period_end: false,
+      metadata: { organizationId: orgId },
+      proration_behavior: "create_prorations",
+      items,
+    },
+    { idempotencyKey: `org-subscription-selection-${orgId}-${idempotencyKey}` }
+  );
+
+  await applySubscriptionState({ subscription: updated, orgId });
+  await sendFounderAlert({
+    kind: "subscription_active",
+    subject: `Ashicore subscription changed: ${orgName}`,
+    idempotencyKey: `founder-alert-subscription-selection-${updated.id}-${idempotencyKey}`,
+    fields: [
+      { label: "Organization", value: orgName },
+      { label: "Organization ID", value: orgId },
+      { label: "Subscription ID", value: updated.id },
+      {
+        label: "Lookup keys",
+        value: nextItems.map((item) => `${item.lookupKey} x${item.quantity}`).join(", "),
+      },
+    ],
+  });
+
+  return updated;
+}
+
 export async function cancelSubscriptionAtPeriodEnd({
   orgId,
   orgName,
@@ -499,6 +661,20 @@ function periodEndDate(subscription: Stripe.Subscription) {
     : null;
 }
 
+function periodStartDate(subscription: Stripe.Subscription) {
+  const periodStart =
+    subscription.items.data
+      .map((item) => item.current_period_start)
+      .filter((value): value is number => typeof value === "number")
+      .sort((a, b) => a - b)[0] ??
+    (subscription as Stripe.Subscription & { current_period_start?: number })
+      .current_period_start;
+
+  return periodStart
+    ? new Date(periodStart * 1000)
+    : null;
+}
+
 // Plugin entitlements survive past_due/unpaid (grace period — dunning handles
 // recovery); they drop only when the subscription is truly gone.
 const ENTITLED_SUBSCRIPTION_STATUSES: Stripe.Subscription.Status[] = [
@@ -521,6 +697,48 @@ function entitlementsFromSubscription(
   );
 }
 
+function purchasedAddonsFromSubscription(
+  subscription: Stripe.Subscription
+): BillingAddonLookupKey[] {
+  if (!ENTITLED_SUBSCRIPTION_STATUSES.includes(subscription.status)) {
+    return [];
+  }
+
+  return asBillingAddonLookupKeys(
+    subscription.items.data
+      .map((item) => item.price?.lookup_key)
+      .filter((key): key is string => typeof key === "string")
+  );
+}
+
+function coreSelectionFromSubscription(subscription: Stripe.Subscription): {
+  salesOrderBand: SalesOrderBand;
+  billingInterval: BillingInterval;
+} | null {
+  const lookupKeys = subscription.items.data.map((item) => item.price?.lookup_key);
+  const coreSelection = lookupKeys
+    .map((key) => getCorePlanSelection(key))
+    .find((selection) => selection !== null);
+  if (!coreSelection) return null;
+
+  return {
+    salesOrderBand: asSalesOrderBand(coreSelection?.band ?? DEFAULT_SALES_ORDER_BAND),
+    billingInterval: asBillingInterval(
+      coreSelection?.interval ?? DEFAULT_BILLING_INTERVAL
+    ),
+  };
+}
+
+function locationCapacityFromSubscription(subscription: Stripe.Subscription) {
+  const extraLocations = subscription.items.data.reduce((count, item) => {
+    if (canonicalRecurringLookupKey(item.price?.lookup_key) !== EXTRA_LOCATION_LOOKUP_KEY) {
+      return count;
+    }
+    return count + (item.quantity ?? 1);
+  }, 0);
+  return DEFAULT_LOCATION_CAPACITY + extraLocations;
+}
+
 function canReplaceCurrentSubscription(
   currentSubscriptionId: string | null,
   subscription: Stripe.Subscription
@@ -535,18 +753,33 @@ function canReplaceCurrentSubscription(
 function stateFromSubscription(subscription: Stripe.Subscription): {
   plan: BillingPlan;
   status: BillingStatus;
+  salesOrderBand: SalesOrderBand;
+  billingInterval: BillingInterval;
+  locationCapacity: number;
   cancelAtPeriodEnd: boolean;
+  currentPeriodStart: Date | null;
   currentPeriodEnd: Date | null;
 } {
+  const coreSelection = coreSelectionFromSubscription(subscription);
+  const coreFields = coreSelection ?? {
+    salesOrderBand: DEFAULT_SALES_ORDER_BAND,
+    billingInterval: DEFAULT_BILLING_INTERVAL,
+  };
+  const hasCore = coreSelection !== null;
   if (
     subscription.status === "active" ||
     subscription.status === "trialing" ||
     subscription.status === "paused"
   ) {
     return {
-      plan: "core",
+      plan: hasCore ? "core" : "trial",
       status: "active",
+      ...coreFields,
+      locationCapacity: hasCore
+        ? locationCapacityFromSubscription(subscription)
+        : DEFAULT_LOCATION_CAPACITY,
       cancelAtPeriodEnd: Boolean(subscription.cancel_at_period_end),
+      currentPeriodStart: periodStartDate(subscription),
       currentPeriodEnd: periodEndDate(subscription),
     };
   }
@@ -556,26 +789,40 @@ function stateFromSubscription(subscription: Stripe.Subscription): {
     subscription.status === "unpaid"
   ) {
     return {
-      plan: "core",
+      plan: hasCore ? "core" : "trial",
       status: "past_due",
+      ...coreFields,
+      locationCapacity: hasCore
+        ? locationCapacityFromSubscription(subscription)
+        : DEFAULT_LOCATION_CAPACITY,
       cancelAtPeriodEnd: Boolean(subscription.cancel_at_period_end),
+      currentPeriodStart: periodStartDate(subscription),
       currentPeriodEnd: periodEndDate(subscription),
     };
   }
 
   if (subscription.status === "incomplete") {
     return {
-      plan: "free",
+      plan: "trial",
       status: "past_due",
+      ...coreFields,
+      locationCapacity: hasCore
+        ? locationCapacityFromSubscription(subscription)
+        : DEFAULT_LOCATION_CAPACITY,
       cancelAtPeriodEnd: Boolean(subscription.cancel_at_period_end),
+      currentPeriodStart: periodStartDate(subscription),
       currentPeriodEnd: periodEndDate(subscription),
     };
   }
 
   return {
-    plan: "free",
+    plan: "trial",
     status: "canceled",
+    salesOrderBand: DEFAULT_SALES_ORDER_BAND,
+    billingInterval: DEFAULT_BILLING_INTERVAL,
+    locationCapacity: DEFAULT_LOCATION_CAPACITY,
     cancelAtPeriodEnd: false,
+    currentPeriodStart: null,
     currentPeriodEnd: null,
   };
 }
@@ -630,11 +877,13 @@ export async function applySubscriptionState({
   }
 
   const entitlements = entitlementsFromSubscription(subscription);
+  const billingAddons = purchasedAddonsFromSubscription(subscription);
   await updateOrgBillingState({
     orgId: org.id,
     stripeCustomerId,
     stripeSubscriptionId: state.status === "canceled" ? null : subscription.id,
     entitlements,
+    billingAddons,
     ...state,
   });
 
@@ -703,11 +952,15 @@ export async function syncOrgBillingFromStripe(orgId: string) {
   if (!subscription) {
     await updateOrgBillingState({
       orgId,
-      plan: "free",
+      plan: "trial",
       status: "canceled",
       stripeCustomerId: billing.stripeCustomerId,
       stripeSubscriptionId: null,
       entitlements: [],
+      billingAddons: [],
+      cancelAtPeriodEnd: false,
+      currentPeriodStart: null,
+      currentPeriodEnd: null,
     });
     return getBillingStateByOrgId(orgId);
   }
@@ -774,12 +1027,14 @@ export async function handleStripeWebhook(body: string, signature: string | null
     if (org) {
       await updateOrgBillingState({
         orgId: org.id,
-        plan: "free",
+        plan: "trial",
         status: "canceled",
         stripeCustomerId: null,
         stripeSubscriptionId: null,
         entitlements: [],
+        billingAddons: [],
         cancelAtPeriodEnd: false,
+        currentPeriodStart: null,
         currentPeriodEnd: null,
       });
     }

@@ -17,7 +17,8 @@ import {
 import { getBillingStateByOrgId } from "@/lib/billing/dal";
 import {
   isPaidBillingSelection,
-  selectionEntitlementsMet,
+  billingIntentEntitlementsMet,
+  normalizeBillingIntent,
 } from "@/lib/billing/plan-intent";
 import { env } from "@/lib/env";
 
@@ -35,7 +36,16 @@ export const POST = apiHandler(async (request: Request, context: unknown) => {
   const onboarding = await getCurrentOnboardingSession();
   if (isPaidBillingSelection(onboarding?.selectedPlan)) {
     const billing = await getBillingStateByOrgId(member.orgId);
-    if (!selectionEntitlementsMet(onboarding?.selectedPlan, billing)) {
+    if (
+      !billingIntentEntitlementsMet(
+        normalizeBillingIntent({
+          selectedPlan: onboarding?.selectedPlan,
+          locationCapacity: onboarding?.selectedLocationCapacity,
+          addonLookupKeys: onboarding?.selectedAddonLookupKeys,
+        }),
+        billing
+      )
+    ) {
       return jsonError("Complete payment to import your data.", 402);
     }
   }

@@ -1,0 +1,2 @@
+ALTER TABLE "system"."billing_period_adjustments" ADD COLUMN IF NOT EXISTS "retry_attempts" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "system"."billing_period_adjustments" ADD COLUMN IF NOT EXISTS "next_retry_at" timestamp with time zone;

@@ -26,11 +26,12 @@ const total = renderTotal(s);
 const cta = renderCta(s);
 const brk = renderBreak(s);
 const explorer = renderExplorer(DEFAULT_EXPLORER_SEL);
+const CORE_SIGN_UP_URL = `${SIGN_UP_URL}?plan=core`;
 ---
 
 <BaseLayout
   title="Pricing"
-  description="Predictable, published pricing with unlimited users on every plan. Start free, then size Core to your operation with the live calculator."
+  description="Predictable, published pricing with unlimited users on every plan. Start with a free trial, then size Core to your operation with the live calculator."
   path="/pricing"
 >
   <main id="top">
@@ -62,18 +63,18 @@ const explorer = renderExplorer(DEFAULT_EXPLORER_SEL);
         </div>
 
         <div class="pp-cards">
-          <!-- Free -->
+          <!-- Trial -->
           <div class="pp-card">
-            <div class="pp-card-name">Free</div>
-            <div class="pp-card-price"><span class="num">$0</span><span class="per">free forever</span></div>
-            <p class="pp-card-desc">Run ashicore on your real data with up to 30 SKUs — no time limit, no credit card.</p>
+            <div class="pp-card-name">Free trial</div>
+            <div class="pp-card-price"><span class="num">$0</span><span class="per">to start</span></div>
+            <p class="pp-card-desc">Try ashicore on your real data with AI onboarding — no credit card required.</p>
             <span class="pp-card-meta">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg>
               No credit card required
             </span>
             <hr />
             <ul class="pp-card-list">
-              <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span><b>30 SKUs</b> to get started</span></li>
+              <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span><b>Real data</b> loaded during onboarding</span></li>
               <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span><b>AI onboarding</b> — we read your files for you</span></li>
               <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span><b>Unlimited users</b> from day one</span></li>
               <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span>All integrations included</span></li>
@@ -83,10 +84,10 @@ const explorer = renderExplorer(DEFAULT_EXPLORER_SEL);
               class="btn btn-ghost"
               data-analytics-event="pricing_plan_clicked"
               data-analytics-placement="pricing-page"
-              data-analytics-plan="free"
+              data-analytics-plan="trial"
               data-analytics-signup-start="true"
             >
-              Get started free
+              Start free trial
             </a>
           </div>
 
@@ -106,7 +107,7 @@ const explorer = renderExplorer(DEFAULT_EXPLORER_SEL);
               <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span><b>Packages &amp; add-ons</b> to fit your operation</span></li>
             </ul>
             <a
-              href={SIGN_UP_URL}
+              href={CORE_SIGN_UP_URL}
               class="btn btn-primary"
               data-analytics-event="pricing_plan_clicked"
               data-analytics-placement="pricing-page"
@@ -213,17 +214,17 @@ const explorer = renderExplorer(DEFAULT_EXPLORER_SEL);
         <div class="inner">
           <span class="eyebrow on-dark">Get started</span>
           <h2 class="h-section">See your price, then see it run.</h2>
-          <p class="lede">Start free on your own data — no card, no quote. Move to Core when your operation grows.</p>
+          <p class="lede">Start a free trial on your own data — no card, no quote. Move to Core when your operation grows.</p>
           <div class="hero-cta">
             <a
               href={SIGN_UP_URL}
               class="btn btn-primary btn-lg"
               data-analytics-event="pricing_plan_clicked"
               data-analytics-placement="pricing-cta"
-              data-analytics-plan="free"
+              data-analytics-plan="trial"
               data-analytics-signup-start="true"
             >
-              Get started free <span class="arr">→</span>
+              Start free trial <span class="arr">→</span>
             </a>
             <a href="/support" class="btn btn-ghost btn-lg" style="color:var(--on-ground); border-color:var(--ground-line);">Book a walkthrough</a>
           </div>

@@ -5,6 +5,7 @@ import { normalizeNumeric, normalizeMoney, roundQuantity } from "@/lib/format";
 import { manufacturingOrderBatches, manufacturingOrderOutputs, manufacturingOrderIngredients, manufacturingOrders, salesOrderLines, salesOrders } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
+import { assertSalesOrderCapacityInTx } from "@/lib/billing/entitlements";
 import { getTaxSettingsInTx, getTaxRatesByIdInTx } from "@/lib/dal/tax-settings";
 import type { Tx } from "@/lib/db/with-org-context";
 import { lockSalesPriorityQueueInTx } from "@/lib/manufacturing-priority-lock";
@@ -603,6 +604,10 @@ async function createSalesOrderInTx(
   data: InsertSalesOrder,
   options?: { idempotencyKey?: string }
 ) {
+  await assertSalesOrderCapacityInTx(tx, orgId, {
+    route: "/api/sales-orders",
+  });
+
   const prepared = await prepareOrderPayload(tx, orgId, data);
 
   const orderNumber = await resolveSalesOrderNumberInTx(

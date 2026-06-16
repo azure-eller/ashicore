@@ -2,16 +2,19 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { OrgSetupForm } from "@/components/org-setup-form";
 import { auth } from "@/lib/auth";
-import { normalizeBillingSelection } from "@/lib/billing/plan-intent";
+import {
+  normalizeBillingIntent,
+  orgSetupPathForBillingIntent,
+} from "@/lib/billing/plan-intent";
 import { getPendingInvitationForEmail, isMfaRequiredForSession } from "@/lib/dal/auth";
 
 export default async function Page({
   searchParams,
 }: {
-  searchParams: Promise<{ plan?: string }>;
+  searchParams: Promise<{ plan?: string; locations?: string; addons?: string }>;
 }) {
   const params = await searchParams;
-  const plan = params.plan ? normalizeBillingSelection(params.plan) : null;
+  const intent = params.plan ? normalizeBillingIntent(params) : null;
   const requestHeaders = await headers();
   const session = await auth.api.getSession({ headers: requestHeaders });
 
@@ -22,7 +25,7 @@ export default async function Page({
   if (await isMfaRequiredForSession(session)) {
     redirect(
       `/two-factor?next=${encodeURIComponent(
-        plan ? `/org-setup?plan=${encodeURIComponent(plan)}` : "/org-setup"
+        intent ? orgSetupPathForBillingIntent(intent) : "/org-setup"
       )}`
     );
   }
@@ -42,11 +45,11 @@ export default async function Page({
   return (
     <OrgSetupForm
       organizations={organizations}
-      plan={plan ?? undefined}
+      billingIntent={intent ?? undefined}
       // A brand-new owner (no orgs yet) always continues into onboarding; existing
       // signed-in users only onboard when they explicitly carried a billing selection
       // (preserves the existing-user redirect fix).
-      continueToOnboarding={plan != null || organizations.length === 0}
+      continueToOnboarding={intent != null || organizations.length === 0}
     />
   );
 }

@@ -7,6 +7,20 @@
    ============================================================ */
 import { SIGN_UP_URL } from "./site";
 
+const PLUGIN_LOOKUP: Record<string, string> = {
+  lot: "plugin_lot_tracking",
+  batch: "plugin_batch_production",
+  crm: "plugin_crm",
+  price: "plugin_wholesale_pricing",
+  multi: "plugin_multi_location",
+};
+const PACKAGE_LOOKUP: Record<string, string> = {
+  foodbev: "package_food_bev",
+  soil: "package_soil_landscape",
+  wholesale: "package_wholesale_b2b",
+  everything: "everything",
+};
+
 export interface Plugin {
   id: string;
   name: string;
@@ -139,6 +153,27 @@ export function addonCost(active: string[]): Addon {
       save: n * PLUGIN_PRICE - pkg.price,
     };
   return { price: n * PLUGIN_PRICE, type: "alacarte" };
+}
+
+function addonLookupKeys(active: string[]): string[] {
+  if (active.length === 0) return [];
+  if (active.length === 5) return ["everything"];
+  const pkg = PACKAGES.find((p) => eqSet(p.plugins, active));
+  if (pkg) return [PACKAGE_LOOKUP[pkg.id]];
+  return active.map((id) => PLUGIN_LOOKUP[id]).filter(Boolean);
+}
+
+function coreSignupUrl(s: PricingState): string {
+  const t = computeTotals(s);
+  if (t.isScale) return "/support";
+  const interval = s.annual ? "annual" : "monthly";
+  const params = new URLSearchParams({
+    plan: `core_${t.band.id}_${interval}`,
+  });
+  if (s.loc > 1) params.set("locations", String(s.loc));
+  const addons = addonLookupKeys(s.active);
+  if (addons.length) params.set("addons", addons.join(","));
+  return `${SIGN_UP_URL}?${params.toString()}`;
 }
 
 export interface Hint {
@@ -303,7 +338,7 @@ export function renderCta(s: PricingState): string {
   if (shown == null) {
     return `<a href="/support" class="btn btn-dark btn-lg" data-analytics-event="cta_contact_sales_clicked" data-analytics-placement="pricing-calculator">Talk to sales <span class="arr" aria-hidden="true">→</span></a>${walkthrough}`;
   }
-  return `<a href="${SIGN_UP_URL}" class="btn btn-dark btn-lg" data-analytics-event="pricing_plan_clicked" data-analytics-placement="pricing-calculator" data-analytics-plan="core" data-analytics-signup-start="true">Get started <span class="arr" aria-hidden="true">→</span></a>${walkthrough}`;
+  return `<a href="${coreSignupUrl(s)}" class="btn btn-dark btn-lg" data-analytics-event="pricing_plan_clicked" data-analytics-placement="pricing-calculator" data-analytics-plan="core" data-analytics-signup-start="true">Get started <span class="arr" aria-hidden="true">→</span></a>${walkthrough}`;
 }
 
 export function renderBreak(s: PricingState): string {

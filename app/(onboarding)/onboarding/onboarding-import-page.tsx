@@ -4,8 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  billingIntentToCommercialSelection,
   billingSelectionLookupKey,
+  normalizeBillingIntent,
   normalizeBillingSelection,
+  type BillingIntent,
   type BillingSelection,
 } from "@/lib/billing/plan-intent";
 import { getBillingOffer } from "@/lib/billing/types";
@@ -157,6 +160,8 @@ type OnboardingSessionResponse = {
   session: {
     id: string;
     selectedPlan: string | null;
+    selectedLocationCapacity: number;
+    selectedAddonLookupKeys: string[];
     status: string;
     currentStep: FlowStep;
     importSessionId: string | null;
@@ -541,9 +546,11 @@ function connectErrorMessage(code: string | null) {
 
 export function OnboardingImportPage({
   plan,
+  initialBillingIntent,
   integrations,
 }: {
   plan?: BillingSelection;
+  initialBillingIntent?: BillingIntent;
   integrations: OnboardingIntegrationState;
 }) {
   const router = useRouter();
@@ -553,7 +560,13 @@ export function OnboardingImportPage({
   const finalizeStartedRef = useRef(false);
   const [flowStep, setFlowStep] = useState<FlowStep>("invite");
   const [billingSelection, setBillingSelection] = useState<BillingSelection>(() =>
-    normalizeBillingSelection(plan ?? "free"),
+    normalizeBillingSelection(initialBillingIntent?.selectedPlan ?? plan ?? "trial"),
+  );
+  const [billingLocationCapacity, setBillingLocationCapacity] = useState(() =>
+    normalizeBillingIntent(initialBillingIntent).locationCapacity,
+  );
+  const [billingAddonLookupKeys, setBillingAddonLookupKeys] = useState(() =>
+    normalizeBillingIntent(initialBillingIntent).addonLookupKeys,
   );
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [inviteRows, setInviteRows] = useState<InviteRow[]>(() => [createInviteRow()]);
@@ -569,7 +582,7 @@ export function OnboardingImportPage({
   const [commitSummary, setCommitSummary] = useState<Record<string, number> | null>(null);
   const [committed, setCommitted] = useState(false);
   const [onboardingReady, setOnboardingReady] = useState(false);
-  // The approve gate: paid selections pay here; free commits directly.
+  // The approve gate: paid selections pay here; trial commits directly.
   // Null = no dialog.
   const [approveDialog, setApproveDialog] = useState<null | "pay">(null);
   const [finalizing, setFinalizing] = useState(false);
@@ -585,7 +598,13 @@ export function OnboardingImportPage({
         method: "POST",
         // Only assert the plan when the URL carried it (first entry). On the Stripe
         // return there's no plan param, so we preserve the persisted intent.
-        body: plan ? { selectedPlan: normalizeBillingSelection(plan) } : {},
+        body: initialBillingIntent
+          ? {
+              selectedPlan: initialBillingIntent.selectedPlan,
+              selectedLocationCapacity: initialBillingIntent.locationCapacity,
+              selectedAddonLookupKeys: initialBillingIntent.addonLookupKeys,
+            }
+          : {},
       }),
     onSuccess: (data) => {
       if (!data.session) return;
@@ -594,6 +613,13 @@ export function OnboardingImportPage({
       if (data.session.selectedPlan) {
         setBillingSelection(normalizeBillingSelection(data.session.selectedPlan));
       }
+      const savedIntent = normalizeBillingIntent({
+        selectedPlan: data.session.selectedPlan,
+        locationCapacity: data.session.selectedLocationCapacity,
+        addonLookupKeys: data.session.selectedAddonLookupKeys,
+      });
+      setBillingLocationCapacity(savedIntent.locationCapacity);
+      setBillingAddonLookupKeys(savedIntent.addonLookupKeys);
       if (data.session.invitesDraft?.length) {
         setInviteRows(
           data.session.invitesDraft.map((invite) => ({
@@ -694,7 +720,11 @@ export function OnboardingImportPage({
         headers: { "Idempotency-Key": `onboarding-${sessionId ?? "checkout"}` },
         body: {
           flow: "onboarding",
-          lookupKey: billingSelectionLookupKey(billingSelection) ?? "everything",
+          selection: billingIntentToCommercialSelection({
+            selectedPlan: billingSelection,
+            locationCapacity: billingLocationCapacity,
+            addonLookupKeys: billingAddonLookupKeys,
+          }),
         },
       }),
     onSuccess: (data) => {
@@ -1037,12 +1067,18 @@ export function OnboardingImportPage({
     approveMutation.mutate();
   }
 
-  // From the pay dialog: drop back to Free instead of paying.
-  async function downgradeToFree() {
-    setBillingSelection("free");
+  // From the pay dialog: drop back to trial instead of paying.
+  async function switchToTrial() {
+    setBillingSelection("trial");
+    setBillingLocationCapacity(1);
+    setBillingAddonLookupKeys([]);
     setApproveDialog(null);
     try {
-      await progressMutation.mutateAsync({ selectedPlan: "free" });
+      await progressMutation.mutateAsync({
+        selectedPlan: "trial",
+        selectedLocationCapacity: 1,
+        selectedAddonLookupKeys: [],
+      });
     } catch {
       // non-fatal
     }
@@ -1651,10 +1687,10 @@ export function OnboardingImportPage({
                 <Button
                   type="button"
                   variant="ghost"
-                  onClick={downgradeToFree}
+                  onClick={switchToTrial}
                   disabled={checkoutMutation.isPending}
                 >
-                  Switch to Free
+                  Switch to trial
                 </Button>
                 <Button
                   type="button"

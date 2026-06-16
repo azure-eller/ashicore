@@ -1,12 +1,12 @@
-# Billing: plugin entitlements and feature gates
+# Billing: trial, Core capacity, usage buckets, and plugin entitlements
 
-How paid plugins switch on and off per org. The architecture is deliberately
-minimal — four pieces, each of which breaks something nameable if removed,
-and nothing more:
+How the free trial, Core plan capacity, and paid plugins switch on and off per
+org. The architecture is deliberately minimal — four pieces, each of which
+breaks something nameable if removed, and nothing more:
 
-1. **One state.** `organization.entitlements` (jsonb plugin list). The Stripe
-   subscription webhook is its only writer. Nothing else in the system may
-   answer "does this org have X."
+1. **One entitlement state.** `organization.entitlements` (jsonb plugin list).
+   The Stripe subscription webhook is its only writer. Nothing else in the
+   system may answer "does this org have X."
 2. **One decision.** `getFeatureAccessInTx` — a fresh in-transaction read of
    that column folded with the rollout env (below). The UI wrapper
    `getFeatureAccessForCurrentOrg` is the same decision. Never cache it,
@@ -20,15 +20,76 @@ and nothing more:
    billing is solved once, not once per client. Each call is a single
    primary-key read on the already-open transaction — no measurable overhead.
 4. **The UI hides what the org can't use.** No locked states, no upgrade
-   tooltips, no upsell chrome. The free tier is a complete, designed product,
-   not a paid product with holes. Upsell surfaces, if any, are a separate
-   future product decision — never baked into feature gating.
+   tooltips, no upsell chrome. Trial/default workflows are complete and
+   designed, not a paid product with holes. Upsell surfaces, if any, are a
+   separate future product decision — never baked into feature gating.
 
 The plugin registry — ids, labels, Stripe lookup keys — lives in
 `lib/billing/types.ts` and is the only shared code a new plugin touches. The
 sellable catalog (`BILLING_CATALOG`: display names, blurbs, prices) lives in
-the same file; `scripts/stripe-create-catalog.ts` creates the Stripe prices
-from it, keyed by lookup key — no price IDs are stored anywhere.
+the same file. `STRIPE_BILLING_CATALOG` expands that display catalog with
+annual variants for recurring add-ons/extra locations, including graduated
+extra-location tiers that match the public calculator, and
+`scripts/stripe-create-catalog.ts` creates those Stripe prices keyed by lookup
+key — no price IDs are stored anywhere.
+
+Core plan capacity lives on `organization` next to subscription state:
+
+- `plan = trial | free | core`
+- `trialEndsAt`
+- `billingInterval = monthly | annual`
+- `salesOrderBand = starter | growth | pro | scale`
+- `locationCapacity`
+- `billingAddons` (purchased add-on lookup keys, not expanded plugins)
+- `currentPeriodStart` / `currentPeriodEnd`
+
+The public calculator starts Core at $299/month. Stripe subscription items own
+the selected Core base band, billing interval, extra-location quantity, and
+add-ons. Add-on lookup keys are stored as purchased products in `billingAddons`;
+plugin entitlements are derived from those lookup keys for gates.
+
+Core self-serve catalog:
+
+| Sales-order band | Monthly | Annual displayed monthly equivalent | Monthly shipped-order threshold |
+| --- | ---: | ---: | --- |
+| Starter | $299 | $249 | up to 100 |
+| Growth | $399 | $333 | up to 250 |
+| Pro | $549 | $458 | up to 1,000 |
+| Scale | sales-assisted | sales-assisted | 1,000+ |
+
+Core includes one active location. Each additional location is a Stripe quantity
+on `extra_location`; the graduated unit price starts at $40/month, drops by $2
+per additional location, and floors at $24/month. Annual recurring add-ons and
+extra locations use the annual lookup-key suffix and charge ten months for the
+year. Scale is intentionally rejected from self-serve checkout.
+
+Plan intents at public/app boundaries are structured selections: `mode=core`,
+`band`, `interval`, `locationCapacity`, and `addonLookupKeys`. Legacy
+`plan=core` and lookup-key links normalize into Core starter monthly with one
+included location, preserving old links without allowing package-only checkout.
+Trial is the default public signup path; `free` remains only for
+legacy/internal compatibility.
+
+Sales-order volume is app-owned usage, not a hard operational cap. When a sales
+order first ships/delivers, the app records an idempotent
+`billingUsageEvents` row in the calendar-month usage window. If monthly usage
+crosses a bucket threshold, `billingPeriodAdjustments` records the full-period
+bucket delta and the worker creates an idempotent Stripe invoice item plus an
+immediate automatic invoice. Monthly subscriptions use the monthly usage window
+as the adjustment period; annual subscriptions use the Stripe annual period so
+the same band delta is charged at most once per annual term. Shipment schedules
+the worker immediately; `/api/internal/billing-adjustments` also sweeps pending
+adjustments on a cron so a failed final shipment retry is not lost. Adjustment
+rows back off between retries and move to `failed` after repeated Stripe errors
+instead of retrying forever. The recurring Core subscription item is not
+automatically price-swapped for bucket crossings. Additional locations remain
+hard capacity because creating a new active site is a persistent expansion of
+the workspace.
+
+Expired trials are the one sales-order capacity gate: after the launch instant,
+non-grandfathered orgs must move to Core before creating more sales orders.
+Core order volume itself is never blocked; bucket crossings queue adjustment
+charges instead.
 
 **Deliberately not built** (add only when the trigger fires): a gate
 declaration registry and CI gate-coverage guard (trigger: the inventory table
@@ -38,13 +99,13 @@ caching (trigger: measured latency, which one PK read in an existing
 transaction will not produce), org-level feature preferences (trigger: a real
 customer ask; the decision function gains one AND-clause).
 
-## The free-default rule
+## The trial-default rule
 
-**The free tier is a closed system. Gates guard transitions out of it; any
-transition back toward the free default is always free.** This is what makes
+**The trial/default state is a closed system. Gates guard transitions out of
+it; any transition back toward the default is always free.** This is what makes
 downgrade safe: data stays intact, paid workflows lock, and nothing an org did
-while entitled can strand it. Every gate must define its free default and leave
-the path back to it ungated.
+while entitled can strand it. Every gate must define its default and leave the
+path back to it ungated.
 
 Existing examples:
 
@@ -155,3 +216,11 @@ with the enforcement vars set on the dev server (see step 3). Without them
 | `crm` | shipped (ERP-195) | new contacts/activities/projects (`lib/sales/queries/crm.ts` creates); edits/deletes of existing records free; UI hides the Contacts and Activity sections and the customers-list Next action column/filter |
 | `wholesale_pricing` | shipped (ERP-189/195) | `createPricingSchedule` + `updatePricingSchedule`; resolution computation gate in `getPricingScheduleLookupForProductsInTx`; UI hides the Pricing nav item and redirects `/sales/pricing` |
 | `multi_location` | shipped (ERP-190/195) | location create/transfers (server, ERP-190); UI hides the add-location row |
+
+## Capacity inventory
+
+| Capacity | Source | Gate |
+| --- | --- | --- |
+| Sales-order bucket usage | `billingUsageEvents` shipped/delivered count for the current calendar-month usage period vs `organization.salesOrderBand` plus period adjustments | `recordSalesOrderShippedUsageInTx` during shipment records usage and queues bucket adjustment charges; Core sales workflows are not blocked by volume |
+| Trial sales-order creation | `organization.plan`, effective `trialEndsAt`, and `BILLING_ENFORCEMENT_LAUNCH_AT` | `assertSalesOrderCapacityInTx` inside `createSalesOrder`; active trials and Core orgs continue, expired non-grandfathered trials receive 402 before new order creation |
+| Locations | `inventory.locations` active count vs `organization.locationCapacity` | `assertLocationCapacityInTx` inside `createInventoryLocation`; the `multi_location` entitlement unlocks the workflow surface, but paid `locationCapacity` controls the active-location count |

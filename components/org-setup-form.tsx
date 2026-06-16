@@ -11,7 +11,10 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { authClient } from "@/lib/auth-client"
-import { type BillingSelection } from "@/lib/billing/plan-intent"
+import {
+  billingIntentQueryString,
+  type BillingIntent,
+} from "@/lib/billing/plan-intent"
 import { cn } from "@/lib/utils"
 
 const DEFAULT_APP_ENTRY_PATH = "/sales/orders"
@@ -26,16 +29,20 @@ type OrganizationOption = {
 export function OrgSetupForm({
   className,
   organizations,
-  plan,
+  billingIntent = {
+    selectedPlan: "trial",
+    locationCapacity: 1,
+    addonLookupKeys: [],
+  },
   continueToOnboarding = false,
   ...props
 }: React.ComponentProps<"div"> & {
   organizations: OrganizationOption[]
-  plan?: BillingSelection
+  billingIntent?: BillingIntent
   continueToOnboarding?: boolean
 }) {
   const router = useRouter()
-  const selectedPlan = plan ?? "free"
+  const selectedPlan = billingIntent.selectedPlan
   const [name, setName] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -47,10 +54,10 @@ export function OrgSetupForm({
       return
     }
 
-    // Both free and paid enter the same guided onboarding flow. For paid, payment
+    // Trial and paid enter the same guided onboarding flow. For paid, payment
     // is collected within the flow (at the approve gate), not here.
-    router.replace(`${NEW_ORG_ENTRY_PATH}?plan=${selectedPlan}`)
-  }, [continueToOnboarding, router, selectedPlan])
+    router.replace(`${NEW_ORG_ENTRY_PATH}?${billingIntentQueryString(billingIntent)}`)
+  }, [billingIntent, continueToOnboarding, router])
 
   useEffect(() => {
     if (organizations.length !== 1) {

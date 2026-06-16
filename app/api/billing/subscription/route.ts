@@ -9,14 +9,31 @@ import {
   BillingSubscriptionError,
   cancelSubscriptionAtPeriodEnd,
   changeSubscriptionOffer,
+  changeSubscriptionSelection,
   resumeSubscription,
 } from "@/lib/billing/stripe";
-import { getBillingOffer } from "@/lib/billing/types";
+import {
+  BILLING_ADDON_LOOKUP_KEYS,
+  BILLING_INTERVALS,
+  PRICED_SALES_ORDER_BANDS,
+  getBillingOffer,
+} from "@/lib/billing/types";
+import { commercialSelectionFromInput } from "@/lib/billing/plan-intent";
 
 const subscriptionActionSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("change_offer"),
     lookupKey: z.string().trim().min(1),
+  }),
+  z.object({
+    action: z.literal("change_selection"),
+    selection: z.object({
+      mode: z.literal("core"),
+      band: z.enum(PRICED_SALES_ORDER_BANDS).optional(),
+      interval: z.enum(BILLING_INTERVALS).optional(),
+      locationCapacity: z.number().int().min(1).max(100).optional(),
+      addonLookupKeys: z.array(z.enum(BILLING_ADDON_LOOKUP_KEYS)).optional(),
+    }),
   }),
   z.object({
     action: z.literal("cancel_at_period_end"),
@@ -41,6 +58,20 @@ export const POST = apiHandler(async (request) => {
         orgId: context.orgId,
         orgName: context.organizationName,
         lookupKey: input.lookupKey,
+        idempotencyKey,
+      });
+    } else if (input.action === "change_selection") {
+      const selection = commercialSelectionFromInput(input.selection);
+      if (selection?.mode !== "core") {
+        return jsonError("Subscription changes require a Core billing selection.", 400);
+      }
+
+      await changeSubscriptionSelection({
+        orgId: context.orgId,
+        orgName: context.organizationName,
+        selection,
+        preserveCurrentLocationCapacity: input.selection.locationCapacity === undefined,
+        preserveCurrentAddons: input.selection.addonLookupKeys === undefined,
         idempotencyKey,
       });
     } else if (input.action === "cancel_at_period_end") {

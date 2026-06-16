@@ -1,0 +1,2 @@
+ALTER TABLE "inventory"."onboarding_sessions" ADD COLUMN IF NOT EXISTS "selected_location_capacity" integer DEFAULT 1 NOT NULL;--> statement-breakpoint
+ALTER TABLE "inventory"."onboarding_sessions" ADD COLUMN IF NOT EXISTS "selected_addon_lookup_keys" jsonb DEFAULT '[]'::jsonb NOT NULL;

@@ -1,5 +1,6 @@
 import "server-only";
 
+import { after } from "next/server";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { normalizeNumeric, normalizeQuantityNumber, roundQuantity } from "@/lib/format";
 import { customers, manufacturingOrderOutputs, manufacturingOrderIngredients, manufacturingOrders, salesOrderLines, salesOrders } from "@/lib/db/schema";
@@ -12,10 +13,23 @@ import { completeManufacturingOrder } from "@/lib/manufacturing/queries/completi
 import { ManufacturingError } from "@/lib/manufacturing/queries/errors";
 import { recordManufacturingOutput } from "@/lib/manufacturing/queries/output";
 import type { ShipSalesOrder } from "@/lib/schemas/sales-orders";
+import {
+  processPendingBucketAdjustments,
+  recordSalesOrderShippedUsageInTx,
+} from "@/lib/billing/buckets";
 import type { NegativeStockWarningPayload } from "../types";
 import { demandQueueCoverageKey, getDemandQueueInventoryLotClaimConflicts, getDemandQueueCoverageForItemsInTx } from "@/lib/inventory/allocation/demand-queue";
 import { SalesError } from "./errors";
 import { withSalesTransactionRetry, rerankOpenSalesOrdersInTx, getOrderLinesInTx, getLockedSalesOrderInTx, type SalesOrderLineShipState, normalizeShipQuantity, getSalesOrderLineShipStatesInTx } from "./shared";
+
+function schedulePendingBucketAdjustments(orgId: string) {
+  const deliver = () => processPendingBucketAdjustments(orgId);
+  try {
+    after(deliver);
+  } catch {
+    void deliver();
+  }
+}
 
 function remainingToShip(line: SalesOrderLineShipState) {
   return normalizeShipQuantity(
@@ -537,6 +551,11 @@ export async function shipSalesOrder(
       .returning({ id: salesOrders.id, status: salesOrders.status });
 
     if (allClosed) {
+      await recordSalesOrderShippedUsageInTx(tx, {
+        orgId,
+        salesOrderId: id,
+        occurredAt: shippedAt,
+      });
       await rerankOpenSalesOrdersInTx(tx, orgId);
     }
 
@@ -560,6 +579,8 @@ export async function shipSalesOrder(
   if (result.replayed) {
     return result.shipped;
   }
+
+  schedulePendingBucketAdjustments(result.orgId);
 
   if (options?.syncAccounting === false || result.shipped.status !== "done") {
     return result.shipped;

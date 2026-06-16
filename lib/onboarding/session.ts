@@ -7,6 +7,10 @@ import {
   isBillingSelection,
   normalizeBillingSelection,
 } from "@/lib/billing/plan-intent";
+import {
+  asBillingAddonLookupKeys,
+  DEFAULT_LOCATION_CAPACITY,
+} from "@/lib/billing/types";
 import type { Tx } from "@/lib/db/with-org-context";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import { DomainError } from "@/lib/errors/domain-error";
@@ -33,14 +37,20 @@ const billingSelectionSchema = z
   .unknown()
   .refine(isBillingSelection, "Select a billing plan from the catalog.")
   .transform(normalizeBillingSelection);
+const locationCapacitySchema = z.number().int().min(1).max(100);
+const addonLookupKeysSchema = z.array(z.string().trim().min(1)).transform(asBillingAddonLookupKeys);
 
 export const startOnboardingSessionSchema = z.object({
   selectedPlan: billingSelectionSchema.optional(),
+  selectedLocationCapacity: locationCapacitySchema.optional(),
+  selectedAddonLookupKeys: addonLookupKeysSchema.optional(),
   currentStep: z.enum(onboardingSteps).optional(),
 });
 
 export const patchOnboardingSessionSchema = z.object({
   selectedPlan: billingSelectionSchema.nullable().optional(),
+  selectedLocationCapacity: locationCapacitySchema.optional(),
+  selectedAddonLookupKeys: addonLookupKeysSchema.optional(),
   status: z.enum(onboardingStatuses).optional(),
   currentStep: z.enum(onboardingSteps).optional(),
   importSessionId: z.string().uuid().nullable().optional(),
@@ -61,6 +71,8 @@ function serializeOnboardingSession(row: OnboardingSessionRow) {
   return {
     id: row.id,
     selectedPlan: row.selectedPlan,
+    selectedLocationCapacity: row.selectedLocationCapacity,
+    selectedAddonLookupKeys: row.selectedAddonLookupKeys,
     status: row.status,
     currentStep: row.currentStep,
     importSessionId: row.importSessionId,
@@ -97,6 +109,10 @@ export async function startOrResumeOnboardingSession(
         .update(onboardingSessions)
         .set({
           selectedPlan: input.selectedPlan ?? existing.selectedPlan,
+          selectedLocationCapacity:
+            input.selectedLocationCapacity ?? existing.selectedLocationCapacity,
+          selectedAddonLookupKeys:
+            input.selectedAddonLookupKeys ?? existing.selectedAddonLookupKeys,
           currentStep: input.currentStep ?? existing.currentStep,
           updatedAt: new Date(),
         })
@@ -111,6 +127,9 @@ export async function startOrResumeOnboardingSession(
         organizationId: orgId,
         createdByUserId: userId,
         selectedPlan: input.selectedPlan ?? null,
+        selectedLocationCapacity:
+          input.selectedLocationCapacity ?? DEFAULT_LOCATION_CAPACITY,
+        selectedAddonLookupKeys: input.selectedAddonLookupKeys ?? [],
         currentStep: input.currentStep ?? "invite",
       })
       .returning();
@@ -138,6 +157,14 @@ export async function updateOnboardingSession(
       .set({
         selectedPlan:
           input.selectedPlan === undefined ? existing.selectedPlan : input.selectedPlan,
+        selectedLocationCapacity:
+          input.selectedLocationCapacity === undefined
+            ? existing.selectedLocationCapacity
+            : input.selectedLocationCapacity,
+        selectedAddonLookupKeys:
+          input.selectedAddonLookupKeys === undefined
+            ? existing.selectedAddonLookupKeys
+            : input.selectedAddonLookupKeys,
         status,
         currentStep: input.currentStep ?? existing.currentStep,
         importSessionId:
