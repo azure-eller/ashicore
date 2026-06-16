@@ -1,8 +1,9 @@
 import "server-only";
 
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import {
   notificationPreferences,
+  notificationResourceExclusions,
   notifications,
   pushDevices,
 } from "@/lib/db/schema";
@@ -20,6 +21,7 @@ export type NotificationEvent = {
   entityId: string;
   title: string;
   body: string;
+  manufacturingResourceIds?: string[];
 };
 
 /**
@@ -32,7 +34,7 @@ export type NotificationEvent = {
 export async function notify(orgId: string, event: NotificationEvent): Promise<void> {
   try {
     const inserted = await withOrgContext(orgId, async (tx) => {
-      const subscribers = await tx
+      let subscribers = await tx
         .select({ userId: notificationPreferences.userId })
         .from(notificationPreferences)
         .where(
@@ -42,6 +44,32 @@ export async function notify(orgId: string, event: NotificationEvent): Promise<v
             eq(notificationPreferences.enabled, true)
           )
         );
+      if (event.manufacturingResourceIds && event.manufacturingResourceIds.length > 0) {
+        const resourceIds = [...new Set(event.manufacturingResourceIds)];
+        const excludedRows = await tx
+          .select({
+            userId: notificationResourceExclusions.userId,
+            resourceId: notificationResourceExclusions.resourceId,
+          })
+          .from(notificationResourceExclusions)
+          .where(
+            and(
+              eq(notificationResourceExclusions.organizationId, orgId),
+              eq(notificationResourceExclusions.eventType, event.type),
+              inArray(notificationResourceExclusions.resourceId, resourceIds)
+            )
+          );
+        const excludedByUser = new Map<string, Set<string>>();
+        for (const row of excludedRows) {
+          const excluded = excludedByUser.get(row.userId) ?? new Set<string>();
+          excluded.add(row.resourceId);
+          excludedByUser.set(row.userId, excluded);
+        }
+        subscribers = subscribers.filter((subscriber) => {
+          const excluded = excludedByUser.get(subscriber.userId);
+          return !(excluded && excluded.size === resourceIds.length);
+        });
+      }
       if (subscribers.length === 0) return [];
 
       return tx

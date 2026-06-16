@@ -16,6 +16,7 @@ import {
   date,
 } from "drizzle-orm/pg-core";
 import { organization, user } from "./auth";
+import { manufacturingResources } from "./manufacturing-resources";
 import type { DailyManufacturingReportScheduleConfig } from "../../reports/daily-manufacturing-config";
 
 export const reportingSchema = pgSchema("reporting");
@@ -234,6 +235,53 @@ export const notificationPreferences = reportingSchema
         sql`${table.eventType} IN ('manufacturing_order_created', 'manufacturing_order_completed', 'purchase_order_received')`
       ),
       pgPolicy("notification_preferences_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`organization_id = current_setting('app.current_org_id', true)`,
+        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const notificationResourceExclusions = reportingSchema
+  .table(
+    "notification_resource_exclusions",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      organizationId: text("organization_id")
+        .notNull()
+        .references(() => organization.id, { onDelete: "cascade" }),
+      userId: text("user_id")
+        .notNull()
+        .references(() => user.id, { onDelete: "cascade" }),
+      eventType: varchar("event_type", { length: 64 }).notNull(),
+      resourceId: uuid("resource_id")
+        .notNull()
+        .references(() => manufacturingResources.id, { onDelete: "cascade" }),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true })
+        .notNull()
+        .defaultNow()
+        .$onUpdate(() => new Date()),
+    },
+    (table) => [
+      uniqueIndex("notification_resource_exclusions_org_user_event_resource_uidx").on(
+        table.organizationId,
+        table.userId,
+        table.eventType,
+        table.resourceId
+      ),
+      index("notification_resource_exclusions_org_event_resource_idx").on(
+        table.organizationId,
+        table.eventType,
+        table.resourceId
+      ),
+      check(
+        "notification_resource_exclusions_event_type_check",
+        sql`${table.eventType} IN ('manufacturing_order_created')`
+      ),
+      pgPolicy("notification_resource_exclusions_org_isolation", {
         for: "all",
         to: "public",
         using: sql`organization_id = current_setting('app.current_org_id', true)`,

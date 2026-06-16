@@ -142,6 +142,8 @@ Resources live in `manufacturing.resources` and store a loaded hourly rate. BOM 
 
 Operation cost rows snapshot `resourceName`, `resourceType`, `loadedCostPerHour`, planned crew size, planned minutes, and planned total cost. If a resource rate changes later, existing BOM revisions and manufacturing orders keep their saved rate snapshots.
 
+Manufacturing notification resource filters use active `manufacturing.resources` rows as the configurable source of truth. Manufacturing order operation-cost snapshots provide event context for a created MO, but deleted resources and historical snapshot-only names are not independently configurable notification identities.
+
 MO creation snapshots the current BOM operation rows into `manufacturing.manufacturing_order_operation_costs`. MO completion absorbs the snapshotted standard operation cost into produced inventory through the inventory kernel's `overheadCostTotal` input. Sales margins then pick up labor/operation cost through lot cost; sales must not add operation cost again.
 
 Partial output absorbs fixed-per-MO cost incrementally up to the planned total.

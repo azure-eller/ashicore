@@ -9,6 +9,7 @@ import {
   inventoryEvents,
   inventoryItemBalances,
   lots,
+  manufacturingResources,
   manufacturingOrderBatches,
   manufacturingOrderIngredients,
   manufacturingOrders,
@@ -20,6 +21,7 @@ import {
   createItem,
   createManufacturingOrder,
   getBaseUrl,
+  getOrgId,
   getSessionCookie,
   getUnitId,
   releaseManufacturingOrder,
@@ -54,8 +56,19 @@ async function expectRows(page: Page, count: number, gridIndex = 0) {
 test.describe("manufacturing demand and completion heartbeat", () => {
   const ts = Date.now();
   const unitId = getUnitId();
+  const orgId = getOrgId();
 
-  async function createBomFixture(label: string) {
+  async function createBomFixture(
+    label: string,
+    operationCosts: Array<{
+      operationName: string;
+      resourceId: string;
+      costScalingMode: "per_output_unit";
+      crewSize: string;
+      plannedMinutes: string;
+      loadedCostPerHour: string;
+    }> = []
+  ) {
     const component = await createItem({
       itemType: "material",
       name: `Fast MO ${label} Component ${ts}`,
@@ -83,6 +96,7 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       stock: "0",
       safetyStock: "0",
       bom: [{ componentId: component.body.id, quantity: "2" }],
+      operationCosts,
     });
     expect(product.status).toBe(201);
 
@@ -115,6 +129,21 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       body: JSON.stringify({
         eventType,
         enabled,
+      }),
+    });
+    expect(res.status).toBe(200);
+  }
+
+  async function setManufacturingResourceExclusion(
+    resourceId: string,
+    excluded: boolean
+  ) {
+    const res = await testFetch("/api/notification-preferences/resource-exclusions", {
+      method: "PUT",
+      body: JSON.stringify({
+        eventType: "manufacturing_order_created",
+        resourceId,
+        excluded,
       }),
     });
     expect(res.status).toBe(200);
@@ -1230,6 +1259,181 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       // Leave the shared test user unsubscribed for other suites.
       await setNotificationPreference("manufacturing_order_created", false);
       await setNotificationPreference("manufacturing_order_completed", false);
+    }
+  });
+
+  test("MO created notifications respect manufacturing resource exclusions", async ({
+    db,
+  }) => {
+    const [bagCrew] = await db
+      .insert(manufacturingResources)
+      .values({
+        organizationId: orgId,
+        name: `Fast MO Bag Crew ${ts}`,
+        resourceType: "labor",
+        loadedCostPerHour: "60.000000",
+      })
+      .returning({ id: manufacturingResources.id, name: manufacturingResources.name });
+    const [labelCrew] = await db
+      .insert(manufacturingResources)
+      .values({
+        organizationId: orgId,
+        name: `Fast MO Label Crew ${ts}`,
+        resourceType: "labor",
+        loadedCostPerHour: "60.000000",
+      })
+      .returning({ id: manufacturingResources.id, name: manufacturingResources.name });
+
+    const bagFixture = await createBomFixture("Notif Bag Resource", [
+      {
+        operationName: "Bagging",
+        resourceId: bagCrew.id,
+        costScalingMode: "per_output_unit",
+        crewSize: "1",
+        plannedMinutes: "10",
+        loadedCostPerHour: "60",
+      },
+    ]);
+    const labelFixture = await createBomFixture("Notif Label Resource", [
+      {
+        operationName: "Labeling",
+        resourceId: labelCrew.id,
+        costScalingMode: "per_output_unit",
+        crewSize: "1",
+        plannedMinutes: "10",
+        loadedCostPerHour: "60",
+      },
+    ]);
+    const multiFixture = await createBomFixture("Notif Multi Resource", [
+      {
+        operationName: "Bagging",
+        resourceId: bagCrew.id,
+        costScalingMode: "per_output_unit",
+        crewSize: "1",
+        plannedMinutes: "10",
+        loadedCostPerHour: "60",
+      },
+      {
+        operationName: "Labeling",
+        resourceId: labelCrew.id,
+        costScalingMode: "per_output_unit",
+        crewSize: "1",
+        plannedMinutes: "10",
+        loadedCostPerHour: "60",
+      },
+    ]);
+
+    async function createOrder(productId: string, componentId: string) {
+      const order = await createManufacturingOrder({
+        productId,
+        plannedQuantity: "3",
+        ingredients: [{ itemId: componentId, quantityPerUnit: "2" }],
+        confirmShortage: false,
+      });
+      expect(order.status).toBe(201);
+      return order.body.id as string;
+    }
+
+    try {
+      await setNotificationPreference("manufacturing_order_created", true);
+      await setManufacturingResourceExclusion(bagCrew.id, true);
+
+      const prefs = await testFetch("/api/notification-preferences");
+      expect(prefs.status).toBe(200);
+      const prefsBody = await prefs.json();
+      const manufacturingPref = prefsBody.preferences.find(
+        (row: { eventType: string }) =>
+          row.eventType === "manufacturing_order_created"
+      );
+      expect(manufacturingPref.resourceFilter.resources).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: bagCrew.id,
+            name: bagCrew.name,
+            excluded: true,
+          }),
+          expect.objectContaining({
+            id: labelCrew.id,
+            name: labelCrew.name,
+            excluded: false,
+          }),
+        ])
+      );
+
+      const bagOrderId = await createOrder(
+        bagFixture.productId,
+        bagFixture.componentId
+      );
+      const [testUser] = await db
+        .select({ id: user.id })
+        .from(user)
+        .where(eq(user.email, "test@test.com"));
+      const excludedRows = await db
+        .select({ id: notifications.id })
+        .from(notifications)
+        .where(
+          and(
+            eq(notifications.entityId, bagOrderId),
+            eq(notifications.type, "manufacturing_order_created"),
+            eq(notifications.userId, testUser.id)
+          )
+        );
+      expect(excludedRows).toHaveLength(0);
+
+      const labelOrderId = await createOrder(
+        labelFixture.productId,
+        labelFixture.componentId
+      );
+      const includedRows = await db
+        .select({ id: notifications.id })
+        .from(notifications)
+        .where(
+          and(
+            eq(notifications.entityId, labelOrderId),
+            eq(notifications.type, "manufacturing_order_created"),
+            eq(notifications.userId, testUser.id)
+          )
+        );
+      expect(includedRows).toHaveLength(1);
+
+      // Excluding only one of a multi-resource MO's resources still notifies.
+      const partialOrderId = await createOrder(
+        multiFixture.productId,
+        multiFixture.componentId
+      );
+      const partialRows = await db
+        .select({ id: notifications.id })
+        .from(notifications)
+        .where(
+          and(
+            eq(notifications.entityId, partialOrderId),
+            eq(notifications.type, "manufacturing_order_created"),
+            eq(notifications.userId, testUser.id)
+          )
+        );
+      expect(partialRows).toHaveLength(1);
+
+      // Suppressed only once every resource on the MO is excluded.
+      await setManufacturingResourceExclusion(labelCrew.id, true);
+      const suppressedOrderId = await createOrder(
+        multiFixture.productId,
+        multiFixture.componentId
+      );
+      const suppressedRows = await db
+        .select({ id: notifications.id })
+        .from(notifications)
+        .where(
+          and(
+            eq(notifications.entityId, suppressedOrderId),
+            eq(notifications.type, "manufacturing_order_created"),
+            eq(notifications.userId, testUser.id)
+          )
+        );
+      expect(suppressedRows).toHaveLength(0);
+    } finally {
+      await setManufacturingResourceExclusion(bagCrew.id, false).catch(() => {});
+      await setManufacturingResourceExclusion(labelCrew.id, false).catch(() => {});
+      await setNotificationPreference("manufacturing_order_created", false);
     }
   });
 });

@@ -14,9 +14,10 @@ Event → `notify(orgId, event)` → preference-filtered rows in `reporting.noti
 
 `notify()` is the single entry point (`lib/notifications/notify.ts`). It:
 1. Reads `notification_preferences` for users with `enabled = true` for the event type.
-2. Inserts one `notifications` row per subscriber (`deliveryStatus = 'created'`).
-3. Looks up `push_devices` for those users and calls `sendPush()` per device.
-4. Updates `deliveryStatus` to `'delivered'` (all sends ok) or `'failed'` (any send failed). Dead FCM tokens are deleted immediately.
+2. Applies event-specific filters such as manufacturing resource exclusions.
+3. Inserts one `notifications` row per subscriber (`deliveryStatus = 'created'`).
+4. Looks up `push_devices` for those users and calls `sendPush()` per device.
+5. Updates `deliveryStatus` to `'delivered'` (all sends ok) or `'failed'` (any send failed). Dead FCM tokens are deleted immediately.
 
 Without `FIREBASE_SERVICE_ACCOUNT_KEY` set, `sendPush()` writes a JSON file to `.tmp/fcm-outbox/` instead — same behavior as the email outbox, and the Playwright test seam.
 
@@ -48,21 +49,26 @@ Without `FIREBASE_SERVICE_ACCOUNT_KEY` set, `sendPush()` writes a JSON file to `
 
 **`reporting.notification_preferences`** — org-scoped, RLS + `FORCE ROW LEVEL SECURITY`. No row = off (opt-in by default). Unique on `(organizationId, userId, eventType)`. Only covers `SUBSCRIBABLE_EVENT_TYPES`; `daily_manufacturing_report` uses its own `report_recipients` model.
 
+**`reporting.notification_resource_exclusions`** — org-scoped, RLS + `FORCE ROW LEVEL SECURITY`. Resource-level opt-outs for user notification preferences. Unique on `(organizationId, userId, eventType, resourceId)`. Currently constrained to `manufacturing_order_created` and active `manufacturing.resources`; no row = included/on, so new resources notify by default. Deleting a resource cascades its exclusions.
+
 **`reporting.push_devices`** — user-scoped, no org column, user-isolation RLS via `app.current_user_id`. A token belongs to a person across org contexts. DAL always sets the session `userId` before touching the table. Capped at 10 devices per user; the just-registered token is preserved and stale tokens are evicted on each register call. Token ownership reassigns on re-login (shared devices).
 
 ## API surface (mobile contract)
 
-- `GET /api/notification-preferences` — list current user's preferences for all subscribable event types (missing row returns `enabled: false`)
+- `GET /api/notification-preferences` — list current user's preferences for all subscribable event types (missing row returns `enabled: false`). `manufacturing_order_created` includes `resourceFilter.resources[]` from active `manufacturing.resources`, sorted by name, each with `id`, `name`, `resourceType`, and `excluded`; absence of an exclusion row means `excluded: false`.
 - `PUT /api/notification-preferences` — upsert `{ eventType, enabled }` for current user
+- `PUT /api/notification-preferences/resource-exclusions` — upsert/delete one manufacturing resource exclusion with `{ eventType: "manufacturing_order_created", resourceId, excluded }` for current user
 - `POST /api/push-devices` — register `{ token, platform: "android" }`; upserts by token
 - `DELETE /api/push-devices` — remove `{ token }` for current user
 
 Any authenticated org member manages only their own settings. No module-access gate by design.
 
+Manufacturing resource filters use the active Resources-tab source (`manufacturing.resources`), not resources currently attached to open MOs. MO-created fan-out includes active resource ids from the order's operation-cost rows. A subscriber is suppressed only when they have excluded every active resource on the MO; an MO that also touches a resource they still want notifies as normal. If an MO has no active resource link, resource exclusions do not suppress it; the event-level preference remains authoritative.
+
 ## Adding an event type
 
 1. Add to `NOTIFICATION_TYPES` in `lib/reports/constants.ts`; add to `SUBSCRIBABLE_EVENT_TYPES` if user-subscribable.
-2. Widen the `CHECK` constraints on `notifications.type`, `notifications.entity_type`, and `notification_preferences.event_type` via a new migration.
+2. Widen the `CHECK` constraints on `notifications.type`, `notifications.entity_type`, and `notification_preferences.event_type` via a new migration. If the event has resource-level filters, also widen `notification_resource_exclusions.event_type`.
 3. Add an explicit branch in `notificationKindFor()` — the keyword fallback is not sufficient for correctness.
 4. Keep `NotificationKind.kt` in the Android repo in lockstep.
 5. Write an event-specific wrapper (see `lib/notifications/manufacturing.ts`) and call it from the post-commit seam of the mutating wrapper.

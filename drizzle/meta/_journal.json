@@ -1205,6 +1205,13 @@
       "when": 1781640854939,
       "tag": "0171_tearful_stature",
       "breakpoints": true
+    },
+    {
+      "idx": 172,
+      "version": "7",
+      "when": 1781640854940,
+      "tag": "0172_bent_roland_deschain",
+      "breakpoints": true
     }
   ]
 }

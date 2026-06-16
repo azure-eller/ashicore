@@ -1,7 +1,11 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
-import { manufacturingOrders } from "@/lib/db/schema";
+import { and, eq, isNull } from "drizzle-orm";
+import {
+  manufacturingOrderOperationCosts,
+  manufacturingOrders,
+  manufacturingResources,
+} from "@/lib/db/schema";
 import { withOrgContext } from "@/lib/db/with-org-context";
 import { notify } from "@/lib/notifications/notify";
 import { captureAppError } from "@/lib/observability/sentry";
@@ -21,8 +25,8 @@ export async function notifyManufacturingOrderCreated(
   orderId: string
 ): Promise<void> {
   try {
-    const [order] = await withOrgContext(orgId, (tx) =>
-      tx
+    const { order, resourceIds } = await withOrgContext(orgId, async (tx) => {
+      const [order] = await tx
         .select({
           orderNumber: manufacturingOrders.orderNumber,
           productName: manufacturingOrders.productName,
@@ -31,8 +35,25 @@ export async function notifyManufacturingOrderCreated(
         })
         .from(manufacturingOrders)
         .where(eq(manufacturingOrders.id, orderId))
-        .limit(1)
-    );
+        .limit(1);
+
+      const resourceRows = await tx
+        .select({ resourceId: manufacturingResources.id })
+        .from(manufacturingOrderOperationCosts)
+        .innerJoin(
+          manufacturingResources,
+          and(
+            eq(manufacturingOrderOperationCosts.resourceId, manufacturingResources.id),
+            isNull(manufacturingResources.deletedAt)
+          )
+        )
+        .where(eq(manufacturingOrderOperationCosts.manufacturingOrderId, orderId));
+
+      return {
+        order,
+        resourceIds: [...new Set(resourceRows.map((row) => row.resourceId))],
+      };
+    });
     if (!order) return;
 
     const quantity = [formatQuantity(order.plannedQuantity), order.unitName]
@@ -48,6 +69,7 @@ export async function notifyManufacturingOrderCreated(
       body: [order.orderNumber, `${quantity} ${order.productName}`.trim()]
         .filter(Boolean)
         .join(": "),
+      manufacturingResourceIds: resourceIds,
     });
   } catch (error) {
     console.error(
