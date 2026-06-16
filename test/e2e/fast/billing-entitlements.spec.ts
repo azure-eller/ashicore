@@ -12,7 +12,10 @@ import {
   pricingSchedules,
   salesOrders,
 } from "../../../lib/db/schema";
-import { recordSalesOrderShippedUsageInTx } from "../../../lib/billing/buckets";
+import {
+  bucketAdjustmentInvoiceParams,
+  recordSalesOrderShippedUsageInTx,
+} from "../../../lib/billing/buckets";
 import {
   asBillingAddonLookupKeys,
   billingLineItemsForCoreSelection,
@@ -820,6 +823,37 @@ test("annual Core bucket usage counts monthly and charges a band once per annual
       amountCents: 100800,
     },
   ]);
+});
+
+test("bucket adjustment invoices remain subscription scoped while excluding pending items", async () => {
+  const id = randomUUID();
+  const periodStart = new Date("2026-06-01T00:00:00Z");
+  const params = bucketAdjustmentInvoiceParams({
+    orgId: `bucket-invoice-scope-${id}`,
+    stripeCustomerId: "cus_bucket_scope",
+    stripeSubscriptionId: "sub_bucket_scope",
+    adjustment: {
+      id: "1c59ce10-d457-4da4-8f52-72e37d7d1104",
+      billingPeriodStart: periodStart,
+      fromBand: "starter",
+      toBand: "growth",
+    },
+  });
+
+  expect(params).toEqual({
+    customer: "cus_bucket_scope",
+    subscription: "sub_bucket_scope",
+    auto_advance: false,
+    collection_method: "charge_automatically",
+    pending_invoice_items_behavior: "exclude",
+    metadata: {
+      organizationId: `bucket-invoice-scope-${id}`,
+      billingAdjustmentId: "1c59ce10-d457-4da4-8f52-72e37d7d1104",
+      billingPeriodStart: "2026-06-01T00:00:00.000Z",
+      fromBand: "starter",
+      toBand: "growth",
+    },
+  });
 });
 
 test("trial overview counts shipped orders without billing usage events", async ({

@@ -6,14 +6,25 @@
 //
 // Run once against test mode, then once against live before launch. After the
 // target Stripe account has all catalog prices, set STRIPE_CATALOG_READY=1 for
-// that deployment. The webhook resolves subscriptions back to plugins purely by
-// lookup key, so no price IDs need to be recorded anywhere.
+// that deployment. The webhook projects subscriptions back to app billing state
+// and plugin entitlements by lookup key, so no price IDs need to be recorded
+// anywhere.
 import Stripe from "stripe";
 import {
   EXTRA_LOCATION_LOOKUP_KEY,
   STRIPE_BILLING_CATALOG,
   canonicalRecurringLookupKey,
 } from "../lib/billing/types";
+
+const STRIPE_LOOKUP_KEY_LIMIT = 10;
+
+function chunks<T>(values: readonly T[], size: number) {
+  const result: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    result.push(values.slice(index, index + size));
+  }
+  return result;
+}
 
 function extraLocationUnitAmount(position: number, annual: boolean) {
   const monthlyUsd = Math.max(40 - 2 * (position - 1), 24);
@@ -41,14 +52,21 @@ async function main() {
   const mode = secretKey.startsWith("sk_live") ? "LIVE" : "test";
   console.log(`Creating catalog prices in ${mode} mode…`);
 
-  const existing = await stripe.prices.list({
-    lookup_keys: STRIPE_BILLING_CATALOG.map((offer) => offer.lookupKey),
-    active: true,
-    limit: 100,
-  });
-  const existingKeys = new Set(
-    existing.data.map((price) => price.lookup_key).filter(Boolean)
-  );
+  const existing = (
+    await Promise.all(
+      chunks(
+        STRIPE_BILLING_CATALOG.map((offer) => offer.lookupKey),
+        STRIPE_LOOKUP_KEY_LIMIT
+      ).map((lookupKeys) =>
+        stripe.prices.list({
+          lookup_keys: lookupKeys,
+          active: true,
+          limit: STRIPE_LOOKUP_KEY_LIMIT,
+        })
+      )
+    )
+  ).flatMap((page) => page.data);
+  const existingKeys = new Set(existing.map((price) => price.lookup_key).filter(Boolean));
 
   for (const offer of STRIPE_BILLING_CATALOG) {
     if (existingKeys.has(offer.lookupKey)) {

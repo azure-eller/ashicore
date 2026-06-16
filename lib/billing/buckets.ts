@@ -1,4 +1,6 @@
 import { and, asc, eq, isNotNull, lte, or, sql } from "drizzle-orm";
+import type { InferSelectModel } from "drizzle-orm";
+import type Stripe from "stripe";
 import {
   billingPeriodAdjustments,
   billingUsageEvents,
@@ -18,6 +20,8 @@ import {
 } from "./types";
 
 const MAX_ADJUSTMENT_RETRY_ATTEMPTS = 5;
+
+type BillingPeriodAdjustment = InferSelectModel<typeof billingPeriodAdjustments>;
 
 function monthPeriod(now: Date) {
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
@@ -103,6 +107,36 @@ function duePendingAdjustmentPredicate(orgId: string, now: Date) {
       lte(billingPeriodAdjustments.nextRetryAt, now)
     )
   );
+}
+
+export function bucketAdjustmentInvoiceParams({
+  orgId,
+  stripeCustomerId,
+  stripeSubscriptionId,
+  adjustment,
+}: {
+  orgId: string;
+  stripeCustomerId: string;
+  stripeSubscriptionId: string;
+  adjustment: Pick<
+    BillingPeriodAdjustment,
+    "id" | "billingPeriodStart" | "fromBand" | "toBand"
+  >;
+}): Stripe.InvoiceCreateParams {
+  return {
+    customer: stripeCustomerId,
+    subscription: stripeSubscriptionId,
+    auto_advance: false,
+    collection_method: "charge_automatically",
+    pending_invoice_items_behavior: "exclude",
+    metadata: {
+      organizationId: orgId,
+      billingAdjustmentId: adjustment.id,
+      billingPeriodStart: adjustment.billingPeriodStart.toISOString(),
+      fromBand: adjustment.fromBand,
+      toBand: adjustment.toBand,
+    },
+  };
 }
 
 async function lockBillingBucketUsageInTx(tx: Tx, orgId: string) {
@@ -269,20 +303,12 @@ export async function processPendingBucketAdjustments(orgId: string) {
     for (const adjustment of adjustments) {
       try {
         const invoice = await stripe.invoices.create(
-          {
-            customer: org.stripeCustomerId,
-            subscription: org.stripeSubscriptionId,
-            auto_advance: false,
-            collection_method: "charge_automatically",
-            pending_invoice_items_behavior: "exclude",
-            metadata: {
-              organizationId: orgId,
-              billingAdjustmentId: adjustment.id,
-              billingPeriodStart: adjustment.billingPeriodStart.toISOString(),
-              fromBand: adjustment.fromBand,
-              toBand: adjustment.toBand,
-            },
-          },
+          bucketAdjustmentInvoiceParams({
+            orgId,
+            stripeCustomerId: org.stripeCustomerId,
+            stripeSubscriptionId: org.stripeSubscriptionId,
+            adjustment,
+          }),
           { idempotencyKey: `${adjustment.idempotencyKey}:invoice` }
         );
         const invoiceItem = await stripe.invoiceItems.create(

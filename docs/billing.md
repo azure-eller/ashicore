@@ -31,7 +31,9 @@ the same file. `STRIPE_BILLING_CATALOG` expands that display catalog with
 annual variants for recurring add-ons/extra locations, including graduated
 extra-location tiers that match the public calculator, and
 `scripts/stripe-create-catalog.ts` creates those Stripe prices keyed by lookup
-key — no price IDs are stored anywhere.
+key — no price IDs are stored anywhere. The script batches lookup-key checks at
+Stripe's 10-key request limit, so the full Core/location/add-on catalog can be
+created idempotently as it grows.
 
 Core plan capacity lives on `organization` next to subscription state:
 
@@ -75,16 +77,20 @@ order first ships/delivers, the app records an idempotent
 `billingUsageEvents` row in the calendar-month usage window. If monthly usage
 crosses a bucket threshold, `billingPeriodAdjustments` records the full-period
 bucket delta and the worker creates an idempotent Stripe invoice item plus an
-immediate automatic invoice. Monthly subscriptions use the monthly usage window
-as the adjustment period; annual subscriptions use the Stripe annual period so
-the same band delta is charged at most once per annual term. Shipment schedules
-the worker immediately; `/api/internal/billing-adjustments` also sweeps pending
-adjustments on a cron so a failed final shipment retry is not lost. Adjustment
-rows back off between retries and move to `failed` after repeated Stripe errors
-instead of retrying forever. The recurring Core subscription item is not
-automatically price-swapped for bucket crossings. Additional locations remain
-hard capacity because creating a new active site is a persistent expansion of
-the workspace.
+immediate automatic invoice. The invoice is created as an isolated draft that
+excludes unrelated pending invoice items; the subscription is attached to the
+invoice item, then the invoice is finalized for automatic collection. Monthly
+subscriptions use the monthly usage window as the adjustment period; annual
+subscriptions use the Stripe annual period so the same band delta is charged at
+most once per annual term. Shipment schedules the worker immediately;
+`/api/internal/billing-adjustments` also sweeps pending adjustments on a cron so
+a failed final shipment retry is not lost. That internal route bypasses the
+session-cookie proxy gate and must enforce its own bearer token from
+`BILLING_ADJUSTMENTS_SECRET` or `CRON_SECRET`. Adjustment rows back off between
+retries and move to `failed` after repeated Stripe errors instead of retrying
+forever. The recurring Core subscription item is not automatically
+price-swapped for bucket crossings. Additional locations remain hard capacity
+because creating a new active site is a persistent expansion of the workspace.
 
 Expired trials are the one sales-order capacity gate: after the launch instant,
 non-grandfathered orgs must move to Core before creating more sales orders.

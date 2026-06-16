@@ -17,6 +17,7 @@ function isDevelopmentRoute(pathname: string) {
 // `Authorization: Bearer <secret>` in the handler. Never add a route without that.
 const bearerProtectedInternalRoutes = new Set([
   "/api/internal/accounting-purchase-order-sync",
+  "/api/internal/billing-adjustments",
   "/api/internal/inventory-reconciliation",
   "/api/internal/process-imports",
   "/api/internal/xero-retry",

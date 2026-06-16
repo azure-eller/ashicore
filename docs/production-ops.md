@@ -71,7 +71,7 @@ configuration on the ERP Vercel project:
 
 Stripe setup checklist:
 
-1. Create the live catalog prices: `STRIPE_SECRET_KEY=sk_live_... pnpm tsx scripts/stripe-create-catalog.ts` (idempotent; keys every price by lookup key — no price IDs to record). This includes Core monthly and annual sales-order bands, graduated monthly and annual extra-location tiers, and monthly/annual plugin/package add-ons.
+1. Create the live catalog prices: `STRIPE_SECRET_KEY=sk_live_... pnpm tsx scripts/stripe-create-catalog.ts` (idempotent; keys every price by lookup key — no price IDs to record; batches lookup-key discovery at Stripe's 10-key limit). This includes Core monthly and annual sales-order bands, graduated monthly and annual extra-location tiers, and monthly/annual plugin/package add-ons.
 2. Create a live webhook endpoint for `https://ashicore.app/api/stripe/webhook`.
 3. Subscribe the webhook to:
    - `checkout.session.completed`
@@ -92,7 +92,7 @@ Verification before marketing paid signup:
 - `/settings/billing` shows trial status, Core upgrade, usage counts, and plugin catalog for a trial organization.
 - A live-mode Core checkout reaches Stripe Checkout from the deployed ERP app.
 - Returning from checkout leaves the org on `plan=core` with the purchased sales-order band, billing interval, location capacity, purchased add-on lookup keys, and derived plugin entitlements after the webhook is processed.
-- Shipping orders records current-period billing usage. Crossing a Core bucket queues one pending `billingPeriodAdjustments` row and creates one idempotent Stripe invoice item plus an immediate automatic invoice for the full-period bucket delta; sales shipment must still succeed if Stripe is temporarily unavailable.
+- Shipping orders records current-period billing usage. Crossing a Core bucket queues one pending `billingPeriodAdjustments` row and creates one idempotent Stripe invoice item on an isolated automatic invoice for the full-period bucket delta; sales shipment must still succeed if Stripe is temporarily unavailable.
 - Bucket adjustment charges queue only for orgs created on or after `BILLING_ENFORCEMENT_LAUNCH_AT`; before launch, usage is recorded but adjustment charging stays in shadow.
 - `/api/internal/billing-adjustments` is configured in Vercel cron and authorized by `BILLING_ADJUSTMENTS_SECRET` or `CRON_SECRET`, so pending bucket adjustments retry with backoff even if the customer does not ship another order that period; repeated Stripe failures mark the row `failed`.
 - Vercel Runtime Logs show no `Stripe billing is not configured.` errors.
@@ -271,6 +271,7 @@ Route:
 
 Auth:
 
+- the route bypasses the Better Auth session proxy gate, so the handler must validate its own bearer token
 - set `CRON_SECRET` on Vercel to let the built-in cron call the route with `Authorization: Bearer <CRON_SECRET>`
 - or set `BILLING_ADJUSTMENTS_SECRET` and have an external scheduler call the same route with the same bearer token
 
@@ -282,5 +283,5 @@ Behavior:
 
 - the route finds organizations with due `pending` bucket adjustments
 - each org is processed under its RLS context
-- Stripe invoices are created with unrelated pending invoice items excluded
+- Stripe invoices are created as isolated drafts with unrelated pending invoice items excluded, then the subscription invoice item is attached and the invoice is finalized for automatic collection
 - failed Stripe send attempts back off, then become `failed` after repeated attempts
