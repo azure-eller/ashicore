@@ -92,7 +92,7 @@ Verification before marketing paid signup:
 - `/settings/billing` shows trial status, Core upgrade, usage counts, and plugin catalog for a trial organization.
 - A live-mode Core checkout reaches Stripe Checkout from the deployed ERP app.
 - Returning from checkout leaves the org on `plan=core` with the purchased sales-order band, billing interval, location capacity, purchased add-on lookup keys, and derived plugin entitlements after the webhook is processed.
-- Shipping orders records current-period billing usage. Crossing a Core bucket queues one pending `billingPeriodAdjustments` row and creates one idempotent Stripe invoice item on an isolated automatic invoice for the full-period bucket delta; sales shipment must still succeed if Stripe is temporarily unavailable.
+- Shipping orders records current-period billing usage. Crossing a Core bucket queues one pending `billingPeriodAdjustments` row and creates one idempotent Stripe invoice item on a subscription-scoped automatic invoice for the full-period bucket delta; sales shipment must still succeed if Stripe is temporarily unavailable.
 - Bucket adjustment charges queue only for orgs created on or after `BILLING_ENFORCEMENT_LAUNCH_AT`; before launch, usage is recorded but adjustment charging stays in shadow.
 - `/api/internal/billing-adjustments` is configured in Vercel cron and authorized by `BILLING_ADJUSTMENTS_SECRET` or `CRON_SECRET`, so pending bucket adjustments retry with backoff even if the customer does not ship another order that period; repeated Stripe failures mark the row `failed`.
 - Vercel Runtime Logs show no `Stripe billing is not configured.` errors.
@@ -283,5 +283,5 @@ Behavior:
 
 - the route finds organizations with due `pending` bucket adjustments
 - each org is processed under its RLS context
-- Stripe invoices are created as isolated drafts with unrelated pending invoice items excluded, then the subscription invoice item is attached and the invoice is finalized for automatic collection
+- Stripe invoices are created as subscription-scoped drafts, then the adjustment invoice item is attached and the invoice is finalized for automatic collection
 - failed Stripe send attempts back off, then become `failed` after repeated attempts

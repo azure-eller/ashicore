@@ -128,7 +128,6 @@ export function bucketAdjustmentInvoiceParams({
     subscription: stripeSubscriptionId,
     auto_advance: false,
     collection_method: "charge_automatically",
-    pending_invoice_items_behavior: "exclude",
     metadata: {
       organizationId: orgId,
       billingAdjustmentId: adjustment.id,

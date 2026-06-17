@@ -84,7 +84,7 @@ function offerIncluded(offer: BillingOffer, entitlements: BillingPlugin[]) {
 }
 
 // The display name for what the org currently has: Everything beats an exact
-// package match beats a list of plugin names beats Free.
+// package match beats a list of plugin names beats Free trial.
 function describeCurrentPlan(data: BillingPageData) {
   const entitlements = data.entitlements;
   if (data.plan === "trial") return "Free trial";
@@ -404,7 +404,7 @@ export function BillingSection({
                       onClick={() => void runBillingAction("cancel_at_period_end")}
                       disabled={!initialData.billingConfigured || pending != null}
                     >
-                      Downgrade to Free
+                      Cancel renewal
                     </Button>
                   )}
                 </div>
@@ -487,8 +487,8 @@ export function BillingSection({
         {hasSubscription ? (
           <SettingsBlock>
             <div className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-              Subscription changes apply in Stripe immediately. Downgrades to Free
-              take effect at the end of the current billing period.
+              Subscription changes apply in Stripe immediately. Cancellations take
+              effect at the end of the current billing period.
             </div>
           </SettingsBlock>
         ) : null}

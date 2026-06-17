@@ -50,7 +50,7 @@ export const POST = apiHandler(async (request: Request, context: unknown) => {
     }
   }
 
-  // Free intent (or already-entitled org): commit now.
+  // Free-trial intent (or already-entitled org): commit now.
   const result = await approveImportSession(id, data);
   if (env.BLOB_READ_WRITE_TOKEN) {
     await deletePrivateBlobsIfConfigured(result.storageKeysToDelete);

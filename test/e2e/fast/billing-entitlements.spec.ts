@@ -825,7 +825,7 @@ test("annual Core bucket usage counts monthly and charges a band once per annual
   ]);
 });
 
-test("bucket adjustment invoices remain subscription scoped while excluding pending items", async () => {
+test("bucket adjustment invoices remain subscription scoped", async () => {
   const id = randomUUID();
   const periodStart = new Date("2026-06-01T00:00:00Z");
   const params = bucketAdjustmentInvoiceParams({
@@ -845,7 +845,6 @@ test("bucket adjustment invoices remain subscription scoped while excluding pend
     subscription: "sub_bucket_scope",
     auto_advance: false,
     collection_method: "charge_automatically",
-    pending_invoice_items_behavior: "exclude",
     metadata: {
       organizationId: `bucket-invoice-scope-${id}`,
       billingAdjustmentId: "1c59ce10-d457-4da4-8f52-72e37d7d1104",

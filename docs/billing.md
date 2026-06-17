@@ -77,9 +77,9 @@ order first ships/delivers, the app records an idempotent
 `billingUsageEvents` row in the calendar-month usage window. If monthly usage
 crosses a bucket threshold, `billingPeriodAdjustments` records the full-period
 bucket delta and the worker creates an idempotent Stripe invoice item plus an
-immediate automatic invoice. The invoice is created as an isolated draft that
-excludes unrelated pending invoice items; the subscription is attached to the
-invoice item, then the invoice is finalized for automatic collection. Monthly
+immediate automatic invoice. The invoice is created as a subscription-scoped
+draft, the adjustment item is attached to that invoice, then the invoice is
+finalized for automatic collection. Monthly
 subscriptions use the monthly usage window as the adjustment period; annual
 subscriptions use the Stripe annual period so the same band delta is charged at
 most once per annual term. Shipment schedules the worker immediately;
