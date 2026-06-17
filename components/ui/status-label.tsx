@@ -27,7 +27,7 @@ function StatusLabel({
       data-slot="status-label"
       data-tone={tone}
       className={cn(
-        "inline-flex w-fit shrink-0 items-center justify-center rounded-(--radius-sm) border border-transparent px-[11px] py-(--space-3) font-sans text-[length:var(--text-status)] leading-none font-semibold tracking-[0.005em] whitespace-nowrap transition-colors duration-(--duration-1) ease-(--ease-out) focus-visible:border-[var(--color-accent)] focus-visible:shadow-[0_0_0_4px_var(--color-accent-soft)]",
+        "inline-flex w-fit shrink-0 items-center justify-center rounded-(--radius-sm) border border-transparent px-[9px] py-(--space-3) font-sans text-[length:var(--text-status)] leading-none font-semibold tracking-[0.005em] whitespace-nowrap transition-colors duration-(--duration-1) ease-(--ease-out) focus-visible:border-[var(--color-accent)] focus-visible:shadow-[0_0_0_4px_var(--color-accent-soft)]",
         toneClasses[tone],
         className
       )}

@@ -121,7 +121,7 @@ function StatusBlockContent({
             ? "relative inline-flex min-w-0 flex-1 items-center px-(--space-5)"
             : isFramed
               ? "inline-flex items-center px-(--space-6) py-[8px]"
-              : "inline-flex items-center px-[11px] py-(--space-3)",
+              : "inline-flex items-center px-[9px] py-(--space-3)",
         )}
       >
         <span className="inline-flex min-w-0 items-center">
@@ -139,7 +139,7 @@ function StatusBlockContent({
           {showInlineCaret ? (
             <HugeiconsIcon
               icon={icon ?? ArrowDown01Icon}
-              size={13}
+              size={11}
               className="ml-(--space-2) shrink-0 opacity-50"
             />
           ) : null}

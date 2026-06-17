@@ -864,9 +864,9 @@ function OrdersTableContent({
         field: "priorityRank",
         headerName: "Rank",
         headerTooltip: SALES_ORDER_RANK_TOOLTIP,
-        width: 72,
-        minWidth: 64,
-        maxWidth: 110,
+        width: 60,
+        minWidth: 52,
+        maxWidth: 90,
         resizable: false,
         sortable: false,
         rowDrag: reorderEnabled,
@@ -882,9 +882,9 @@ function OrdersTableContent({
         field: "orderNumber",
         headerName: "Order",
         headerTooltip: SALES_ORDER_NUMBER_TOOLTIP,
-        width: 180,
-        minWidth: 150,
-        maxWidth: 240,
+        width: 150,
+        minWidth: 125,
+        maxWidth: 200,
         cellClass: "mono",
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderGridRow>) =>
           data ? (
@@ -936,8 +936,8 @@ function OrdersTableContent({
         colId: "allocation",
         headerName: "Sales Items",
         headerTooltip: SALES_ORDER_ITEMS_STATUS_TOOLTIP,
-        width: 165,
-        minWidth: 130,
+        width: 135,
+        minWidth: 108,
         cellClass: ({ data }) => data?.__grid.salesItemsCellClass ?? ["statusBlockCell"],
         valueGetter: ({ data }) => data?.__grid.salesItemsLabel ?? "",
         valueFormatter: ({ value }) => String(value ?? ""),
@@ -956,8 +956,8 @@ function OrdersTableContent({
         colId: "ingredientsState",
         headerName: "Ingredients",
         headerTooltip: SALES_ORDER_INGREDIENTS_STATUS_TOOLTIP,
-        width: 165,
-        minWidth: 130,
+        width: 135,
+        minWidth: 108,
         cellClass: ({ data }) => data?.__grid.ingredientsCellClass ?? ["statusBlockCell"],
         valueGetter: ({ data }) => data?.__grid.ingredientsLabel ?? "",
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderGridRow>) =>
@@ -969,8 +969,8 @@ function OrdersTableContent({
         colId: "productionState",
         headerName: "Production",
         headerTooltip: SALES_ORDER_PRODUCTION_STATUS_TOOLTIP,
-        width: 165,
-        minWidth: 130,
+        width: 135,
+        minWidth: 108,
         cellClass: ({ data }) => data?.__grid.productionCellClass ?? ["statusBlockCell"],
         valueGetter: ({ data }) => data?.__grid.productionLabel ?? "",
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderGridRow>) =>
@@ -988,8 +988,8 @@ function OrdersTableContent({
         colId: "deliveryState",
         headerName: "Delivery",
         headerTooltip: SALES_ORDER_DELIVERY_STATUS_TOOLTIP,
-        width: 150,
-        minWidth: 120,
+        width: 125,
+        minWidth: 100,
         cellClass: ({ data }) => data?.__grid.deliveryCellClass ?? ["statusBlockCell"],
         valueGetter: ({ data }) => data?.__grid.deliveryLabel ?? "",
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderGridRow>) =>
@@ -1227,8 +1227,8 @@ function OrdersTableContent({
         className="flex h-[calc(100dvh_-_var(--height-nav)_-_var(--height-subnav))] min-h-0 flex-col gap-(--space-7) bg-[var(--color-bg)]"
         gridClassName="min-h-0 flex-1"
         height="100%"
-        headerHeight={56}
-        rowHeight={72}
+        headerHeight={46}
+        rowHeight={60}
       />
       <SalesOrderStatusPanel
         panel={visibleActivePanel}
