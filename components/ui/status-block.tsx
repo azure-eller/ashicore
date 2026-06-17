@@ -46,7 +46,8 @@ type StatusBlockBaseProps = {
 type StatusBlockDerivedProps = StatusBlockBaseProps & {
   actionable?: false;
   actionVariant?: never;
-  showCaret?: never;
+  /** Show the dropdown caret on a display chip whose cell opens a panel. */
+  showCaret?: boolean;
 } & Omit<HTMLAttributes<HTMLSpanElement>, "children" | "className" | "onClick" | "style">;
 
 type StatusBlockActionableProps = StatusBlockBaseProps & {
@@ -100,7 +101,6 @@ function StatusBlockContent({
   marker,
   leadingIcon,
   icon,
-  actionable,
   showCaret,
 }: {
   children: ReactNode;
@@ -108,10 +108,9 @@ function StatusBlockContent({
   marker?: ReactNode;
   leadingIcon?: IconSvgElement;
   icon?: IconSvgElement;
-  actionable: boolean;
   showCaret: boolean;
 }) {
-  const showInlineCaret = actionable && showCaret;
+  const showInlineCaret = showCaret;
   const isFramed = Boolean(footer || marker);
 
   return (
@@ -169,7 +168,7 @@ export function StatusBlock({
   icon,
   actionable = false,
   actionVariant = "menu",
-  showCaret = actionVariant === "menu",
+  showCaret = actionable && actionVariant === "menu",
   className,
   style,
   ...props
@@ -204,7 +203,6 @@ export function StatusBlock({
       marker={marker}
       leadingIcon={leadingIcon}
       icon={icon}
-      actionable={actionable}
       showCaret={showCaret}
     >
       {children}

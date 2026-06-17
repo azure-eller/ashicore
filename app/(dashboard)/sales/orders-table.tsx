@@ -343,8 +343,14 @@ function buildSalesOrderGridRow(order: SalesOrderListRow): SalesOrderGridRow {
   };
 }
 
-function StatusCell({ state }: { state: FulfillmentDisplayState }) {
-  return <FulfillmentStatusBlock state={state} />;
+function StatusCell({
+  state,
+  interactive,
+}: {
+  state: FulfillmentDisplayState;
+  interactive?: boolean;
+}) {
+  return <FulfillmentStatusBlock state={state} showCaret={interactive} />;
 }
 
 function PanelActionButton({
@@ -865,9 +871,9 @@ function OrdersTableContent({
         field: "priorityRank",
         headerName: "Rank",
         headerTooltip: SALES_ORDER_RANK_TOOLTIP,
-        width: 64,
-        minWidth: 56,
-        maxWidth: 110,
+        width: 86,
+        minWidth: 80,
+        maxWidth: 120,
         resizable: false,
         sortable: false,
         rowDrag: reorderEnabled,
@@ -943,7 +949,12 @@ function OrdersTableContent({
         valueGetter: ({ data }) => data?.__grid.salesItemsLabel ?? "",
         valueFormatter: ({ value }) => String(value ?? ""),
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderGridRow>) =>
-          data ? <StatusCell state={data.__grid.salesItemsState} /> : null,
+          data ? (
+            <StatusCell
+              state={data.__grid.salesItemsState}
+              interactive={data.__grid.salesItemsActionable}
+            />
+          ) : null,
         comparator: (_left, _right, leftNode, rightNode) =>
           parseQuantity(leftNode.data?.fulfillmentSummary.shortQty) -
           parseQuantity(rightNode.data?.fulfillmentSummary.shortQty),
@@ -957,7 +968,9 @@ function OrdersTableContent({
         cellClass: ({ data }) => data?.__grid.ingredientsCellClass ?? ["statusBlockCell"],
         valueGetter: ({ data }) => data?.__grid.ingredientsLabel ?? "",
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderGridRow>) =>
-          data ? <StatusCell state={data.__grid.ingredientsState} /> : null,
+          data ? (
+            <StatusCell state={data.__grid.ingredientsState} interactive />
+          ) : null,
       },
       {
         colId: "productionState",
@@ -968,7 +981,12 @@ function OrdersTableContent({
         cellClass: ({ data }) => data?.__grid.productionCellClass ?? ["statusBlockCell"],
         valueGetter: ({ data }) => data?.__grid.productionLabel ?? "",
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderGridRow>) =>
-          data ? <StatusCell state={data.__grid.productionState} /> : null,
+          data ? (
+            <StatusCell
+              state={data.__grid.productionState}
+              interactive={data.__grid.productionActionable}
+            />
+          ) : null,
         comparator: (_left, _right, leftNode, rightNode) =>
           (leftNode.data?.openManufacturingOrderCount ?? 0) -
           (rightNode.data?.openManufacturingOrderCount ?? 0),
@@ -982,7 +1000,12 @@ function OrdersTableContent({
         cellClass: ({ data }) => data?.__grid.deliveryCellClass ?? ["statusBlockCell"],
         valueGetter: ({ data }) => data?.__grid.deliveryLabel ?? "",
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderGridRow>) =>
-          data ? <StatusCell state={data.__grid.deliveryState} /> : null,
+          data ? (
+            <StatusCell
+              state={data.__grid.deliveryState}
+              interactive={data.__grid.deliveryActionable}
+            />
+          ) : null,
         comparator: (_left, _right, leftNode, rightNode) => {
           const leftOrder = leftNode.data;
           const rightOrder = rightNode.data;
@@ -1208,7 +1231,7 @@ function OrdersTableContent({
 
           reorderMutation.mutate(orderedRows);
         }}
-        className="flex h-[calc(100dvh_-_var(--height-nav)_-_var(--height-subnav))] min-h-0 flex-col gap-(--space-7) bg-[var(--color-bg)] px-(--space-10) pt-(--space-8) pb-(--space-7)"
+        className="flex h-[calc(100dvh_-_var(--height-nav)_-_var(--height-subnav))] min-h-0 flex-col gap-(--space-7) bg-[var(--color-bg)]"
         gridClassName="min-h-0 flex-1"
         height="100%"
         headerHeight={56}

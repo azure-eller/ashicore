@@ -22,7 +22,7 @@ Design intent lives in `docs/design/`. App-wide runtime token values live in `ap
 - **Colors:** use shadcn semantic classes (`bg-primary`, `bg-card`, `bg-muted`, `text-foreground`, `text-muted-foreground`, `border-border`, `bg-destructive`) by default. Reach for `var(--color-*)` only when shadcn has no name for the state (`hover:bg-[var(--color-accent-hover)]`, `bg-[var(--color-surface-sunk)]`). Never hardcode Tailwind colors (`text-red-500`).
 - **Spacing / sizing / type:** always raw app tokens via Tailwind arbitrary syntax — `gap-(--space-3)`, `px-(--space-6)`, `h-(--height-input-md)`, `text-[length:var(--text-sm)]`, `leading-[var(--leading-sm)]`. There is no shadcn scale for these.
 - **Radii:** use shared radius tokens. Do not hard-code radii in page code.
-- **Status:** use shared status primitives (`StatusBlock`, `StatusLabel`) rather than local chips. `StatusBlock` owns the visual split between framed status cells and soft inline chips.
+- **Status:** use shared status primitives (`StatusBlock`, `StatusLabel`) rather than local chips. `StatusBlock` owns the visual split between framed status cells and soft inline chips; show its caret only when the chip or its table cell opens an action panel.
 - **Numerics:** order IDs, currency, counts, and dates in tabular context use `font-mono` + `tabular-nums`; `font-mono` is a semantic role, not permission to import another typeface.
 - **Font:** use the global font variables. See `docs/design/foundations.md` for roles.
 - **shadcn config:** `radix-nova` style with `stone` base color — see `components.json` for component aliases.

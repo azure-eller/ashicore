@@ -17,6 +17,7 @@ export function FulfillmentStatusBlock({
   state,
   footer,
   marker,
+  showCaret,
   className,
   style,
   ...props
@@ -24,6 +25,8 @@ export function FulfillmentStatusBlock({
   state: FulfillmentDisplayState;
   footer?: ReactNode;
   marker?: ReactNode;
+  /** Show the dropdown caret when this chip's cell opens a panel. */
+  showCaret?: boolean;
   className?: string;
   style?: CSSProperties;
 }) {
@@ -32,6 +35,7 @@ export function FulfillmentStatusBlock({
       tone={fulfillmentStatusBlockTone[state.tone]}
       footer={footer}
       marker={marker}
+      showCaret={showCaret}
       className={className}
       style={style}
       {...props}
