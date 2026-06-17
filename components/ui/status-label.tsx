@@ -4,12 +4,14 @@ import { cn } from "@/lib/utils"
 
 type StatusTone = "success" | "warning" | "danger" | "info" | "neutral"
 
+// Same soft-tint chip palette as StatusBlock so every status pill in the app
+// reads identically.
 const toneClasses: Record<StatusTone, string> = {
-  success: "bg-[var(--color-success-soft)] text-[var(--status-success-ink)]",
-  warning: "bg-[var(--color-warning-soft)] text-[var(--status-warning-ink)]",
-  danger: "bg-[var(--color-danger-soft)] text-[var(--status-danger-ink)]",
-  info: "bg-[var(--color-info-soft)] text-[color-mix(in_oklch,var(--color-info),var(--color-ink)_38%)]",
-  neutral: "bg-[var(--color-surface-sunk)] text-[var(--color-ink-faint)]",
+  success: "bg-[var(--chip-success-bg)] text-[var(--chip-success-ink)]",
+  warning: "bg-[var(--chip-warning-bg)] text-[var(--chip-warning-ink)]",
+  danger: "bg-[var(--chip-danger-bg)] text-[var(--chip-danger-ink)]",
+  info: "bg-[var(--chip-info-bg)] text-[var(--chip-info-ink)]",
+  neutral: "bg-[var(--chip-muted-bg)] text-[var(--chip-muted-ink)]",
 }
 
 function StatusLabel({
@@ -25,7 +27,7 @@ function StatusLabel({
       data-slot="status-label"
       data-tone={tone}
       className={cn(
-        "inline-flex h-(--space-10) w-fit shrink-0 items-center justify-center rounded-[var(--radius-pill)] border border-transparent px-(--space-3) font-mono text-[length:var(--text-xs)] leading-[var(--leading-xs)] font-semibold tracking-[var(--tracking-caps)] whitespace-nowrap uppercase transition-colors duration-(--duration-1) ease-(--ease-out) focus-visible:border-[var(--color-accent)] focus-visible:shadow-[0_0_0_4px_var(--color-accent-soft)]",
+        "inline-flex w-fit shrink-0 items-center justify-center rounded-(--radius-sm) border border-transparent px-[11px] py-(--space-3) font-sans text-[length:var(--text-status)] leading-none font-semibold tracking-[0.005em] whitespace-nowrap transition-colors duration-(--duration-1) ease-(--ease-out) focus-visible:border-[var(--color-accent)] focus-visible:shadow-[0_0_0_4px_var(--color-accent-soft)]",
         toneClasses[tone],
         className
       )}

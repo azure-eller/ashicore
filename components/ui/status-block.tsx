@@ -121,7 +121,7 @@ function StatusBlockContent({
             ? "relative inline-flex min-w-0 flex-1 items-center px-(--space-5)"
             : isFramed
               ? "inline-flex items-center px-(--space-6) py-[8px]"
-              : "inline-flex items-center px-[14px] py-(--space-3)",
+              : "inline-flex items-center px-[11px] py-(--space-3)",
         )}
       >
         <span className="inline-flex min-w-0 items-center">
@@ -139,8 +139,8 @@ function StatusBlockContent({
           {showInlineCaret ? (
             <HugeiconsIcon
               icon={icon ?? ArrowDown01Icon}
-              size={15}
-              className="ml-(--space-3) shrink-0 opacity-50"
+              size={13}
+              className="ml-(--space-2) shrink-0 opacity-50"
             />
           ) : null}
         </span>
@@ -177,11 +177,7 @@ export function StatusBlock({
   const baseClassName = cn(
     framed
       ? "inline-flex min-h-(--height-header-control) h-full w-full shrink-0 items-stretch overflow-hidden rounded-(--radius-none) font-mono text-[length:var(--text-xs)] font-bold uppercase tracking-[0.03em]"
-      : cn(
-          "inline-flex h-auto w-fit shrink-0 items-center overflow-hidden font-sans text-[length:var(--text-status)] font-semibold tracking-[0.005em]",
-          // Display chip vs. interactive action pill (e.g. "Make").
-          actionable ? "rounded-(--radius-full)" : "rounded-(--radius-sm)"
-        ),
+      : "inline-flex h-auto w-fit shrink-0 items-center overflow-hidden rounded-(--radius-sm) font-sans text-[length:var(--text-status)] font-semibold tracking-[0.005em]",
     "leading-none",
     "text-[color:var(--status-block-fg)]",
     "bg-[var(--tone-bg)]",

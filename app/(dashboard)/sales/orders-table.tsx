@@ -108,9 +108,9 @@ type SalesOrderGridRow = SalesOrderListRow & {
 };
 
 const SALES_ORDER_AUTO_SIZE_COLUMN_IDS = [
-  "orderNumber",
   "allocation",
   "ingredientsState",
+  "productionState",
   "deliveryState",
   "shipDate",
 ] as const;
@@ -118,6 +118,11 @@ const SALES_ORDER_AUTO_SIZE_COLUMN_IDS = [
 function autoSizeSalesOrderStatusColumns(api: GridApi<SalesOrderGridRow>) {
   window.requestAnimationFrame(() => {
     api.autoSizeColumns([...SALES_ORDER_AUTO_SIZE_COLUMN_IDS], true);
+    window.requestAnimationFrame(() => {
+      if (!api.isDestroyed()) {
+        api.sizeColumnsToFit();
+      }
+    });
   });
 }
 
@@ -648,35 +653,23 @@ function SalesOrderStatusPanel({
 
   if (!panel || !order) return null;
 
-  const titleByKind: Record<SalesOrderPanelKind, string> = {
-    allocation: "Sales items",
-    ingredientsState: "Ingredients",
-    productionState: "Production",
-    deliveryState: "Delivery",
-  };
-  const title = titleByKind[panel.kind];
+  // Table panels (sales items / ingredients) render their grid flush to the
+  // rounded card edges, like an AG Grid table; action menus keep padding.
+  const isTablePanel =
+    panel.kind === "allocation" || panel.kind === "ingredientsState";
 
   return (
     <div
       ref={panelRef}
       data-sales-order-status-panel
-      className="fixed z-50 w-[min(560px,calc(100vw_-_24px))] border border-[var(--color-line)] bg-[var(--color-surface)] shadow-[var(--shadow-grid-card)]"
+      className="fixed z-50 w-[min(560px,calc(100vw_-_24px))] overflow-hidden rounded-(--radius-lg) border-[1.5px] border-[var(--color-line-strong)] bg-[var(--color-surface)] shadow-[var(--shadow-sm)]"
       style={{ left: panel.x, top: panel.y }}
     >
-      <div className="flex items-center justify-between border-b border-[var(--color-line)] bg-[var(--color-surface-alt)] px-(--space-5) py-(--space-4)">
-        <div className="min-w-0">
-          <div className="font-mono text-[length:var(--text-xs)] font-bold uppercase tracking-[var(--tracking-caps)] text-[var(--color-ink-faint)]">
-            {title}
-          </div>
-          <div className="truncate text-[length:var(--text-sm)] font-semibold">
-            {order.orderNumber} · {order.customerName}
-          </div>
-        </div>
-        <Button type="button" variant="ghost" size="sm" onClick={onClose}>
-          Close
-        </Button>
-      </div>
-      <div className="max-h-[360px] overflow-y-auto p-(--space-5)">
+      <div
+        className={`max-h-[360px] overflow-y-auto ${
+          isTablePanel ? "" : "p-(--space-5)"
+        }`}
+      >
         {panel.kind === "allocation" ? (
           <StatusDetailMenuTable
             emptyMessage="No sales items."
@@ -871,9 +864,9 @@ function OrdersTableContent({
         field: "priorityRank",
         headerName: "Rank",
         headerTooltip: SALES_ORDER_RANK_TOOLTIP,
-        width: 86,
-        minWidth: 80,
-        maxWidth: 120,
+        width: 72,
+        minWidth: 64,
+        maxWidth: 110,
         resizable: false,
         sortable: false,
         rowDrag: reorderEnabled,
@@ -889,9 +882,9 @@ function OrdersTableContent({
         field: "orderNumber",
         headerName: "Order",
         headerTooltip: SALES_ORDER_NUMBER_TOOLTIP,
-        width: 150,
-        minWidth: 140,
-        maxWidth: 190,
+        width: 180,
+        minWidth: 150,
+        maxWidth: 240,
         cellClass: "mono",
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderGridRow>) =>
           data ? (
@@ -943,8 +936,8 @@ function OrdersTableContent({
         colId: "allocation",
         headerName: "Sales Items",
         headerTooltip: SALES_ORDER_ITEMS_STATUS_TOOLTIP,
-        width: 185,
-        minWidth: 180,
+        width: 165,
+        minWidth: 130,
         cellClass: ({ data }) => data?.__grid.salesItemsCellClass ?? ["statusBlockCell"],
         valueGetter: ({ data }) => data?.__grid.salesItemsLabel ?? "",
         valueFormatter: ({ value }) => String(value ?? ""),
@@ -963,8 +956,8 @@ function OrdersTableContent({
         colId: "ingredientsState",
         headerName: "Ingredients",
         headerTooltip: SALES_ORDER_INGREDIENTS_STATUS_TOOLTIP,
-        width: 185,
-        minWidth: 180,
+        width: 165,
+        minWidth: 130,
         cellClass: ({ data }) => data?.__grid.ingredientsCellClass ?? ["statusBlockCell"],
         valueGetter: ({ data }) => data?.__grid.ingredientsLabel ?? "",
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderGridRow>) =>
@@ -976,8 +969,8 @@ function OrdersTableContent({
         colId: "productionState",
         headerName: "Production",
         headerTooltip: SALES_ORDER_PRODUCTION_STATUS_TOOLTIP,
-        width: 195,
-        minWidth: 190,
+        width: 165,
+        minWidth: 130,
         cellClass: ({ data }) => data?.__grid.productionCellClass ?? ["statusBlockCell"],
         valueGetter: ({ data }) => data?.__grid.productionLabel ?? "",
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderGridRow>) =>
@@ -995,8 +988,8 @@ function OrdersTableContent({
         colId: "deliveryState",
         headerName: "Delivery",
         headerTooltip: SALES_ORDER_DELIVERY_STATUS_TOOLTIP,
-        width: 140,
-        minWidth: 130,
+        width: 150,
+        minWidth: 120,
         cellClass: ({ data }) => data?.__grid.deliveryCellClass ?? ["statusBlockCell"],
         valueGetter: ({ data }) => data?.__grid.deliveryLabel ?? "",
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderGridRow>) =>

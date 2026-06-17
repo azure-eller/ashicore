@@ -79,7 +79,7 @@ export const erpGridTheme = themeQuartz.withParams({
   backgroundColor: "var(--color-surface)",
   borderColor: "var(--color-line)",
   browserColorScheme: "light",
-  cellHorizontalPadding: 16,
+  cellHorizontalPadding: 12,
   cellTextColor: "var(--color-ink)",
   dataBackgroundColor: "var(--color-surface)",
   fontFamily: "var(--font-sans)",

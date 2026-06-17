@@ -245,7 +245,7 @@
 }
 
 .editableGrid :global(.ag-header-cell-text) {
-  font-size: var(--text-grid-header);
+  font-size: var(--text-xs);
 }
 
 .editableGrid :global(.ag-cell.ag-cell-inline-editing) {

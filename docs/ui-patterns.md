@@ -22,7 +22,7 @@ Design intent lives in `docs/design/`. App-wide runtime token values live in `ap
 - **Colors:** use shadcn semantic classes (`bg-primary`, `bg-card`, `bg-muted`, `text-foreground`, `text-muted-foreground`, `border-border`, `bg-destructive`) by default. Reach for `var(--color-*)` only when shadcn has no name for the state (`hover:bg-[var(--color-accent-hover)]`, `bg-[var(--color-surface-sunk)]`). Never hardcode Tailwind colors (`text-red-500`).
 - **Spacing / sizing / type:** always raw app tokens via Tailwind arbitrary syntax — `gap-(--space-3)`, `px-(--space-6)`, `h-(--height-input-md)`, `text-[length:var(--text-sm)]`, `leading-[var(--leading-sm)]`. There is no shadcn scale for these.
 - **Radii:** use shared radius tokens. Do not hard-code radii in page code.
-- **Status:** use shared status primitives (`StatusBlock`, `StatusLabel`) rather than local chips. `StatusBlock` owns the visual split between framed status cells and soft inline chips; show its caret only when the chip or its table cell opens an action panel.
+- **Status:** use shared status primitives (`StatusBlock`, `StatusLabel`) rather than local chips. Framed status cells stay solid/uppercase; inline labels and inline `StatusBlock` chips share the same soft chip palette and corner treatment. Show a caret only when the chip or its table cell opens an action panel.
 - **Numerics:** order IDs, currency, counts, and dates in tabular context use `font-mono` + `tabular-nums`; `font-mono` is a semantic role, not permission to import another typeface.
 - **Font:** use the global font variables. See `docs/design/foundations.md` for roles.
 - **shadcn config:** `radix-nova` style with `stone` base color — see `components.json` for component aliases.
@@ -51,7 +51,8 @@ version when available.
 Shared grid chrome is part of `ERPDataGrid`: white data cells on the neutral
 canvas, grey headers, horizontal row rules, and resize grips on headers without
 vertical column dividers. Do not recreate column borders or alternate table
-surfaces in route code.
+surfaces in route code. Detail-card line grids should keep the same header,
+row, and cell-padding rhythm unless a shared grid variant is introduced.
 
 ## Dashboard Module Layouts
 
@@ -230,7 +231,7 @@ For standard dashboard list pages, use the shared AG Grid list shell instead of 
 - Keep column definitions local to the domain file
 - Pass `queryKey`, `queryFn`, `addHref`, empty-state copy, and optional `deleteAction` config into `ERPDataGridList`
 - Use `ERPDataGrid` directly only when the page needs custom list behavior such as persisted row drag
-- Main operational lists should use bounded internal scrolling and AG Grid column resizing.
+- Main operational lists should use bounded internal scrolling, AG Grid column resizing, and fit their standard columns without page-level horizontal scroll.
 
 ```tsx
 <ERPDataGridList
@@ -255,7 +256,7 @@ For standard dashboard list pages, use the shared AG Grid list shell instead of 
 
 ## Editable Line Items
 
-Dense spreadsheet-style ERP line sections should use the named wrappers from `components/editable-lines.tsx`, not raw `EditableLineDataGrid`, unless the grid is a custom workflow surface.
+ERP line sections should use the named wrappers from `components/editable-lines.tsx`, not raw `EditableLineDataGrid`, unless the grid is a custom workflow surface. These line grids should read as the card/editing counterpart to the main operational grid, not as a separate table style.
 
 - `MutableLines`: add, edit, delete, and reorder rows. Use for normal repeated business lines such as PO materials, PO costs, BOM ingredients, operation costs, and contacts.
 - `ManagedEditableLines`: edit, delete, and reorder source-backed rows, but no add row. Use when another entity generates the rows, such as MO ingredients populated from a BOM.

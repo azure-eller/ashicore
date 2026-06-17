@@ -37,7 +37,7 @@ Use color to encode state and hierarchy, not decoration.
 - Warning means expected, partial, in progress, or needs attention.
 - Danger means blocked, missing, destructive, or failed.
 - Muted means inactive, not applicable, not started, or not shipped.
-- Inline status chips use the soft chip tokens; framed status cells use the stronger status tokens.
+- Inline status chips and labels use the soft chip tokens consistently; framed status cells use the stronger status tokens.
 
 Do not invent local palettes. If a state does not fit the existing semantic set, clarify the state model before adding color.
 
