@@ -11,7 +11,7 @@
 }
 
 .root :global(.erp-grid-toolbar [data-slot="button"]) {
-  border-radius: var(--radius-md) !important;
+  border-radius: var(--radius-pill) !important;
 }
 
 .root :global(.erp-grid-toolbar [data-slot="button"][data-size="icon"]) {
@@ -28,9 +28,9 @@
 
 .grid {
   background: var(--color-surface);
-  border: 1px solid var(--color-line);
+  border: 1.5px solid var(--color-line-strong);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-grid-card);
+  box-shadow: var(--shadow-sm);
   overflow: visible;
 }
 
@@ -38,9 +38,28 @@
   border-bottom-color: var(--color-line);
 }
 
-.grid :global(.ag-header-cell),
-.grid :global(.ag-cell) {
-  border-right: 1px solid var(--color-line-2);
+/* No vertical column dividers. Resizability is signalled by a thin grip drawn
+   on AG's native resize handle (the right-edge drag zone) — so it only reacts
+   when the cursor is actually over the handle, not anywhere on the header. The
+   body stays clean. */
+.grid :global(.ag-header-cell-resize)::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 1px;
+  height: 14px;
+  background: var(--color-line);
+  pointer-events: none;
+  transition:
+    background var(--duration-2) var(--ease-out),
+    height var(--duration-2) var(--ease-out);
+}
+
+.grid :global(.ag-header-cell-resize:hover)::after {
+  background: var(--color-ink-faint);
+  height: 20px;
 }
 
 .grid :global(.ag-header-cell-label) {
@@ -78,6 +97,7 @@
 
 .grid :global(.ag-cell) {
   align-items: center;
+  border-right: 0 !important;
   color: var(--color-ink);
   display: flex;
   font-family: var(--font-sans);
@@ -165,7 +185,6 @@
 
 .grid :global(.ag-cell.statusBlockCell) {
   align-items: center;
-  border-right-color: var(--color-line);
   padding-inline: var(--space-5);
 }
 

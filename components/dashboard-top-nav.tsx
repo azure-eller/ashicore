@@ -102,7 +102,7 @@ function ModuleTab({
       variant="ghost"
       size="default"
       className={cn(
-        "relative h-(--height-header-control) shrink-0 rounded-(--radius-md) px-(--space-6) text-[length:var(--text-md)] leading-[var(--leading-sm)] text-[var(--chrome-fg)] transition-colors duration-100 hover:bg-[var(--chrome-line)] hover:text-[var(--chrome-fg)]",
+        "relative h-(--height-header-control) shrink-0 rounded-(--radius-full) px-(--space-6) text-[length:var(--text-md)] leading-[var(--leading-sm)] text-[var(--chrome-fg)] transition-colors duration-100 hover:bg-[var(--chrome-line)] hover:text-[var(--chrome-fg)]",
         (showingSubNav || active) &&
           "bg-transparent font-semibold text-[var(--chrome-fg)] shadow-[inset_0_0_0_1.5px_var(--chrome-fg)] hover:bg-transparent hover:text-[var(--chrome-fg)]"
       )}
@@ -206,7 +206,7 @@ function ModuleNav({
               size="default"
               aria-label="More modules"
               className={cn(
-                "relative h-(--height-header-control) shrink-0 gap-(--space-4) rounded-(--radius-md) px-(--space-6) text-[length:var(--text-md)] leading-[var(--leading-sm)] font-medium text-[var(--chrome-fg)] transition-colors duration-100 hover:bg-[var(--chrome-line)] hover:text-[var(--chrome-fg)] data-[state=open]:bg-[var(--chrome-line)] data-[state=open]:text-[var(--chrome-fg)]",
+                "relative h-(--height-header-control) shrink-0 gap-(--space-4) rounded-(--radius-full) px-(--space-6) text-[length:var(--text-md)] leading-[var(--leading-sm)] font-medium text-[var(--chrome-fg)] transition-colors duration-100 hover:bg-[var(--chrome-line)] hover:text-[var(--chrome-fg)] data-[state=open]:bg-[var(--chrome-line)] data-[state=open]:text-[var(--chrome-fg)]",
                 overflowActive &&
                   "bg-transparent font-semibold text-[var(--chrome-fg)] shadow-[inset_0_0_0_1.5px_var(--chrome-fg)] hover:bg-transparent hover:text-[var(--chrome-fg)]"
               )}
@@ -273,7 +273,7 @@ function ModuleNav({
             type="button"
             variant="ghost"
             size="default"
-            className="relative h-(--height-header-control) shrink-0 gap-(--space-4) rounded-(--radius-md) px-(--space-6) text-[length:var(--text-md)] leading-[var(--leading-sm)] font-medium"
+            className="relative h-(--height-header-control) shrink-0 gap-(--space-4) rounded-(--radius-full) px-(--space-6) text-[length:var(--text-md)] leading-[var(--leading-sm)] font-medium"
           >
             <HugeiconsIcon
               icon={MoreHorizontalIcon}
@@ -575,7 +575,7 @@ export function DashboardTopNav({
                 >
                   <Avatar className="size-(--height-topnav-control) ring-1 ring-[var(--chrome-line)]">
                     {user.avatar && <AvatarImage src={user.avatar} alt={user.name} />}
-                    <AvatarFallback className="bg-[var(--color-accent-soft)] text-[var(--color-accent-ink)]">
+                    <AvatarFallback className="bg-[linear-gradient(140deg,var(--color-accent-soft),color-mix(in_oklch,var(--chrome-bg),white_8%))] font-mono text-[length:var(--text-label)] font-semibold text-[var(--chrome-fg-soft)]">
                       {initials}
                     </AvatarFallback>
                   </Avatar>
@@ -686,7 +686,7 @@ export function DashboardTopNav({
                   href={item.href}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "flex h-(--height-subnav) shrink-0 items-center px-(--space-5) text-[length:var(--text-md)] leading-[var(--leading-md)] font-medium text-[var(--subnav-fg)] hover:text-[var(--subnav-fg)]",
+                    "flex h-(--height-subnav) shrink-0 items-center px-(--space-5) text-[length:var(--text-md)] leading-[var(--leading-md)] font-medium text-[var(--subnav-fg-soft)] hover:text-[var(--subnav-fg)]",
                     active &&
                       "font-semibold text-[var(--subnav-fg)] shadow-[inset_0_-2px_0_var(--color-accent)]"
                   )}

@@ -1208,11 +1208,11 @@ function OrdersTableContent({
 
           reorderMutation.mutate(orderedRows);
         }}
-        className="flex h-[calc(100dvh_-_var(--height-nav)_-_var(--height-subnav))] min-h-0 flex-col gap-(--space-7) bg-[var(--color-bg)]"
+        className="flex h-[calc(100dvh_-_var(--height-nav)_-_var(--height-subnav))] min-h-0 flex-col gap-(--space-7) bg-[var(--color-bg)] px-(--space-10) pt-(--space-8) pb-(--space-7)"
         gridClassName="min-h-0 flex-1"
         height="100%"
-        headerHeight={48}
-        rowHeight={55}
+        headerHeight={56}
+        rowHeight={72}
       />
       <SalesOrderStatusPanel
         panel={visibleActivePanel}

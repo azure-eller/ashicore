@@ -79,23 +79,23 @@ export const erpGridTheme = themeQuartz.withParams({
   backgroundColor: "var(--color-surface)",
   borderColor: "var(--color-line)",
   browserColorScheme: "light",
-  cellHorizontalPadding: 12,
+  cellHorizontalPadding: 16,
   cellTextColor: "var(--color-ink)",
   dataBackgroundColor: "var(--color-surface)",
   fontFamily: "var(--font-sans)",
   foregroundColor: "var(--color-ink)",
   headerBackgroundColor: "var(--color-surface-alt)",
-  headerColumnBorder: true,
+  headerColumnBorder: false,
   headerColumnResizeHandleColor: "var(--color-line)",
   headerTextColor: "var(--grid-header-fg)",
   oddRowBackgroundColor: "var(--color-surface)",
-  rowBorder: true,
+  rowBorder: { style: "solid", width: 1, color: "var(--color-line-soft)" },
   rowHoverColor: "var(--color-surface-sunk)",
   selectedRowBackgroundColor: "var(--color-accent-soft)",
   tooltipBackgroundColor: "var(--color-surface)",
   tooltipBorder: "1px solid var(--color-line)",
   tooltipTextColor: "var(--color-ink)",
-  wrapperBorderRadius: 14,
+  wrapperBorderRadius: 16,
 });
 
 export type ERPDataGridProps<TData extends { id: string }> = {
@@ -267,8 +267,8 @@ export function ERPDataGrid<TData extends { id: string }>({
   pinnedBottomRows,
   getRowId,
   height = "calc(100dvh - 10.75rem)",
-  rowHeight = 48,
-  headerHeight = 44,
+  rowHeight = 64,
+  headerHeight = 54,
   groupHeaderHeight,
   defaultColDef: defaultColDefOverrides,
   emptyMessage = "No rows found.",
@@ -532,7 +532,7 @@ export function ERPDataGrid<TData extends { id: string }>({
         >
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-(--space-4)">
             {onSearchChange && (
-              <InputGroup className="h-(--height-grid-toolbar-control) w-full rounded-(--radius-md) sm:w-[280px]">
+              <InputGroup className="h-(--height-grid-toolbar-control) w-full rounded-(--radius-pill) sm:w-[280px]">
                 <InputGroupAddon align="inline-start" className="pr-(--space-2)">
                   <HugeiconsIcon icon={Search01Icon} size={16} aria-hidden />
                 </InputGroupAddon>

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { after } from "next/server";
-import { Hanken_Grotesk, JetBrains_Mono, Space_Grotesk } from "next/font/google";
+import { Space_Grotesk } from "next/font/google";
 import {
   getRequestLogContext,
   logObservedEvent,
@@ -9,11 +9,13 @@ import { Providers } from "@/app/providers";
 import { APP_NAME } from "@/lib/app-brand";
 import "./globals.css";
 
-const sans = Hanken_Grotesk({
+// One family across all three roles: Space Grotesk carries display, body, and
+// "mono"/numeric text (kept on tabular-nums for alignment).
+const sans = Space_Grotesk({
   subsets: ["latin"],
   variable: "--font-app-sans",
 });
-const mono = JetBrains_Mono({
+const mono = Space_Grotesk({
   subsets: ["latin"],
   variable: "--font-app-mono",
 });

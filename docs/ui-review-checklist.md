@@ -39,8 +39,9 @@ tokens, tokenized radii, and HugeIcons only.
 - Narrow viewport and long-string cases.
 - Zero, negative, partial, late, disabled, or read-only states when they are
   natural for the domain surface.
-- Dark mode only when the changed components use new color/surface treatment or
-  changed token usage.
+- Inverted surfaces only when the changed component owns one. The authenticated
+  ERP app is light-mode; do not add local dark-mode checks for ordinary
+  dashboard surfaces.
 
 ## Review Rubric
 

@@ -73,6 +73,22 @@ const TONE_DIVIDER: Record<StatusBlockTone, string> = {
   muted: "var(--status-muted-divider)",
 };
 
+// Inline chips (non-framed) use the soft-tinted chip palette. Framed status
+// cells (footer/marker) keep the solid tones above.
+const CHIP_BG: Record<StatusBlockTone, string> = {
+  success: "var(--chip-success-bg)",
+  warning: "var(--chip-warning-bg)",
+  danger: "var(--chip-danger-bg)",
+  muted: "var(--chip-muted-bg)",
+};
+
+const CHIP_INK: Record<StatusBlockTone, string> = {
+  success: "var(--chip-success-ink)",
+  warning: "var(--chip-warning-ink)",
+  danger: "var(--chip-danger-ink)",
+  muted: "var(--chip-muted-ink)",
+};
+
 function statusBlockBg(tone: StatusBlockTone, actionable: boolean) {
   if (tone === "muted" && actionable) return "var(--status-muted-action-bg)";
   return `var(--status-${tone}-bg)`;
@@ -96,6 +112,7 @@ function StatusBlockContent({
   showCaret: boolean;
 }) {
   const showInlineCaret = actionable && showCaret;
+  const isFramed = Boolean(footer || marker);
 
   return (
     <>
@@ -103,7 +120,9 @@ function StatusBlockContent({
         className={cn(
           footer
             ? "relative inline-flex min-w-0 flex-1 items-center px-(--space-5)"
-            : "inline-flex items-center px-(--space-6) py-[8px]",
+            : isFramed
+              ? "inline-flex items-center px-(--space-6) py-[8px]"
+              : "inline-flex items-center px-[14px] py-(--space-3)",
         )}
       >
         <span className="inline-flex min-w-0 items-center">
@@ -114,14 +133,15 @@ function StatusBlockContent({
               className="mr-(--space-2) opacity-90"
             />
           ) : null}
-          <span className="truncate text-[length:var(--text-xs)] font-bold uppercase tracking-[0.03em]">
-            {children}
-          </span>
+          {/* Typography (family, case, weight, tracking) inherits from the
+              StatusBlock wrapper so framed cells stay mono/uppercase and inline
+              chips read as title-case Space Grotesk. */}
+          <span className="truncate">{children}</span>
           {showInlineCaret ? (
             <HugeiconsIcon
               icon={icon ?? ArrowDown01Icon}
-              size={10}
-              className="ml-(--space-2) shrink-0 opacity-90"
+              size={15}
+              className="ml-(--space-3) shrink-0 opacity-50"
             />
           ) : null}
         </span>
@@ -157,9 +177,13 @@ export function StatusBlock({
   const framed = Boolean(footer || marker);
   const baseClassName = cn(
     framed
-      ? "inline-flex min-h-(--height-header-control) h-full w-full shrink-0 items-stretch overflow-hidden rounded-(--radius-none)"
-      : "inline-flex h-auto w-fit shrink-0 items-center overflow-hidden rounded-(--radius-full)",
-    "font-mono text-[length:var(--text-xs)] leading-none font-bold uppercase tracking-[0.03em]",
+      ? "inline-flex min-h-(--height-header-control) h-full w-full shrink-0 items-stretch overflow-hidden rounded-(--radius-none) font-mono text-[length:var(--text-xs)] font-bold uppercase tracking-[0.03em]"
+      : cn(
+          "inline-flex h-auto w-fit shrink-0 items-center overflow-hidden font-sans text-[length:var(--text-status)] font-semibold tracking-[0.005em]",
+          // Display chip vs. interactive action pill (e.g. "Make").
+          actionable ? "rounded-(--radius-full)" : "rounded-(--radius-sm)"
+        ),
+    "leading-none",
     "text-[color:var(--status-block-fg)]",
     "bg-[var(--tone-bg)]",
     actionable &&
@@ -169,8 +193,8 @@ export function StatusBlock({
     className
   );
   const baseStyle = {
-    "--tone-bg": statusBlockBg(tone, actionable),
-    "--status-block-fg": TONE_FG[tone],
+    "--tone-bg": framed ? statusBlockBg(tone, actionable) : CHIP_BG[tone],
+    "--status-block-fg": framed ? TONE_FG[tone] : CHIP_INK[tone],
     "--status-block-divider": TONE_DIVIDER[tone],
     ...style,
   } as CSSProperties;
