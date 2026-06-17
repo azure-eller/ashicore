@@ -33,7 +33,7 @@ The grouped bill flow below is for Xero. QuickBooks bill sync is limited: it doe
 
 <Steps>
 
-1. **Open "Manage bills..." and fill the bill details.** Save the order first, then from its **bill** control choose **Manage bills...**. That opens the **Create Xero bills** or **Create QuickBooks bills** panel, depending on the connected provider. Set a **Bill date** and **Due date** (the due date can't be earlier than the bill date), then for each included group enter the **Supplier invoice number** and **Bill account**. Xero uses the selected bill date and due date; QuickBooks bill date/due date handling is not equivalent in the current implementation.
+1. **Open "Manage bills..." and fill the bill details.** From the order's **bill** control, choose **Manage bills...**. Ashicore saves the latest valid order edits first, then opens the **Create Xero bills** or **Create QuickBooks bills** panel, depending on the connected provider. The panel reflects the saved materials and additional costs; when you push the bill, Ashicore rebuilds the bill groups from the saved order again. Set a **Bill date** and **Due date** (the due date can't be earlier than the bill date), then for each included group enter the **Supplier invoice number** and **Bill account**. Xero uses the selected bill date and due date; QuickBooks bill date/due date handling is not equivalent in the current implementation.
 
    <Frame title="<b>Create Xero bills</b>">
      <span slot="action"><Button variant="primary">Push 1 to Xero</Button></span>

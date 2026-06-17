@@ -682,6 +682,37 @@ test.describe("sales demand and shipping heartbeat", () => {
     expect(saved.contacts).toHaveLength(1);
   });
 
+  test("customer immediate reload keeps a just-blurred scalar autosave", async ({
+    page,
+    db,
+  }) => {
+    const customer = await createCustomer({
+      name: `Fast Customer Reload ${Date.now()}`,
+      email: "before@example.com",
+    });
+    expect(customer.status, JSON.stringify(customer.body)).toBe(201);
+    const customerId = customer.body.id as string;
+    const email = `reload-${randomUUID()}@example.com`;
+
+    await page.goto(`/sales/customers/${customerId}`);
+    const emailInput = page.getByLabel("Email");
+    await expect(emailInput).toHaveValue("before@example.com");
+    await emailInput.fill(email);
+    await emailInput.blur();
+    await page.reload();
+
+    await expect(page.getByLabel("Email")).toHaveValue(email, { timeout: 15_000 });
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+
+    const [savedCustomer] = await db
+      .select({ email: customers.email })
+      .from(customers)
+      .where(eq(customers.id, customerId));
+    expect(savedCustomer.email).toBe(email);
+  });
+
   test("customer autosave keeps contact edits made while the header save is in flight", async ({
     page,
     db,
@@ -1052,6 +1083,59 @@ test.describe("sales demand and shipping heartbeat", () => {
     );
   });
 
+  test("sales order status transition blocks when autosave is invalid", async ({
+    db,
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const productId = await createStockedProduct(`StatusBlock${unique}`, "10");
+    const customer = await createCustomer({
+      name: `Fast Status Block Customer ${unique}`,
+    });
+    expect(customer.status).toBe(201);
+
+    const order = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: "2026-05-01",
+      shipDate: "2026-05-02",
+      lines: [{ itemId: productId, quantity: "2", unitPrice: "12.00" }],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+    const orderId = order.body.id as string;
+    const invalidOrderNumber = `SO-${"X".repeat(40)}-${unique}`;
+    let shipCalls = 0;
+
+    await page.route(`**/api/sales-orders/${orderId}/ship`, async (route) => {
+      shipCalls += 1;
+      await route.fulfill({
+        status: 418,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "ship should be blocked" }),
+      });
+    });
+
+    await page.goto(`/sales/order/${orderId}`);
+    await page
+      .locator('input[value^="SO-"]')
+      .first()
+      .fill(invalidOrderNumber);
+
+    await page.getByLabel("Change status: Not shipped").click();
+    await page.getByRole("menuitem", { name: "Shipped", exact: true }).click();
+
+    await expect(page.getByRole("alert")).toHaveText(
+      "Order number must be 32 characters or fewer",
+    );
+    await expect(page.getByLabel("Change status: Not shipped")).toBeVisible();
+    expect(shipCalls).toBe(0);
+
+    const [saved] = await db
+      .select({ status: salesOrders.status })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, orderId));
+    expect(saved.status).toBe("open");
+  });
+
   test("sales order create-MO action stays reachable on an invalid dirty draft", async ({
     page,
   }) => {
@@ -1085,7 +1169,64 @@ test.describe("sales demand and shipping heartbeat", () => {
     ).toBeVisible();
   });
 
+  test("sales order create-MO action stops when autosave fails", async ({
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const productId = await createStockedProduct(`MakeFail${unique}`, "0");
+    const customer = await createCustomer({
+      name: `Fast Make Failed Save Customer ${unique}`,
+    });
+    expect(customer.status).toBe(201);
+
+    const order = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: "2026-05-01",
+      shipDate: "2026-05-02",
+      lines: [{ itemId: productId, quantity: "2", unitPrice: "12.00" }],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+    let saveCalls = 0;
+
+    await page.route(`**/api/sales-orders/${order.body.id}`, async (route) => {
+      if (
+        route.request().method() === "PUT" ||
+        route.request().method() === "PATCH"
+      ) {
+        saveCalls += 1;
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "forced autosave failure" }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.goto(`/sales/order/${order.body.id}`);
+    const failedSave = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(`/api/sales-orders/${order.body.id}`) &&
+        response.status() === 503,
+    );
+    await page
+      .locator('input[value^="SO-"]')
+      .first()
+      .fill(`SO-AUTOSAVE-FAIL-${unique}`);
+
+    await failedSave;
+    await expect.poll(() => saveCalls, { timeout: 15_000 }).toBeGreaterThan(0);
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menuitem", { name: "Create manufacturing order(s)" }).click();
+
+    await expect(
+      page.getByRole("dialog", { name: "Create Manufacturing Orders" }),
+    ).toBeHidden();
+  });
+
   test("sales order line production action is reachable on the card", async ({
+    db,
     page,
   }) => {
     const unique = randomUUID().slice(0, 8);
@@ -1102,14 +1243,168 @@ test.describe("sales demand and shipping heartbeat", () => {
       lines: [{ itemId: productId, quantity: "2", unitPrice: "12.00" }],
     });
     expect(order.status, JSON.stringify(order.body)).toBe(201);
+    let releaseSave!: () => void;
+    const saveCanFinish = new Promise<void>((resolve) => {
+      releaseSave = resolve;
+    });
+    let saveCalls = 0;
+
+    await page.route(`**/api/sales-orders/${order.body.id}`, async (route) => {
+      if (
+        route.request().method() === "PUT" ||
+        route.request().method() === "PATCH"
+      ) {
+        saveCalls += 1;
+        await saveCanFinish;
+      }
+      await route.continue();
+    });
+    await page.goto(`/sales/order/${order.body.id}`);
+    await editGridCell(page, "quantity", "5");
+    await expect.poll(() => saveCalls, { timeout: 15_000 }).toBeGreaterThan(0);
+    await page.getByLabel("Production: Make").first().click();
+    await page.getByRole("menuitem", { name: "Make to order" }).click();
+
+    const dialog = page.getByRole("dialog", { name: "Create Manufacturing Order" });
+    await expect(dialog).toBeHidden();
+    releaseSave();
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("cell", { name: "5", exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+
+    const [line] = await db
+      .select({ quantity: salesOrderLines.quantity })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, order.body.id));
+    expect(line.quantity).toBe("5.0000");
+  });
+
+  test("sales order line production dialog scopes open MOs to the selected line", async ({
+    db,
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const component = await createItem({
+      itemType: "material",
+      name: `Fast Line Scope Component ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-LINE-SCOPE-COMP-${unique}-${ts}`,
+      category: `Fast Sales ${ts}`,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "100",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(component.status, JSON.stringify(component.body)).toBe(201);
+    const selectedProduct = await createItem({
+      itemType: "product",
+      name: `Fast Line Scope Selected Product ${unique}`,
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-LINE-SCOPE-SELECTED-${unique}-${ts}`,
+      category: `Fast Sales ${ts}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "12.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: component.body.id, quantity: "1" }],
+    });
+    expect(selectedProduct.status, JSON.stringify(selectedProduct.body)).toBe(201);
+    const otherProduct = await createItem({
+      itemType: "product",
+      name: `Fast Line Scope Other Product ${unique}`,
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-LINE-SCOPE-OTHER-${unique}-${ts}`,
+      category: `Fast Sales ${ts}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "12.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: component.body.id, quantity: "1" }],
+    });
+    expect(otherProduct.status, JSON.stringify(otherProduct.body)).toBe(201);
+    const customer = await createCustomer({
+      name: `Fast Line Scope Customer ${unique}`,
+    });
+    expect(customer.status).toBe(201);
+    const order = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: "2026-05-01",
+      shipDate: "2026-05-02",
+      lines: [
+        { itemId: selectedProduct.body.id, quantity: "2", unitPrice: "12.00" },
+        { itemId: otherProduct.body.id, quantity: "3", unitPrice: "12.00" },
+      ],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+    const lines = await db
+      .select({ id: salesOrderLines.id, itemId: salesOrderLines.itemId })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, order.body.id));
+    const otherLine = lines.find((line) => line.itemId === otherProduct.body.id);
+    expect(otherLine).toBeTruthy();
+    const otherLineMo = await createManufacturingOrder({
+      productId: otherProduct.body.id,
+      salesOrderId: order.body.id,
+      salesOrderLineId: otherLine!.id,
+      plannedQuantity: "3",
+      plannedDate: "2026-05-01",
+      ingredients: [{ itemId: component.body.id, quantityPerUnit: "1" }],
+      confirmShortage: false,
+    });
+    expect(otherLineMo.status, JSON.stringify(otherLineMo.body)).toBe(201);
 
     await page.goto(`/sales/order/${order.body.id}`);
     await page.getByLabel("Production: Make").first().click();
     await page.getByRole("menuitem", { name: "Make to order" }).click();
 
+    const dialog = page.getByRole("dialog", { name: "Create Manufacturing Order" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText("No open manufacturing orders.")).toBeVisible();
+    await expect(dialog.getByText(otherLineMo.body.orderNumber)).toBeHidden();
+  });
+
+  test("sales order line production action blocks when autosave is invalid", async ({
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const productId = await createStockedProduct(`LMB${unique}`, "0");
+    const customer = await createCustomer({
+      name: `Fast Line Make Block Customer ${unique}`,
+    });
+    expect(customer.status).toBe(201);
+
+    const order = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: "2026-05-01",
+      shipDate: "2026-05-02",
+      lines: [{ itemId: productId, quantity: "2", unitPrice: "12.00" }],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+    const invalidOrderNumber = `SO-${"X".repeat(40)}-${unique}`;
+
+    await page.goto(`/sales/order/${order.body.id}`);
+    await page
+      .locator('input[value^="SO-"]')
+      .first()
+      .fill(invalidOrderNumber);
+    await page.getByLabel("Production: Make").first().click();
+    await page.getByRole("menuitem", { name: "Make to order" }).click();
+
     await expect(
-      page.getByRole("dialog", { name: "Create Manufacturing Orders" }),
+      page.getByRole("alert").filter({
+        hasText: "Order number must be 32 characters or fewer",
+      }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("dialog", { name: "Create Manufacturing Order" }),
+    ).toBeHidden();
   });
 
   test("sales order accounting push blocks when autosave is invalid", async ({

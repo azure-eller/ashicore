@@ -14,12 +14,15 @@ import {
   manufacturingOrderIngredients,
   manufacturingOrders,
   notifications,
+  salesOrderLines,
   user,
 } from "../../../lib/db/schema";
 import {
   completeManufacturingOrder,
+  createCustomer,
   createItem,
   createManufacturingOrder,
+  createSalesOrder,
   getBaseUrl,
   getOrgId,
   getSessionCookie,
@@ -190,6 +193,103 @@ test.describe("manufacturing demand and completion heartbeat", () => {
         )
       );
     expect(rows).toHaveLength(1);
+  });
+
+  test("sales-order make-to-stock MO creation is idempotent", async ({
+    db,
+  }) => {
+    const component = await createItem({
+      itemType: "material",
+      name: `Fast MTS Replay Component ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-MTS-REPLAY-COMP-${ts}`,
+      category: `Fast Manufacturing ${ts}`,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "100",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(component.status).toBe(201);
+
+    const product = await createItem({
+      itemType: "product",
+      name: `Fast MTS Replay Product ${ts}`,
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-MTS-REPLAY-${ts}`,
+      category: `Fast Manufacturing ${ts}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: component.body.id, quantity: "1" }],
+    });
+    expect(product.status).toBe(201);
+
+    const customer = await createCustomer({
+      name: `Fast MTS Replay Customer ${ts}`,
+    });
+    expect(customer.status).toBe(201);
+
+    const order = await createSalesOrder({
+      customerId: customer.body.id,
+      orderNumber: `MTS-REPLAY-${ts}`,
+      orderDate: "2026-05-10",
+      shipDate: "2026-05-20",
+      lines: [{ itemId: product.body.id, quantity: "4", unitPrice: "10.00" }],
+    });
+    expect(order.status).toBe(201);
+
+    const [line] = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, order.body.id));
+    expect(line).toBeTruthy();
+
+    const body = JSON.stringify({
+      manufacturingStrategy: "make_to_stock",
+      plannedDate: "2026-05-19",
+      salesOrderLineIds: [line.id],
+      priorityRank: null,
+      lineQuantities: [
+        {
+          salesOrderLineId: line.id,
+          quantity: "4",
+        },
+      ],
+      notes: null,
+    });
+    const replayKey = `fast-mts-replay:${order.body.id}`;
+    const postCreateFromSalesOrder = () =>
+      testFetch(`/api/sales-orders/${order.body.id}/manufacturing-orders`, {
+        method: "POST",
+        headers: { "Idempotency-Key": replayKey },
+        body,
+      });
+
+    const first = await postCreateFromSalesOrder();
+    const firstBody = (await first.json()) as {
+      created: Array<{ manufacturingOrderId: string }>;
+    };
+    expect(first.status, JSON.stringify(firstBody)).toBe(201);
+
+    const replay = await postCreateFromSalesOrder();
+    const replayBody = (await replay.json()) as {
+      created: Array<{ manufacturingOrderId: string }>;
+    };
+    expect(replay.status, JSON.stringify(replayBody)).toBe(201);
+    expect(replayBody.created).toEqual(firstBody.created);
+
+    const orders = await db
+      .select({ id: manufacturingOrders.id })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.productId, product.body.id));
+    expect(orders.map((row) => row.id)).toEqual([
+      firstBody.created[0]?.manufacturingOrderId,
+    ]);
   });
 
   test("manufacturing order client-id replay finalizes a different idempotency key", async ({
@@ -417,6 +517,71 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       .where(eq(manufacturingOrders.id, orderId));
     expect(saved.notes).toBe(notes);
     expect(saved.isBlocked).toBe(true);
+  });
+
+  test("manufacturing status transition blocks when autosave is invalid", async ({
+    db,
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const fixture = await createBomFixture(`StatusBlock${unique}`);
+    const order = await createManufacturingOrder({
+      productId: fixture.productId,
+      plannedQuantity: "3",
+      plannedDate: "2026-06-10",
+      notes: null,
+      ingredients: [{ itemId: fixture.componentId, quantityPerUnit: "2" }],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+    const orderId = order.body.id as string;
+    const writes: Array<{ method: string; body: unknown }> = [];
+
+    await page.route(`**/api/manufacturing-orders/${orderId}`, async (route) => {
+      const request = route.request();
+      if (request.method() === "PUT" || request.method() === "PATCH") {
+        writes.push({
+          method: request.method(),
+          body: request.postDataJSON(),
+        });
+      }
+      await route.continue();
+    });
+
+    await page.goto(`/manufacturing/order/${orderId}`);
+    const quantityInput = page.getByLabel("Quantity", { exact: true });
+    await expect(quantityInput).toBeVisible();
+    await quantityInput.fill("0");
+
+    await page.getByLabel("Change status: Not started").click();
+    await page.getByRole("menuitem", { name: "Blocked" }).click();
+
+    await expect(page.getByRole("alert")).toContainText(
+      "Planned quantity must be greater than 0",
+    );
+    await expect(page.getByLabel("Change status: Not started")).toBeVisible();
+    await expect
+      .poll(
+        () =>
+          writes.some(
+            (write) =>
+              write.method === "PATCH" &&
+              typeof write.body === "object" &&
+              write.body != null &&
+              "isBlocked" in write.body,
+          ),
+        { timeout: 2_000 },
+      )
+      .toBe(false);
+
+    const [saved] = await db
+      .select({
+        plannedQuantity: manufacturingOrders.plannedQuantity,
+        isBlocked: manufacturingOrders.isBlocked,
+      })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, orderId));
+    expect(saved.plannedQuantity).toBe("3.0000");
+    expect(saved.isBlocked).toBe(false);
   });
 
   test("manufacturing completion dialog stays reachable on an invalid dirty draft", async ({

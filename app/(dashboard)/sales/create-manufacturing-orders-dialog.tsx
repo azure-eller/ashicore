@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -48,6 +48,7 @@ type Props = {
   buttonClassName?: string;
   initialPlannedDate?: string;
   manufacturingStrategy?: "make_to_order" | "make_to_stock";
+  lineScopeSalesOrderLineId?: string;
   openManufacturingOrders?: Array<{
     id: string;
     orderNumber: string;
@@ -153,11 +154,14 @@ export function CreateManufacturingOrdersDialog({
   buttonClassName,
   initialPlannedDate,
   manufacturingStrategy = "make_to_order",
-  openManufacturingOrders = [],
+  lineScopeSalesOrderLineId,
+  openManufacturingOrders,
   initialLineQuantities,
 }: Props) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const submitInFlightRef = useRef(false);
+  const idempotencyKeyRef = useRef(`create-sales-order-mos:${crypto.randomUUID()}`);
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const open = controlledOpen ?? uncontrolledOpen;
   const [plannedDate, setPlannedDate] = useState<string | null | undefined>(
@@ -174,6 +178,13 @@ export function CreateManufacturingOrdersDialog({
         ]) ?? []
       ),
     [initialLineQuantities]
+  );
+  const initialSelectedLineIds = useMemo(
+    () =>
+      (lineScopeSalesOrderLineId ? [lineScopeSalesOrderLineId] : null) ??
+      initialLineQuantities?.map((lineQuantity) => lineQuantity.salesOrderLineId) ??
+      [],
+    [initialLineQuantities, lineScopeSalesOrderLineId]
   );
 
   const orderQuery = useQuery<SalesOrderDetail>({
@@ -194,6 +205,8 @@ export function CreateManufacturingOrdersDialog({
         { fallbackError: "Failed to load manufacturing preview." }
       ),
     enabled: open,
+    staleTime: 0,
+    refetchOnMount: "always",
   });
 
   const order = orderQuery.data ?? null;
@@ -201,22 +214,38 @@ export function CreateManufacturingOrdersDialog({
     salesOrderLabel ??
     (order ? `${order.orderNumber} - ${order.customerName}` : "");
   const effectiveOpenManufacturingOrders =
-    openManufacturingOrders.length > 0
+    openManufacturingOrders !== undefined
       ? openManufacturingOrders
       : order
-        ? formatOpenManufacturingOrders(order.linkedManufacturingOrders)
+        ? formatOpenManufacturingOrders(
+            lineScopeSalesOrderLineId
+              ? order.linkedManufacturingOrders.filter(
+                  (linkedOrder) =>
+                    linkedOrder.salesOrderLineId === lineScopeSalesOrderLineId
+                )
+              : order.linkedManufacturingOrders
+          )
         : [];
   const effectivePlannedDate =
     plannedDate ??
     initialPlannedDate ??
     defaultManufacturingPlannedDate(order?.shipDate);
+  const previewLines = useMemo(
+    () =>
+      lineScopeSalesOrderLineId
+        ? previewQuery.data?.lines.filter(
+            (line) => line.salesOrderLineId === lineScopeSalesOrderLineId,
+          ) ?? []
+        : previewQuery.data?.lines ?? [],
+    [lineScopeSalesOrderLineId, previewQuery.data],
+  );
   const creatableLines = useMemo(
-    () => previewQuery.data?.lines.filter((line) => line.status === "will_create") ?? [],
-    [previewQuery.data]
+    () => previewLines.filter((line) => line.status === "will_create"),
+    [previewLines]
   );
   const skippedLines = useMemo(
-    () => previewQuery.data?.lines.filter((line) => line.status === "skipped") ?? [],
-    [previewQuery.data]
+    () => previewLines.filter((line) => line.status === "skipped"),
+    [previewLines]
   );
   const defaultSelectedLineIds = useMemo(
     () =>
@@ -224,20 +253,26 @@ export function CreateManufacturingOrdersDialog({
         ? creatableLines
             .filter((line) => initialLineQuantityMap.has(line.salesOrderLineId))
             .map((line) => line.salesOrderLineId)
+        : initialSelectedLineIds.length > 0
+          ? creatableLines
+              .filter((line) => initialSelectedLineIds.includes(line.salesOrderLineId))
+              .map((line) => line.salesOrderLineId)
         : creatableLines.map((line) => line.salesOrderLineId),
-    [creatableLines, initialLineQuantityMap]
+    [creatableLines, initialLineQuantityMap, initialSelectedLineIds]
   );
   const effectiveSelectedLineIds = selectedLineIds ?? defaultSelectedLineIds;
   const selectedLineIdSet = useMemo(
     () => new Set(effectiveSelectedLineIds),
     [effectiveSelectedLineIds]
   );
-  const isSingleLineMode = initialLineQuantityMap.size === 1;
+  const isSingleLineMode =
+    initialLineQuantityMap.size === 1 || initialSelectedLineIds.length === 1;
   const showStatusColumns = skippedLines.length > 0;
   const mutation = useMutation({
     mutationFn: () =>
       apiJson(`/api/sales-orders/${salesOrderId}/manufacturing-orders`, {
         method: "POST",
+        idempotencyKey: idempotencyKeyRef.current,
         body: {
           plannedDate: effectivePlannedDate || null,
           manufacturingStrategy,
@@ -282,6 +317,8 @@ export function CreateManufacturingOrdersDialog({
     setPlannedDate(undefined);
     setSelectedLineIds(null);
     setLineQuantities({});
+    submitInFlightRef.current = false;
+    idempotencyKeyRef.current = `create-sales-order-mos:${crypto.randomUUID()}`;
     mutation.reset();
   };
 
@@ -321,7 +358,17 @@ export function CreateManufacturingOrdersDialog({
     }) &&
     !mutation.isPending &&
     !orderQuery.isLoading &&
-    !previewQuery.isLoading;
+    !previewQuery.isLoading &&
+    !previewQuery.isFetching;
+  const submit = () => {
+    if (!canSubmit || submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
+    mutation.mutate(undefined, {
+      onSettled: () => {
+        submitInFlightRef.current = false;
+      },
+    });
+  };
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -403,7 +450,7 @@ export function CreateManufacturingOrdersDialog({
                   {orderLabel(effectiveSelectedLineIds.length)}
                 </span>
               </div>
-              {previewQuery.isLoading ? (
+              {previewQuery.isLoading || previewQuery.isFetching ? (
                 <EmptyState>Loading manufacturing preview...</EmptyState>
               ) : previewQuery.isError ? (
                 <p className="text-sm text-[var(--status-danger-ink)]">
@@ -431,7 +478,7 @@ export function CreateManufacturingOrdersDialog({
                       </FramedTableRow>
                     </FramedTableHead>
                     <FramedTableBody>
-                      {previewQuery.data.lines.map((line) => {
+                      {previewLines.map((line) => {
                         const isCreatable = line.status === "will_create";
                         const lineIsBatch = isBatchLine(line);
                         const canEditQuantity = manufacturingStrategy === "make_to_stock";
@@ -591,7 +638,7 @@ export function CreateManufacturingOrdersDialog({
           >
             Cancel
           </Button>
-          <Button type="button" onClick={() => mutation.mutate()} disabled={!canSubmit}>
+          <Button type="button" onClick={submit} disabled={!canSubmit}>
             {mutation.isPending
               ? "Creating..."
               : isSingleLineMode

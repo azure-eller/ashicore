@@ -53,8 +53,9 @@ async function editGridCell(
   colId: string,
   value: string,
   rowIndex = 0,
+  gridIndex = 0,
 ) {
-  const cell = editableGrid(page)
+  const cell = editableGrid(page, gridIndex)
     .locator(`.ag-row[row-index="${rowIndex}"] .ag-cell[col-id="${colId}"]`)
     .first();
   await expect(cell).toBeVisible();
@@ -1193,6 +1194,110 @@ test.describe("purchasing supply and receipt heartbeat", () => {
         }),
       ]),
     );
+  });
+
+  test("purchase order autosave preserves an unsent blank additional-cost row across header rebase", async ({
+    page,
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast PO Blank Cost Material ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-PO-BLANK-COST-${unique}`,
+      category: `Fast PO Blank Cost ${unique}`,
+      description: null,
+      defaultPurchasePrice: "6.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status).toBe(201);
+
+    const supplier = await createSupplier({
+      name: `Fast PO Blank Cost Supplier ${unique}`,
+    });
+    expect(supplier.status).toBe(201);
+
+    const order = await createPurchaseOrder({
+      supplierId: supplier.body.id,
+      expectedDate: "2026-05-06",
+      lines: [
+        {
+          itemId: material.body.id,
+          quantityOrdered: "4",
+          unitCost: "6.00",
+        },
+      ],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+    const orderId = order.body.id as string;
+    const notes = `PO blank cost rebase ${unique}`;
+    let delayedFirstPut = false;
+
+    await page.route(`**/api/purchase-orders/${orderId}`, async (route) => {
+      if (route.request().method() === "PUT" && !delayedFirstPut) {
+        delayedFirstPut = true;
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+      }
+      await route.continue();
+    });
+
+    await page.goto(`/purchasing/order/${orderId}`);
+    await expect(
+      editableGrid(page).locator(".ag-center-cols-container .ag-row"),
+    ).toHaveCount(1, { timeout: 15_000 });
+
+    await page.getByRole("button", { name: "Additional costs" }).click();
+    await expect(
+      editableGrid(page, 1).locator(".ag-center-cols-container .ag-row"),
+    ).toHaveCount(1, { timeout: 15_000 });
+
+    const notesInput = page.getByPlaceholder("Supplier-facing notes shown");
+    await notesInput.fill(notes);
+    await notesInput.blur();
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(
+      editableGrid(page, 1).locator(".ag-center-cols-container .ag-row"),
+    ).toHaveCount(1);
+
+    const savedBlankCostRows = await db
+      .select({ id: purchaseOrderAdditionalCosts.id })
+      .from(purchaseOrderAdditionalCosts)
+      .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, orderId));
+    expect(savedBlankCostRows).toHaveLength(0);
+
+    await editGridCell(page, "amount", "12.50", 0, 1);
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+    await page.reload();
+
+    await expect(notesInput).toHaveValue(notes);
+    await expect(
+      editableGrid(page, 1).locator(".ag-center-cols-container .ag-row"),
+    ).toHaveCount(1, { timeout: 15_000 });
+    await expect(
+      editableGrid(page, 1).locator('.ag-row .ag-cell[col-id="amount"]'),
+    ).toContainText("12.50");
+
+    const savedCostRows = await db
+      .select({
+        costType: purchaseOrderAdditionalCosts.costType,
+        amount: purchaseOrderAdditionalCosts.amount,
+      })
+      .from(purchaseOrderAdditionalCosts)
+      .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, orderId));
+    expect(savedCostRows).toEqual([
+      expect.objectContaining({
+        costType: "shipping",
+        amount: "12.5000",
+      }),
+    ]);
   });
 
   test("purchase order autosave keeps a failed server-validation draft recoverable", async ({

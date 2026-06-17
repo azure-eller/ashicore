@@ -42,14 +42,14 @@ using the App Store signup flow.
 ## Disconnect
 
 Customers disconnect Xero from Settings > Integrations. Disconnect removes the
-stored OAuth connection and stops imports, invoice pushes, purchase order pushes,
-and retry jobs for that organization. Existing ERP records and accounting sync
-history remain in Ashicore.
+stored OAuth connection and stops imports, sales invoice pushes, supplier bill
+pushes, and retry jobs for that organization. Existing ERP records and
+accounting sync history remain in Ashicore.
 
 ## Data flow
 
 Ashicore stores encrypted Xero access and refresh tokens, the selected tenant,
 the authorized tenant list, and sync metadata. Imports can read customers,
 suppliers, purchased items, and open purchase orders. Exports can create sales
-invoices and purchase orders, upload supported attachments, and fetch Xero PDFs
-for Ashicore-managed purchase order email delivery.
+invoices and supplier bills. ERP purchase orders, purchase order PDFs, supplier
+emails, receiving, lots, and landed inventory cost remain in Ashicore.

@@ -1455,21 +1455,34 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
 
 export async function createManufacturingOrdersFromSalesOrder(
   salesOrderId: string,
-  payload: CreateManufacturingOrdersFromSalesOrder
+  payload: CreateManufacturingOrdersFromSalesOrder,
+  options?: { idempotencyKey?: string | null }
 ): Promise<ManufacturingOrdersFromSalesOrderResult> {
   let notifyOrgId = "";
-  const result = await withAuthedOrgContext((tx, orgId, userId) => {
+  const { result, replayed } = await withAuthedOrgContext((tx, orgId, userId) => {
     notifyOrgId = orgId;
-    return createManufacturingOrdersFromSalesOrderInTx(
+    return runIdempotentInventoryOperationInTx<ManufacturingOrdersFromSalesOrderResult>(
       tx,
-      orgId,
-      salesOrderId,
-      payload,
-      userId
+      {
+        organizationId: orgId,
+        operationName: "createManufacturingOrdersFromSalesOrder",
+        idempotencyKey: options?.idempotencyKey ?? null,
+        payload: { salesOrderId, ...payload },
+      },
+      () =>
+        createManufacturingOrdersFromSalesOrderInTx(
+          tx,
+          orgId,
+          salesOrderId,
+          payload,
+          userId
+        )
     );
   });
-  for (const order of result.created) {
-    await notifyManufacturingOrderCreated(notifyOrgId, order.manufacturingOrderId);
+  if (!replayed) {
+    for (const order of result.created) {
+      await notifyManufacturingOrderCreated(notifyOrgId, order.manufacturingOrderId);
+    }
   }
   return result;
 }

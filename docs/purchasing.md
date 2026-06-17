@@ -57,6 +57,9 @@ be handled manually.
 - material bill lines use ordered purchase-unit quantity and unit cost; descriptions include
   the stock-unit conversion when purchase and stocking units differ; lines use the account
   selected in the bill dialog
+- opening provider bill management and creating a provider bill require the latest valid
+  PO draft to save first, then rebuild the bill payload from the saved materials and
+  additional costs
 - bill-affecting edits remain allowed after sync; users reconcile the accounting bill
   separately when needed
 - the legacy export routes (`accounting-push`/`xero-push`, `accounting-email`/`xero-email`)

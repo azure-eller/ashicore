@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { apiHandler } from "@/lib/api/handler";
+import { apiHandler, requireIdempotencyKey } from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";
 import { jsonNotFound, jsonCreated } from "@/lib/api/responses";
 import { assertModuleReadAccess, assertModuleWriteAccess } from "@/lib/dal/auth";
@@ -26,11 +26,17 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   await assertModuleWriteAccess("manufacturing", request.headers);
 
   const { id: routeId } = await (ctx as RouteContext).params;
+  const idempotencyKey = requireIdempotencyKey(
+    request,
+    "createManufacturingOrdersFromSalesOrder",
+  );
   const data = await parseJsonBody(
     request,
     createManufacturingOrdersFromSalesOrderSchema,
   );
 
-  const result = await createManufacturingOrdersFromSalesOrder(routeId, data);
+  const result = await createManufacturingOrdersFromSalesOrder(routeId, data, {
+    idempotencyKey,
+  });
   return jsonCreated(result);
 });

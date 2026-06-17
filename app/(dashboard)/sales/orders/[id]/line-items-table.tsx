@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   ICellRendererParams,
   ValueSetterParams,
@@ -20,6 +20,7 @@ import {
   type EditableLineDataGridChange,
   type LineField,
 } from "@/components/editable-lines";
+import { flushSavedCardOrThrow } from "@/components/card-page/card-action-boundary";
 import { FulfillmentStatusBlock } from "@/components/fulfillment-status-block";
 import { CardSection } from "@/components/card-page/card-page";
 import { formatPercent, formatPrice, formatQuantity, normalizeMoney } from "@/lib/format";
@@ -38,6 +39,9 @@ import {
   StatusDetailCell,
   ingredientsStatusEmptyMessage,
 } from "../../sales-order-table-action-cells";
+import {
+  CreateManufacturingOrdersDialog,
+} from "../../create-manufacturing-orders-dialog";
 import { apiJson } from "@/lib/client/api";
 import type {
   SalesLinePricingResult,
@@ -53,6 +57,7 @@ export type LineItemsTableProps = {
   editable: boolean;
   itemOptions?: SalesOrderItemOption[];
   controller: SalesOrderDraftController;
+  onActionError?: (error: Error) => void;
 };
 
 export function LineItemsTable({
@@ -60,8 +65,13 @@ export function LineItemsTable({
   editable,
   itemOptions,
   controller,
+  onActionError,
 }: LineItemsTableProps) {
   const [confirmDelete, setConfirmDelete] = useState<SalesOrderDetailLine | null>(null);
+  const [lineCreateMo, setLineCreateMo] = useState<{
+    strategy: "make_to_order" | "make_to_stock";
+    salesOrderLineId: string;
+  } | null>(null);
   const persistedLineIds = controller.persistedLineIds;
   const lineGuards = useMemo(() => {
     const isPersistedLine = (line: SalesOrderDetailLine | undefined) =>
@@ -127,6 +137,27 @@ export function LineItemsTable({
   ) => {
     controller.updateLine(lineId, patch);
   };
+  const flushBeforeCreateManufacturingOrder = useCallback(
+    () =>
+      flushSavedCardOrThrow({
+        flush: controller.flush,
+        blockedMessage: "Fix the highlighted fields.",
+      }),
+    [controller.flush],
+  );
+  const openLineCreateManufacturingOrder = useCallback(
+    async (
+      strategy: "make_to_order" | "make_to_stock",
+      line: SalesOrderDetailLine,
+    ) => {
+      await flushBeforeCreateManufacturingOrder();
+      setLineCreateMo({
+        strategy,
+        salesOrderLineId: line.id,
+      });
+    },
+    [flushBeforeCreateManufacturingOrder],
+  );
 
   const fields = useMemo<LineField<SalesOrderDetailLine>[]>(
     () => [
@@ -327,6 +358,11 @@ export function LineItemsTable({
               salesOrderLabel={`${order.orderNumber} - ${order.customerName}`}
               shipDate={order.shipDate}
               openManufacturingOrders={data.linkedManufacturingOrders ?? []}
+              onCreateManufacturingOrder={(strategy) => {
+                void openLineCreateManufacturingOrder(strategy, data).catch((error) => {
+                  onActionError?.(error as Error);
+                });
+              }}
             />
           ) : null,
       },
@@ -343,6 +379,8 @@ export function LineItemsTable({
       order.shipDate,
       order.status,
       order.taxRates,
+      onActionError,
+      openLineCreateManufacturingOrder,
       taxRateMap,
       defaultTaxRate,
     ],
@@ -417,73 +455,88 @@ export function LineItemsTable({
   const lineCount = nonBlankRows.length;
 
   return (
-    <CardSection
-      title="Line items"
-      count={`· ${lineCount} ${lineCount === 1 ? "line" : "lines"} · ${
-        formatQuantity(String(totalQuantity))
-      } units`}
-    >
-
-      <MutableLines<SalesOrderDetailLine>
-        rows={rows}
-        fields={fields}
-        getRowId={(row) => row.id}
-        createRow={() => makeBlankLine(defaultTaxRate)}
-        onRowsChange={handleRowsChange}
-        addLabel="Add line"
-        readOnly={!canAddLine}
-        addDisabledReason={null}
-        emptyMessage="No line items yet."
-        canDeleteRow={() => true}
-        getDeleteDisabledReason={(row) =>
-          isPersistedLine(row) ? deleteLineLockedReason(row) : null
-        }
-        onDeleteRow={(row) => {
-          if (!isPersistedLine(row)) {
-            setRows((current) => current.filter((line) => line.id !== row.id));
-            return;
-          }
-          requestDelete(row);
-        }}
-      />
-
-      {pricingLookupError ? (
-        <div className="px-(--space-3) pt-(--space-2) text-[length:var(--text-card-caption)] text-[var(--status-danger-ink)]">
-          {pricingLookupError}
-        </div>
-      ) : null}
-
-      <AlertDialog
-        open={confirmDelete != null}
-        onOpenChange={(open) => {
-          if (!open) setConfirmDelete(null);
-        }}
+    <>
+      <CardSection
+        title="Line items"
+        count={`· ${lineCount} ${lineCount === 1 ? "line" : "lines"} · ${
+          formatQuantity(String(totalQuantity))
+        } units`}
       >
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete line?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {confirmDelete
-                ? `${confirmDelete.itemName} has covered or shipped quantity. Removing it will update demand coverage. This cannot be undone.`
-                : ""}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="danger"
-              onClick={(event) => {
-                event.preventDefault();
-                if (confirmDelete) controller.removeLine(confirmDelete.id);
-                setConfirmDelete(null);
-              }}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </CardSection>
+
+        <MutableLines<SalesOrderDetailLine>
+          rows={rows}
+          fields={fields}
+          getRowId={(row) => row.id}
+          createRow={() => makeBlankLine(defaultTaxRate)}
+          onRowsChange={handleRowsChange}
+          addLabel="Add line"
+          readOnly={!canAddLine}
+          addDisabledReason={null}
+          emptyMessage="No line items yet."
+          canDeleteRow={() => true}
+          getDeleteDisabledReason={(row) =>
+            isPersistedLine(row) ? deleteLineLockedReason(row) : null
+          }
+          onDeleteRow={(row) => {
+            if (!isPersistedLine(row)) {
+              setRows((current) => current.filter((line) => line.id !== row.id));
+              return;
+            }
+            requestDelete(row);
+          }}
+        />
+
+        {pricingLookupError ? (
+          <div className="px-(--space-3) pt-(--space-2) text-[length:var(--text-card-caption)] text-[var(--status-danger-ink)]">
+            {pricingLookupError}
+          </div>
+        ) : null}
+
+        <AlertDialog
+          open={confirmDelete != null}
+          onOpenChange={(open) => {
+            if (!open) setConfirmDelete(null);
+          }}
+        >
+          <AlertDialogContent size="sm">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete line?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {confirmDelete
+                  ? `${confirmDelete.itemName} has covered or shipped quantity. Removing it will update demand coverage. This cannot be undone.`
+                  : ""}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                variant="danger"
+                onClick={(event) => {
+                  event.preventDefault();
+                  if (confirmDelete) controller.removeLine(confirmDelete.id);
+                  setConfirmDelete(null);
+                }}
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </CardSection>
+      {lineCreateMo ? (
+        <CreateManufacturingOrdersDialog
+          salesOrderId={order.id}
+          open
+          onOpenChange={(open) => {
+            if (!open) setLineCreateMo(null);
+          }}
+          showTrigger={false}
+          initialOrder={order}
+          manufacturingStrategy={lineCreateMo.strategy}
+          lineScopeSalesOrderLineId={lineCreateMo.salesOrderLineId}
+        />
+      ) : null}
+    </>
   );
 
   function numericSetter(

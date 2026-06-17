@@ -378,6 +378,7 @@ export type SalesLinkedManufacturingProductionStatus =
 
 export type SalesLinkedManufacturingOrder = {
   id: string;
+  salesOrderLineId: string | null;
   orderNumber: string;
   productName: string;
   productSku: string | null;

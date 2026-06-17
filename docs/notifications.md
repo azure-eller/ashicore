@@ -25,7 +25,7 @@ Without `FIREBASE_SERVICE_ACCOUNT_KEY` set, `sendPush()` writes a JSON file to `
 
 - **`notify()` fires post-commit only.** Never call it inside an `...InTx` function or transaction callback. A notification must not reference uncommitted work.
 - **`notify()` never throws.** A push failure must never fail the business mutation.
-- **Every MO creation path must call `notifyManufacturingOrderCreated()`.** Currently: `createManufacturingOrder`, `createManufacturingOrdersFromSalesOrder`, `createManufacturingOrderDraftFromPlanning`.
+- **Every MO creation path must call `notifyManufacturingOrderCreated()` after a new order is committed.** Currently: `createManufacturingOrder`, `createManufacturingOrdersFromSalesOrder`, `createManufacturingOrderDraftFromPlanning`. Idempotency replays must return the original create result without emitting duplicate notifications.
 - **MO done and PO receipt notifications are ledger-backed lifecycle announcements.** Emit them from the post-commit wrappers around the domain mutations that write `manufacturing_output` and `purchase_receipt` inventory ledger events, not from a polling job and not inside the inventory transaction.
 - **PO received means any successful receipt.** Partial and full receipts both emit `purchase_order_received`; the body says whether the PO is now partially or fully received.
 

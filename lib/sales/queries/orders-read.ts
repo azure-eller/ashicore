@@ -258,6 +258,7 @@ function serializeLinkedManufacturingOrder(
 ): SalesLinkedManufacturingOrder {
   return {
     id: order.id,
+    salesOrderLineId: order.salesOrderLineId,
     orderNumber: order.orderNumber,
     productName: order.productName,
     productSku: order.productSku,

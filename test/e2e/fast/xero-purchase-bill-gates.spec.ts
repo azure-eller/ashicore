@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 import { randomUUID } from "node:crypto";
+import type { Page } from "@playwright/test";
 import { Pool as NeonPool } from "@neondatabase/serverless";
 import { drizzle as drizzleNeon } from "drizzle-orm/neon-serverless";
 import { Pool as PgPool } from "pg";
@@ -23,7 +24,9 @@ import {
   accountingDocumentSyncs,
   integrationConnections,
   member,
+  purchaseOrderAdditionalCosts,
   purchaseOrderLines,
+  purchaseOrders,
   session as authSession,
   user,
 } from "../../../lib/db/schema";
@@ -171,6 +174,28 @@ function expectBillAttemptReachedXeroBoundary(
   expect(body.error).toBe(
     "Connect an accounting provider before creating supplier bills.",
   );
+}
+
+function editableGrid(page: Page, index = 0) {
+  return page.locator('[data-slot="editable-line-data-grid"]').nth(index);
+}
+
+async function editGridCell(
+  page: Page,
+  colId: string,
+  value: string,
+  rowIndex = 0,
+  gridIndex = 0,
+) {
+  const cell = editableGrid(page, gridIndex)
+    .locator(`.ag-row[row-index="${rowIndex}"] .ag-cell[col-id="${colId}"]`)
+    .first();
+  await expect(cell).toBeVisible();
+  await cell.click();
+  const input = page.locator(".ag-cell-inline-editing input").first();
+  await expect(input).toBeVisible();
+  await input.fill(value);
+  await input.press("Enter");
 }
 
 async function createMaterialAndSupplier(ts: number) {
@@ -427,6 +452,39 @@ test.describe("Xero purchase bill gates", () => {
     ).toBeEnabled();
   });
 
+  test("keeps manual billed status reachable on a dirty persisted purchase order", async ({
+    db,
+    page,
+  }) => {
+    const ts = Date.now();
+    const { materialId, supplierId } = await createMaterialAndSupplier(ts);
+    const order = await createPurchaseOrder({
+      supplierId,
+      expectedDate: "2026-05-27",
+      lines: [{ itemId: materialId, quantityOrdered: "5", unitCost: "4.00" }],
+    });
+    expect(order.status).toBe(201);
+    const orderId = order.body.id as string;
+
+    await page.goto(`/purchasing/orders/${orderId}`);
+    await page
+      .getByRole("textbox", { name: "Additional info" })
+      .fill(`Dirty manual bill status ${ts}`);
+    await page.keyboard.press("Tab");
+
+    await page.getByLabel("Bill actions").click();
+    await page.getByRole("menuitem", { name: "Billed", exact: true }).click();
+    await expect(page.getByLabel("Bill actions")).toContainText("Billed", {
+      timeout: 15_000,
+    });
+
+    const [saved] = await db
+      .select({ purchaseBillManualStatus: purchaseOrders.purchaseBillManualStatus })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, orderId));
+    expect(saved.purchaseBillManualStatus).toBe("billed");
+  });
+
   test("keeps bill management reachable when manual billed status masks a pending sync row", async ({
     db,
     page,
@@ -459,6 +517,97 @@ test.describe("Xero purchase bill gates", () => {
     await expect(
       page.getByRole("menuitem", { name: "Manage bills..." }),
     ).toBeEnabled();
+  });
+
+  test("bill management flushes new additional costs before building the bill payload", async ({
+    db,
+    page,
+  }) => {
+    await withOnlyXeroConnection(db, async () => {
+      const ts = Date.now();
+      const { materialId, supplierId } = await createMaterialAndSupplier(ts);
+      const order = await createPurchaseOrder({
+        supplierId,
+        expectedDate: "2026-05-27",
+        lines: [{ itemId: materialId, quantityOrdered: "5", unitCost: "4.00" }],
+      });
+      expect(order.status).toBe(201);
+
+      await page.route("**/api/accounting/connections/xero/accounts", (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ accounts: [{ code: "500", name: "COGS" }] }),
+        }),
+      );
+
+      type BillPayloadBody = {
+        groups?: Array<{ additionalCostIds?: string[]; amount?: string }>;
+      };
+      const billPayload: { body: BillPayloadBody | null } = { body: null };
+      let releaseSave!: () => void;
+      const saveCanFinish = new Promise<void>((resolve) => {
+        releaseSave = resolve;
+      });
+      let saveCalls = 0;
+      await page.route(`**/api/purchase-orders/${order.body.id}`, async (route) => {
+        if (
+          route.request().method() === "PUT" ||
+          route.request().method() === "PATCH"
+        ) {
+          saveCalls += 1;
+          await saveCanFinish;
+        }
+        await route.continue();
+      });
+      await page.route(
+        `**/api/purchase-orders/${order.body.id}/accounting-bill`,
+        async (route) => {
+          billPayload.body = route.request().postDataJSON();
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({
+              status: "pushed",
+              created: true,
+              adopted: false,
+              xeroBillId: "test-bill-id",
+              xeroBillNumber: "BILL-UI-FLUSH",
+            }),
+          });
+        },
+      );
+
+      await page.goto(`/purchasing/orders/${order.body.id}`);
+      await expect(
+        editableGrid(page).locator(".ag-center-cols-container .ag-row"),
+      ).toHaveCount(1, { timeout: 15_000 });
+      await page.getByRole("button", { name: "Additional costs" }).click();
+      await editGridCell(page, "amount", "12.00", 0, 1);
+      await expect.poll(() => saveCalls, { timeout: 15_000 }).toBeGreaterThan(0);
+
+      await page.getByLabel("Bill actions").click();
+      await page.getByRole("menuitem", { name: "Manage bills..." }).click();
+
+      const sheet = page.getByRole("dialog", { name: "Create Xero bills" });
+      await expect(sheet).toBeHidden();
+      releaseSave();
+      await expect(sheet).toBeVisible();
+      await expect(sheet.getByText("$32.00")).toBeVisible();
+      await sheet.getByRole("button", { name: /Bill Gate Supplier/ }).click();
+      await sheet
+        .getByLabel("Supplier invoice number")
+        .fill(`BILL-UI-FLUSH-${ts}`);
+      await sheet.getByRole("button", { name: "Push 1 to Xero" }).click();
+      await expect.poll(() => billPayload.body, { timeout: 20_000 }).not.toBeNull();
+
+      const [cost] = await db
+        .select({ id: purchaseOrderAdditionalCosts.id })
+        .from(purchaseOrderAdditionalCosts)
+        .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, order.body.id));
+      expect(cost?.id).toBeTruthy();
+      expect(billPayload.body?.groups?.[0]?.additionalCostIds).toEqual([cost.id]);
+    });
   });
 
   test("does not block submitted POs before receipt", async ({ db }) => {

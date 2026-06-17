@@ -32,7 +32,6 @@ import { ShippingFeeSection } from "./shipping-fee-section";
 import { TotalsStrip } from "./totals-strip";
 import {
   CreateManufacturingOrdersDialog,
-  defaultManufacturingPlannedDate,
 } from "../../create-manufacturing-orders-dialog";
 import { CardPage, CardPageBanner, CardPageBody, CardSection } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
@@ -288,12 +287,11 @@ export function OrderCard({
                 {
                   label: "Create manufacturing order(s)",
                   onClick: () => {
-                    void flushSavedCardOrThrow({
+                    void flushClosableCardOrThrow({
                       flush: controller.flush,
-                      blockedMessage: "Fix the highlighted fields.",
                     })
-                      .catch(() => undefined)
-                      .finally(() => setMakeToOrderOpen(true));
+                      .then(() => setMakeToOrderOpen(true))
+                      .catch((error) => setActionError((error as Error).message));
                   },
                 },
               ]
@@ -328,6 +326,7 @@ export function OrderCard({
             editable={isEditable}
             itemOptions={itemOptions}
             controller={controller}
+            onActionError={(error) => setActionError(error.message)}
           />
         )}
 
@@ -352,19 +351,6 @@ export function OrderCard({
             open={makeToOrderOpen}
             onOpenChange={setMakeToOrderOpen}
             showTrigger={false}
-            salesOrderLabel={`${order.orderNumber} - ${order.customerName}`}
-            initialPlannedDate={defaultManufacturingPlannedDate(order.shipDate)}
-            openManufacturingOrders={order.linkedManufacturingOrders
-              .filter((linkedOrder) => linkedOrder.status === "open")
-              .map((linkedOrder) => ({
-                id: linkedOrder.id,
-                orderNumber: linkedOrder.orderNumber,
-                itemName: linkedOrder.productName,
-                quantity: `${linkedOrder.plannedQuantity} ${linkedOrder.unitName}`,
-                plannedDate: linkedOrder.plannedDate,
-                priorityRank: linkedOrder.priorityRank,
-                status: linkedOrder.status,
-              }))}
           />
         </>
       )}

@@ -1359,6 +1359,112 @@ test.describe("inventory mutation kernel heartbeat", () => {
     expect(events.some((event) => event.eventType === "stocktake_loss")).toBe(true);
   });
 
+  test("stocktake UI count queue persists rapid row edits while a save is in flight", async ({
+    db,
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const category = `Fast Stocktake Queue ${unique}`;
+    const firstItem = await createItem({
+      itemType: "material",
+      name: `Fast Stocktake Queue A ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-STQ-A-${unique}`,
+      category,
+      description: null,
+      defaultPurchasePrice: "3.00",
+      defaultSellingPrice: null,
+      lotTrackingMode: "untracked",
+      stock: "10",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(firstItem.status).toBe(201);
+    const secondItem = await createItem({
+      itemType: "material",
+      name: `Fast Stocktake Queue B ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-STQ-B-${unique}`,
+      category,
+      description: null,
+      defaultPurchasePrice: "4.00",
+      defaultSellingPrice: null,
+      lotTrackingMode: "untracked",
+      stock: "20",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(secondItem.status).toBe(201);
+
+    const stocktakeResponse = await testFetch("/api/stocktakes", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `Fast Stocktake Queue ${unique}`,
+        scope: buildStocktakeCategoryScope("material", category),
+        reason: "cycle_count",
+        notes: null,
+      }),
+    });
+    expect(stocktakeResponse.status).toBe(201);
+    const stocktake = await stocktakeResponse.json();
+
+    let delayedFirstPut = false;
+    let markPutStarted: () => void = () => {};
+    const putStarted = new Promise<void>((resolve) => {
+      markPutStarted = resolve;
+    });
+    await page.route(`**/api/stocktakes/${stocktake.id}`, async (route) => {
+      if (route.request().method() === "PUT" && !delayedFirstPut) {
+        delayedFirstPut = true;
+        markPutStarted();
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+      }
+      await route.continue();
+    });
+
+    await page.goto(`/inventory/stocktakes/${stocktake.id}`);
+    await expectRows(page, 4);
+    await editGridCell(page, "countedQty", "7", 1);
+    await putStarted;
+    await editGridCell(page, "countedQty", "13", 3);
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+
+    const savedLotLines = await db
+      .select({
+        itemId: stocktakeItems.itemId,
+        countedQty: stocktakeLotItems.countedQty,
+        varianceQty: stocktakeLotItems.varianceQty,
+      })
+      .from(stocktakeLotItems)
+      .innerJoin(stocktakeItems, eq(stocktakeLotItems.stocktakeItemId, stocktakeItems.id))
+      .where(eq(stocktakeItems.stocktakeId, stocktake.id));
+    expect(savedLotLines).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          itemId: firstItem.body.id,
+          countedQty: "7.0000",
+          varianceQty: "-3.0000",
+        }),
+        expect.objectContaining({
+          itemId: secondItem.body.id,
+          countedQty: "13.0000",
+          varianceQty: "-7.0000",
+        }),
+      ]),
+    );
+
+    await page.reload();
+    await expectRows(page, 4);
+    await expect(
+      editableGrid(page).locator('.ag-row[row-index="1"] .ag-cell[col-id="countedQty"]'),
+    ).toContainText("7");
+    await expect(
+      editableGrid(page).locator('.ag-row[row-index="3"] .ag-cell[col-id="countedQty"]'),
+    ).toContainText("13");
+  });
+
   test("item card clone copies variant structure and current recipe without stock", async ({
     db,
   }) => {
@@ -2275,6 +2381,133 @@ test.describe("inventory mutation kernel heartbeat", () => {
       id: itemId,
       supplierItemCode,
     });
+  });
+
+  test("material stock adjustment blocks when item-card autosave is invalid", async ({
+    page,
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast Stock Boundary Material ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-STOCK-BOUNDARY-${unique}`,
+      category: `Fast Stock Boundary ${unique}`,
+      description: null,
+      defaultPurchasePrice: "9.00",
+      defaultSellingPrice: null,
+      stock: "10",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status, JSON.stringify(material.body)).toBe(201);
+    const materialId = material.body.id as string;
+    let adjustmentRequestCount = 0;
+
+    await page.route(`**/api/items/${materialId}/stock-adjustments`, async (route) => {
+      adjustmentRequestCount += 1;
+      await route.continue();
+    });
+
+    await page.goto(`/inventory/materials/${materialId}`);
+    const nameInput = page.getByLabel("Material name");
+    await expect(nameInput).toBeVisible();
+    await nameInput.fill("");
+
+    await editGridCell(page, "inStock", "8");
+    const dialog = page.getByRole("dialog", { name: "Reduce stock" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Cycle count" }).click();
+    await dialog.getByRole("button", { name: "Adjust stock" }).click();
+
+    await expect(dialog.getByText("Name is required")).toBeVisible();
+    await expect(dialog).toBeVisible();
+    expect(adjustmentRequestCount).toBe(0);
+
+    const events = await db
+      .select({ eventType: inventoryEvents.eventType })
+      .from(inventoryEvents)
+      .where(eq(inventoryEvents.itemId, materialId));
+    expect(events.map((event) => event.eventType)).not.toContain(
+      "manual_adjustment_decrease",
+    );
+  });
+
+  test("product recipe save blocks when item-card autosave is invalid", async ({
+    page,
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const component = await createItem({
+      itemType: "material",
+      name: `Fast Recipe Boundary Component ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-RECIPE-BOUNDARY-COMP-${unique}`,
+      category: `Fast Recipe Boundary ${unique}`,
+      description: null,
+      defaultPurchasePrice: "3.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(component.status, JSON.stringify(component.body)).toBe(201);
+
+    const product = await createItem({
+      itemType: "product",
+      name: `Fast Recipe Boundary Product ${unique}`,
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-RECIPE-BOUNDARY-PROD-${unique}`,
+      category: `Fast Recipe Boundary ${unique}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "12.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: component.body.id, quantity: "1" }],
+    });
+    expect(product.status, JSON.stringify(product.body)).toBe(201);
+    const productId = product.body.id as string;
+    let revisionRequestCount = 0;
+
+    const beforeRevisions = await db
+      .select({ id: bomRevisions.id })
+      .from(bomRevisions)
+      .where(eq(bomRevisions.productId, productId));
+
+    await page.route(`**/api/items/${productId}/bom-revisions`, async (route) => {
+      revisionRequestCount += 1;
+      await route.continue();
+    });
+
+    await page.goto(`/inventory/products/${productId}`);
+    const nameInput = page.getByLabel("Product name");
+    await expect(nameInput).toBeVisible();
+    await nameInput.fill("");
+    await page.getByRole("link", { name: "Recipe" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Recipe / Bill of Materials" }),
+    ).toBeVisible();
+
+    await editGridCell(page, "quantity", "2");
+    await page.getByRole("button", { name: "Save recipe" }).click();
+    const dialog = page.getByRole("dialog", { name: "Save recipe" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Save recipe" }).click();
+
+    await expect(
+      page.getByRole("alert").filter({ hasText: "Name is required" }),
+    ).toBeVisible();
+    await expect(dialog).toBeVisible();
+    expect(revisionRequestCount).toBe(0);
+
+    const afterRevisions = await db
+      .select({ id: bomRevisions.id })
+      .from(bomRevisions)
+      .where(eq(bomRevisions.productId, productId));
+    expect(afterRevisions).toHaveLength(beforeRevisions.length);
   });
 
   test("item-card autosave preserves an unsent blank variant row through a header rebase", async ({

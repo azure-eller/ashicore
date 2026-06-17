@@ -221,6 +221,7 @@ export function PurchaseOrderCard({
     initialData?.purchaseBillExternalId ?? null,
   );
   const [purchaseBillDialogOpen, setPurchaseBillDialogOpen] = useState(false);
+  const [purchaseBillDialogOpening, setPurchaseBillDialogOpening] = useState(false);
   const [purchaseBillDialogValues, setPurchaseBillDialogValues] =
     useState<PurchaseBillDialogValues>(() => {
       const today = todayIsoDate();
@@ -316,6 +317,7 @@ export function PurchaseOrderCard({
           }),
     [defaultTaxRate?.id, defaultValues, initialData],
   );
+  const latestSavedPurchaseOrderDraftRef = useRef(initialDraft);
 
   const purchaseOrderController = usePurchaseOrderDraftController({
     initialData,
@@ -327,12 +329,13 @@ export function PurchaseOrderCard({
       setSavedOrderId(id);
       reflectPersistedCardUrlWithoutNavigation(`/purchasing/order/${id}`);
     },
-    onResult: (result) => {
+    onResult: (result, draft) => {
       savedOrderIdRef.current = result.id;
       setSavedOrderId(result.id);
       setSavedOrderNumber(result.orderNumber);
       setDisplayStatus(result.status);
       setAccountingGroupStates(result.accountingGroupStates);
+      latestSavedPurchaseOrderDraftRef.current = draft;
     },
   });
   const draftValues = purchaseOrderController.draft;
@@ -396,10 +399,12 @@ export function PurchaseOrderCard({
   );
 
   useEffect(() => {
-    if (additionalCostsExpanded && additionalCostGridRows.length === 0) {
-      setAdditionalCostsExpanded(false);
-    }
-  }, [additionalCostGridRows.length, additionalCostsExpanded]);
+    const hasAdditionalCosts = additionalCostGridRows.some(
+      (row) => !isBlankPurchaseOrderAdditionalCost(row),
+    );
+    if (hasAdditionalCosts) setAdditionalCostsExpanded(true);
+  }, [additionalCostGridRows]);
+
   useEffect(() => {
     try {
       const raw =
@@ -698,6 +703,7 @@ export function PurchaseOrderCard({
           return id;
         },
       });
+      const refreshedValues = refreshPurchaseBillValues(values);
       return apiJson<{
         xeroBillId: string | null;
         xeroBillNumber: string | null;
@@ -712,7 +718,7 @@ export function PurchaseOrderCard({
       }>(`/api/purchase-orders/${orderId}/accounting-bill`, {
         method: "POST",
         headers: createIdempotencyHeaders("purchase-order-bill"),
-        body: values,
+        body: refreshedValues,
         fallbackError: "Failed to create supplier bill.",
         mapError: (_status, body) => {
           const message =
@@ -1170,12 +1176,16 @@ export function PurchaseOrderCard({
     const rows = accountingGroupStates;
     return new Map(rows.map((state) => [state.groupKey, state]));
   }, [accountingGroupStates]);
-  const resolvedSupplierGroups = useMemo(() => {
-    if (!watchedSupplierId) return [];
-    const supplier = selectedSupplier ?? {
-      id: watchedSupplierId,
+  const buildResolvedSupplierGroups = useCallback((draft: PurchaseOrderDraft) => {
+    const supplierId = draft.supplierId;
+    if (!supplierId) return [];
+    const draftSupplier = supplierOptionsSorted.find(
+      (supplier) => supplier.id === supplierId,
+    );
+    const supplier = draftSupplier ?? {
+      id: supplierId,
       name: "PO supplier",
-      email: currentSupplierEmail,
+      email: initialData?.supplierId === supplierId ? initialData.supplierEmail : null,
     };
     const suppliersById = new Map(
       supplierOptionsSorted.map((row) => [
@@ -1190,10 +1200,10 @@ export function PurchaseOrderCard({
         email: supplier.email ?? null,
       },
       suppliersById,
-      lines: lineGridRows
+      lines: draft.lines
         .filter((line) => !isBlankPurchaseOrderLine(line))
         .map((line) => ({ ...line, id: line.id ?? line.clientRowId })),
-      additionalCosts: additionalCostRows
+      additionalCosts: draft.additionalCosts
         .filter((cost) => !isBlankPurchaseOrderAdditionalCost(cost))
         .map((cost) => ({
           ...cost,
@@ -1202,13 +1212,14 @@ export function PurchaseOrderCard({
         })),
     });
   }, [
-    additionalCostRows,
-    currentSupplierEmail,
-    lineGridRows,
-    selectedSupplier,
+    initialData?.supplierEmail,
+    initialData?.supplierId,
     supplierOptionsSorted,
-    watchedSupplierId,
   ]);
+  const resolvedSupplierGroups = useMemo(
+    () => buildResolvedSupplierGroups(draftValues),
+    [buildResolvedSupplierGroups, draftValues],
+  );
   const emailDialogGroups = useCallback((): PurchaseOrderEmailDialogGroupValues[] => {
     return resolvedSupplierGroups.map((group) => {
       const state =
@@ -1248,8 +1259,10 @@ export function PurchaseOrderCard({
     userEmail,
     userName,
   ]);
-  const billDialogGroups = useCallback((): PurchaseBillDialogGroupValues[] => {
-    return resolvedSupplierGroups.map((group) => {
+  const billDialogGroups = useCallback((
+    groups = resolvedSupplierGroups,
+  ): PurchaseBillDialogGroupValues[] => {
+    return groups.map((group) => {
       const state =
         accountingGroupStateByKey.get(group.key) ??
         (group.isPurchaseOrderSupplier
@@ -1270,9 +1283,7 @@ export function PurchaseOrderCard({
         .filter((id): id is string => Boolean(id));
       return {
         groupKey: group.key,
-        label: group.isPurchaseOrderSupplier
-          ? selectedSupplier?.name ?? "PO supplier"
-          : group.supplier.name,
+        label: group.supplier.name,
         include: state?.pushStatus !== "pushed",
         invoiceNumber: "",
         accountingPurchaseAccountCode:
@@ -1293,9 +1304,49 @@ export function PurchaseOrderCard({
     accountingGroupStateByKey,
     initialData?.accountingPurchaseAccountCode,
     resolvedSupplierGroups,
-    selectedSupplier?.name,
     xeroPurchaseBillDefaultAccountCode,
   ]);
+  const refreshPurchaseBillValues = useCallback(
+    (values: PurchaseBillDialogValues): PurchaseBillDialogValues => {
+      const currentGroupsByKey = new Map(
+        (values.groups ?? []).map((group) => [group.groupKey, group]),
+      );
+      const savedGroups = billDialogGroups(
+        buildResolvedSupplierGroups(latestSavedPurchaseOrderDraftRef.current),
+      );
+      const savedGroupKeys = new Set(savedGroups.map((group) => group.groupKey));
+      const dialogGroupKeys = new Set(currentGroupsByKey.keys());
+      const groupTopologyChanged =
+        savedGroupKeys.size !== dialogGroupKeys.size ||
+        [...savedGroupKeys].some((groupKey) => !dialogGroupKeys.has(groupKey));
+      if (groupTopologyChanged) {
+        throw new Error(
+          "Purchase order bill groups changed while saving. Reopen Manage bills and review the bill details.",
+        );
+      }
+      const groups = savedGroups.map((group) => {
+        const current = currentGroupsByKey.get(group.groupKey);
+        return current
+          ? {
+              ...group,
+              include: current.include,
+              invoiceNumber: current.invoiceNumber,
+              accountingPurchaseAccountCode: current.accountingPurchaseAccountCode,
+            }
+          : group;
+      });
+      const first = groups[0];
+      return {
+        ...values,
+        groups,
+        invoiceNumber: first?.invoiceNumber ?? values.invoiceNumber,
+        accountingPurchaseAccountCode:
+          first?.accountingPurchaseAccountCode ??
+          values.accountingPurchaseAccountCode,
+      };
+    },
+    [billDialogGroups, buildResolvedSupplierGroups],
+  );
   const currentDeliveryAddress: DeliveryAddressFields = {
     shipAddressEntryId: null,
     shipContactName: null,
@@ -1359,7 +1410,8 @@ export function PurchaseOrderCard({
     });
     setPoEmailDialogOpen(true);
   };
-  const openPurchaseBillDialog = () => {
+  const openPurchaseBillDialog = async () => {
+    if (purchaseBillDialogOpening) return;
     if (xeroBillSetupStatus === "not_connected") {
       setFormError(ACCOUNTING_NOT_CONNECTED_MESSAGE);
       return;
@@ -1370,17 +1422,29 @@ export function PurchaseOrderCard({
     }
 
     setFormError(null);
-    const groups = billDialogGroups();
-    const first = groups[0];
-    setPurchaseBillDialogValues((current) => ({
-      ...current,
-      groups,
-      invoiceNumber: first?.invoiceNumber ?? "",
-      accountingPurchaseAccountCode:
-        first?.accountingPurchaseAccountCode ??
-        current.accountingPurchaseAccountCode,
-    }));
-    setPurchaseBillDialogOpen(true);
+    setPurchaseBillDialogOpening(true);
+    try {
+      await flushSavedCardOrThrow({
+        flush: purchaseOrderController.flush,
+        blockedMessage: "Save changes before creating a supplier bill.",
+        fallbackError: "Save changes before creating a supplier bill.",
+      });
+      const groups = billDialogGroups();
+      const first = groups[0];
+      setPurchaseBillDialogValues((current) => ({
+        ...current,
+        groups,
+        invoiceNumber: first?.invoiceNumber ?? "",
+        accountingPurchaseAccountCode:
+          first?.accountingPurchaseAccountCode ??
+          current.accountingPurchaseAccountCode,
+      }));
+      setPurchaseBillDialogOpen(true);
+    } catch (error) {
+      setFormError((error as Error).message);
+    } finally {
+      setPurchaseBillDialogOpening(false);
+    }
   };
 
   return (
@@ -1430,7 +1494,7 @@ export function PurchaseOrderCard({
                   return { pushStatus: state?.pushStatus ?? null };
                 })}
                 billableGroupCount={Math.max(resolvedSupplierGroups.length, 1)}
-                busy={purchaseBillMutation.isPending}
+                busy={purchaseBillMutation.isPending || purchaseBillDialogOpening}
                 externalId={purchaseBillExternalId}
                 externalNumber={purchaseBillExternalNumber}
                 disabled={!canWrite}
@@ -1438,7 +1502,9 @@ export function PurchaseOrderCard({
                 onSetManualStatus={(status) =>
                   purchaseBillManualStatusMutation.mutate(status)
                 }
-                onCreate={openPurchaseBillDialog}
+                onCreate={() => {
+                  void openPurchaseBillDialog();
+                }}
               />
             ) : null
           }
@@ -1632,12 +1698,12 @@ export function PurchaseOrderCard({
                       className="inline-flex min-h-7 items-center gap-(--space-1) rounded-[var(--radius-md)] border-0 bg-transparent px-(--space-3) py-0 text-[length:var(--text-sm)] font-medium text-[var(--color-accent-ink)] outline-none transition-colors duration-(--duration-1) ease-(--ease-out) hover:bg-[var(--color-accent-soft)] focus-visible:shadow-[0_0_0_4px_var(--color-accent-soft)] disabled:cursor-not-allowed disabled:opacity-50"
                       disabled={additionalCostsReadOnly}
                       onClick={() => {
-                        setAdditionalCostsExpanded(true);
                         if (additionalCostGridRows.length === 0) {
                           purchaseOrderController.replaceAdditionalCosts([
                             createAdditionalCostRow(),
                           ]);
                         }
+                        setAdditionalCostsExpanded(true);
                       }}
                     >
                       <span aria-hidden="true">+</span>

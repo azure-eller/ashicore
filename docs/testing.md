@@ -62,7 +62,7 @@ Fast tests are mutation-seam heartbeats. Each test must prove one business invar
 - Do not assert incidental UI details such as toast copy, menu text, layout, sort order, tab defaults, list breadth, button wording, or CSS state unless that UI behavior is the seam.
 - No bug-souvenir tests. Historical one-off regressions are deleted unless they represent a compact class-level invariant tied to a listed seam.
 
-Not fast in this pass: Xero OAuth/push/retry/email/accounting sync, detailed FEFO/lot-expiry, detailed cost roll-up, long manufacturing execution workflows, and full planning/allocation operational stories.
+Not fast in this pass: live Xero OAuth/network push/retry/email/accounting sync, detailed FEFO/lot-expiry, detailed cost roll-up, long manufacturing execution workflows, and full planning/allocation operational stories.
 
 ## Slow Test Guardrails
 

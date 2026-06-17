@@ -41,7 +41,7 @@ Top-level statuses stay small:
 
 Open-order editing is split by risk:
 
-- planned dates, notes, blocked state, and other non-inventory metadata may be edited while the order is open
+- planned dates, notes, blocked state, and other non-inventory metadata may be edited while the order is open; status changes first require pending valid card edits to save
 - production quantity, product, ingredient snapshot, batch shape, and operation-cost planning may only be edited before execution starts
 - execution has started once the order is started, any batch leaves `pending`, any ingredient is picked or has actuals, or output is recorded
 - make-to-order manufacturing linked to a sales order line must keep the linked product, quantity, and sales line identity

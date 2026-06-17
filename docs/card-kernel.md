@@ -134,23 +134,25 @@ has a persisted id. The card is the draft: the control remains reachable, and
 the action boundary decides whether to flush first, tolerate validation
 failure, or run without flushing. Pure reachability gates based on a persisted
 id, permission, already-running mutation, or terminal business state are fine.
-Opening a dialog that refetches persisted server state is also reachable: it
-runs a best-effort flush first so a valid dirty draft is persisted before the
-refetch, but an unsavable (blocked/failed) draft is tolerated and the dialog
-still opens on persisted state.
+Opening a dialog that refetches persisted server state may either require a
+saved draft or tolerate a blocked draft. Pick the policy by whether stale
+persisted state would make the action unsafe.
 
 Examples:
 
-- Duplicate, clone, create-bill, stock adjustment, recipe save, and operations
-  save are `requireSaved + requiresPersistedId`.
-- Create-MO, receive, and complete dialogs that refetch persisted server state
-  run a best-effort flush before opening (a valid dirty draft is saved so the
-  refetch reflects it; an unsavable draft still opens on persisted state) — they
-  are never blocked on draft state.
+- Duplicate, clone, inventory-affecting status transitions, stock adjustment,
+  recipe save, operations save, and opening or pushing provider bills are
+  `requireSaved + requiresPersistedId`.
+- Receive and complete dialogs that refetch persisted server state run a
+  best-effort flush before opening (a valid dirty draft is saved so the refetch
+  reflects it; an unsavable draft still opens on persisted state).
+- Create-MO from a sales order header tolerates a blocked draft and opens on
+  persisted order state, but cancels on save failure or conflict. Create-MO from
+  a sales order line requires the draft to save first so line quantities and
+  validation are current.
 - Delete and close are `tolerateBlocked + requiresPersistedId` when they discard
   the draft rather than copying it.
-- Manual status overrides and bill-management views that act on server state are
-  `none + requiresPersistedId`.
+- Manual status overrides that act on server state are `none + requiresPersistedId`.
 - A never-persisted draft may hide persisted actions or show them disabled with
   a reason; that is reachability, not a save-state gate.
 

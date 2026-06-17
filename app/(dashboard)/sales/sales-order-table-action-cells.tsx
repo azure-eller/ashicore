@@ -110,6 +110,7 @@ export function ProductionStatusCell({
   salesOrderLabel,
   shipDate,
   openManufacturingOrders,
+  onCreateManufacturingOrder,
 }: {
   state: FulfillmentDisplayState;
   salesOrderId?: string;
@@ -117,6 +118,7 @@ export function ProductionStatusCell({
   salesOrderLabel?: string;
   shipDate?: string | null;
   openManufacturingOrders: SalesLinkedManufacturingOrder[];
+  onCreateManufacturingOrder?: (strategy: "make_to_order" | "make_to_stock") => void;
 }) {
   const [makeToOrderOpen, setMakeToOrderOpen] = useState(false);
   const [manufacturingStrategy, setManufacturingStrategy] =
@@ -128,6 +130,15 @@ export function ProductionStatusCell({
   if (!isMakeAction && !hasOpenManufacturingOrders) {
     return <StatusBlock tone={tone}>{state.label}</StatusBlock>;
   }
+
+  const openCreateManufacturingOrders = (strategy: "make_to_order" | "make_to_stock") => {
+    if (onCreateManufacturingOrder) {
+      onCreateManufacturingOrder(strategy);
+      return;
+    }
+    setManufacturingStrategy(strategy);
+    setMakeToOrderOpen(true);
+  };
 
   return (
     <>
@@ -153,20 +164,14 @@ export function ProductionStatusCell({
           {isMakeAction ? (
             <>
               <DropdownMenuItem
-                onSelect={() => {
-                  setManufacturingStrategy("make_to_order");
-                  setMakeToOrderOpen(true);
-                }}
+                onSelect={() => openCreateManufacturingOrders("make_to_order")}
                 className="gap-(--space-6) py-(--space-5) text-[length:var(--text-sm)]"
               >
                 <HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="size-(--space-8)" />
                 Make to order
               </DropdownMenuItem>
               <DropdownMenuItem
-                onSelect={() => {
-                  setManufacturingStrategy("make_to_stock");
-                  setMakeToOrderOpen(true);
-                }}
+                onSelect={() => openCreateManufacturingOrders("make_to_stock")}
                 className="gap-(--space-6) py-(--space-5) text-[length:var(--text-sm)]"
               >
                 <HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="size-(--space-8)" />
@@ -202,7 +207,7 @@ export function ProductionStatusCell({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {salesOrderId && salesOrderLabel ? (
+      {salesOrderId && salesOrderLabel && !onCreateManufacturingOrder ? (
         <CreateManufacturingOrdersDialog
           salesOrderId={salesOrderId}
           open={makeToOrderOpen}
