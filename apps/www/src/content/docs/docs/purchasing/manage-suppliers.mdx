@@ -1,0 +1,64 @@
+---
+title: Manage suppliers & supplier records
+description: Suppliers hold contact and billing details, payment terms, and notes. A supplier autosaves, edits use version checks, and deletion is blocked while it has active orders.
+sidebar:
+  order: 6
+  label: Manage suppliers
+  badge:
+    text: How-to
+    variant: note
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+import Pill from '../../../../widgets/Pill.astro';
+import Frame from '../../../../widgets/Frame.astro';
+import Field from '../../../../widgets/Field.astro';
+
+Suppliers are the vendors you place purchase orders with. A supplier record holds contact and billing details, payment terms, and notes — and is protected from deletion while it has active orders.
+
+<p class="po-meta">
+  <span class="po-chip">3 steps · ~2 min</span>
+  <span class="po-chip">Access: <b>Purchasing operate</b></span>
+</p>
+
+<Aside type="note" title="Suppliers don't carry a price list">
+What you can buy, its purchase unit, SKU, and unit cost live on the **item**, not on a per-supplier catalog. When you add an item to an order, those values are copied onto the line. See [Purchase vs. stock units](/docs/purchasing/purchase-vs-stock-units) and [Snapshots](/docs/purchasing/snapshots).
+</Aside>
+
+<Steps>
+
+1. **Add a supplier.** From **Suppliers**, choose **New supplier**. Only the **name** is required. Email and billing/contact details help supplier emails and accounting sync; payment terms and notes stay on the supplier record. The record **autosaves** as you type — there's no Save button. Add a short **code**, contact name, email/phone, a billing address, payment terms, and notes.
+
+   <Frame title="<b>New supplier</b>">
+     <span slot="action"><span class="mk-saved">✓ Saved</span></span>
+     <div class="mk-pad">
+       <div class="mk-rows mk-rows--2">
+         <Field label="Name" required>Cooperativa del Huila</Field>
+         <Field label="Code">COOP</Field>
+       </div>
+       <div class="mk-rows mk-rows--2">
+         <Field label="Contact name">Dana Ruiz</Field>
+         <Field label="Email">orders@cooperativahuila.com</Field>
+       </div>
+       <div class="mk-rows mk-rows--2">
+         <Field label="Payment terms">Net 30</Field>
+         <Field label="Phone">(970) 555-0148</Field>
+       </div>
+       <Field label="Billing address">2200 Riverside Rd, Paonia, CO</Field>
+     </div>
+   </Frame>
+
+2. **Edit safely with version checks.** Supplier edits use optimistic concurrency: each save carries the record's version. If someone else changed the supplier since you opened it, your save returns a **conflict** instead of silently overwriting — reload to see their changes and reapply yours.
+
+3. **Delete — guarded by active orders.** Delete a supplier from the supplier card's **⋯** actions menu (**Delete supplier**). It's a soft-delete, and it's blocked while the supplier has any active <Pill status="draft" />, <Pill status="ordered" />, or <Pill status="partial" /> orders — or is used as a carrier on one — so live purchasing never loses its vendor.
+
+   <Aside type="caution" title="“Delete supplier?”">
+   The confirm explains it: *"This supplier will be soft-deleted. Suppliers with active draft, ordered, or partially received purchase orders cannot be deleted."* Fully <Pill status="received" /> orders don't block deletion — the copied supplier name remains on the order record after the supplier is gone.
+   </Aside>
+
+</Steps>
+
+## What's next
+
+- **[Create a purchase order](/docs/purchasing/create-a-purchase-order)** — put a supplier to work.
+- **[Snapshots](/docs/purchasing/snapshots)** — how supplier and item labels are copied onto orders.

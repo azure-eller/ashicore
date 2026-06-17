@@ -1,0 +1,74 @@
+---
+title: The purchase order lifecycle
+description: The four purchase order statuses, what each one allows, what receiving does, and where an order can go next.
+sidebar:
+  order: 2
+  badge:
+    text: Concept
+    variant: tip
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+import Pill from '../../../../widgets/Pill.astro';
+import PoLifecycle from '../../../../widgets/PoLifecycle.astro';
+
+Every purchase order moves through four statuses — <Pill status="draft" /> <Pill status="ordered" /> <Pill status="partial" /> <Pill status="received" />. The status is the one thing that decides what you can edit, receive, or delete, and when an order touches expected supply and inventory.
+
+## Explore each status
+
+Select a status to see what it means, what's allowed, and where it can go next.
+
+<PoLifecycle />
+
+<Aside type="note" title="There is no “cancelled” status">
+An order is removed by **deleting** it, which is only possible while it's <Pill status="draft" /> or <Pill status="ordered" /> — before any receipt. Deleting an ordered order releases its expected supply in the same step.
+</Aside>
+
+## What happens when you receive
+
+Receiving is the most consequential action in purchasing — it's where a promise on paper becomes real, costed, traceable stock. It only ever adds: you can receive more, never "un-receive." One receipt does five things, in order:
+
+<Steps>
+
+1. **Each received line writes inventory history.** Lot-tracked items get a new lot for the received quantity. Lot-untracked items append to their internal shared lot. Receipts arrive as **available**; move a lot to **blocked** afterward from inventory if it needs quarantine.
+
+2. **The lot is costed at the line's landed cost per stocking unit.** Any by-value additional costs you entered before receiving are already baked into that value.
+
+3. **The receipt becomes permanent history.** This is why a partially or fully received order can no longer be deleted, and why received lines can't be removed.
+
+4. **Expected supply for what you received is released.** Planning instantly reflects what actually landed instead of what was still due.
+
+5. **The status advances only when the receipt completes the order.** Receiving part of an ordered order makes it <Pill status="partial" />. Receiving another partial batch keeps it <Pill status="partial" /> until every line is complete, then it becomes <Pill status="received" />.
+
+</Steps>
+
+<Aside type="caution" title="You can't receive more than remaining">
+The receive dialog caps each line at its remaining quantity. A larger value is flagged invalid and cannot be submitted. Increase the ordered quantity first if more stock arrived than the order currently allows.
+</Aside>
+
+<Aside type="note">
+Blank quantities are ignored, and a received quantity must be greater than zero. Marking an order **Received** from the status control isn't a shortcut that skips receiving — it opens the same receive dialog and prefills every remaining line. If you leave the prefill unchanged, the order completes; if you reduce or clear rows, it records only those quantities and may remain <Pill status="partial" />. Stock lands in the **Receive into** location you choose, while expected supply is released from the default planning location.
+</Aside>
+
+## Valid & invalid transitions
+
+These are the only moves the system allows. Anything not listed is blocked to protect inventory history.
+
+| Action | From | To | Notes |
+|--------|------|----|-------|
+| Order | <Pill status="draft" /> | <Pill status="ordered" /> | Registers the remaining quantity as expected supply. |
+| Receive some | <Pill status="ordered" /> | <Pill status="partial" /> | Each received line writes stock history; tracked items get a new lot. |
+| Receive all | <Pill status="ordered" /> | <Pill status="received" /> | The receive dialog is prefilled with the remaining quantities. |
+| Receive another partial batch | <Pill status="partial" /> | <Pill status="partial" /> | More stock arrives, but a remainder still exists. |
+| Receive the rest | <Pill status="partial" /> | <Pill status="received" /> | Completes the remaining lines. |
+| Add a line / increase a quantity | <Pill status="received" /> | <Pill status="partial" /> | Reopens the remainder. |
+| Delete | <Pill status="draft" /> · <Pill status="ordered" /> | <span class="po-tok po-tok--muted">Removed</span> | Deleting an ordered order releases its expected supply. |
+| Reduce below received | <span class="po-tok po-tok--muted">—</span> | <span class="po-tok po-tok--no">Blocked</span> | A quantity can't drop under what's already received. |
+| Remove a received line | <span class="po-tok po-tok--muted">—</span> | <span class="po-tok po-tok--no">Blocked</span> | Receipt history must be preserved. |
+| Delete after any receipt | <span class="po-tok po-tok--muted">—</span> | <span class="po-tok po-tok--no">Blocked</span> | The order keeps its inventory and costing history. |
+
+## Why can't I delete this order?
+
+Delete is allowed **only before any receipt exists** — that means a <Pill status="draft" /> or an <Pill status="ordered" /> order with zero receipts. The moment a single line is received, the order is <Pill status="partial" /> or <Pill status="received" />, and its receipt history must be preserved, so deletion is blocked.
+
+If you need to back out a received order, reverse the stock through inventory rather than deleting the order — the order stays the audit trail for what was actually received, and at what cost.

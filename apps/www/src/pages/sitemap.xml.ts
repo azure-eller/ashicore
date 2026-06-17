@@ -1,13 +1,16 @@
 import { getCollection } from "astro:content";
 import { absoluteUrl, publicPages } from "../lib/site";
-import { compareDocs, docUrl } from "../lib/docs";
 
 export async function GET() {
-  const docs = (await getCollection("docs")).sort(compareDocs);
-  const pages = [
-    ...publicPages,
-    ...docs.map((entry) => ({ path: docUrl(entry), priority: "0.7" })),
-  ];
+  const docs = await getCollection("docs");
+  const publicPaths = new Set(publicPages.map((page) => page.path));
+  const docsPages = docs
+    .map((entry) => ({
+      path: `/${entry.id}`.replace(/\/index$/, ""),
+      priority: "0.7",
+    }))
+    .filter((page) => !publicPaths.has(page.path));
+  const pages = [...publicPages, ...docsPages];
   const urls = pages
     .map(
       (page) => `

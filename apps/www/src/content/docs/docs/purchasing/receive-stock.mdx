@@ -1,0 +1,81 @@
+---
+title: Receive stock (full & partial)
+description: Turn ordered quantities into inventory from the order's status menu. Received pre-fills remaining quantities; Partially received starts blank.
+sidebar:
+  order: 3
+  label: Receive stock
+  badge:
+    text: How-to
+    variant: note
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+import Pill from '../../../../widgets/Pill.astro';
+import Frame from '../../../../widgets/Frame.astro';
+import Field from '../../../../widgets/Field.astro';
+import Grid from '../../../../widgets/Grid.astro';
+import Button from '../../../../widgets/Button.astro';
+
+Turn ordered quantities into real, costed inventory. Receiving is driven from the order's status menu: choose **Received** to prefill all remaining quantities, or **Partially received** to start with blank quantities and fill only what arrived. Each line you receive writes permanent receipt history; lot-tracked items get a new lot.
+
+<p class="po-meta">
+  <span class="po-chip">3 steps · ~3 min</span>
+  <span class="po-chip">Applies to: <b>Ordered / Partially received</b></span>
+  <span class="po-chip">Access: <b>Purchasing operate</b></span>
+</p>
+
+<Aside type="note" title="Receiving starts from the status menu">
+Only <Pill status="ordered" /> or <Pill status="partial" /> orders can be received. Picking **Received** or **Partially received** opens the receive dialog — it doesn't change the status until you confirm.
+</Aside>
+
+<Steps>
+
+1. **Open the receive dialog from the status menu.** On an ordered or partial order, open the **status** menu and choose **Received** (prefill all remaining quantities) or **Partially received** (start blank). Both open the **Receive purchase order** dialog — "Enter the quantities received for each material."
+
+   <Frame title="<b>PO-1045</b> · status">
+     <div class="mk-drop">
+       <div class="mk-opt"><Pill status="ordered" /> <span class="sub">current</span></div>
+       <div class="mk-opt hi"><Pill status="partial" /> <span class="sub">opens dialog →</span></div>
+       <div class="mk-opt hi"><Pill status="received" /> <span class="sub">opens dialog →</span></div>
+     </div>
+   </Frame>
+
+2. **Enter quantities and the receiving location.** The dialog lists every line with its **Ordered**, **Received**, and **Remaining** quantities, plus a **Receive now** input (in purchase units). Choosing *Received* prefills each row to its remaining amount; leave those values unchanged to complete the order, or reduce/clear rows to receive less. Choosing *Partially received* starts blank so you fill only what arrived. Pick the **Receive into** location — leave it as default unless stock landed elsewhere.
+
+   <Frame title="<b>Receive purchase order</b>">
+     <span slot="action"><Button variant="primary">Receive selected</Button></span>
+     <Grid>
+       <thead><tr><th>Item</th><th class="num">Ordered</th><th class="num">Received</th><th class="num">Remaining</th><th class="num">Receive now</th></tr></thead>
+       <tbody>
+         <tr><td><span class="mk-name">Huila Green</span> <span class="mk-sku">RVS-GRN-HUILA</span></td><td class="num">12</td><td class="num">0</td><td class="num">12</td><td class="num"><span class="mk-qty">12</span></td></tr>
+         <tr><td><span class="mk-name">Yirgacheffe Green</span> <span class="mk-sku">RVS-GRN-YIRG</span></td><td class="num">8</td><td class="num">0</td><td class="num">8</td><td class="num"><span class="mk-qty mk-qty--empty">—</span></td></tr>
+       </tbody>
+     </Grid>
+     <div class="mk-pad mk-pad--top">
+       <Field label="Receive into">Riverside Yard</Field>
+     </div>
+   </Frame>
+
+   <Aside type="note" title="You can't receive more than remaining">
+   "Receive now" is capped at each line's remaining quantity — a larger number is flagged invalid and the dialog won't submit. Leave a line blank (or 0) to skip it; that's a partial receipt. Received stock lands as **available**; quarantine it afterward with the inventory lot actions if needed.
+   </Aside>
+
+3. **Confirm — stock, lots, and status update.** Choose **Mark received** when you left the full prefill in place, or **Receive selected** for the lines you filled. Each received line writes a permanent receipt at the landed stock-unit cost; tracked items get a new lot, while untracked items append to their internal shared lot. The matching expected supply is released, and the status becomes <Pill status="partial" /> (lines remain) or <Pill status="received" /> (all complete).
+
+   <div class="po-annot">
+     <div class="arow"><span class="aidx">✓</span><div><div class="at">Lot created</div><div class="ad">828 kg of Huila Green at the landed cost per stock unit, disposition available.</div></div></div>
+     <div class="arow"><span class="aidx">✓</span><div><div class="at">Expected supply drawn down</div><div class="ad">The received 828 kg is removed from the incoming projection at the default location.</div></div></div>
+     <div class="arow"><span class="aidx">✓</span><div><div class="at">Status → Partially received</div><div class="ad">Yirgacheffe Green is still outstanding, so the order waits there until its remainder is received.</div></div></div>
+   </div>
+
+   <Aside type="caution" title="Receiving is positive-only">
+   You can receive another partial batch while the order is <Pill status="partial" />, but you can't "un-receive." Once the order is fully <Pill status="received" />, add a line or increase a quantity first to reopen a remainder, then receive the new quantity. Received lines and the order itself can no longer be deleted because receipt history must be preserved. To back out stock, reverse it through inventory.
+   </Aside>
+
+</Steps>
+
+## What's next
+
+- **[Lots & receiving](/docs/purchasing/lots-and-receiving)** — what a lot is and how its cost is set.
+- **[Add shipping & customs](/docs/purchasing/add-shipping-and-customs)** — make sure landed cost is right before receiving.
+- **[Sync a supplier bill](/docs/purchasing/sync-a-bill-to-xero)** — record the payable.

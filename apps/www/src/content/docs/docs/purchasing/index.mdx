@@ -1,0 +1,70 @@
+---
+title: Purchasing
+description: Suppliers, draft-to-received purchase orders, receiving, landed cost, and manual supplier bill sync.
+sidebar:
+  order: 0
+  label: Overview
+  badge:
+    text: Module
+    variant: note
+---
+
+import Pill from '../../../../widgets/Pill.astro';
+import HubCard from '../../../../widgets/HubCard.astro';
+
+Suppliers, draft-to-received purchase orders, receiving, landed cost, and manual supplier bill sync. Purchase orders are the operational source of truth; your accounting provider receives payable bills, not operational exports.
+
+<p class="po-meta">
+  <span class="po-chip"><b>4</b> statuses</span>
+  <span class="po-chip"><b>6</b> how-tos</span>
+  <span class="po-chip"><b>6</b> concepts</span>
+  <span class="po-chip"><b>4</b> reference tables</span>
+</p>
+
+## Purchase order statuses
+
+An order has one status at a time. The status decides what you can edit, receive, or delete.
+
+| Status | What it means | Edit | Receive | Delete |
+|--------|---------------|------|---------|--------|
+| <Pill status="draft" /> | Being built. Not counted toward expected supply. | <span class="tbl-can good">yes</span> | <span class="tbl-can">—</span> | <span class="tbl-can good">yes</span> |
+| <Pill status="ordered" /> | Ordered from the supplier. Adds expected supply. | <span class="tbl-can good">yes</span> | <span class="tbl-can good">yes</span> | <span class="tbl-can good">before receipt</span> |
+| <Pill status="partial" /> | Some lines received into inventory. | <span class="tbl-can good">yes</span> | <span class="tbl-can good">yes</span> | <span class="tbl-can no">blocked</span> |
+| <Pill status="received" /> | Every line received. Editing up reverts to Partial. | <span class="tbl-can good">yes</span> | <span class="tbl-can">—</span> | <span class="tbl-can no">blocked</span> |
+
+## How-tos
+
+<div class="po-cardgrid">
+  <HubCard href="/docs/purchasing/create-a-purchase-order" n="01" icon="plus" title="Create a purchase order" desc="Pick a supplier, add purchasable materials, set quantities & purchase units." />
+  <HubCard href="/docs/purchasing/submit-to-your-supplier" n="02" icon="arrow" title="Order from your supplier" desc="Send the PO email or move draft to ordered." />
+  <HubCard href="/docs/purchasing/receive-stock" n="03" icon="box" title="Receive stock" desc="Full or partial — receipt history for every received line." />
+  <HubCard href="/docs/purchasing/add-shipping-and-customs" n="04" icon="coin" title="Add shipping & customs" desc="By-value lands on inventory; not-distributed bumps the total only." />
+  <HubCard href="/docs/purchasing/sync-a-bill-to-xero" n="05" icon="doc" title="Sync a supplier bill" desc="A manual action — before or after ordering or receipt." />
+  <HubCard href="/docs/purchasing/manage-suppliers" n="06" icon="supplier" title="Manage suppliers" desc="Contact and billing details, payment terms, and supplier history." />
+</div>
+
+## Concepts
+
+<div class="po-split">
+  <div class="po-rowcard">
+    <a class="po-row" href="/docs/purchasing/the-po-lifecycle"><span class="po-row-main"><span class="po-row-t">The purchase order lifecycle</span></span><span class="po-row-tag">status</span></a>
+    <a class="po-row" href="/docs/purchasing/purchase-vs-stock-units"><span class="po-row-main"><span class="po-row-t">Purchase vs. stock units</span></span><span class="po-row-tag">cost</span></a>
+    <a class="po-row" href="/docs/purchasing/landed-and-additional-costs"><span class="po-row-main"><span class="po-row-t">Landed &amp; additional costs</span></span><span class="po-row-tag">cost</span></a>
+    <a class="po-row" href="/docs/purchasing/expected-supply"><span class="po-row-main"><span class="po-row-t">Expected supply</span></span><span class="po-row-tag">planning</span></a>
+    <a class="po-row" href="/docs/purchasing/lots-and-receiving"><span class="po-row-main"><span class="po-row-t">Lots &amp; receiving</span></span><span class="po-row-tag">inventory</span></a>
+    <a class="po-row" href="/docs/purchasing/snapshots"><span class="po-row-main"><span class="po-row-t">Snapshots</span></span><span class="po-row-tag">history</span></a>
+  </div>
+  <div>
+    <div class="po-rowcard">
+      <a class="po-row" href="/docs/purchasing/purchase-order-fields#statuses"><span class="po-row-main"><span class="po-row-t">PO statuses &amp; transitions</span></span><span class="po-row-tag">table</span></a>
+      <a class="po-row" href="/docs/purchasing/purchase-order-fields"><span class="po-row-main"><span class="po-row-t">Purchase order fields</span></span><span class="po-row-tag">table</span></a>
+      <a class="po-row" href="/docs/purchasing/purchase-order-fields#additional-costs"><span class="po-row-main"><span class="po-row-t">Additional cost types</span></span><span class="po-row-tag">table</span></a>
+      <a class="po-row" href="/docs/purchasing/purchase-order-fields#accounting-bill-statuses"><span class="po-row-main"><span class="po-row-t">Bill sync statuses</span></span><span class="po-row-tag">table</span></a>
+    </div>
+    <p class="po-subhead">Troubleshooting</p>
+    <div class="po-rowcard">
+      <a class="po-row" href="/docs/purchasing/the-po-lifecycle#why-cant-i-delete-this-order"><span class="po-row-main"><span class="po-row-t">Can't delete an order</span><span class="po-row-d">Receipt history must be preserved.</span></span></a>
+      <a class="po-row" href="/docs/purchasing/the-po-lifecycle#valid--invalid-transitions"><span class="po-row-main"><span class="po-row-t">Can't reduce a quantity</span><span class="po-row-d">Below already-received is blocked.</span></span></a>
+    </div>
+  </div>
+</div>

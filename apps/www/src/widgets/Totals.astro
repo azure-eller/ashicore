@@ -1,0 +1,28 @@
+---
+/**
+ * Doc UI kit — Totals: a stylized label/value summary stack (handoff
+ * `.mtotrow`). Mark the final row `grand: true` for the order-total emphasis.
+ * Usage:
+ *   <Totals rows={[
+ *     { label: "Material subtotal", value: "$2,440.00" },
+ *     { label: "Order total", value: "$2,740.00", grand: true },
+ *   ]} />
+ */
+interface Row {
+  label: string;
+  value: string;
+  grand?: boolean;
+}
+interface Props {
+  rows: Row[];
+}
+const { rows } = Astro.props;
+---
+
+<div class="mk-totals">
+  {rows.map((r) => (
+    <div class={`mk-tot${r.grand ? " mk-tot--grand" : ""}`}>
+      <span class="l">{r.label}</span><span class="v">{r.value}</span>
+    </div>
+  ))}
+</div>

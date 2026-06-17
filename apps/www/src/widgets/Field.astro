@@ -1,0 +1,25 @@
+---
+/**
+ * Doc UI kit — Field: a stylized labelled form row (handoff `.fld`/`.finput`).
+ * Usage: <Field label="Supplier" required>Cooperativa del Huila</Field>
+ */
+interface Props {
+  label?: string;
+  required?: boolean;
+  /** Render the value as placeholder-style muted text. */
+  muted?: boolean;
+  /** Show the input in its active (accent focus ring) state. */
+  focus?: boolean;
+}
+const { label, required, muted, focus } = Astro.props;
+const inputClass = ["mk-input", muted && "mk-input--muted", focus && "mk-input--focus"]
+  .filter(Boolean)
+  .join(" ");
+---
+
+<div class="mk-field">
+  {label && (
+    <span class="mk-label">{label}{required && <span class="mk-req">*</span>}</span>
+  )}
+  <div class={inputClass}><slot /></div>
+</div>

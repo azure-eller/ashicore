@@ -1,0 +1,84 @@
+---
+title: Sync a supplier bill
+description: Create a payable bill from a purchase order. Xero supports grouped vendor bills; QuickBooks currently supports a single material bill and requires additional costs to be handled manually.
+sidebar:
+  order: 5
+  label: Sync a bill
+  badge:
+    text: How-to
+    variant: note
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+import Frame from '../../../../widgets/Frame.astro';
+import Field from '../../../../widgets/Field.astro';
+import Grid from '../../../../widgets/Grid.astro';
+import Button from '../../../../widgets/Button.astro';
+
+Create a payable bill in your accounting provider from a purchase order. This is always a manual step — never an automatic side effect of receiving — and you can do it before or after the stock arrives.
+
+<p class="po-meta">
+  <span class="po-chip">3 steps · ~3 min</span>
+  <span class="po-chip">Needs: <b>Xero or QuickBooks</b></span>
+  <span class="po-chip">Access: <b>Purchasing operate</b></span>
+</p>
+
+<Aside type="note" title="Connect one accounting provider first">
+Ashicore syncs bills to **Xero** or **QuickBooks** — exactly one at a time. With none connected the app shows *"Connect accounting software before creating supplier bills."* With both connected, you'll be asked to disconnect one.
+</Aside>
+
+<Aside type="caution" title="QuickBooks bill sync is narrower">
+The grouped bill flow below is for Xero. QuickBooks bill sync is limited: it does not support grouped supplier bills or additional-cost vendor groups yet, and additional costs must be handled in QuickBooks manually.
+</Aside>
+
+<Steps>
+
+1. **Open "Manage bills..." and fill the bill details.** Save the order first, then from its **bill** control choose **Manage bills...**. That opens the **Create Xero bills** or **Create QuickBooks bills** panel, depending on the connected provider. Set a **Bill date** and **Due date** (the due date can't be earlier than the bill date), then for each included group enter the **Supplier invoice number** and **Bill account**. Xero uses the selected bill date and due date; QuickBooks bill date/due date handling is not equivalent in the current implementation.
+
+   <Frame title="<b>Create Xero bills</b>">
+     <span slot="action"><Button variant="primary">Push 1 to Xero</Button></span>
+     <div class="mk-pad">
+       <div class="mk-rows mk-rows--2">
+         <Field label="Bill date">Apr 18, 2026</Field>
+         <Field label="Due date">May 18, 2026</Field>
+       </div>
+       <div class="mk-rows mk-rows--2">
+         <Field label="Supplier invoice number">CH-88421</Field>
+         <Field label="Bill account">300 · Cost of Goods Sold</Field>
+       </div>
+     </div>
+   </Frame>
+
+2. **Bill each Xero vendor group.** If the order has costs assigned to different carriers (see [Add shipping & customs](/docs/purchasing/add-shipping-and-customs)), the Xero bill flow splits into **one group per supplier**, each with its own invoice number and account. Include or exclude groups as needed; invoice numbers must be unique within the bill.
+
+   <Frame title="<b>Bill groups</b>">
+     <Grid>
+       <thead><tr><th>Vendor group</th><th>Invoice #</th><th>Account</th><th class="num">Amount</th></tr></thead>
+       <tbody>
+         <tr><td><span class="mk-name">Cooperativa del Huila</span> <span class="mk-sku">materials</span></td><td>CH-88421</td><td>300 · COGS</td><td class="num">$6,756.00</td></tr>
+         <tr><td><span class="mk-name">Pacific Ocean Freight</span> <span class="mk-sku">freight</span></td><td>POF-1190</td><td>310 · Freight In</td><td class="num">$480.00</td></tr>
+       </tbody>
+     </Grid>
+   </Frame>
+
+3. **Push, then track status.** Choose **Push 1 to Xero** and Ashicore sends the bill(s) to Xero. While the request is running, the bill control shows **Creating bill** and the panel button shows **Pushing...**. Afterward the visible status becomes **Billed**, **Partly billed**, **Not billed**, or **Bill failed** if the provider rejects it — a failed push is safe to retry. Separately, you can set the **manual bill status** directly from the bill menu: **Not billed**, **Partly billed**, or **Billed**.
+
+   <div class="po-enums">
+     <span class="po-enum">Creating bill</span>
+     <span class="po-enum" style="color:var(--st-success-ink)">Billed</span>
+     <span class="po-enum" style="color:var(--st-danger-ink)">Bill failed</span>
+     <span class="po-enum">Not billed</span>
+     <span class="po-enum">Partly billed</span>
+     <span class="po-enum">Billed</span>
+   </div>
+
+   <Aside type="tip" title="Billing and receiving are independent">
+   Creating a bill never changes the order's purchase status, and receiving never creates a bill. Bill whenever the supplier invoice arrives — before or after the goods.
+   </Aside>
+
+</Steps>
+
+## What's next
+
+- **[Manage suppliers](/docs/purchasing/manage-suppliers)** — keep supplier contact and billing details current.
+- **[Bill statuses reference](/docs/purchasing/purchase-order-fields#accounting-bill-statuses)** — every sync and manual status value.

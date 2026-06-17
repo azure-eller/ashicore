@@ -1,0 +1,93 @@
+---
+title: Purchase order fields
+description: Every field on a purchase order, its lines, and additional costs — what sets it and what it means.
+sidebar:
+  order: 3
+  badge:
+    text: Reference
+    variant: default
+---
+
+import Pill from '../../../../widgets/Pill.astro';
+
+Every field on a purchase order, grouped by where it lives. **Set by** says whether you enter it, the system sets it, or it's calculated for you. Calculated fields are read-only.
+
+<p class="po-meta">
+  <span class="po-chip"><b>4</b> tables</span>
+  <span class="po-chip">Snapshots refresh on edit</span>
+  <span class="po-chip">Bill sync: <b>Xero; limited QuickBooks</b></span>
+</p>
+
+## Order header
+
+One row per order. Money fields are calculated from the lines and additional costs — you don't edit totals directly.
+
+| Field | Set by | Description |
+|-------|--------|-------------|
+| Purchase order | You / system | Identifier such as `PO-708`, unique in your organization. Assigned automatically on the first successful save if you leave it blank. |
+| Type | System | Operator-created purchase orders are **Standard** orders that carry materials. Additional carrier costs stay on the order as additional-cost rows. |
+| Supplier | You | The vendor the order is placed with. Required. The supplier's name is copied onto the order when saved, and refreshed from the supplier record on later order edits. |
+| Status | You / system | Where the order is in its lifecycle — Draft, Ordered, Partially Received, or Received. You move Draft to Ordered by sending the PO email or using the status menu; receiving moves the later statuses. |
+| Expected arrival | You | When you expect delivery. Used for planning. Optional. |
+| Delivery address | You | Where goods are delivered. Optional, and separate from the stock location goods land in when you receive. |
+| Additional info | You | Supplier-facing notes shown on the purchase order. |
+| Additional costs | Derived | The total of additional-cost rows. |
+| Subtotal | Derived | Line amounts plus additional costs. |
+| Tax | Derived | Tax on the line amounts only — shipping and additional costs are not taxed. |
+| Total | Derived | Subtotal plus tax. |
+| Ordered date | System | Set when the order moves to Ordered. |
+| Received date | System | Set when the order becomes fully received; cleared if it later reopens. |
+
+## Order lines
+
+One row per item being ordered. An item can appear on an order only once.
+
+| Field | Set by | Description |
+|-------|--------|-------------|
+| Item | You | The material or product being purchased. Required. |
+| Quantity | You | How much to order, in the selected **UoM**. Required; can't drop below what's already received. |
+| UoM | You / item | The purchase unit for the line, such as Bag or Case. |
+| Price per unit | You | Price per purchase unit. Required. If received tracked stock from this order is still on hand, a later change to this cost revalues it. |
+| Tax | You | The tax applied to the line. Defaults to your organization's purchase tax rate. |
+| Received | System | Shown in the receive dialog, not the edit grid. Starts at zero and only rises. |
+| Landed cost | Derived | What one **stocking unit** actually costs, once the purchase price, the unit conversion, and any by-value additional costs are folded in. This is the value your inventory carries. |
+| Total price | Derived | Quantity × price per unit, before line tax. |
+
+## Additional costs
+
+Zero or more per order, for freight and other charges.
+
+| Field | Set by | Description |
+|-------|--------|-------------|
+| Cost | You | Shipping, Customs, or Other. |
+| Amount | You | The cost's value. Required; zero or more. |
+| Distribution | You | **By value** spreads the cost across lines by each line's share of value and folds it into stock cost when you receive. **Not distributed** adds to the order total only, never to stock cost. |
+| Supplier | You | Who is paid for this cost. Leave it as **(PO supplier)** to bill the order's supplier, or choose another supplier for Xero vendor grouping. |
+| Reference | You | A free-text reference, such as a carrier's invoice number. |
+
+## Statuses
+
+An order is always in exactly one status:
+
+- <Pill status="draft" /> — a working document; no effect on inventory yet.
+- <Pill status="ordered" /> — placed with the supplier; its remaining quantity is expected supply.
+- <Pill status="partial" /> — some lines received into stock; a remainder is still due.
+- <Pill status="received" /> — every line received.
+
+For how an order moves between these, see [The purchase order lifecycle](/docs/purchasing/the-po-lifecycle).
+
+## Accounting bill statuses
+
+A purchase order tracks billing separately from its order status. Creating a bill is a manual step you take when you're ready to pay — it sends the bill to your connected accounting provider and is never an automatic side effect of receiving. Xero supports grouped supplier bills from a purchase order; QuickBooks bill sync is limited and does not support grouped supplier bills or additional-cost vendor groups yet.
+
+**Billed (manual tracking — you set it):**
+
+- <span class="po-enum">Not billed</span> — no bill recorded yet.
+- <span class="po-enum">Partly billed</span> — some of the order has been billed.
+- <span class="po-enum">Billed</span> — fully billed.
+
+**Visible sync state (Ashicore sets it when you push a bill):**
+
+- <span class="po-enum">Creating bill</span> — the bill push is running.
+- <span class="po-enum">Billed</span> — the bill was created in your accounting provider.
+- <span class="po-enum">Bill failed</span> — the push didn't go through; it's safe to retry.

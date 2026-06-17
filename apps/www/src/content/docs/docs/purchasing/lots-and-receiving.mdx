@@ -1,0 +1,46 @@
+---
+title: Lots & receiving
+description: Receiving is where a purchase order becomes real inventory. Each received line writes permanent receipt history; tracked items get lots and untracked items append to their shared lot.
+sidebar:
+  order: 11
+  label: Lots & receiving
+  badge:
+    text: Concept
+    variant: tip
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import Pill from '../../../../widgets/Pill.astro';
+
+Receiving is where a purchase order becomes real inventory. Each received line writes a permanent receipt. For lot-tracked items, that receipt creates a costed lot; for untracked items, it appends to the item's internal shared lot. Understanding that history explains the order's costing, traceability, and why it can't be deleted afterward.
+
+## A lot is a received batch
+
+When you receive a tracked item, Ashicore creates **one lot** holding the received stocking quantity, plus a permanent **receipt** referencing the order. Untracked items append to one internal shared lot instead. Receipts always land as **available**; a lot can later be moved to **blocked** from the inventory lot actions. The lot's **disposition** is:
+
+- **<Pill status="received" label="available" />** — usable stock, ready to consume or ship. This is how all receipts arrive.
+- **<Pill status="draft" label="blocked" />** — quarantined: on hand but withheld from use until released. Set on a lot after receipt via inventory.
+
+## What one receipt writes
+
+<div class="po-annot">
+  <div class="arow"><span class="aidx">1</span><div><div class="at">A positive stock event per line</div><div class="ad">A receipt event referencing the purchase order, with the line recorded — the audit trail for what arrived.</div></div></div>
+  <div class="arow"><span class="aidx">2</span><div><div class="at">Tracked lot or untracked bucket</div><div class="ad">Tracked items get a lot at the line's landed cost. Untracked items append to their shared moving-average bucket.</div></div></div>
+  <div class="arow"><span class="aidx">3</span><div><div class="at">The item's running cost updates</div><div class="ad">The item's current cost is recomputed as a quantity-weighted moving average of prior on-hand and the incoming receipt.</div></div></div>
+  <div class="arow"><span class="aidx">4</span><div><div class="at">Expected supply is released</div><div class="ad">The matching [expected supply](/docs/purchasing/expected-supply) drops by the received quantity.</div></div></div>
+</div>
+
+## Tracked vs. untracked items
+
+| Mode | On receipt | After-receipt revaluation |
+|------|-----------|---------------------------|
+| <span class="po-enum">tracked</span> | Gets its own individual lot you can trace and disposition | By-value cost edits rebase the lot per location |
+| <span class="po-enum">untracked</span> | Appends to a single shared moving-average bucket; can only be received as available | Saved but not rebased in v1 |
+
+## Why receipts are permanent
+
+A receipt is real inventory history. That's the reason a partially- or fully-received order can no longer be deleted and received lines can't be removed — the events that put stock on your shelves must stay intact. To reverse received stock, adjust it through inventory; the order remains the record of what was received and at what cost.
+
+<Aside type="caution" title="Receiving is positive-only">
+You can receive another partial batch while an order is <Pill status="partial" />, but you cannot receive directly against a fully <Pill status="received" /> order. Add a line or increase a quantity first to reopen a remainder, then receive the new quantity. There is no negative receipt; see [the lifecycle](/docs/purchasing/the-po-lifecycle#why-cant-i-delete-this-order).
+</Aside>

@@ -1,0 +1,55 @@
+---
+title: Landed cost & additional costs
+description: Landed cost is what a unit of stock truly costs once freight and other charges are folded in. Ashicore allocates by-value costs across lines so inventory is valued at its real delivered cost.
+sidebar:
+  order: 9
+  label: Landed & additional costs
+  badge:
+    text: Concept
+    variant: tip
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Landed cost is what a unit of stock truly costs once freight and other charges are folded in. Ashicore allocates by-value additional costs across your material lines so inventory is valued at its real delivered cost — not just the sticker price.
+
+## What "landed" means
+
+The raw line cost is **order quantity × unit cost**. **Landed cost** adds each line's share of the distributed additional costs, then divides by the stocking quantity to get the **landed cost per stock unit** — the number inventory, tracked lots, and recipes are valued at.
+
+## The formula
+
+<div class="po-annot">
+  <div class="arow"><span class="aidx">1</span><div><div class="at">Material subtotal</div><div class="ad">The sum of (order quantity × unit cost) across all lines.</div></div></div>
+  <div class="arow"><span class="aidx">2</span><div><div class="at">Distributable pool</div><div class="ad">Only **by-value** costs are allocated. **Not-distributed** costs are excluded here.</div></div></div>
+  <div class="arow"><span class="aidx">3</span><div><div class="at">Allocate by share of value</div><div class="ad">Each line gets (line subtotal ÷ material subtotal) × the distributable pool. Bigger lines absorb more freight.</div></div></div>
+  <div class="arow"><span class="aidx">4</span><div><div class="at">Landed per stock unit</div><div class="ad">(line subtotal + allocated) ÷ stocking quantity. This becomes the line's landed cost per stock unit and, for lot-tracked items, the lot cost at receipt.</div></div></div>
+</div>
+
+## By value vs. not distributed
+
+| Method | Hits inventory valuation? | Use it for |
+|--------|---------------------------|------------|
+| <span class="po-enum">By value</span> | <span class="tbl-can good">yes — allocated to lines</span> | Freight, customs, duties — anything that's truly part of the unit's delivered cost. |
+| <span class="po-enum">Not distributed</span> | <span class="tbl-can no">no — order total only</span> | Deposits, one-off fees you want on the bill but not in stock cost. |
+
+## Worked example
+
+PO-1045: two lines, $480 freight set **by value**, a $60 pallet deposit set **not distributed**.
+
+| Line | Subtotal | Share | + Freight | Stock qty | Landed / unit |
+|------|----------|-------|-----------|-----------|---------------|
+| Huila Green | $3,720.00 | 55.56% | $266.67 | 828 kg | $4.81 |
+| Yirgacheffe Green | $2,976.00 | 44.44% | $213.33 | 480 kg | $6.64 |
+
+<Aside type="note" title="The $60 deposit doesn't appear above">
+It's not distributed, so it never touches landed cost. The order total is material subtotal + all additional costs = $6,696 + $480 + $60 = **$7,236**, but inventory is valued only on the **$7,176** that landed.
+</Aside>
+
+## Editing costs after receipt
+
+Landed cost isn't frozen at receipt. Change a by-value cost or a line price on a received order and Ashicore appends a **revaluation** that rebases on-hand tracked lots from this order to the new cost, and recomputes the item's running cost.
+
+<Aside type="caution" title="Tracked lots revalue; untracked is deferred">
+Revaluation rebases **lot-tracked** items per location they sit in. Untracked, shared-bucket materials save the edit but aren't rebased in v1.
+</Aside>

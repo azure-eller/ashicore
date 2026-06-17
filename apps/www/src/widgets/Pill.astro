@@ -1,0 +1,23 @@
+---
+/**
+ * Purchase-order status pill. Label text matches the app's on-screen status
+ * badge (app/(dashboard)/purchasing/status-badge.tsx) so docs read like the
+ * product — note "Partially Received", not "Partial". Tones mirror the badge:
+ * draft=muted, ordered=info, partial=warning, received=success.
+ */
+type Status = "draft" | "ordered" | "partial" | "received";
+interface Props {
+  status: Status;
+  /** Override the text (keeps the status tone) — e.g. an enum chip like "Shipping". */
+  label?: string;
+}
+const { status, label } = Astro.props;
+const labels: Record<Status, string> = {
+  draft: "Draft",
+  ordered: "Ordered",
+  partial: "Partially Received",
+  received: "Received",
+};
+---
+
+<span class={`po-pill po-pill--${status}`}>{label ?? labels[status]}</span>

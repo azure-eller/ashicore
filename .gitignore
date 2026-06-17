@@ -58,9 +58,15 @@ next-env.d.ts
 /docs/superpowers/plans/*.md
 /docs/superpowers/specs/*.md
 
+# docs screenshot pipeline output (regenerable via `pnpm docs:shots`)
+/apps/www/src/assets/docs/
+
 # local agent/tooling artifacts
 /.claude/*
 !/.claude/skills/
+/.claude/skills/writing-documentation-with-diataxis
+/.agents/
+/skills-lock.json
 /.tmp/
 /.tmp/source/
 /.xero-evidence/

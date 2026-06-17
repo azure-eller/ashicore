@@ -1,0 +1,68 @@
+---
+title: Order from your supplier
+description: Order a purchase order by sending the supplier email, or by choosing Ordered from the status menu when no email is needed.
+sidebar:
+  order: 2
+  label: Order from supplier
+  badge:
+    text: How-to
+    variant: note
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+import Pill from '../../../../widgets/Pill.astro';
+import Frame from '../../../../widgets/Frame.astro';
+import Field from '../../../../widgets/Field.astro';
+import Button from '../../../../widgets/Button.astro';
+import Totals from '../../../../widgets/Totals.astro';
+
+Ordering a purchase order means moving a draft to <Pill status="ordered" /> so planning sees the quantities as **expected supply**. The normal supplier-facing path is the mail icon: send the PO email, and if the order is still a draft Ashicore orders it first. If you do not need to email the supplier, you can order a saved draft from the status menu.
+
+<p class="po-meta">
+  <span class="po-chip">2 steps · ~2 min</span>
+  <span class="po-chip">Applies to: <b>Draft → Ordered</b></span>
+  <span class="po-chip">Access: <b>Purchasing operate</b></span>
+</p>
+
+<Aside type="note" title="No “Submit” button">
+There is no separate Submit button in the UI. Use **Send PO email** to email and order the draft, or use the status menu to choose **Ordered** without emailing. Both paths run the same order workflow; a draft with no material lines, invalid fields, or unsaved required data won't move to Ordered.
+</Aside>
+
+<Steps>
+
+1. **Send the PO email.** Open the saved draft and review the supplier, lines, and costs. Use the header mail action (**Send PO email**) to open **Send documents for PO-1045**. Review each supplier card, the selected documents, recipient, subject, and body, then choose **Send 1 email**. If the order is still <Pill status="draft" />, Ashicore orders it first, stamps the ordered date, and registers expected supply.
+
+   <Frame title="<b>Send documents for PO-1045</b>">
+     <span slot="action"><Button variant="primary">Send 1 email</Button></span>
+     <div class="mk-pad">
+       <Field label="To">orders@cooperativahuila.com</Field>
+       <Field label="Subject">Purchase Order PO-1045 — Riverstone Coffee</Field>
+       <Field label="Body" muted>Hi — please find PO-1045 attached…</Field>
+       <Totals rows={[{ label: "Attachments", value: "PO-1045.pdf" }]} />
+     </div>
+   </Frame>
+
+2. **Or order without emailing.** If you do not want to send documents, open the header status menu and choose **Ordered**. From <Pill status="draft" />, the menu shows the current **Draft** status and the valid **Ordered** transition; later receiving statuses appear only after the order is ordered. Selecting Ordered first saves pending valid changes, then registers expected supply.
+
+   <Frame title="<b>PO-1045</b> · Cooperativa del Huila">
+     <span slot="action"><Button variant="ghost">Draft ⌄</Button></span>
+     <div class="mk-drop">
+       <div class="mk-opt"><Pill status="draft" /> <span class="sub">current</span></div>
+       <div class="mk-opt hi"><Pill status="ordered" /> <span class="sub">select →</span></div>
+     </div>
+   </Frame>
+
+   <Aside type="tip" title="Expected supply goes live — and it's reversible">
+   Planning now sees the ordered quantity as incoming stock. An ordered order can still be edited or deleted until the first receipt; deleting it releases the expected supply. See [the lifecycle](/docs/purchasing/the-po-lifecycle) and [expected supply](/docs/purchasing/expected-supply).
+   </Aside>
+
+   <Aside type="note" title="Supplier bills are separate">
+   Ordering and emailing the supplier are separate from recording the payable *bill*. Bill sync is its own manual step with your connected accounting provider (see [Sync a supplier bill](/docs/purchasing/sync-a-bill-to-xero)).
+   </Aside>
+
+</Steps>
+
+## What's next
+
+- **[Receive stock (full & partial)](/docs/purchasing/receive-stock)** — turn ordered quantities into inventory.
+- **[Expected supply](/docs/purchasing/expected-supply)** — how ordered orders feed planning.

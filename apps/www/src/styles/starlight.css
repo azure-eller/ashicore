@@ -1,0 +1,1221 @@
+/* ============================================================
+   ashicore brand theme for Starlight
+   Maps Starlight's --sl-* tokens onto the marketing design system:
+   cool grey neutrals · near-black ink · highlighter-yellow accent.
+   Type: Space Grotesk (display) / Hanken Grotesk (body) / JetBrains Mono.
+   Token values mirror src/styles/global.css.
+   ============================================================ */
+
+:root {
+  --sl-font: "Hanken Grotesk", system-ui, sans-serif;
+  --sl-font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+/* ---------- Dark theme — brand charcoal + bright yellow ---------- */
+:root[data-theme="dark"] {
+  --sl-color-accent-low: oklch(0.32 0.05 88);
+  --sl-color-accent: oklch(0.82 0.15 96); /* bright yellow, readable on charcoal */
+  --sl-color-accent-high: oklch(0.93 0.09 98);
+
+  --sl-color-white: oklch(0.96 0.004 258); /* headings */
+  --sl-color-gray-1: oklch(0.93 0.004 258); /* --on-ground */
+  --sl-color-gray-2: oklch(0.8 0.005 260);
+  --sl-color-gray-3: oklch(0.735 0.005 260); /* --on-ground-soft */
+  --sl-color-gray-4: oklch(0.55 0.006 262);
+  --sl-color-gray-5: oklch(0.335 0.008 262); /* --ground-line */
+  --sl-color-gray-6: oklch(0.268 0.007 262); /* --ground-2 */
+  --sl-color-black: oklch(0.218 0.006 262); /* --ground: page bg */
+
+  --brand-active-bg: color-mix(in oklch, oklch(0.865 0.165 96) 22%, transparent);
+  --brand-active-text: oklch(0.93 0.12 98);
+}
+
+/* ---------- Light theme — brand grey + black + gold ---------- */
+:root[data-theme="light"] {
+  --sl-color-accent-low: oklch(0.93 0.07 99); /* soft yellow tint */
+  --sl-color-accent: oklch(0.535 0.095 78); /* amber-gold, readable links */
+  --sl-color-accent-high: oklch(0.34 0.06 70);
+
+  --sl-color-white: oklch(0.235 0.006 262); /* --ink: headings */
+  --sl-color-gray-1: oklch(0.31 0.006 262);
+  --sl-color-gray-2: oklch(0.455 0.006 262); /* --ink-soft: body */
+  --sl-color-gray-3: oklch(0.62 0.005 262); /* --ink-faint */
+  --sl-color-gray-4: oklch(0.76 0.004 258);
+  --sl-color-gray-5: oklch(0.888 0.004 258); /* --line */
+  --sl-color-gray-6: oklch(0.928 0.003 258); /* --line-soft */
+  --sl-color-gray-7: oklch(0.953 0.003 250); /* --bg-2 */
+  --sl-color-black: oklch(0.976 0.002 250); /* --bg: page bg */
+
+  --brand-active-bg: oklch(0.91 0.11 99); /* highlighter yellow */
+  --brand-active-text: oklch(0.26 0.03 96); /* dark ink on yellow */
+}
+
+/* Display face for headings + the site title, like the marketing site */
+.sl-markdown-content :is(h1, h2, h3, h4, h5, h6),
+.site-title {
+  font-family: "Space Grotesk", system-ui, sans-serif;
+  letter-spacing: -0.018em;
+}
+
+/* Solid-ink wordmark — no accent gradient */
+.site-title {
+  font-weight: 700;
+  background: none;
+  color: var(--sl-color-white);
+  -webkit-text-fill-color: currentColor;
+}
+
+/* Active sidebar item — brand highlighter-yellow chip */
+a[aria-current="page"] {
+  background-color: var(--brand-active-bg) !important;
+  color: var(--brand-active-text) !important;
+  font-weight: 600;
+  border-radius: 6px;
+}
+
+/* Documentation screenshots — framed app captures (apps/www assets) */
+.sl-markdown-content .doc-shot {
+  display: block;
+  height: auto;
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 4%), 0 6px 20px rgb(0 0 0 / 7%);
+  margin-block: 1.5rem 0.75rem;
+}
+
+/* Numbered legend under an annotated diagram (matches the on-image pins) */
+.sl-markdown-content .doc-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.5rem;
+  margin: 0 0 1.5rem;
+  font-size: 0.875rem;
+  color: var(--sl-color-gray-2);
+}
+
+.sl-markdown-content .doc-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.sl-markdown-content .doc-legend b {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 50%;
+  background: var(--sl-color-white);
+  color: var(--sl-color-black);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+/* ============================================================
+   Carime reskin — brand-token vocabulary + doc components
+   Maps the handoff design tokens (doc-tokens.css) onto Starlight's
+   themed --sl-* ramp, then ports the handoff's content components
+   (status pills, reference tables, callouts, steps, meta chips).
+   Reskin only: documented component classes + author CSS injected
+   after Starlight's cascade layers — no internal-class hacks.
+   ============================================================ */
+
+/* Theme-independent tokens */
+:root {
+  --font-display: "Space Grotesk", system-ui, sans-serif;
+  --font-body: var(--sl-font);
+  --font-mono: var(--sl-font-mono);
+  --r-sm: 8px;
+  --r-md: 14px;
+  --r-lg: 22px;
+  --accent-2: oklch(0.74 0.135 84);
+  --on-accent: oklch(0.26 0.03 96);
+  --shadow-sm: 0 1px 2px oklch(0.3 0.02 60 / 0.06), 0 2px 6px oklch(0.3 0.02 60 / 0.05);
+  --shadow-md: 0 4px 14px oklch(0.3 0.02 60 / 0.08), 0 18px 40px oklch(0.3 0.02 60 / 0.07);
+}
+
+/* Light — neutrals alias the themed --sl-* ramp; status palette from doc-tokens.css */
+:root[data-theme="light"] {
+  --bg: var(--sl-color-black);
+  --bg-2: var(--sl-color-gray-7);
+  --surface: oklch(0.995 0.001 250);
+  --ink: var(--sl-color-white);
+  --ink-soft: var(--sl-color-gray-2);
+  --ink-faint: var(--sl-color-gray-3);
+  --line: var(--sl-color-gray-5);
+  --line-soft: var(--sl-color-gray-6);
+  --accent: oklch(0.865 0.165 96);
+  --accent-ink: var(--sl-color-accent);
+  --accent-soft: var(--sl-color-accent-low);
+  --st-success: oklch(0.66 0.135 150);
+  --st-success-bg: oklch(0.95 0.045 150);
+  --st-success-ink: oklch(0.45 0.1 150);
+  --st-warn: oklch(0.74 0.135 75);
+  --st-warn-bg: oklch(0.955 0.05 80);
+  --st-warn-ink: oklch(0.52 0.1 66);
+  --st-danger: oklch(0.64 0.16 28);
+  --st-danger-bg: oklch(0.95 0.045 28);
+  --st-danger-ink: oklch(0.52 0.15 28);
+  --st-info: oklch(0.58 0.11 245);
+  --st-info-bg: oklch(0.95 0.04 245);
+  --st-info-ink: oklch(0.46 0.11 250);
+  --st-muted: oklch(0.62 0.005 262);
+  --st-muted-bg: oklch(0.93 0.004 258);
+}
+
+/* Dark — neutrals alias the dark ramp; status palette tuned for charcoal */
+:root[data-theme="dark"] {
+  --bg: var(--sl-color-black);
+  --bg-2: var(--sl-color-gray-6);
+  --surface: var(--sl-color-gray-6);
+  --ink: var(--sl-color-white);
+  --ink-soft: var(--sl-color-gray-2);
+  --ink-faint: var(--sl-color-gray-3);
+  --line: var(--sl-color-gray-5);
+  --line-soft: var(--sl-color-gray-5);
+  --accent: oklch(0.82 0.15 96);
+  --accent-ink: var(--sl-color-accent);
+  --accent-soft: var(--sl-color-accent-low);
+  --st-success: oklch(0.8 0.12 150);
+  --st-success-bg: oklch(0.45 0.06 150 / 0.32);
+  --st-success-ink: oklch(0.82 0.12 150);
+  --st-warn: oklch(0.84 0.12 80);
+  --st-warn-bg: oklch(0.48 0.07 75 / 0.32);
+  --st-warn-ink: oklch(0.86 0.12 80);
+  --st-danger: oklch(0.78 0.14 28);
+  --st-danger-bg: oklch(0.48 0.09 28 / 0.32);
+  --st-danger-ink: oklch(0.82 0.13 28);
+  --st-info: oklch(0.78 0.1 250);
+  --st-info-bg: oklch(0.46 0.07 245 / 0.32);
+  --st-info-ink: oklch(0.8 0.1 250);
+  --st-muted: oklch(0.72 0.006 262);
+  --st-muted-bg: oklch(0.45 0.006 262 / 0.4);
+}
+
+/* ---- status pill (matches the app's on-screen badge) ---- */
+.po-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.po-pill::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+.po-pill--draft {
+  background: color-mix(in oklch, var(--st-muted) 15%, var(--surface));
+  color: var(--st-muted);
+}
+.po-pill--ordered {
+  background: color-mix(in oklch, var(--st-info) 20%, var(--surface));
+  color: var(--st-info-ink);
+}
+.po-pill--partial {
+  background: color-mix(in oklch, var(--st-warn) 24%, var(--surface));
+  color: var(--st-warn-ink);
+}
+.po-pill--received {
+  background: color-mix(in oklch, var(--st-success) 22%, var(--surface));
+  color: var(--st-success-ink);
+}
+
+/* ---- page meta chips (hub header) ---- */
+.sl-markdown-content .po-meta {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0.85rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.sl-markdown-content .po-chip {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--ink-soft);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sl-markdown-content .po-chip b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* ---- reference-table look applied to docs markdown tables ---- */
+.sl-markdown-content table {
+  display: table;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  font-size: 0.875rem;
+}
+.sl-markdown-content thead th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 500;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+  padding: 0.7rem 0.9rem;
+}
+.sl-markdown-content tbody td {
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--line-soft);
+  vertical-align: top;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+.sl-markdown-content tbody tr:last-child td {
+  border-bottom: none;
+}
+.sl-markdown-content tbody tr:hover td {
+  background: var(--bg-2);
+}
+
+/* ---- callouts: reskin Starlight's native Aside variants ---- */
+.sl-markdown-content .starlight-aside {
+  border-radius: var(--r-md);
+  border-width: 1px;
+  border-style: solid;
+  padding: 1rem 1.1rem;
+}
+.sl-markdown-content .starlight-aside--note {
+  background: var(--st-info-bg);
+  border-color: color-mix(in oklch, var(--st-info) 26%, transparent);
+}
+.sl-markdown-content .starlight-aside--note .starlight-aside__title {
+  color: var(--st-info-ink);
+}
+.sl-markdown-content .starlight-aside--tip {
+  background: var(--st-success-bg);
+  border-color: color-mix(in oklch, var(--st-success) 26%, transparent);
+}
+.sl-markdown-content .starlight-aside--tip .starlight-aside__title {
+  color: var(--st-success-ink);
+}
+.sl-markdown-content .starlight-aside--caution {
+  background: var(--st-warn-bg);
+  border-color: color-mix(in oklch, var(--st-warn) 28%, transparent);
+}
+.sl-markdown-content .starlight-aside--caution .starlight-aside__title {
+  color: var(--st-warn-ink);
+}
+.sl-markdown-content .starlight-aside--danger {
+  background: var(--st-danger-bg);
+  border-color: color-mix(in oklch, var(--st-danger) 26%, transparent);
+}
+.sl-markdown-content .starlight-aside--danger .starlight-aside__title {
+  color: var(--st-danger-ink);
+}
+
+/* ---- steps: reskin Starlight's native Steps marker to a dark number ---- */
+.sl-markdown-content .sl-steps > li::before {
+  background: var(--ink);
+  color: var(--bg);
+  border-radius: 9px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+/* ---- enum chip + in-app control chip ---- */
+.sl-markdown-content .po-enum {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 2px 8px;
+  display: inline-block;
+}
+.sl-markdown-content .po-uikey {
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+/* ============================================================
+   Doc UI kit — stylized inline mocks of the app (mk-*)
+   Ported from the Carime handoff's .mock* panels onto the brand
+   tokens above. Illustration, not screenshots: token-themed,
+   reflows to column width, recognizably Ashicore (not pixel-exact).
+   Components: apps/www/src/widgets/{Frame,Field,Grid,Button,Totals}.astro
+   ============================================================ */
+
+/* Frame — app window / card sheet */
+.sl-markdown-content .mk-frame {
+  margin: 1.1rem 0 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.sl-markdown-content .mk-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.85rem;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+}
+.sl-markdown-content .mk-dots {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+}
+.sl-markdown-content .mk-dots i {
+  display: block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--line);
+  flex: 0 0 auto;
+}
+
+/* Neutralize Starlight's adjacent-sibling flow margins inside the kit's
+   flex/grid chrome — it spaces itself with gap/padding, and the stray
+   margin-top was knocking the window-bar dots out of alignment and
+   bloating the totals/field rows. */
+.sl-markdown-content .mk-frame > *,
+.sl-markdown-content .mk-body > *,
+.sl-markdown-content .mk-bar > *,
+.sl-markdown-content .mk-dots i,
+.sl-markdown-content .mk-bar-right > *,
+.sl-markdown-content .mk-pad > *,
+.sl-markdown-content .mk-rows > *,
+.sl-markdown-content .mk-field > *,
+.sl-markdown-content .mk-totals > *,
+.sl-markdown-content .mk-drop > * {
+  margin: 0;
+}
+.sl-markdown-content .mk-title {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+}
+.sl-markdown-content .mk-title b {
+  color: var(--ink);
+  font-weight: 500;
+}
+.sl-markdown-content .mk-bar-right {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.sl-markdown-content .mk-body {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.sl-markdown-content .mk-body > :first-child {
+  margin-top: 0;
+}
+
+/* Field — labelled form row */
+.sl-markdown-content .mk-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.sl-markdown-content .mk-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sl-markdown-content .mk-req {
+  color: var(--st-danger-ink);
+}
+.sl-markdown-content .mk-input {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  padding: 0 0.7rem;
+  font-size: 0.85rem;
+  color: var(--ink);
+  gap: 8px;
+}
+.sl-markdown-content .mk-input--muted {
+  color: var(--ink-faint);
+}
+.sl-markdown-content .mk-input--focus {
+  border-color: var(--accent-ink);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  background: var(--surface);
+}
+.sl-markdown-content .mk-rows {
+  display: grid;
+  gap: 0.7rem;
+}
+.sl-markdown-content .mk-rows--2 {
+  grid-template-columns: 1fr 1fr;
+}
+.sl-markdown-content .mk-rows--3 {
+  grid-template-columns: 1.4fr 1fr 1fr;
+}
+
+/* Grid — app data table */
+.sl-markdown-content table.mk-grid {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  margin: 0;
+  font-size: 0.8rem;
+}
+.sl-markdown-content .mk-grid thead th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 500;
+  padding: 0.55rem 0.7rem;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+}
+.sl-markdown-content .mk-grid tbody td {
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--ink);
+  vertical-align: middle;
+}
+.sl-markdown-content .mk-grid tbody tr:last-child td {
+  border-bottom: none;
+}
+.sl-markdown-content .mk-grid tbody tr:hover td {
+  background: transparent;
+}
+.sl-markdown-content .mk-grid .num {
+  text-align: right;
+  font-family: var(--font-mono);
+}
+.sl-markdown-content .mk-grid tfoot td {
+  padding: 0.55rem 0.7rem;
+  background: var(--bg-2);
+  font-weight: 600;
+  border-top: 1px solid var(--line);
+}
+.sl-markdown-content .mk-name {
+  font-weight: 600;
+}
+.sl-markdown-content .mk-sku {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--ink-faint);
+}
+
+/* Button — non-interactive, app button styles */
+.sl-markdown-content .mk-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 0.8rem;
+  border-radius: var(--r-sm);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.sl-markdown-content .mk-btn--primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.sl-markdown-content .mk-btn--ghost {
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+.sl-markdown-content .mk-btn--subtle {
+  background: var(--bg-2);
+  color: var(--ink-soft);
+}
+
+/* Dropdown / option list mock (handoff `.mdrop`) */
+.sl-markdown-content .mk-drop {
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+.sl-markdown-content .mk-opt {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.82rem;
+  color: var(--ink);
+  border-bottom: 1px solid var(--line-soft);
+}
+.sl-markdown-content .mk-opt:last-child {
+  border-bottom: none;
+}
+.sl-markdown-content .mk-opt.hi {
+  background: var(--accent-soft);
+}
+.sl-markdown-content .mk-opt .av {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  color: var(--ink-soft);
+  flex: none;
+}
+.sl-markdown-content .mk-opt .sub {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--ink-faint);
+}
+
+/* Totals — tinted label/value ledger */
+.sl-markdown-content .mk-totals {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 0.5rem 0.75rem;
+}
+.sl-markdown-content .mk-tot {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-size: 0.8rem;
+  padding: 0.25rem 0;
+}
+.sl-markdown-content .mk-tot .l {
+  color: var(--ink-soft);
+}
+.sl-markdown-content .mk-tot .v {
+  font-family: var(--font-mono);
+  color: var(--ink);
+}
+.sl-markdown-content .mk-tot--grand {
+  border-top: 1.5px solid var(--ink-faint);
+  margin-top: 0.4rem;
+  padding-top: 0.55rem;
+  font-weight: 700;
+}
+.sl-markdown-content .mk-tot--grand .l {
+  color: var(--ink);
+}
+.sl-markdown-content .mk-tot--grand .v {
+  font-size: 1.02rem;
+  color: var(--ink);
+}
+/* A grand total that's the only row needs no divider above itself */
+.sl-markdown-content .mk-tot--grand:first-child {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+/* Anatomy — numbered region markers inside a Frame */
+.sl-markdown-content .mk-region {
+  position: relative;
+  border: 1px dashed var(--line);
+  border-radius: var(--r-sm);
+  padding: 0.7rem 0.8rem 0.7rem 1.9rem;
+}
+.sl-markdown-content .mk-region + .mk-region {
+  margin-top: 0.6rem;
+}
+.sl-markdown-content .mk-region::before {
+  content: attr(data-n);
+  position: absolute;
+  left: 0.45rem;
+  top: 0.65rem;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  display: grid;
+  place-items: center;
+}
+.sl-markdown-content .mk-region-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.sl-markdown-content .mk-region-note {
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  margin-top: 0.15rem;
+}
+
+/* ============================================================
+   Density + sharpening pass — tighten toward the handoff's
+   dense, mono-flavoured "spec" feel (less air, smaller type,
+   sharper tokens). Later in the file = wins on equal specificity.
+   ============================================================ */
+
+/* Tighter type scale in the content column */
+h1#_top {
+  font-size: 2rem;
+  letter-spacing: -0.03em;
+}
+.sl-markdown-content h2 {
+  font-size: 1.3rem;
+  letter-spacing: -0.02em;
+  margin-top: 2rem;
+}
+/* Section eyebrow marker — a small accent glyph before each section heading */
+.sl-markdown-content h2::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 0.6rem;
+  border-radius: 2px;
+  background: var(--accent-2);
+  transform: rotate(45deg) translateY(-1px);
+  vertical-align: middle;
+}
+.sl-markdown-content h3 {
+  font-size: 1.02rem;
+  letter-spacing: -0.01em;
+  margin-top: 1.5rem;
+}
+.sl-markdown-content p {
+  font-size: 0.92rem;
+  line-height: 1.62;
+}
+
+/* Denser reference tables */
+.sl-markdown-content table {
+  font-size: 0.82rem;
+}
+.sl-markdown-content thead th {
+  padding: 0.5rem 0.7rem;
+  font-size: 0.58rem;
+}
+.sl-markdown-content tbody td {
+  padding: 0.5rem 0.7rem;
+}
+
+/* Status pills at the handoff's exact size (don't over-shrink) */
+.po-pill {
+  font-size: 0.68rem;
+  padding: 3px 9px;
+  gap: 6px;
+  letter-spacing: 0.04em;
+}
+.po-pill::before {
+  width: 6px;
+  height: 6px;
+}
+
+/* Compact row-cards (handoff `.rowcard`) for Concepts / Reference / Troubleshooting */
+.sl-markdown-content .po-rowcard {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--surface);
+  margin: 0.7rem 0 1rem;
+}
+.sl-markdown-content .po-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.6rem 1.9rem 0.6rem 0.9rem;
+  border-bottom: 1px solid var(--line-soft);
+  transition: background 0.12s;
+}
+.sl-markdown-content .po-row::after {
+  content: "";
+  position: absolute;
+  right: 0.95rem;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-top: 1.5px solid var(--ink-faint);
+  border-right: 1.5px solid var(--ink-faint);
+  transform: translateY(-50%) rotate(45deg);
+}
+.sl-markdown-content .po-row:last-child {
+  border-bottom: none;
+}
+.sl-markdown-content .po-row:hover {
+  background: var(--bg-2);
+}
+.sl-markdown-content .po-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.sl-markdown-content .po-row-t {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--ink);
+}
+.sl-markdown-content .po-row-d {
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+.sl-markdown-content .po-row-tag {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 2px 7px;
+  flex: none;
+}
+.sl-markdown-content .po-row-arrow {
+  width: 14px;
+  height: 14px;
+  color: var(--ink-faint);
+  flex: none;
+}
+
+/* Inline yes/no/blocked tokens for matrix-table cells */
+.sl-markdown-content .po-tok {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 500;
+}
+.sl-markdown-content .po-tok--yes {
+  color: var(--st-success-ink);
+}
+.sl-markdown-content .po-tok--no {
+  color: var(--st-danger-ink);
+}
+.sl-markdown-content .po-tok--muted {
+  color: var(--ink-faint);
+}
+
+/* Lifecycle selector — chevron connectors between status nodes */
+.sl-markdown-content .po-life-node:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  right: -7px;
+  top: 50%;
+  transform: translateY(-50%) rotate(45deg);
+  width: 11px;
+  height: 11px;
+  border-top: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  background: var(--bg-2);
+  z-index: 3;
+}
+.sl-markdown-content .po-life-node.active:not(:last-child)::after,
+.sl-markdown-content .po-life-node:hover:not(:last-child)::after {
+  background: var(--surface);
+}
+
+/* ============================================================
+   Scale to the handoff's actual sizes (doc-b.css / doc-tokens.css)
+   and widen the content column. The narrow Starlight column was the
+   real cause of "too small / too much empty space on the left".
+   ============================================================ */
+/* Scale the entire docs up from Starlight's 16px base — every rem grows,
+   so text, tables, mocks, and the rem-based content width all enlarge. */
+html {
+  font-size: 18px;
+}
+:root {
+  --sl-content-width: 52rem; /* ~936px at the 18px base — wider, fills the page */
+}
+h1#_top {
+  font-size: 2.4rem;
+  letter-spacing: -0.03em;
+}
+
+.sl-markdown-content p,
+.sl-markdown-content li {
+  font-size: 0.95rem;
+  line-height: 1.65;
+}
+.sl-markdown-content h3 {
+  font-size: 1.05rem;
+}
+
+/* Reference tables — handoff reftable sizes */
+.sl-markdown-content table {
+  font-size: 0.875rem;
+}
+.sl-markdown-content thead th {
+  font-size: 0.64rem;
+  padding: 0.6rem 0.85rem;
+}
+.sl-markdown-content tbody td {
+  padding: 0.6rem 0.85rem;
+}
+
+/* Callouts at the handoff's ~14px */
+.sl-markdown-content .starlight-aside {
+  padding: 0.9rem 1.05rem;
+}
+.sl-markdown-content .starlight-aside__title {
+  font-size: 0.9rem;
+}
+.sl-markdown-content .starlight-aside p {
+  font-size: 0.9rem;
+}
+
+/* Cards + row-cards + tokens */
+.sl-markdown-content .sl-link-card .title {
+  font-size: 0.95rem;
+}
+.sl-markdown-content .sl-link-card .description {
+  font-size: 0.82rem;
+}
+.sl-markdown-content .po-row-t {
+  font-size: 0.9rem;
+}
+.sl-markdown-content .po-row-d {
+  font-size: 0.82rem;
+}
+.sl-markdown-content .po-tok {
+  font-size: 0.72rem;
+}
+
+/* Doc UI kit — handoff mock sizes */
+.sl-markdown-content .mk-grid {
+  font-size: 0.85rem;
+}
+.sl-markdown-content .mk-grid thead th {
+  font-size: 0.64rem;
+}
+.sl-markdown-content .mk-label {
+  font-size: 0.8rem;
+}
+.sl-markdown-content .mk-input {
+  font-size: 0.9rem;
+}
+.sl-markdown-content .mk-tot {
+  font-size: 0.85rem;
+}
+.sl-markdown-content .mk-region-label {
+  font-size: 0.9rem;
+}
+.sl-markdown-content .mk-region-note {
+  font-size: 0.85rem;
+}
+.sl-markdown-content .mk-opt {
+  font-size: 0.88rem;
+}
+
+/* Frames: content sits flush in the window (no card-within-card) */
+.sl-markdown-content .mk-body {
+  padding: 0;
+  gap: 0;
+}
+.sl-markdown-content .mk-frame .mk-grid,
+.sl-markdown-content .mk-frame .mk-drop {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+/* "✓ Saved" autosave indicator in a Frame header */
+.sl-markdown-content .mk-saved {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--st-success-ink);
+}
+/* mock caption (handoff .mock-cap) — a mono note under a mock */
+.sl-markdown-content .mk-cap {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--ink-faint);
+  margin: 0.5rem 0 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.sl-markdown-content .mk-cap::before {
+  content: "▸";
+  color: var(--accent-ink);
+}
+.sl-markdown-content .mk-pad {
+  padding: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+.sl-markdown-content .mk-pad--top {
+  border-top: 1px solid var(--line);
+}
+.sl-markdown-content .mk-frame .mk-totals {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+/* Tighter callouts */
+.sl-markdown-content .starlight-aside {
+  padding: 0.7rem 0.95rem;
+  border-radius: var(--r-sm);
+}
+.sl-markdown-content .starlight-aside__title {
+  font-size: 0.8rem;
+}
+
+/* Steps — solid dark rounded-square number + a visible connecting rail */
+.sl-markdown-content .sl-steps > li::before {
+  background: var(--ink);
+  color: var(--bg);
+  border-radius: 7px;
+  box-shadow: none;
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.sl-markdown-content .sl-steps > li::after {
+  background: var(--line);
+  width: 1.5px;
+}
+
+/* Tighter mock Frame chrome */
+.sl-markdown-content .mk-frame {
+  margin: 0.9rem 0 1rem;
+}
+.sl-markdown-content .mk-bar {
+  padding: 0.5rem 0.75rem;
+}
+
+/* Compact link cards */
+.sl-markdown-content .sl-link-card {
+  padding: 0.75rem 0.95rem;
+}
+.sl-markdown-content .sl-link-card .title {
+  font-size: 0.92rem;
+}
+.sl-markdown-content .sl-link-card .description {
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+/* ============================================================
+   Hub components (handoff Purchasing.html): how-to card grid,
+   concepts/reference split row-lists, status-cell tokens.
+   ============================================================ */
+/* How-to card grid — hairline-divided icon cards */
+.sl-markdown-content .po-cardgrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  margin: 0.8rem 0 0.5rem;
+}
+.sl-markdown-content .po-dcard {
+  background: var(--surface);
+  padding: 0.85rem 0.95rem;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  transition: background 0.12s;
+  text-decoration: none;
+  color: inherit;
+}
+.sl-markdown-content .po-dcard:hover,
+.sl-markdown-content .po-dcard .dc-t,
+.sl-markdown-content .po-dcard .dc-d {
+  text-decoration: none;
+}
+.sl-markdown-content .po-dcard:hover {
+  background: var(--bg-2);
+}
+.sl-markdown-content .po-dcard .dc-top {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.sl-markdown-content .po-dcard .dc-ico {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.sl-markdown-content .po-dcard .dc-ico svg {
+  width: 16px;
+  height: 16px;
+}
+.sl-markdown-content .po-dcard .dc-n {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  color: var(--ink-faint);
+  margin-left: auto;
+}
+.sl-markdown-content .po-dcard .dc-t {
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: var(--ink);
+}
+.sl-markdown-content .po-dcard .dc-d {
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
+/* Concepts / Reference side-by-side */
+.sl-markdown-content .po-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.9rem;
+  align-items: start;
+}
+
+/* Small section sub-heading (handoff Troubleshooting block-h) */
+.sl-markdown-content .po-subhead {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1rem;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin: 1.1rem 0 0.5rem;
+}
+
+/* Status-cell tokens inside the hub status table */
+.sl-markdown-content .tbl-can {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+.sl-markdown-content .tbl-can.good {
+  color: var(--st-success-ink);
+}
+.sl-markdown-content .tbl-can.no {
+  color: var(--st-danger-ink);
+}
+
+/* Annotated effect breakdown (handoff .annot) — numbered/checked rows */
+.sl-markdown-content .po-annot {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  margin: 0.9rem 0;
+}
+.sl-markdown-content .po-annot .arow {
+  background: var(--surface);
+  padding: 0.8rem 0.95rem;
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+.sl-markdown-content .po-annot .aidx {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+.sl-markdown-content .po-annot .at {
+  font-weight: 600;
+  font-size: 0.86rem;
+  color: var(--ink);
+}
+.sl-markdown-content .po-annot .ad {
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+  margin-top: 3px;
+  line-height: 1.5;
+}
+
+/* Enum chip row (handoff .enums) */
+.sl-markdown-content .po-enums {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0.9rem 0;
+}
+
+/* Small inline quantity input cell (receive dialog "Receive now") */
+.sl-markdown-content .mk-qty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 64px;
+  height: 30px;
+  padding: 0 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  font-family: var(--font-mono);
+  color: var(--ink);
+}
+.sl-markdown-content .mk-qty--empty {
+  color: var(--ink-faint);
+}
+
+@media (max-width: 50rem) {
+  .sl-markdown-content .po-cardgrid,
+  .sl-markdown-content .po-split {
+    grid-template-columns: 1fr;
+  }
+}

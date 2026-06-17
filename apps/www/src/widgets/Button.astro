@@ -1,0 +1,13 @@
+---
+/**
+ * Doc UI kit — Button: a non-interactive button in the app's styles
+ * (handoff `.mbtn`). Illustration only — it does nothing when clicked.
+ * Usage: <Button variant="primary">Submit order</Button>
+ */
+interface Props {
+  variant?: "primary" | "ghost" | "subtle";
+}
+const { variant = "primary" } = Astro.props;
+---
+
+<span class={`mk-btn mk-btn--${variant}`}><slot /></span>

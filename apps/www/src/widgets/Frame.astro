@@ -1,0 +1,43 @@
+---
+/**
+ * Doc UI kit — Frame: a stylized app window / card sheet.
+ *
+ * Models the Carime handoff's `.mock` + `.mock-bar` panel. Token-themed (no
+ * hardcoded colors), reflows to the docs column width. Illustration, not a
+ * screenshot — recognizably Ashicore without being a pixel clone.
+ *
+ * Usage:
+ *   <Frame title="Draft · PO-708" status="draft">…body…</Frame>
+ * Slots: default = body; "action" = a right-aligned header affordance.
+ */
+import Pill from "./Pill.astro";
+
+interface Props {
+  /** Header title; may contain inline HTML (e.g. "<b>Draft</b> · PO-708"). */
+  title?: string;
+  /** Optional status pill on the right of the header. */
+  status?: "draft" | "ordered" | "partial" | "received";
+  /** Window dots affordance. */
+  dots?: boolean;
+}
+
+const { title, status, dots = true } = Astro.props;
+const hasAction = Astro.slots.has("action");
+const hasRight = hasAction || !!status;
+---
+
+<div class="mk-frame">
+  <div class="mk-bar">
+    {dots && (
+      <span class="mk-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+    )}
+    {title && <span class="mk-title" set:html={title} />}
+    {hasRight && (
+      <span class="mk-bar-right">
+        {hasAction && <slot name="action" />}
+        {status && <Pill status={status} />}
+      </span>
+    )}
+  </div>
+  <div class="mk-body"><slot /></div>
+</div>

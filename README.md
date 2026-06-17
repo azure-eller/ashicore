@@ -14,13 +14,13 @@ Active domains:
 - purchase orders and suppliers
 - manufacturing orders
 - Better Auth org/team management
-- Xero sales invoice and purchase-order document sync
+- Xero/QuickBooks accounting document sync
 
 Explicitly out of scope today:
 
 - multi-location inventory
 - accounting ledger, AP/AR, GL, or payments
-- full invoicing workflows beyond Xero document sync
+- full invoicing workflows beyond accounting document sync
 - work-center or capacity planning
 - auto-generated MRP runs
 

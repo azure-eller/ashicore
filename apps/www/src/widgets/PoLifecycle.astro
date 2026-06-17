@@ -1,0 +1,319 @@
+---
+/**
+ * Interactive purchase-order lifecycle diagram.
+ *
+ * Vanilla custom element + <script> — the same no-framework pattern Starlight
+ * uses for its own interactive components (TableOfContents, Tabs). No UI
+ * framework is installed in apps/www and none is added for this.
+ *
+ * Content is operator-facing and verified against the live module. Internal
+ * kernel event names (purchase_receipt, expected_release,
+ * landed_cost_revaluation) are intentionally absent — those live in the private
+ * docs/purchasing.md. Default selection: ordered.
+ */
+const NODES = [
+  { k: "draft", label: "Draft", short: "Editable. No inventory impact." },
+  { k: "ordered", label: "Ordered", short: "Placed. Adds expected supply." },
+  { k: "partial", label: "Partially Received", short: "Some lines received into stock." },
+  { k: "received", label: "Received", short: "Fully received. Still editable." },
+];
+---
+
+<starlight-po-lifecycle class="po-life">
+  <div class="po-life-track" role="tablist" aria-label="Purchase order statuses">
+    {
+      NODES.map((n) => (
+        <button
+          class="po-life-node"
+          type="button"
+          data-k={n.k}
+          role="tab"
+          aria-selected="false"
+        >
+          <span class={`po-pill po-pill--${n.k}`}>{n.label}</span>
+          <span class="po-life-short">{n.short}</span>
+        </button>
+      ))
+    }
+  </div>
+  <div class="po-life-detail" data-detail aria-live="polite"></div>
+</starlight-po-lifecycle>
+
+<script>
+  type Status = "draft" | "ordered" | "partial" | "received";
+  interface LifeEntry {
+    desc: string;
+    actions: { ok: boolean; text: string }[];
+    trans: { label: string; to: Status | null }[];
+  }
+
+  const LABELS: Record<Status, string> = {
+    draft: "Draft",
+    ordered: "Ordered",
+    partial: "Partially Received",
+    received: "Received",
+  };
+
+  // What each status means, what's allowed/blocked here, where it can go.
+  // Verified against lib/purchasing/queries/{receiving,order-write,order-submit}.ts.
+  const LIFE: Record<Status, LifeEntry> = {
+    draft: {
+      desc:
+        "A working document. Lines, quantities, units, costs, and the delivery address are all editable. A draft adds nothing to expected supply and never touches inventory.",
+      actions: [
+        { ok: true, text: "Edit any field, line, or cost" },
+        { ok: true, text: "Send PO email, or choose Ordered from the status menu" },
+        { ok: true, text: "Delete it — no inventory history exists yet" },
+        { ok: false, text: "Receive stock — you must order it first" },
+      ],
+      trans: [
+        { label: "order", to: "ordered" },
+        { label: "delete", to: null },
+      ],
+    },
+    ordered: {
+      desc:
+        "Placed with the supplier. The remaining quantity is now expected supply, so planning can see it before stock arrives. Still fully editable, and still deletable — until the first receipt.",
+      actions: [
+        { ok: true, text: "Edit lines, quantities, and costs" },
+        { ok: true, text: "Receive stock (full or partial)" },
+        { ok: true, text: "Delete before any receipt — releases the expected supply" },
+        { ok: false, text: "Reduce a quantity below what's already received" },
+      ],
+      trans: [
+        { label: "receive some", to: "partial" },
+        { label: "receive all", to: "received" },
+        { label: "delete", to: null },
+      ],
+    },
+    partial: {
+      desc:
+        "Some lines have been received into stock; a remainder is still expected. Received lines are permanent receipt history now, so they can't be removed and the order can't be deleted.",
+      actions: [
+        { ok: true, text: "Edit and receive the remaining lines" },
+        { ok: true, text: "Edit a cost — revalues the stock still on hand" },
+        { ok: false, text: "Remove an already-received line" },
+        { ok: false, text: "Delete the order" },
+      ],
+      trans: [
+        { label: "receive another partial", to: "partial" },
+        { label: "receive the rest", to: "received" },
+      ],
+    },
+    received: {
+      desc:
+        "Every line is fully received. The order stays editable: adding a line or increasing a quantity reopens it to Partially Received, while a price or by-value cost change revalues the stock still on hand from this order.",
+      actions: [
+        { ok: true, text: "Edit a line price or by-value cost (revalues on-hand stock)" },
+        { ok: true, text: "Add a line or increase a quantity → reopens to Partially Received" },
+        { ok: false, text: "Delete the order" },
+        { ok: false, text: "Reduce a quantity below what's received" },
+      ],
+      trans: [{ label: "add line / increase qty", to: "partial" }],
+    },
+  };
+
+  customElements.define(
+    "starlight-po-lifecycle",
+    class extends HTMLElement {
+      connectedCallback() {
+        const detail = this.querySelector<HTMLElement>("[data-detail]");
+        if (!detail) return;
+        const nodes = Array.from(
+          this.querySelectorAll<HTMLElement>(".po-life-node"),
+        );
+
+        const check =
+          '<svg class="po-life-ai" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12l5 5L20 6"/></svg>';
+        const cross =
+          '<svg class="po-life-ai" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+        const arrow =
+          '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+        const pill = (k: Status | null) =>
+          k
+            ? '<span class="po-pill po-pill--' + k + '">' + LABELS[k] + "</span>"
+            : '<span class="po-life-removed">removed</span>';
+
+        const render = (key: string) => {
+          const d = LIFE[key as Status];
+          if (!d) return;
+          nodes.forEach((n) => {
+            const on = n.dataset.k === key;
+            n.classList.toggle("active", on);
+            n.setAttribute("aria-selected", String(on));
+          });
+          const acts = d.actions
+            .map(
+              (a) =>
+                '<div class="po-life-act ' +
+                (a.ok ? "yes" : "no") +
+                '">' +
+                (a.ok ? check : cross) +
+                "<span>" +
+                a.text +
+                "</span></div>",
+            )
+            .join("");
+          const trans = d.trans
+            .map(
+              (t) =>
+                '<div class="po-life-tr"><span class="po-life-act-label">' +
+                t.label +
+                "</span>" +
+                arrow +
+                pill(t.to) +
+                "</div>",
+            )
+            .join("");
+          detail.innerHTML =
+            '<div class="po-life-main"><div class="po-life-h">' +
+            pill(key as Status) +
+            '</div><p class="po-life-d">' +
+            d.desc +
+            "</p></div>" +
+            '<div class="po-life-cols"><div class="po-life-col"><h4>Allowed here</h4><div class="po-life-acts">' +
+            acts +
+            '</div></div><div class="po-life-col"><h4>Transitions out</h4><div class="po-life-trans">' +
+            trans +
+            "</div></div></div>";
+        };
+
+        nodes.forEach((n) =>
+          n.addEventListener("click", () => {
+            if (n.dataset.k) render(n.dataset.k);
+          }),
+        );
+        render("ordered");
+      }
+    },
+  );
+</script>
+
+<style is:global>
+  /* Lifecycle diagram — global so the runtime-injected detail panel is styled. */
+  .po-life {
+    display: block;
+    margin-top: 1.4rem;
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    overflow: hidden;
+  }
+  .po-life-track {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    background: var(--bg-2);
+  }
+  .po-life-node {
+    position: relative;
+    padding: 1.05rem 1rem 1.15rem;
+    /* Reset the UA/Starlight <button> default border (2px) — only the right
+       divider is ours; otherwise top/left/bottom leak through as black rules. */
+    border: 0;
+    border-right: 1px solid var(--line);
+    background: var(--bg-2);
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    transition: background 0.15s;
+  }
+  .po-life-node:last-child {
+    border-right: none;
+  }
+  .po-life-node:hover {
+    background: var(--surface);
+  }
+  .po-life-node.active {
+    background: var(--surface);
+    box-shadow: inset 0 -3px 0 var(--accent);
+  }
+  .po-life-short {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--ink-soft);
+    margin-top: 0.55rem;
+    line-height: 1.4;
+  }
+  .po-life-detail {
+    padding: 1.25rem;
+    border-top: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 1.5rem;
+  }
+  .po-life-d {
+    font-size: 0.85rem;
+    color: var(--ink-soft);
+    margin-top: 0.6rem;
+    line-height: 1.55;
+  }
+  .po-life-col h4 {
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 0.6rem;
+  }
+  .po-life-acts,
+  .po-life-trans {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .po-life-act {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+    font-size: 0.82rem;
+    color: var(--ink-soft);
+  }
+  .po-life-ai {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    margin-top: 1px;
+  }
+  .po-life-act.yes .po-life-ai {
+    color: var(--st-success-ink);
+  }
+  .po-life-act.no .po-life-ai {
+    color: var(--st-danger-ink);
+  }
+  .po-life-tr {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-size: 0.8rem;
+    color: var(--ink-soft);
+  }
+  .po-life-tr svg {
+    width: 13px;
+    height: 13px;
+    color: var(--ink-faint);
+  }
+  .po-life-act-label {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    color: var(--accent-ink);
+    background: var(--accent-soft);
+    border-radius: 5px;
+    padding: 2px 7px;
+  }
+  .po-life-removed {
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    color: var(--ink-faint);
+  }
+  @media (max-width: 640px) {
+    .po-life-detail {
+      grid-template-columns: 1fr;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .po-life-node {
+      transition: none;
+    }
+  }
+</style>

@@ -1,0 +1,47 @@
+---
+title: Snapshots
+description: Ashicore copies readable supplier and line details onto each purchase order at save time, then refreshes them when the order is edited.
+sidebar:
+  order: 12
+  label: Snapshots
+  badge:
+    text: Concept
+    variant: tip
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+A purchase order stores readable supplier and line details at save time. Those copied values let an untouched order keep the wording it had when it was written, but they are refreshed from the current supplier and item records when the order is edited and saved again.
+
+## The problem snapshots solve
+
+Suppliers get renamed. Items get re-coded. Units get corrected. If orders pointed only at live records, every such change would silently rewrite the past. Ashicore stores readable copies on the order so the order has its own wording. Editing the order later refreshes those copies from the current records.
+
+## What gets snapshotted
+
+| On | What's copied onto it |
+|----|------------------------|
+| The order | The supplier's name |
+| Each line | The item name and SKU, purchase unit, stocking unit, purchase-to-stock factor, tax rate name, and tax percent |
+
+## Snapshot vs. live reference
+
+An order still keeps the live link to its records, so it stays connected to the current supplier and item for navigation and reporting. The order also stores readable copies used on the order and in its calculations. Those copies are stable while the order is untouched, and refresh when the order is saved again.
+
+The editable grid labels active tax choices from current tax settings, and the supplier-facing PDF/email shows the tax percent. The saved line still carries the copied tax rate details used for order math.
+
+<div class="po-annot">
+  <div class="arow"><span class="aidx">id</span><div><div class="at">The reference stays live</div><div class="ad">The order still links to the real supplier and item records, so you can jump to the current versions.</div></div></div>
+  <div class="arow"><span class="aidx">""</span><div><div class="at">The label is copied</div><div class="ad">Rename "Cooperativa del Huila" to "Cooperativa del Huila S.A." and new orders use the new name. Existing orders keep their copied name until they are edited and saved again.</div></div></div>
+</div>
+
+## Two guarantees, working together
+
+Snapshots pair with the system's delete guards to keep history trustworthy from both directions:
+
+- **Snapshots** mean an untouched order keeps its copied wording even when the live record is edited.
+- **Delete guards** mean a record can't vanish from under *active* work — you can't [delete a supplier](/docs/purchasing/manage-suppliers) with open orders, and you can't [delete a received order](/docs/purchasing/the-po-lifecycle#why-cant-i-delete-this-order).
+
+<Aside type="tip" title="The payoff">
+A fully received order stays a faithful record of what was bought, from whom, in what units, and at what cost. Received orders can still be edited in limited ways, so edits refresh copied supplier and item wording from the current records.
+</Aside>

@@ -1,0 +1,88 @@
+---
+title: Add shipping, customs & other costs
+description: Capture freight, customs, and other charges on an order, decide whether each lands on inventory valuation or just the order total, and bill carriers separately.
+sidebar:
+  order: 4
+  label: Add shipping & customs
+  badge:
+    text: How-to
+    variant: note
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+import Pill from '../../../../widgets/Pill.astro';
+import Frame from '../../../../widgets/Frame.astro';
+import Field from '../../../../widgets/Field.astro';
+import Grid from '../../../../widgets/Grid.astro';
+import Totals from '../../../../widgets/Totals.astro';
+
+Capture freight, customs, and other charges on a purchase order, and decide whether each one lands on inventory valuation or just the order total. Costs can be assigned to a different supplier so Xero bill sync can split them into separate vendor bill groups.
+
+<p class="po-meta">
+  <span class="po-chip">4 steps · ~3 min</span>
+  <span class="po-chip">Applies to: <b>Draft / Ordered</b></span>
+  <span class="po-chip">Concept: <b><a href="/docs/purchasing/landed-and-additional-costs">Landed cost</a></b></span>
+</p>
+
+<Steps>
+
+1. **Add a cost.** In the order's **Additional costs** section, choose **Add cost**. In the **Cost** column, pick **Shipping**, **Customs**, or **Other**, then add a reference and an amount (zero or greater).
+
+   <Frame title="<b>Add additional cost</b>">
+     <div class="mk-pad">
+       <div class="mk-rows mk-rows--3">
+         <Field label="Cost" required>Shipping</Field>
+         <Field label="Amount" required>$480.00</Field>
+         <Field label="Reference">Bill #4471</Field>
+       </div>
+     </div>
+   </Frame>
+
+2. **Choose how it's distributed.** This is the important choice. **By value** spreads the cost across material lines in proportion to each line's share of the material subtotal, raising the **landed cost per stock unit** your inventory is valued at. **Not distributed** adds to the order total only and leaves inventory valuation untouched.
+
+   <Frame title="<b>Additional costs</b> · PO-1045">
+     <Grid>
+       <thead><tr><th>Cost</th><th>Reference</th><th>Distribution</th><th class="num">Amount</th></tr></thead>
+       <tbody>
+         <tr><td><Pill status="ordered" label="Shipping" /></td><td>Ocean freight — Bill #4471</td><td><span class="po-enum">By value</span></td><td class="num">$480.00</td></tr>
+         <tr><td><Pill status="draft" label="Other" /></td><td>Pallet deposit</td><td><span class="po-enum">Not distributed</span></td><td class="num">$60.00</td></tr>
+       </tbody>
+     </Grid>
+     <div class="mk-pad mk-pad--top">
+       <Totals rows={[
+         { label: "Material subtotal", value: "$6,696.00" },
+         { label: "Shipping (by value → landed on inventory)", value: "$480.00" },
+         { label: "Other (not distributed)", value: "$60.00" },
+         { label: "Order total", value: "$7,236.00", grand: true },
+       ]} />
+     </div>
+   </Frame>
+
+   <Aside type="note" title="Where the money lands">
+   Of the $540 in costs here, only the $480 by-value shipping flows into your inventory cost and, for tracked items, the lot cost at receipt. The $60 deposit raises the order total but never the inventory valuation. The exact allocation math is in [Landed cost & additional costs](/docs/purchasing/landed-and-additional-costs).
+   </Aside>
+
+3. **Assign a cost to a different supplier (optional).** If a charge is owed to someone other than the order's supplier — say a freight company — set the **Supplier** column on that cost to the freight supplier. Leave it as **(PO supplier)** to bill the order's supplier. Ashicore keeps the charge on this purchase order, but Xero bill sync groups costs by resolved supplier so each supplier can be billed on its own invoice.
+
+   <Frame title="<b>Bill groups</b>">
+     <Grid>
+       <thead><tr><th>Group</th><th>Supplier</th><th>Kind</th><th class="num">Total</th></tr></thead>
+       <tbody>
+         <tr><td><span class="num">Materials</span></td><td>Cooperativa del Huila</td><td><span class="po-enum">Order supplier</span></td><td class="num">$6,756.00</td></tr>
+         <tr><td><span class="num">Freight</span></td><td>Pacific Ocean Freight</td><td><span class="po-enum">Additional cost</span></td><td class="num">$480.00</td></tr>
+       </tbody>
+     </Grid>
+   </Frame>
+
+   <Aside type="note" title="Carrier costs stay on this order">
+   A supplier on an additional-cost row changes Xero bill grouping. It does not create a separate purchase order in the operator workflow, and it does not create anything to receive.
+   </Aside>
+
+4. **Editing costs after receipt revalues tracked stock.** Change a by-value cost (or a line price) *after* stock is received, and Ashicore appends a revaluation that rebases the on-hand tracked lots from this order — keeping inventory valuation correct. Untracked shared-bucket materials save the edit but aren't rebased in v1.
+
+</Steps>
+
+## What's next
+
+- **[Landed cost & additional costs](/docs/purchasing/landed-and-additional-costs)** — the allocation formula, worked through.
+- **[Sync a supplier bill](/docs/purchasing/sync-a-bill-to-xero)** — bill each vendor group.

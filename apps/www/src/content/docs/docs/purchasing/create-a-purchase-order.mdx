@@ -1,0 +1,141 @@
+---
+title: Create a purchase order
+description: Build a draft order for the materials you buy, let a valid draft autosave, then order it by sending the supplier email or choosing Ordered from the status menu.
+sidebar:
+  order: 1
+  badge:
+    text: How-to
+    variant: note
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+import Pill from '../../../../widgets/Pill.astro';
+import Frame from '../../../../widgets/Frame.astro';
+import Field from '../../../../widgets/Field.astro';
+import Grid from '../../../../widgets/Grid.astro';
+import Button from '../../../../widgets/Button.astro';
+import Totals from '../../../../widgets/Totals.astro';
+
+Build a draft order for the materials you buy from one supplier, set quantities in your purchase units, and order it so the material is expected from the supplier. This guide takes a standard order from an empty form to <Pill status="ordered" />.
+
+<p class="po-meta">
+  <span class="po-chip">6 steps · ~4 min</span>
+  <span class="po-chip">Applies to: <b>Draft → Ordered</b></span>
+  <span class="po-chip">Access: <b>Purchasing operate</b></span>
+</p>
+
+<Aside type="note" title="Before you start">
+You'll need at least one **supplier**, and the materials you're buying must be **purchasable** — each needs a purchase unit and a purchase-to-stock conversion so Ashicore can turn ordered quantities into stocking units. You also need **operate** access to Purchasing (owners and admins have it by default; team members need it assigned).
+</Aside>
+
+<Steps>
+
+1. **Start a new order.** From **Purchasing > Orders**, choose **New Purchase Order**. Ashicore opens an unsaved card titled **New purchase order**. Once the draft first saves, Ashicore assigns the next PO number, changes the URL to the saved order, and keeps the order in <Pill status="draft" />.
+
+   <Frame title="Ashicore · <b>Purchasing</b>">
+     <span slot="action"><Button variant="primary">New Purchase Order</Button></span>
+     <Grid>
+       <thead><tr><th>Order</th><th>Supplier</th><th>Status</th></tr></thead>
+       <tbody>
+         <tr><td><span class="num">PO-1042</span></td><td>Cooperativa del Huila</td><td><Pill status="received" /></td></tr>
+         <tr><td><span class="num">PO-1041</span></td><td>Yirgacheffe Coffee FCU</td><td><Pill status="partial" /></td></tr>
+         <tr><td><span class="num">PO-1040</span></td><td>Crown Roasting Supply</td><td><Pill status="ordered" /></td></tr>
+       </tbody>
+     </Grid>
+   </Frame>
+   <p class="mk-cap">The purchase orders list. New orders open unsaved; after a valid autosave, you can leave and return to them at any time.</p>
+
+2. **Choose a supplier.** Pick who you're buying from. The supplier is required, and its name is copied onto the order when the order is saved. Later edits to the purchase order refresh that copied name from the current supplier record.
+
+   <Frame title="<b>New purchase order</b>" status="draft">
+     <div class="mk-pad">
+       <Field label="Supplier" required focus>Cooperativa del Huila</Field>
+       <div class="mk-drop">
+         <div class="mk-opt hi"><span class="av">CH</span> Cooperativa del Huila <span class="sub">9 items</span></div>
+         <div class="mk-opt"><span class="av">YC</span> Yirgacheffe Coffee FCU <span class="sub">6 items</span></div>
+         <div class="mk-opt"><span class="av">CR</span> Crown Roasting Supply <span class="sub">4 items</span></div>
+       </div>
+     </div>
+   </Frame>
+
+3. **Add material lines.** Choose **Add material** for each item you're ordering. Pick the item, enter **Quantity** in its **UoM** (for example, a 69 kg bag), and review **Price per unit**. The price prefills from the item's default purchase price (and its default tax rate) and stays editable. Ashicore converts to stocking units and can show the resulting **Landed cost** — the stock-unit cost your inventory is valued at.
+
+   <Frame title="<b>Draft</b> · PO-1045 · Cooperativa del Huila">
+     <span slot="action"><Button variant="subtle">+ Add material</Button></span>
+     <Grid>
+       <thead><tr><th>Item</th><th class="num">Quantity</th><th>UoM</th><th class="num">Price per unit</th><th class="num">Total price</th><th class="num">Landed cost</th></tr></thead>
+       <tbody>
+         <tr><td><span class="mk-name">Huila Green</span> <span class="mk-sku">RVS-GRN-HUILA</span></td><td class="num">12</td><td>Bag <span class="mk-sku">×69 kg</span></td><td class="num">$310.00</td><td class="num">$3,720.00</td><td class="num">$4.49</td></tr>
+         <tr><td><span class="mk-name">Yirgacheffe Green</span> <span class="mk-sku">RVS-GRN-YIRG</span></td><td class="num">8</td><td>Bag <span class="mk-sku">×60 kg</span></td><td class="num">$372.00</td><td class="num">$2,976.00</td><td class="num">$6.20</td></tr>
+       </tbody>
+       <tfoot><tr><td colspan="5">Material subtotal</td><td class="num">$6,696.00</td></tr></tfoot>
+     </Grid>
+   </Frame>
+
+   <Aside type="tip" title="Purchase unit vs. stock unit">
+   A "Bag (×69 kg)" line ordered twelve times becomes 828 kg of inventory. The **landed cost per stock unit** climbs above the raw `$310 ÷ 69 = $4.49` once by-value additional costs are allocated in the next step.
+   </Aside>
+
+4. **Add additional costs (optional).** Choose **Add cost** to capture freight, customs, or other charges. In the **Cost** column, pick **Shipping**, **Customs**, or **Other**. For each row, choose how it's distributed: **By value** spreads it across the lines and raises your landed inventory cost, while **Not distributed** raises the order total only and leaves inventory valuation untouched.
+
+   <Frame title="<b>Additional costs</b>">
+     <Grid>
+       <thead><tr><th>Cost</th><th>Reference</th><th>Distribution</th><th class="num">Amount</th></tr></thead>
+       <tbody>
+         <tr><td><Pill status="ordered" label="Shipping" /></td><td>Ocean freight — Bill #4471</td><td><span class="po-enum">By value</span></td><td class="num">$480.00</td></tr>
+         <tr><td><Pill status="draft" label="Other" /></td><td>Pallet deposit</td><td><span class="po-enum">Not distributed</span></td><td class="num">$60.00</td></tr>
+       </tbody>
+     </Grid>
+     <div class="mk-pad mk-pad--top">
+       <Totals rows={[
+         { label: "Material subtotal", value: "$6,696.00" },
+         { label: "Shipping (by value, landed)", value: "$480.00" },
+         { label: "Other (not distributed)", value: "$60.00" },
+         { label: "Order total", value: "$7,236.00", grand: true },
+       ]} />
+     </div>
+   </Frame>
+
+   <Aside type="caution" title="Where the money lands">
+   Only **by-value** costs flow into your inventory cost and, for tracked items, the lot cost when you receive. A not-distributed cost raises the order total but never the inventory valuation. Editing a by-value cost *after* receipt revalues tracked stock still on hand from this order; untracked shared-bucket materials save the edit without rebasing in v1.
+   </Aside>
+
+5. **Set delivery details.** Add the delivery address and an optional expected arrival date. There is no Save button: valid changes autosave. Until the draft has enough required data to save, it remains unsaved; after the first save, it has a PO number and can be reopened. It stays editable and deletable until the first receipt.
+
+   <Frame title="<b>Delivery &amp; details</b>">
+     <span slot="action"><span class="mk-saved">✓ Saved</span></span>
+     <div class="mk-pad">
+       <div class="mk-rows mk-rows--2">
+         <Field label="Expected arrival">Apr 18, 2026</Field>
+         <Field label="Delivery address">Riverside Yard</Field>
+       </div>
+       <Field label="Address line 1">2200 Riverside Rd</Field>
+       <div class="mk-rows mk-rows--3">
+         <Field label="City">Paonia</Field>
+         <Field label="Region">CO</Field>
+         <Field label="Postcode">81428</Field>
+       </div>
+     </div>
+   </Frame>
+
+6. **Order it.** The normal supplier-facing path is the header mail action: choose **Send PO email**, review **Send documents for PO-1045**, and send the email. If the order is still <Pill status="draft" />, Ashicore first moves it to <Pill status="ordered" />, stamps the ordered date, and registers expected supply. You can also order a saved draft without emailing by opening the status menu and choosing **Ordered**; selecting Ordered first saves pending valid changes, and drafts with no material lines are rejected.
+
+   <Frame title="<b>PO-1045</b> · Cooperativa del Huila">
+     <span slot="action"><Button variant="primary">Send PO email</Button></span>
+     <div class="mk-drop">
+       <div class="mk-opt"><Pill status="draft" /> <span class="sub">current</span></div>
+       <div class="mk-opt hi"><Pill status="ordered" /> <span class="sub">select →</span></div>
+     </div>
+   </Frame>
+
+</Steps>
+
+<Aside type="tip" title="Done — the order is now Ordered">
+Expected supply is live after the email send or status change succeeds, and the order remains editable and deletable until the first receipt. Next, when stock arrives, **[receive it into inventory](/docs/purchasing/receive-stock)**.
+</Aside>
+
+## What's next
+
+- **[Receive stock](/docs/purchasing/receive-stock)** — turn ordered quantities into inventory.
+- **[The purchase order lifecycle](/docs/purchasing/the-po-lifecycle)** — what you can edit, receive, or delete at each status.
+- **[Sync a supplier bill](/docs/purchasing/sync-a-bill-to-xero)** — create a payable bill before or after receipt.

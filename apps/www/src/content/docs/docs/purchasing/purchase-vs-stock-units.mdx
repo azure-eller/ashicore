@@ -1,0 +1,49 @@
+---
+title: Purchase units vs. stock units
+description: You rarely buy in the same unit you store in. Ashicore keeps the two separate on every line and converts with one number — the purchase-to-stock factor.
+sidebar:
+  order: 8
+  label: Purchase vs. stock units
+  badge:
+    text: Concept
+    variant: tip
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+You rarely buy things in the same unit you store them in. Ashicore keeps the two separate on every line and converts between them with one number — the **purchase-to-stock factor** — so ordering stays natural and inventory stays exact.
+
+## Two units, one item
+
+Every purchasable item has a **purchase unit** (how you buy it) and a **stocking unit** (how you hold and consume it). Green coffee delivered by the bag is bought in bags but stored, costed, and roasted in kilograms.
+
+| Term | What it means | Example |
+|------|---------------|---------|
+| Purchase unit | The unit you order in | Bag |
+| Stocking unit | The unit inventory is held in | kg |
+| Purchase-to-stock factor | Stocking units per 1 purchase unit | 69 |
+
+## The conversion
+
+The factor drives everything. Quantities and cost are converted the moment a line is entered.
+
+<div class="po-annot">
+  <div class="arow"><span class="aidx">×</span><div><div class="at">Quantity → stocking units</div><div class="ad">Stocking quantity = order quantity × factor. Ordering **12 bags** at a factor of 69 books **828 kg** of expected and, later, received stock.</div></div></div>
+  <div class="arow"><span class="aidx">÷</span><div><div class="at">Cost → per stocking unit</div><div class="ad">The unit cost is the price of one purchase unit; dividing by the factor gives the base cost per stocking unit. **$310 / bag ÷ 69 = $4.49 / kg** before any landed costs.</div></div></div>
+</div>
+
+<Aside type="note" title="The per-stock-unit cost is what inventory uses">
+That figure becomes the line's **landed cost per stock unit** — the basis for lot cost, the item's running cost, recipe roll-ups, and stocktakes. Add freight as a by-value cost and it climbs; see [Landed cost](/docs/purchasing/landed-and-additional-costs).
+</Aside>
+
+## Where each unit shows up
+
+| Uses purchase units | Uses stocking units |
+|---------------------|---------------------|
+| Order & receive quantities | Inventory on hand & lots |
+| The unit cost you negotiate | Landed cost & valuation |
+| The supplier-facing order & bill | Expected supply, recipe consumption, stocktakes |
+
+## Units are snapshotted
+
+When a line is saved, its purchase unit, stocking unit, and purchase-to-stock factor are copied onto the line. Changing an item's units later won't rewrite an untouched order, but editing and saving that order refreshes the copied unit details from the item — see [Snapshots](/docs/purchasing/snapshots).

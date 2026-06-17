@@ -13,6 +13,8 @@
     "db:local:stop": "tsx scripts/local-db-cli.ts stop",
     "db:local:setup": "tsx scripts/setup-local-db.ts",
     "dev:seed-user": "tsx scripts/seed-dev-user.ts",
+    "seed:docs-demo": "tsx scripts/seed-docs-demo.ts",
+    "docs:shots": "tsx scripts/seed-docs-demo.ts && tsx scripts/capture-docs-shots.ts",
     "xero:smoke": "tsx scripts/xero-smoke.ts",
     "quickbooks:smoke": "tsx scripts/quickbooks-smoke.ts",
     "shopify:smoke": "tsx scripts/shopify-smoke.ts",

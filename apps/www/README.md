@@ -27,7 +27,7 @@ Vercel project settings for the public site:
 
 ## Route Ownership
 
-Astro owns public routes such as `/`, `/privacy`, `/terms`, `/support`, `/security`, `/resources`, and `/subprocessors`.
+Astro owns public routes such as `/`, `/docs`, `/privacy`, `/terms`, `/support`, `/security`, `/resources`, and `/subprocessors`.
 
 The ERP app owns `/sign-in`, dashboard prefixes such as `/sales` and `/inventory`, `/android`, `/.well-known/*`, and `/api/*`.
 
@@ -42,3 +42,5 @@ This verifies the route map and confirms `apps/www` does not import ERP internal
 ## Content
 
 Policy and trust pages live in `src/pages/*.md` and render through `src/layouts/ContentPage.astro`. Update those files directly for policy/support/resource changes.
+
+Operator documentation is built with Astro Starlight: pages live under `src/content/docs/docs/` and are served at `/docs`, illustrated with the inline doc UI kit in `src/widgets/` (never app screenshots). The sidebar is registered explicitly in `astro.config.mjs`. See the repo-root `docs/operator-docs-authoring-guide.md` for the authoring pattern.

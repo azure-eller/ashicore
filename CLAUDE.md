@@ -73,6 +73,7 @@ This file is a constitution + map. Deep reference lives in `docs/` — read the 
 | UI, components, layout | `docs/ui-patterns.md` |
 | UI screenshot review | `docs/ui-review-checklist.md` |
 | Design system (tokens, color, type, density) | `docs/design/README.md` |
+| Operator docs authoring (`apps/www`, `/docs`) | `docs/operator-docs-authoring-guide.md` |
 | API routes, mutations | `docs/api-patterns.md` |
 | Schema, migrations, DAL, roles | `docs/database.md` |
 | Testing lanes, CI labels, fixtures | `docs/testing.md` |
