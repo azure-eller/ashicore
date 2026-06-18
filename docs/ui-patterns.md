@@ -54,6 +54,14 @@ vertical column dividers. Do not recreate column borders or alternate table
 surfaces in route code. Detail-card line grids should keep the same header,
 row, and cell-padding rhythm unless a shared grid variant is introduced.
 
+Numeric, currency, and quantity columns in `ERPDataGrid` and
+`EditableLineDataGrid` should declare alignment on the column, not on the
+header. Use `type: "numericColumn"` / `type: "rightAligned"` or a static
+right-aligned cell class such as `num`, `num-end`, or `text-right`; the shared
+grid normalizer adds the matching right-aligned header and cell alignment.
+Columns with dynamic `cellClass` functions must still declare that numeric
+intent statically so headers and values stay aligned.
+
 ## Dashboard Module Layouts
 
 Module layouts own the outer dashboard gutter. Use `DashboardModuleShell` in
@@ -264,6 +272,10 @@ ERP line sections should use the named wrappers from `components/editable-lines.
 - `ReadOnlyLines`: dense read-only row display with the same grid visual.
 
 Named line wrappers accept `fields`, not raw AG Grid column definitions. Pages choose a field kind (`text`, `number`, `select`, `date`, `inventory-item`, or `display`) and the shared wrapper maps that to AG Grid. Do not define page-local AG Grid cell editor components or pass `cellEditor` / `cellEditorParams` from app code. If a line needs a new field type, promote that field editor into the shared line toolbox first, then use it from the page. `pnpm lint` runs `verify:editable-lines` and fails normal app code that imports raw `EditableLineDataGrid`, defines local `*CellEditor`, or configures AG Grid editors directly.
+
+For numeric line fields, set `rightAligned: true`. The wrapper maps that to AG
+Grid's right-aligned column type and the shared grid normalizer keeps the header
+right-aligned with the values.
 
 Current shared line field editors:
 

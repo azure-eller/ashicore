@@ -43,6 +43,7 @@ type LineFieldBase<TData> = {
   flex?: number;
   sortable?: boolean;
   autoHeight?: boolean;
+  /** Right-aligns numeric values and lets the grid align the header to match. */
   rightAligned?: boolean;
   mono?: boolean;
   muted?: boolean;

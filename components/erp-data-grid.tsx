@@ -42,6 +42,7 @@ import {
   InputGroupInput,
 } from "@/components/ui/input-group";
 import { cn } from "@/lib/utils";
+import { withConsistentAlignment } from "./grid-column-alignment";
 import styles from "./erp-data-grid.module.css";
 
 ModuleRegistry.registerModules([AllCommunityModule, TooltipModule]);
@@ -329,7 +330,10 @@ export function ERPDataGrid<TData extends { id: string }>({
     [defaultColDefOverrides]
   );
   const resizableColumns = useMemo(
-    () => (relaxResizableMaxWidth ? columns.map(removeResizableMaxWidth) : columns),
+    () =>
+      withConsistentAlignment(
+        relaxResizableMaxWidth ? columns.map(removeResizableMaxWidth) : columns
+      ),
     [columns, relaxResizableMaxWidth]
   );
   const rowSelection = useMemo(

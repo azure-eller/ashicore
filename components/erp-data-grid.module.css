@@ -66,6 +66,13 @@
   align-items: center;
 }
 
+/* Numeric columns get a right-aligned header (bound to the right-aligned cell by
+   withConsistentAlignment). The theme handles the standard header label; custom
+   header components live in the comp wrapper, so right-align them too. */
+.grid :global(.ag-header-cell.ag-right-aligned-header .ag-header-cell-comp-wrapper) {
+  justify-content: flex-end;
+}
+
 .grid :global(.ag-header-cell.erp-grid-movable-header),
 .grid :global(.ag-header-group-cell.erp-grid-movable-header) {
   cursor: grab;
@@ -169,8 +176,8 @@
 
 /* Right-align a numeric value cell. Cells render as display:flex, so
    text-align is inert for positioning — use justify-content, which is what AG
-   Grid's own .ag-right-aligned-cell does. Cell-level only, so headers stay
-   left-aligned. */
+   Grid's own .ag-right-aligned-cell does. Header alignment is bound by
+   withConsistentAlignment. */
 .grid :global(.ag-cell.num-end) {
   justify-content: flex-end;
 }

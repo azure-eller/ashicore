@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
 import { erpGridTheme } from "./erp-data-grid";
+import { withConsistentAlignment } from "./grid-column-alignment";
 import styles from "./erp-data-grid.module.css";
 
 type EditableLineCellEditorParams = {
@@ -378,12 +379,13 @@ export function EditableLineDataGrid<TData>({
   ]);
 
   const columnDefs = useMemo<ColDef<TData>[]>(
-    () => [
-      ...(enableReorder ? actionColumns.slice(0, 1) : []),
-      ...columns,
-      ...(extraEndColumns ?? []),
-      ...(enableDelete ? actionColumns.slice(enableReorder ? 1 : 0) : []),
-    ],
+    () =>
+      withConsistentAlignment<TData>([
+        ...(enableReorder ? actionColumns.slice(0, 1) : []),
+        ...columns,
+        ...(extraEndColumns ?? []),
+        ...(enableDelete ? actionColumns.slice(enableReorder ? 1 : 0) : []),
+      ]) as ColDef<TData>[],
     [actionColumns, columns, enableDelete, enableReorder, extraEndColumns]
   );
 

@@ -870,6 +870,7 @@ export function LedgerTable({
       : []),
     {
       colId: "change",
+      type: "numericColumn",
       minWidth: 125,
       flex: 0.75,
       headerComponent: () => (
@@ -893,6 +894,7 @@ export function LedgerTable({
     },
     {
       colId: "onHandBefore",
+      type: "numericColumn",
       minWidth: 150,
       flex: 0.85,
       headerComponent: () => (
@@ -914,6 +916,7 @@ export function LedgerTable({
     },
     {
       colId: "onHandAfter",
+      type: "numericColumn",
       minWidth: 145,
       flex: 0.85,
       headerComponent: () => (
@@ -935,6 +938,7 @@ export function LedgerTable({
     },
     {
       colId: "valueChange",
+      type: "numericColumn",
       minWidth: 140,
       flex: 0.85,
       headerComponent: () => (
