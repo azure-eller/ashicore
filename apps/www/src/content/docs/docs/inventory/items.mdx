@@ -1,0 +1,31 @@
+---
+title: Items
+description: Products and materials share one inventory item model.
+sidebar:
+  label: Overview
+---
+
+Items are the shared records behind products and materials. The live app separates the entry points into Products and Materials, but downstream inventory, purchasing, manufacturing, and sales workflows all resolve back to item records.
+
+<p class="po-meta">
+  <span class="po-chip"><b>2</b> types</span>
+  <span class="po-chip">family stock unit</span>
+  <span class="po-chip">autosaves</span>
+</p>
+
+## Item types
+
+| Type | Used for | Recipe | Sellable |
+| --- | --- | --- | --- |
+| Material | Things you buy, consume, or stock as inputs. | No | Usually no |
+| Product | Things you make or sell. | Optional BOM/recipe | Optional |
+
+Item type is a creation-time decision. The item-card UI can change the family stock unit and mirror it to variants; treat that as an operational correction because existing inventory history remains in the unit used when it was posted.
+
+## Work with items
+
+<div class="po-tasklist">
+  <a class="po-task" href="/docs/inventory/add-a-product-or-material"><span class="po-taskicon po-taskicon--plus" aria-hidden="true"></span><span><b>Add a product or material</b><small>Create the base record, choose its stock unit, then let the card autosave.</small></span><span aria-hidden="true">›</span></a>
+  <a class="po-task" href="/docs/inventory/product-variants-and-families"><span class="po-taskicon po-taskicon--box" aria-hidden="true"></span><span><b>Item variants &amp; families</b><small>Use a family and concrete variant rows when an item is stocked or sold in several forms.</small></span><span aria-hidden="true">›</span></a>
+  <a class="po-task" href="/docs/inventory/item-fields"><span class="po-taskicon po-taskicon--doc" aria-hidden="true"></span><span><b>Item fields</b><small>Look up units, lot tracking, pricing, variant, and soft-delete fields.</small></span><span aria-hidden="true">›</span></a>
+</div>

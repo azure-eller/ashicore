@@ -1,0 +1,30 @@
+---
+title: Sales orders
+description: Priced customer demand that drives fulfillment, production, and invoicing.
+sidebar:
+  label: Overview
+---
+
+Sales orders store the customer commitment. The database stores open or done, while the UI derives delivery state from shipped quantities.
+
+<p class="po-meta">
+  <span class="po-chip"><b>3</b> delivery states</span>
+  <span class="po-chip">pricing resolves on line entry</span>
+  <span class="po-chip">shipped lines lock</span>
+</p>
+
+## Delivery states
+
+| State | What it means | Edit | Deliver | Delete |
+| --- | --- | --- | --- | --- |
+| Not shipped | No line quantities have shipped. | yes | yes | yes |
+| Partially shipped | Some, but not all, ordered quantity has shipped. | limited | yes | no |
+| Shipped | Every deliverable line has shipped. | no | no | no |
+
+## Work with orders
+
+<div class="po-tasklist">
+  <a class="po-task" href="/docs/sales/create-a-sales-order"><span class="po-taskicon po-taskicon--plus" aria-hidden="true"></span><span><b>Create a sales order</b><small>Customer, lines, pricing, availability, shipping, and totals.</small></span><span aria-hidden="true">›</span></a>
+  <a class="po-task" href="/docs/sales/deliver-and-invoice"><span class="po-taskicon po-taskicon--box" aria-hidden="true"></span><span><b>Deliver &amp; invoice</b><small>Ship stock, lock shipped history, and push the invoice to the connected provider.</small></span><span aria-hidden="true">›</span></a>
+  <a class="po-task" href="/docs/sales/make-to-order"><span class="po-taskicon po-taskicon--doc" aria-hidden="true"></span><span><b>Make to order</b><small>Create manufacturing work for unmade sales lines.</small></span><span aria-hidden="true">›</span></a>
+</div>

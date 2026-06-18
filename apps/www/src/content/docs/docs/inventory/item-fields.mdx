@@ -1,0 +1,72 @@
+---
+title: Item fields
+description: Reference for inventory item, family, variant, and item-level stock fields.
+sidebar:
+  order: 3
+  badge:
+    text: Reference
+    variant: default
+---
+
+Every field on the inventory item model that operators normally see or are affected by. **Set by** says whether you enter it, the system sets it, or it is calculated from inventory history.
+
+<p class="po-meta">
+  <span class="po-chip"><b>4</b> tables</span>
+  <span class="po-chip">SKU unique per org</span>
+  <span class="po-chip">type immutable</span>
+</p>
+
+## Item
+
+| Field | Set by | Description |
+| --- | --- | --- |
+| Name | You | Required display name. |
+| Item type | You at create | `material` or `product`. Immutable after creation. |
+| SKU | You | Optional, unique per organization while the item is active. |
+| Category | You | Optional grouping used for filtering and stocktake scopes. |
+| Description | You | Internal item description. |
+| Unit | You | Family stocking unit. Required on create; later item-card edits mirror the unit to the family's variants. |
+| Purchase unit | You | Optional unit used on purchase order lines. Must differ from stock unit. |
+| Purchase-to-stock factor | You | Required and positive when purchase unit is set. Converts purchase quantity into stock quantity. |
+| Safety stock | You | Non-negative planning threshold. Defaults to `0`. |
+| Default purchase price | You | Prefill for purchase lines. |
+| Current stock unit cost | System / you | Weighted-average cost basis used for new positive stock when no lot cost exists. Can be overridden with a non-negative value. |
+| Default selling price | You | Prefill for sales lines when the item is sellable. |
+| Sellable | You | Variant-level flag. Products default to not sellable until enabled; materials are not sellable. |
+| Deleted at | System | Soft-delete timestamp. Active lists filter deleted items out. |
+
+## Supply and traceability
+
+| Field | Set by | Description |
+| --- | --- | --- |
+| Lot tracking mode | You | Family-level `tracked` or `untracked`. Tracked items keep individual lots; untracked items use an internal shared bucket. |
+| Registered barcode | You | External barcode. |
+| Internal barcode | You | Internal scan code. |
+| Supplier item code | You | Supplier-facing item code. |
+| Default lead time days | You | Optional non-negative lead time. |
+| Minimum order quantity | You | Optional positive purchase planning quantity. |
+| Stock | You / system | Create-time opening stock or later stock correction input. Later edits post adjustment events. |
+
+## Manufacturing fields
+
+| Field | Set by | Description |
+| --- | --- | --- |
+| Manufacturing mode | You | `discrete` or `batch`. Defaults to discrete. |
+| Expected batch yield | You | Required and positive for batch products. |
+| Typical batch size | You | Optional positive planning quantity. |
+| Standard cost quantity | You | Optional positive cost basis quantity. |
+| BOM locked | System / you | Prevents recipe edits when locked. |
+| BOM locked at / by | System | Audit fields for the lock. |
+
+## Variant family fields
+
+| Field | Lives on | Description |
+| --- | --- | --- |
+| Family | Family / item | Groups the shared item card and its concrete variant item rows. |
+| Family ID | Item | Links each concrete item row to its family card. |
+| Variant options | Family | Ordered option axes for the family. |
+| Variant option values | Option | Ordered values inside an option. |
+| Variant value assignments | Item | Links a concrete item row to one selected value for each active option. |
+| Option combination key | Item | Normalized combination key recomputed from variant assignments. |
+| Sort order | Option / value / item | Ordering inside the family. |
+| Disabled at | Option / value | Disables an option/value without deleting history. |

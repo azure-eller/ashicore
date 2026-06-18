@@ -1,0 +1,92 @@
+---
+title: Add a product or material
+description: Create the inventory item that purchasing, manufacturing, sales, lots, and the ledger will reference.
+sidebar:
+  order: 1
+  badge:
+    text: How-to
+    variant: note
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+import Frame from '../../../../widgets/Frame.astro';
+import Field from '../../../../widgets/Field.astro';
+import Grid from '../../../../widgets/Grid.astro';
+
+Create the item everything else references. Pick whether it is a material or a product, choose the unit you stock it in, then fill in buying, costing, pricing, and traceability details.
+
+<p class="po-meta">
+  <span class="po-chip">4 steps / ~4 min</span>
+  <span class="po-chip">type is permanent</span>
+  <span class="po-chip">autosaves</span>
+</p>
+
+<Aside type="caution" title="Treat unit changes carefully">
+The app treats **item type** as a creation-time decision. The item-card UI can change the family stock unit and mirror it to variants, but existing inventory history stays denominated in the unit used when those events were posted.
+</Aside>
+
+<Steps>
+
+1. **Pick the type, name, and stocking unit.** From **Inventory**, choose **New Material** or **New Product**. Enter the name, optional SKU and category, and the **Unit** used for stock quantities and valuation.
+
+   <Frame title="<b>New material</b>">
+     <div class="mk-pad">
+       <div class="mk-rows mk-rows--3">
+         <Field label="Name" required focus>Screened Compost</Field>
+         <Field label="SKU">CMP-SCR</Field>
+         <Field label="Unit" required>yd3</Field>
+       </div>
+     </div>
+   </Frame>
+
+2. **Set how you buy it.** If you buy in a different unit than you stock, set **Purchase unit** and **Conversion factor**. The factor is stock units per purchase unit: a truckload with factor `18` becomes 18 stock units.
+
+   <Frame title="<b>Supply details</b>">
+     <div class="mk-pad">
+       <div class="mk-rows mk-rows--3">
+         <Field label="Purchase unit">Truckload</Field>
+         <Field label="Conversion factor">18</Field>
+         <Field label="Default purchase price">$420.00</Field>
+       </div>
+     </div>
+   </Frame>
+
+   <Aside type="note" title="Purchase unit rules">
+   Leave purchase unit blank when you buy and stock in the same unit. If you set one, it must differ from the stocking unit and needs a positive conversion factor. See [Purchase vs. stock units](/docs/purchasing/purchase-vs-stock-units).
+   </Aside>
+
+3. **Set stock, cost, price, and traceability.** Add safety stock, default prices, current stock unit cost, barcodes, supplier item code, lead time, and minimum order quantity as needed. Set **Sellable** if the item can appear on sales orders. Use **Lot tracking** on the item family to choose individual lots or the untracked shared bucket. Switching the mode needs inventory-admin access and is blocked while open orders, stocktakes, or blocked stock reference the item.
+
+   <Frame title="<b>Cost &amp; stock</b>">
+     <div class="mk-pad">
+       <div class="mk-rows mk-rows--3">
+         <Field label="Current stock unit cost">$23.333333</Field>
+         <Field label="Default selling price">$31.00</Field>
+         <Field label="Lot tracking">Tracked</Field>
+       </div>
+     </div>
+   </Frame>
+
+   <Aside type="note" title="Opening stock posts inventory history">
+   The create form accepts an initial **stock** quantity. Later stock edits are treated as adjustments, not silent quantity rewrites. Use [Adjust stock](/docs/inventory/adjust-stock) when you are correcting physical inventory.
+   </Aside>
+
+4. **For products, add manufacturing details and a recipe.** Products can carry a manufacturing mode, batch yield fields, operation costs, and BOM rows. Batch mode requires an expected batch yield. A valid recipe records components, alternates, and operation costs as BOM revision history.
+
+   <Frame title="<b>Premium Potting Mix</b> / Recipe">
+     <Grid>
+       <thead><tr><th>Component</th><th class="num">Qty</th><th>Alternate</th></tr></thead>
+       <tbody>
+         <tr><td>Screened Compost</td><td class="num">0.5</td><td>-</td></tr>
+         <tr><td>Coir Pith</td><td class="num">0.3</td><td>Peat Moss</td></tr>
+       </tbody>
+     </Grid>
+   </Frame>
+
+</Steps>
+
+## What's next
+
+- **[Item fields](/docs/inventory/item-fields)** - check the complete field reference.
+- **[Item variants & families](/docs/inventory/product-variants-and-families)** - model item forms as concrete variants.
+- **[Adjust stock](/docs/inventory/adjust-stock)** - correct on-hand quantity after creation.

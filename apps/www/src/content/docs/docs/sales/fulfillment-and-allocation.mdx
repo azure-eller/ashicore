@@ -1,0 +1,58 @@
+---
+title: Fulfillment and allocation
+description: Understand sales item, ingredient, production, readiness, and allocation states.
+sidebar:
+  label: Fulfillment and allocation
+---
+
+Fulfillment answers whether each sales line can be delivered, when it can be delivered, and what supply is covering it. The order card and list show this through three status lenses backed by a priority-ranked demand queue.
+
+<p class="po-meta">
+  <span class="po-chip">3 status lenses</span>
+  <span class="po-chip">priority-ranked demand queue</span>
+  <span class="po-chip">allocation view: /sales/allocation</span>
+</p>
+
+## 01. Three lenses on each line
+
+| Lens | Question | States |
+| --- | --- | --- |
+| Sales items | Is the finished good itself available or expected? | Available, Expected, Not available, Complete. |
+| Ingredients | For made items, are components coverable? | In stock, Picked, Expected, Not available, Not applicable. |
+| Production | Does manufacturing need to run, and what is its state? | Make, Not started, Work in progress, Blocked, Done, No production. |
+
+Ingredient cells expose shortage detail, production cells expose production actions and status, and sales item cells display the current availability state.
+
+## 02. Shipping readiness
+
+The line states roll up into order readiness. The readiness state can be:
+
+| State | Meaning |
+| --- | --- |
+| `not_confirmed` | The order still needs confirmation or complete line data. |
+| `needs_manufacturing` | One or more lines must be made. |
+| `in_production` | Linked manufacturing work is running. |
+| `insufficient_stock` | Current and expected supply do not cover the order. |
+| `ready` | The order can be delivered from available stock. |
+| `shipped` | The order has shipped. |
+
+The readiness result includes a message and blockers so the order can explain why it is not ready.
+
+## 03. Demand queue allocation
+
+Open sales-order lines and open manufacturing-order ingredient demand compete for the same stock and incoming supply in rank order. A higher-ranked demand claims scarce supply first.
+
+Each line can land in one of these allocation states:
+
+| State | Meaning |
+| --- | --- |
+| `ready` | Fully covered by on-hand stock. |
+| `waiting_production` | Covered by linked manufacturing output that is not produced yet. |
+| `partial` | Some quantity is covered and some is short or expected. |
+| `short` | No current coverage. Replenish, purchase, or make stock. |
+
+## 04. Allocation view
+
+The `/sales/allocation` view shows coverage by product. It reconciles on-hand stock, incoming supply, and demand from sales orders and manufacturing ingredients. Source rows can include inventory lots, manufacturing orders, and purchase-order supply.
+
+It's a read-only coverage view — you steer who gets scarce stock by ranking orders, not by hand-assigning lots. Changing sales order rank or manufacturing order rank can change which demand gets covered first.

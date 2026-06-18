@@ -1,0 +1,67 @@
+---
+title: Shopify orders
+description: Connect your Shopify store with a private Admin API token and import paid, unshipped orders as sales orders that fulfill against live inventory.
+sidebar:
+  order: 2
+  label: Shopify orders
+  badge:
+    text: How-to
+    variant: note
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+import Frame from '../../../../widgets/Frame.astro';
+import Field from '../../../../widgets/Field.astro';
+import Button from '../../../../widgets/Button.astro';
+import Totals from '../../../../widgets/Totals.astro';
+
+Sell online through Shopify? Connect your store and bring paid, unshipped orders into Ashicore as sales orders, where they fulfill against live inventory like any other order. The connection is a one-way import — from Shopify into Ashicore — using a private Admin API token you create in your store.
+
+<p class="po-meta">
+  <span class="po-chip"><b>2</b> steps · ~5 min</span>
+  <span class="po-chip">Needs: <b>Shopify Admin API token</b></span>
+  <span class="po-chip">Settings → Integrations</span>
+</p>
+
+<Aside type="note" title="One-way, paid and unshipped orders only">
+Ashicore imports **paid, unshipped** Shopify orders — up to 250 at a time — and creates a sales order from each. It doesn't push inventory, fulfillment, or pricing back to Shopify — your storefront stays the source for the order, and Ashicore owns fulfillment.
+</Aside>
+
+<Steps>
+
+1. **Connect your store.** In Shopify, create a private app and copy its **Admin API access token**. Then in Ashicore open <span class="po-uikey">Settings → Integrations</span>, choose <span class="po-uikey">Connect</span> on the Shopify card, enter your **Shop domain** and the token, and **Save**.
+
+   <Frame title="<b>Shopify</b> · Private Admin API connection">
+     <span slot="action"><Button variant="primary">Save</Button></span>
+     <div class="mk-pad">
+       <Field label="Shop domain">store.myshopify.com</Field>
+       <Field label="Admin API token" muted>••••••••••••••••••••••••</Field>
+     </div>
+   </Frame>
+
+   <Aside type="tip" title="Scope the token to orders">
+   The token only needs read access to orders. Once saved, the card shows your shop domain and an **Ecommerce orders** label so you know the connection is live.
+   </Aside>
+
+2. **Import paid, unshipped orders.** Choose <span class="po-uikey">Import paid orders</span> on the Shopify card. Ashicore pulls paid, unshipped orders (up to 250 at a time) and creates a sales order for each. Lines are matched to your catalog by SKU — each needs a positive quantity and price and a matching sellable item, or it's skipped. The customer is matched by Shopify ID, then email, then name, and created if new. Ashicore then reports a summary — **created**, **skipped**, and any **errors**. Orders that already exist are skipped, so you can run the import as often as you like without duplicating.
+
+   <Frame title="<b>Shopify</b> · store.myshopify.com">
+     <span slot="action"><Button variant="ghost">Import paid orders</Button></span>
+     <div class="mk-pad">
+       <Totals rows={[
+         { label: "Created", value: "14" },
+         { label: "Skipped (already imported)", value: "31" },
+         { label: "Errors", value: "0" },
+       ]} />
+     </div>
+   </Frame>
+
+   Each imported sales order behaves exactly like one keyed in by hand — it reads live availability, can be made to order, and books margin when you ship it.
+
+</Steps>
+
+## What's next
+
+- **[Create a sales order](/docs/sales/create-a-sales-order)** — how an order behaves once it's in Ashicore, imported or not.
+- **[Fulfillment &amp; allocation](/docs/sales/fulfillment-and-allocation)** — how imported orders compete for stock in the demand queue.
+- **[Accounting sync](/docs/integrations/accounting-sync)** — invoice imported orders through Xero or QuickBooks on shipment.

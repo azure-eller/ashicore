@@ -1,0 +1,86 @@
+---
+title: Sales order fields
+description: Reference for sales order header, line, fulfillment, pricing, and invoice fields.
+sidebar:
+  label: Sales order fields
+---
+
+Sales orders combine a header, one or more item lines, computed money fields, fulfillment state, and provider sync state. Snapshot fields keep old orders readable when related records are renamed.
+
+<p class="po-meta">
+  <span class="po-chip">header fields</span>
+  <span class="po-chip">line fields</span>
+  <span class="po-chip">status values</span>
+</p>
+
+## 01. Order header
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `orderNumber` | varchar(32) | auto | Human-readable order number, unique per organization. |
+| `customerId` | uuid | required | Customer the order is for. |
+| `customerName` | varchar(255) | snapshot | Customer name copied onto the order. |
+| `customerProjectId` | uuid | null | Optional project link. |
+| `status` | constrained varchar | `open` | Stored status: `open` or `done`. |
+| `priorityRank` | integer | null | Queue rank for open-order allocation. |
+| `orderDate` | date | today | Date the order was taken. |
+| `shipDate` | date | null | Delivery deadline used by planning and allocation. |
+| `requestedDate` | date | null | Date the customer asked for — stored/API only (used as the Xero invoice due date); not shown on the order detail grid. |
+| `shippedAt` | timestamptz | null | Set when the order becomes fully shipped. |
+| `ship*` fields | varchar | customer default | Ship-to address lines, city, region, postcode, country. |
+| `billing*` fields | varchar | customer default | Bill-to address lines, city, region, postcode, country. |
+| `shippingFeeDescription` | varchar(255) | null | Label for the shipping charge. |
+| `shippingFeeAmount` | numeric(12,2) | 0 | Shipping charge. |
+| `shippingFeeTaxAmount` | numeric(12,2) | 0 | Tax on the shipping charge. |
+| `subtotalAmount` | numeric(12,2) | computed | Subtotal before tax: product line subtotals plus shipping fee. |
+| `taxAmount` | numeric(12,2) | computed | Order tax total. |
+| `totalAmount` | numeric(12,2) | computed | Order total. |
+| `notes` | text | null | Free-text notes. |
+| `version` | integer | 1 | Optimistic concurrency version. |
+
+## 02. Order lines
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `itemId` | uuid | required | Product or material sold. |
+| `itemName` | varchar | snapshot | Item name copied onto the line. |
+| `itemSku` | varchar | snapshot | SKU copied onto the line. |
+| `unitName` | varchar | snapshot | Unit copied onto the line. |
+| `quantity` | numeric(12,4) | required | Ordered quantity. Must be greater than 0. |
+| `shippedQuantity` | numeric(12,4) | 0 | Quantity delivered so far. |
+| `cancelledQuantity` | numeric(12,4) | 0 | Cancelled quantity. Shipped plus cancelled cannot exceed ordered quantity. |
+| `listUnitPrice` | numeric(10,2) | base price | List price used for discount comparison. |
+| `unitPrice` | numeric(10,2) | required | Unit price charged. |
+| `discountPercent` | numeric(5,2) | 0 | Discount from list price to unit price. |
+| `suggestedUnitPrice` | numeric(10,2) | resolved | Pricing engine suggestion. |
+| `pricingSourceType` | constrained varchar | `base_price` | `base_price` or `schedule_break`. |
+| `pricingScheduleName` | varchar | null | Winning schedule snapshot. |
+| `pricingBreakLabel` | varchar | null | Winning quantity break snapshot. |
+| `isPriceOverridden` | boolean | false | True when the suggested price was changed. |
+| `taxRateId` | uuid | null | Tax rate id. |
+| `taxRateName` | varchar | snapshot | Tax rate name copied onto the line. |
+| `taxRatePercent` | numeric | 0 | Tax percent copied onto the line. |
+| `lineSubtotal` | numeric(12,2) | computed | Quantity times unit price. |
+| `lineTaxAmount` | numeric(12,2) | computed | Tax on the line subtotal. |
+| `lineTotal` | numeric(12,2) | computed | Line subtotal plus tax. |
+| `sortOrder` | integer | 0 | Display order. |
+
+Each saved order line is unique by item within the order.
+
+## 03. Status and fulfillment values
+
+| Area | Values |
+| --- | --- |
+| Stored order status | `open`, `done` |
+| Derived delivery state | Not shipped, Partially shipped, Shipped |
+| Sales item fulfillment | `available`, `expected`, `not_available`, `complete` |
+| Ingredient fulfillment | `not_needed`, `not_applicable`, `in_stock`, `expected`, `not_available`, `picked` |
+| Production fulfillment | `not_applicable`, `make`, `not_started`, `in_progress`, `done`, `blocked` |
+| Allocation status | `ready`, `waiting_production`, `partial`, `short` |
+| Pricing source | `base_price`, `schedule_break` |
+
+## 04. Accounting sync fields
+
+The sales order read model exposes provider invoice sync fields with legacy `xero*` names, including invoice id, invoice number, push status, push error, pushed time, retry count, email status, and emailed time.
+
+Use the UI wording `connected accounting provider` when describing the action. The active provider can be Xero or QuickBooks depending on setup.

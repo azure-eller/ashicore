@@ -1,0 +1,50 @@
+---
+title: The inventory ledger
+description: The immutable event trail behind inventory balances, costs, demand, expected supply, and stocktake history.
+sidebar:
+  order: 6
+  badge:
+    text: Concept
+    variant: tip
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The inventory ledger is the audit trail. Stock movements, planning projections, disposition moves, and cost-only changes are appended as events; projected balance tables make those events fast to read.
+
+<p class="po-meta">
+  <span class="po-chip">append-only</span>
+  <span class="po-chip">idempotent writes</span>
+  <span class="po-chip">filterable</span>
+</p>
+
+## What one event holds
+
+| Field group | Holds |
+| --- | --- |
+| Where | Organization, location, item, and optional lot. |
+| What changed | Event type, positive quantity, unit cost, extended cost, and disposition fields. |
+| Why | Reference type/id, parent event, event subtype, adjustment reason, and notes metadata. |
+| Who and when | Actor, occurred timestamp, and idempotency key. |
+
+Stock event quantities are positive; the event type determines whether the movement increases or decreases stock. Cost-only events use quantity `0`. Demand and expected-supply events have no lot or cost.
+
+## How to read the ledger
+
+1. **Filter to the surface you care about.** The app supports filters for event type, movement class, item, document type/id, actor, occurrence date, lot, and text.
+2. **Read the source/cause.** Purchase receipts, sales consumption, manufacturing events, stocktakes, transfers, and adjustments link back to the source where the code can resolve one.
+3. **Compare before and after.** On-hand event rows show signed movement and on-hand before/after when the ledger can calculate it.
+4. **Use cost fields for valuation history.** Stock events carry unit and extended cost. Revaluation events show cost-only changes.
+
+## Projections built from it
+
+| Projection | Grain | Holds |
+| --- | --- | --- |
+| `inventory_lot_balances` | item x location x lot x disposition | Quantity, unit cost, received date, origin event, active flag. |
+| `inventory_item_balances` | item x location | On hand, demand, expected, available to promise, last verified date. |
+| `inventory_expected_summary` | item x location x reference | Remaining expected supply by source document. |
+| `inventory_demands_summary` | item x location x reference | Remaining demand by source document. |
+
+<Aside type="note" title="Use the ledger when balances look surprising">
+The balance is the answer; the ledger explains how the app got there. Start from the item, lot, or source document, then narrow by event type and date.
+</Aside>

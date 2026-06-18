@@ -15,7 +15,7 @@ You rarely buy things in the same unit you store them in. Ashicore keeps the two
 
 ## Two units, one item
 
-Every purchasable item has a **purchase unit** (how you buy it) and a **stocking unit** (how you hold and consume it). Green coffee delivered by the bag is bought in bags but stored, costed, and roasted in kilograms.
+An item can have a **purchase unit** (how you buy it) and always has a **stocking unit** (how you hold and consume it). If no purchase unit is set, purchase order lines use the stocking unit with a conversion factor of `1`.
 
 | Term | What it means | Example |
 |------|---------------|---------|
@@ -46,4 +46,4 @@ That figure becomes the line's **landed cost per stock unit** — the basis for 
 
 ## Units are snapshotted
 
-When a line is saved, its purchase unit, stocking unit, and purchase-to-stock factor are copied onto the line. Changing an item's units later won't rewrite an untouched order, but editing and saving that order refreshes the copied unit details from the item — see [Snapshots](/docs/purchasing/snapshots).
+When a line is saved, its order unit, stocking unit, and conversion factor are copied onto the line. If the item has no purchase unit, the order unit is the stock unit and the factor is `1`. Changing an item's units later won't rewrite an untouched order, but editing and saving that order refreshes the copied unit details from the item — see [Snapshots](/docs/purchasing/snapshots).

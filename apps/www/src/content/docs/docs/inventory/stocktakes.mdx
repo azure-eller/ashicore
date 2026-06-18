@@ -1,0 +1,40 @@
+---
+title: Stocktakes
+description: Physical counts that reconcile available stock to reality.
+sidebar:
+  label: Overview
+---
+
+Stocktakes snapshot available quantities for a scoped count, collect actual counts, and post adjustments when completed. Counting is blind — expected quantities and variances are hidden from the draft and only shown in the completion preview.
+
+<p class="po-meta">
+  <span class="po-chip"><b>2</b> active states</span>
+  <span class="po-chip">reason required</span>
+  <span class="po-chip">completion is final</span>
+</p>
+
+## Statuses
+
+| Status | What it means | Can edit | Posts inventory |
+| --- | --- | --- | --- |
+| Draft | Count is being prepared or entered. | yes | no |
+| Completed | Variances have been posted to the ledger. | no | yes |
+
+A draft can be deleted — which never touches inventory — or cloned into a fresh draft. Completed stocktakes are locked and preserve their adjustment history.
+
+## Creation modes
+
+| Mode | Seeds the count with |
+| --- | --- |
+| Items in stock | Active eligible items with available stock above zero at the selected location. |
+| All items | Every active material and product item. |
+| Empty | No lines. Add items manually. |
+
+A reason is required when creating a stocktake. Location is optional and defaults to the default location. Stocktakes count available stock only — blocked and rejected lots are handled through lot disposition, not counts.
+
+## Work with stocktakes
+
+<div class="po-tasklist">
+  <a class="po-task" href="/docs/inventory/run-a-stocktake"><span class="po-taskicon po-taskicon--plus" aria-hidden="true"></span><span><b>Run a stocktake</b><small>Create the count, enter counted quantities, capture found lots, and complete.</small></span><span aria-hidden="true">›</span></a>
+  <a class="po-task" href="/docs/inventory/adjust-stock"><span class="po-taskicon po-taskicon--box" aria-hidden="true"></span><span><b>Adjust one item instead</b><small>Use an adjustment when a full scoped count is unnecessary.</small></span><span aria-hidden="true">›</span></a>
+</div>

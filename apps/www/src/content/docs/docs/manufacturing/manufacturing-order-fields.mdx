@@ -1,0 +1,116 @@
+---
+title: Manufacturing order fields
+description: Reference for manufacturing order header, ingredient, batch, output, operation cost, and status fields.
+sidebar:
+  order: 9
+  badge:
+    text: Reference
+    variant: caution
+---
+
+import Pill from '../../../../widgets/Pill.astro';
+
+This reference names the user-facing fields and the underlying concepts that matter when reading or troubleshooting a manufacturing order.
+
+<p class="po-meta">
+  <span class="po-chip">reference</span>
+  <span class="po-chip">open/done stored status</span>
+  <span class="po-chip">derived production state</span>
+</p>
+
+## Order Header
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| Order number | generated text | next MO number | Assigned after the order first saves. |
+| Product | product reference | none | Required product being made. The product's current recipe is snapshotted onto the order. |
+| Mode | enum | product production mode | `discrete` or `batch`; controls whether output is planned by quantity or number of batches. |
+| Production deadline | date | blank | Optional planned date for queue planning. |
+| Manufacturing location | location reference | default location | Read-only default location in v1 planning. |
+| Quantity | decimal + product unit | product output quantity | Discrete planned output quantity in the product unit. |
+| Number of batches | integer | 1 | Batch planned input when the product uses batch production. |
+| Sales order | sales order line reference | blank | Read-only link when the order was created from make-to-order sales demand. |
+| Notes | long text | blank | Internal notes, editable until the order is done. |
+| Blocked | boolean | false | Marks the order as blocked and changes the derived production state. |
+| Started at | timestamp | blank | Set when production is started or implied by production activity. |
+| Completed at | timestamp | blank | Set when the order is done. |
+
+## Ingredients
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| Ingredient | item reference | recipe component | Component item copied from the current product recipe or added as a one-off line. |
+| SKU | text snapshot | current item SKU | Component SKU snapshot for history. |
+| Basis | enum | recipe basis | `per_unit` for discrete output or `per_batch` for batch output. |
+| Planned quantity | decimal + unit | scaled recipe quantity | Planned consumption after scaling the recipe by output quantity or batches. |
+| Actual quantity | decimal + unit | 0 | Filled when stock is consumed for output. |
+| Actual cost | money | 0 | Filled from consumed lots and inventory valuation during completion. |
+| Lot strategy | enum | `fifo` | `fifo`, `lifo`, or `custom`. |
+| Pick status | enum | `not_picked` | `not_picked`, `in_progress`, or `picked`. |
+| Picked quantity | decimal + unit | 0 | Quantity reserved or picked against the ingredient line. |
+| Notes | text | blank | Ingredient-specific internal note when present. |
+
+## Batches And Outputs
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| Batch number | generated integer | next sequence | Sequential batch row for batch manufacturing orders. |
+| Batch status | enum | `pending` | `pending`, `in_progress`, or `completed`. |
+| Planned output quantity | decimal + unit | recipe output | Quantity expected from the batch or discrete completion. |
+| Completed quantity | decimal + unit | 0 | Finished quantity recorded from output completion. |
+| Output lot | lot reference | generated when completed | Finished lot created from production output. |
+| Output disposition | enum | `available` | `available` or `blocked`. |
+| Unit cost | money | calculated | Material cost per output unit on the output row. Order totals and produced stock costing also absorb operation cost. |
+| Reversed quantity | decimal + unit | 0 | Quantity reversed from a recorded output row. |
+| Completed at | timestamp | blank | Time the batch or output row was recorded. |
+
+## Operation Costs
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| Operation step | text snapshot | product Production tab step | Operation name copied from the product Production tab. |
+| Resource | resource snapshot | selected recipe resource | Labor, machine, overhead, or other resource snapshot. |
+| Resource type | enum | resource type | `labor`, `machine`, `overhead`, or `other`. |
+| Crew size | decimal | 1 | Number of people or units used in the planned operation cost. |
+| Planned minutes | integer | recipe duration | Planned duration. |
+| Loaded rate / hour | money | resource rate | Resource cost rate used for operation cost. |
+| Planned cost total | money | calculated | Snapshotted planned operation cost. |
+| Actual crew size | decimal | blank | Reserved schema field; current execution does not record actual labour inputs. |
+| Actual minutes | decimal | blank | Reserved schema field; current execution does not record actual labour duration. |
+| Actual operation cost | money | calculated | Absorbed operation cost recorded for the order output. |
+| Sort order | integer | row order | Display order copied from the product Production tab. |
+
+## Statuses And Enumerations
+
+### Stored status: `status`
+
+| Value | Label | Meaning |
+| --- | --- | --- |
+| `open` | <Pill status="ordered" label="Open" /> | Active planning or execution. |
+| `done` | <Pill status="received" label="Done" /> | Terminal production history. |
+
+### Derived production state
+
+| State | Label | Derived from |
+| --- | --- | --- |
+| `not_started` | <Pill status="draft" label="Not started" /> | Open, not blocked, no start/pick/batch completion. |
+| `blocked` | <Pill status="ordered" label="Blocked" /> | Open and `isBlocked`. |
+| `in_progress` | <Pill status="partial" label="Work in progress" /> | Started, picked, or partially completed. |
+| `done` | <Pill status="received" label="Done" /> | Stored status is `done`. |
+
+### Pick progress and pick status
+
+| Concept | Values |
+| --- | --- |
+| Pick progress badge | `not_started`, `in_progress`, `picked`. |
+| Per-ingredient pick status | `not_picked`, `in_progress`, `picked`. |
+
+### Other enumerations
+
+| Concept | Values |
+| --- | --- |
+| Manufacturing mode | `discrete`, `batch`. |
+| Batch status | `pending`, `in_progress`, `completed`. |
+| Lot strategy | `fifo`, `lifo`, `custom`. |
+| Output disposition | `available`, `blocked`. |
+| Resource type | `labor`, `machine`, `overhead`, `other`. |

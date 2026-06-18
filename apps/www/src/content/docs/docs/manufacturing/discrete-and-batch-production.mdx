@@ -1,0 +1,69 @@
+---
+title: Discrete and batch production
+description: How manufacturing orders scale quantities for one output run versus a fixed-yield batch process.
+sidebar:
+  order: 6
+  badge:
+    text: Concept
+    variant: tip
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import Frame from '../../../../widgets/Frame.astro';
+import Field from '../../../../widgets/Field.astro';
+import Grid from '../../../../widgets/Grid.astro';
+
+Ashicore supports two manufacturing modes. The mode comes from the product recipe at order creation and is snapshotted onto the manufacturing order.
+
+<p class="po-meta">
+  <span class="po-chip">discrete: quantity</span>
+  <span class="po-chip">batch: whole batches</span>
+  <span class="po-chip">recipe snapshot</span>
+</p>
+
+## Discrete: Make A Quantity
+
+Discrete production is one production run that creates finished output for a requested quantity. The order field is **Quantity**, and ingredient totals scale by output quantity.
+
+<Frame title="<b>Discrete order</b>">
+  <div class="mk-pad">
+    <div class="mk-rows mk-rows--2">
+      <Field label="Quantity">40 yd3</Field>
+      <Field label="Manufacturing location" muted>Default location</Field>
+    </div>
+  </div>
+</Frame>
+
+## Batch: Make N Batches Of A Fixed Yield
+
+Batch production creates batch rows with their own status and output lot. The order field is **Number of batches**. Total output is batch count multiplied by the expected batch yield. Batch production is feature-gated; locked orgs do not see batch products in the create picker.
+
+<Frame title="<b>Batch order</b>">
+  <div class="mk-pad">
+    <div class="mk-rows mk-rows--2">
+      <Field label="Number of batches">3 batches</Field>
+      <Field label="Total output" muted>120 yd3</Field>
+    </div>
+  </div>
+</Frame>
+
+## How Ingredient Quantities Scale
+
+| Recipe basis | Order input | Ingredient total |
+| --- | --- | --- |
+| Unit | Quantity | `quantity per unit × output quantity` |
+| Batch | Number of batches | `quantity per batch × batch count` |
+
+<Frame title="<b>Ingredients</b>">
+  <Grid>
+    <thead><tr><th>Ingredient</th><th class="num">Per batch</th><th class="num">Batches</th><th class="num">Total</th></tr></thead>
+    <tbody>
+      <tr><td>Screened Compost</td><td class="num">8 yd3</td><td class="num">3</td><td class="num">24 yd3</td></tr>
+      <tr><td>Coir Pith</td><td class="num">5 yd3</td><td class="num">3</td><td class="num">15 yd3</td></tr>
+    </tbody>
+  </Grid>
+</Frame>
+
+<Aside type="caution" title="Batch counts must be whole">
+When a batch recipe has a fixed output quantity, Ashicore expects the requested output to resolve to a whole number of batches. Otherwise it asks you to enter a whole number of batches.
+</Aside>

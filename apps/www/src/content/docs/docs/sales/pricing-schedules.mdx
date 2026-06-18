@@ -1,0 +1,32 @@
+---
+title: Pricing schedules
+description: Quantity-break discounts for customer categories and item scopes.
+sidebar:
+  label: Overview
+---
+
+Pricing schedules suggest a line price from the customer category, item scope, and ordered quantity. When multiple schedules match, pricing evaluates the candidates and uses the lowest resulting unit price.
+
+<p class="po-meta">
+  <span class="po-chip">category scoped</span>
+  <span class="po-chip">quantity breaks</span>
+  <span class="po-chip">lowest price wins</span>
+  <span class="po-chip">Add-on: wholesale pricing</span>
+</p>
+
+## Schedule anatomy
+
+| Part | What it controls |
+| --- | --- |
+| Customer scope | Which customer category or all customers the schedule applies to. |
+| Item scope | All items, a category, a variant option value, or selected items. |
+| Breaks | Minimum quantity, optional maximum quantity, and discount percent. |
+
+**Overlapping schedules? Lowest price wins.** Schedules are allowed to overlap. When more than one applies, ashicore resolves to the break that yields the lowest unit price — the narrowest or most specific schedule does not automatically win. (You can't create two schedules with the exact same customer-and-item scope.)
+
+## Work with pricing
+
+<div class="po-tasklist">
+  <a class="po-task" href="/docs/sales/build-a-pricing-schedule"><span class="po-taskicon po-taskicon--plus" aria-hidden="true"></span><span><b>Build a pricing schedule</b><small>Choose customer and item scope, then build an ascending break ladder.</small></span><span aria-hidden="true">›</span></a>
+  <a class="po-task" href="/docs/sales/pricing-discounts-and-margin"><span class="po-taskicon po-taskicon--doc" aria-hidden="true"></span><span><b>Pricing, discounts &amp; margin</b><small>Understand price source, discounts, estimated margin, and actual margin after shipping.</small></span><span aria-hidden="true">›</span></a>
+</div>

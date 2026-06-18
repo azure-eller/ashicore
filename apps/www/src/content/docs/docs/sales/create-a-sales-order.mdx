@@ -1,0 +1,140 @@
+---
+title: Create a sales order
+description: Pick a customer, add lines, review pricing and availability, and let the order autosave.
+sidebar:
+  label: Create a sales order
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+import Pill from '../../../../widgets/Pill.astro';
+import Frame from '../../../../widgets/Frame.astro';
+import Field from '../../../../widgets/Field.astro';
+import Grid from '../../../../widgets/Grid.astro';
+import Button from '../../../../widgets/Button.astro';
+import Totals from '../../../../widgets/Totals.astro';
+
+Create one order for one customer. The order autosaves as you choose the customer, add lines, and review whether each line can be fulfilled.
+
+<p class="po-meta">
+  <span class="po-chip">5 steps · ~4 min</span>
+  <span class="po-chip">Creates an <b>Open</b> order</span>
+  <span class="po-chip">pricing resolves on each line</span>
+  <span class="po-chip">delivery starts <b>Not shipped</b></span>
+</p>
+
+<Aside type="note" title="Before you start">
+You need a customer and the products or materials you sell. If wholesale pricing is enabled, matching pricing schedules can suggest a lower unit price when the line is added or repriced. If no schedule candidate applies, the line uses the item's base selling price.
+</Aside>
+
+<Steps>
+
+1. **Start the order.** From **Sales > Sales orders**, choose **New Order**. Select the customer first. Ashicore stores the customer id and snapshots the customer name, so future customer renames do not change old orders.
+
+   <Frame title="Ashicore · <b>Sales orders</b>">
+     <span slot="action"><Button variant="primary">New Order</Button></span>
+     <Grid>
+       <thead><tr><th>Order</th><th>Customer</th><th>Status</th><th>Delivery</th></tr></thead>
+       <tbody>
+         <tr><td><span class="num">SO-2076</span></td><td>Valley Farm Supply</td><td><Pill status="ordered" label="Open" /></td><td><span class="po-enum">Partial</span></td></tr>
+         <tr><td><span class="num">SO-2075</span></td><td>North Fork Nursery</td><td><Pill status="received" label="Done" /></td><td><span class="po-enum">Shipped</span></td></tr>
+         <tr><td><span class="num">SO-2074</span></td><td>High Desert Growers</td><td><Pill status="draft" label="Open" /></td><td><span class="po-enum">Not shipped</span></td></tr>
+       </tbody>
+     </Grid>
+   </Frame>
+
+2. **Choose the customer and delivery deadline.** Pick the customer and set the delivery deadline as needed. Order date and requested date exist on the sales order record, but the current order card focuses on the delivery deadline used by fulfillment, allocation, and make-to-order planning.
+
+   <Frame title="<b>New sales order</b>">
+     <div class="mk-pad">
+       <div class="mk-rows mk-rows--2">
+         <Field label="Customer" required focus>Valley Farm Supply</Field>
+         <Field label="Project">Spring reset</Field>
+       </div>
+       <div class="mk-rows mk-rows--3">
+	        <Field label="Delivery deadline">Apr 18, 2026</Field>
+       </div>
+     </div>
+   </Frame>
+
+   The customer can supply default shipping and billing address values. If the customer has projects, you can link the order to one project. The order card autosaves field changes; there is no separate save button.
+
+3. **Add line items.** In **Line items**, choose **Add line**, select an item, and enter quantity, unit price, discount, and tax. A saved order keeps one row per item, so the same item cannot be added twice to the same order.
+
+   <Frame title="<b>SO-2077</b> · Valley Farm Supply">
+     <span slot="action"><Button variant="subtle">+ Add line</Button></span>
+     <Grid>
+       <thead><tr><th>Item</th><th class="num">Qty</th><th class="num">List</th><th class="num">Unit price</th><th class="num">Disc.</th><th class="num">Line total</th></tr></thead>
+       <tbody>
+         <tr><td><span class="mk-name">Premium Potting Mix</span> <span class="mk-sku">MIX-PREM-YD</span></td><td class="num">18 yd3</td><td class="num">$38.00</td><td class="num">$34.20</td><td class="num">10%</td><td class="num">$615.60</td></tr>
+         <tr><td><span class="mk-name">Screened Compost</span> <span class="mk-sku">CMP-SCR</span></td><td class="num">12 yd3</td><td class="num">$31.00</td><td class="num">$31.00</td><td class="num">0%</td><td class="num">$372.00</td></tr>
+       </tbody>
+     </Grid>
+     <div class="mk-pad mk-pad--top">
+       <Totals rows={[
+         { label: "Product revenue", value: "$987.60" },
+         { label: "Discount", value: "$68.40" },
+         { label: "Order total", value: "$987.60", grand: true },
+       ]} />
+     </div>
+   </Frame>
+
+   When a customer, item, and quantity are available, the line asks the pricing engine for a suggested unit price. The line stores:
+
+   | Field | Meaning |
+   | --- | --- |
+   | `listUnitPrice` | The item's base selling price used as the discount reference. |
+   | `unitPrice` | The price charged on this order line. |
+   | `discountPercent` | The discount from list price to unit price. |
+   | `pricingSourceType` | `schedule_break` when a schedule break priced the line, otherwise `base_price`. |
+   | `pricingScheduleName` / `pricingBreakLabel` | The schedule and break snapshot, when one applies. |
+   | `isPriceOverridden` | True when the user changed the suggested price. |
+
+   Hover the discount cell to see the pricing source: the schedule and break, **Manual price override**, or **Base price**.
+
+4. **Read availability.** Each line shows three fulfillment cells: Sales items, Ingredients, and Production. Use them before promising a date.
+
+   <Frame title="<b>Fulfillment</b> · SO-2077">
+     <Grid>
+       <thead><tr><th>Line</th><th>Sales items</th><th>Ingredients</th><th>Production</th></tr></thead>
+       <tbody>
+         <tr><td>Premium Potting Mix</td><td><Pill status="partial" label="Expected" /></td><td><Pill status="ordered" label="Available" /></td><td><Pill status="draft" label="Make" /></td></tr>
+         <tr><td>Screened Compost</td><td><Pill status="received" label="Available" /></td><td><span class="po-enum">N/A</span></td><td><span class="po-enum">No production</span></td></tr>
+       </tbody>
+     </Grid>
+   </Frame>
+
+   | Cell | What it tells you |
+   | --- | --- |
+   | Sales items | Whether the finished item is available, expected, or not available. |
+   | Ingredients | Whether made-item components are in stock, picked, expected, not available, or not applicable. |
+   | Production | Whether the line needs manufacturing, has linked manufacturing work, or needs no production. |
+
+   A **Make** production state means the line can be turned into a manufacturing order from Sales.
+
+5. **Add shipping and notes.** Optionally add a shipping fee description, shipping fee amount, shipping fee tax, and notes. The totals strip rolls up product revenue, discount, shipping fee, tax, and total. Totals are computed from the order lines and shipping fee fields; they are not edited directly.
+
+   <Frame title="<b>Delivery &amp; totals</b>">
+     <span slot="action"><span class="mk-saved">✓ Saved</span></span>
+     <div class="mk-pad">
+       <div class="mk-rows mk-rows--2">
+         <Field label="Shipping fee description">Local delivery</Field>
+         <Field label="Shipping fee">$85.00</Field>
+       </div>
+       <Field label="Notes">Call before delivery.</Field>
+       <Totals rows={[
+         { label: "Product revenue", value: "$987.60" },
+         { label: "Shipping fee", value: "$85.00" },
+         { label: "Tax", value: "$69.72" },
+         { label: "Order total", value: "$1,142.32", grand: true },
+       ]} />
+     </div>
+   </Frame>
+
+</Steps>
+
+## What's next
+
+<div class="po-tasklist">
+  <a class="po-task" href="/docs/sales/deliver-and-invoice"><span class="po-taskicon po-taskicon--box" aria-hidden="true"></span><span><b>Deliver &amp; invoice</b><small>Ship stock, lock shipped history, and send the invoice to the connected provider.</small></span><span aria-hidden="true">›</span></a>
+  <a class="po-task" href="/docs/sales/make-to-order"><span class="po-taskicon po-taskicon--doc" aria-hidden="true"></span><span><b>Make to order</b><small>Create manufacturing orders for lines that need production.</small></span><span aria-hidden="true">›</span></a>
+</div>

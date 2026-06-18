@@ -1,0 +1,50 @@
+---
+title: Prioritize the queue
+description: Reorder open manufacturing orders by rank so production can focus on the next job.
+sidebar:
+  order: 4
+  badge:
+    text: How-to
+    variant: note
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+import Pill from '../../../../widgets/Pill.astro';
+import Frame from '../../../../widgets/Frame.astro';
+import Grid from '../../../../widgets/Grid.astro';
+
+Open manufacturing orders have a unique positive priority rank. The rank controls queue order; completing or deleting an order clears its rank and reranks the remaining open orders.
+
+<p class="po-meta">
+  <span class="po-chip">2 steps · ~2 min</span>
+  <span class="po-chip">Applies to: <b>Open orders</b></span>
+  <span class="po-chip">Access: <b>Manufacturing operate</b></span>
+</p>
+
+<Steps>
+
+1. **Drag to reorder.** Open **Manufacturing > Manufacturing orders** on the **Open** tab. When the list has no search, resource filter, or sort override, drag the **Rank** column to reorder open orders. Ashicore renumbers the submitted queue as `1..n`.
+
+   <Frame title="Ashicore · <b>Open manufacturing orders</b>">
+     <Grid>
+       <thead><tr><th>Rank</th><th>Order</th><th>Product</th><th>Production</th><th>Deadline</th></tr></thead>
+       <tbody>
+         <tr><td class="num">1</td><td><span class="num">MO-2052</span></td><td>Premium Potting Mix</td><td><Pill status="partial" label="Work in progress" /></td><td>Apr 24</td></tr>
+         <tr><td class="num">2</td><td><span class="num">MO-2053</span></td><td>Raised-Bed Blend</td><td><Pill status="draft" label="Not started" /></td><td>Apr 25</td></tr>
+         <tr><td class="num">3</td><td><span class="num">MO-2054</span></td><td>Screened Compost</td><td><Pill status="ordered" label="Blocked" /></td><td>Apr 26</td></tr>
+       </tbody>
+     </Grid>
+   </Frame>
+
+2. **Filter, then focus.** Use search and the resource filter to find work, inspect ingredient coverage, or compare deadlines. Clear filters before dragging the queue again. A single order can also be assigned a rank, but duplicate active ranks are rejected.
+
+</Steps>
+
+<Aside type="caution" title="Rank is only for open work">
+Done orders do not keep a queue rank. If two users try to assign the same rank, Ashicore returns: `Priority rank N is already assigned to another active order.`
+</Aside>
+
+## What's Next
+
+- **[Start & track production](/docs/manufacturing/start-and-track-production)** — move the highest-priority order onto the floor.
+- **[Ingredients & picking](/docs/manufacturing/ingredients-and-picking)** — read ingredient readiness before committing the queue.

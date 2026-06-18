@@ -57,7 +57,7 @@ Only <Pill status="ordered" /> or <Pill status="partial" /> orders can be receiv
    </Frame>
 
    <Aside type="note" title="You can't receive more than remaining">
-   "Receive now" is capped at each line's remaining quantity — a larger number is flagged invalid and the dialog won't submit. Leave a line blank (or 0) to skip it; that's a partial receipt. Received stock lands as **available**; quarantine it afterward with the inventory lot actions if needed.
+   "Receive now" is capped at each line's remaining quantity — a larger number is flagged invalid and the dialog won't submit. Leave a line blank (or 0) to skip it; that's a partial receipt. Received stock lands as **available**; block it afterward with the inventory lot actions if needed.
    </Aside>
 
 3. **Confirm — stock, lots, and status update.** Choose **Mark received** when you left the full prefill in place, or **Receive selected** for the lines you filled. Each received line writes a permanent receipt at the landed stock-unit cost; tracked items get a new lot, while untracked items append to their internal shared lot. The matching expected supply is released, and the status becomes <Pill status="partial" /> (lines remain) or <Pill status="received" /> (all complete).

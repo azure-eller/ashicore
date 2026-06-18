@@ -1,0 +1,83 @@
+---
+title: Run a stocktake
+description: Create a scoped physical count, enter counted quantities, capture found lots, and complete it to post variances.
+sidebar:
+  order: 9
+  badge:
+    text: How-to
+    variant: note
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+import Frame from '../../../../widgets/Frame.astro';
+import Field from '../../../../widgets/Field.astro';
+import Grid from '../../../../widgets/Grid.astro';
+import Button from '../../../../widgets/Button.astro';
+
+Use a stocktake when you need a physical count for a scoped slice of inventory. A draft snapshots expected available quantity; completion posts the differences to the ledger.
+
+<p class="po-meta">
+  <span class="po-chip">4 steps / ~6 min</span>
+  <span class="po-chip">Draft -> Completed</span>
+  <span class="po-chip">completion is final</span>
+</p>
+
+<Steps>
+
+1. **Create and scope the count.** From **Inventory > Stocktakes**, choose **New stocktake**. Pick a creation mode, location, name, and required reason.
+
+   | Mode | What it snapshots |
+   | --- | --- |
+   | Empty | Starts with no lines. Add items manually. |
+   | Items in stock | Active eligible items with available stock above zero at the selected location. |
+   | All items | Every active material and product item. |
+
+   <Frame title="<b>New stocktake</b>">
+     <div class="mk-pad">
+       <div class="mk-rows mk-rows--3">
+         <Field label="Name" required focus>June yard count</Field>
+         <Field label="Mode">Items in stock</Field>
+         <Field label="Reason" required>Quarter-end</Field>
+       </div>
+     </div>
+   </Frame>
+
+2. **Count each item.** Counting is blind — the draft hides the expected quantity and variance until the completion preview. Enter **Counted** quantity for each line. Blank counts are not treated as zero during draft editing. Lot-tracked items expand into lot rows, and the parent item line rolls up from counted lots once all relevant lot rows are counted.
+
+   <Frame title="<b>June yard count</b> / draft">
+     <Grid>
+       <thead><tr><th>Item</th><th>Unit</th><th class="num">Counted</th></tr></thead>
+       <tbody>
+         <tr><td>Screened Compost</td><td>bag</td><td class="num">44</td></tr>
+         <tr><td>Coir Pith</td><td>bag</td><td class="num">30</td></tr>
+         <tr><td>Perlite - Coarse</td><td>bag</td><td class="num">15</td></tr>
+       </tbody>
+     </Grid>
+   </Frame>
+
+   <p class="mk-cap">Expected and variance stay hidden until the completion preview.</p>
+
+3. **Capture found lots.** If a tracked item has a physical lot that is not listed, add a found lot with a lot number and counted quantity. Adding found lots requires lot-tracking access; the lot number cannot match a lot already on the count.
+
+   <Frame title="<b>Screened Compost</b> / lots">
+     <span slot="action"><Button variant="subtle">+ Add found lot</Button></span>
+     <Grid>
+       <thead><tr><th>Lot</th><th class="num">Counted</th></tr></thead>
+       <tbody>
+         <tr><td><span class="mk-sku">R-114</span></td><td class="num">26</td></tr>
+         <tr><td><span class="mk-sku">R-118</span> <span class="po-enum">found</span></td><td class="num">18</td></tr>
+       </tbody>
+     </Grid>
+   </Frame>
+
+4. **Complete and post variances.** Choose **Complete**. ashicore compares your counts against current live stock — not just the snapshot — and posts each line as a gain, a loss, or verified with no change. It stamps applied deltas, updates last verified dates, and locks the stocktake as completed.
+
+   <Aside type="caution" title="Stale balance guard">
+   If live balances changed since the snapshot in a way that affects the count, completion returns a stale warning unless you confirm. Review the warning before posting because completed stocktakes cannot be deleted or edited.
+   </Aside>
+
+</Steps>
+
+## After completion
+
+Completed stocktakes are inventory history. To repeat the same scope, clone the stocktake and enter a new required reason. To correct a mistake after completion, run another stocktake or use [Adjust stock](/docs/inventory/adjust-stock).

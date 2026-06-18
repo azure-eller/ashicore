@@ -1,0 +1,46 @@
+---
+title: Account state and priority
+description: Use account state, priority, and category to understand customer health and pricing scope.
+sidebar:
+  label: Account state and priority
+---
+
+Customers carry two triage dimensions and one pricing dimension: account state, account priority, and customer category.
+
+<p class="po-meta">
+  <span class="po-chip">4 states</span>
+  <span class="po-chip">4 priorities</span>
+  <span class="po-chip">category affects pricing</span>
+</p>
+
+## 01. Account state
+
+Account state describes where the relationship stands. It is informational and does not prevent ordering.
+
+| State | Use when |
+| --- | --- |
+| `active` | The account is current and buying normally. |
+| `growth` | The account has expansion potential. |
+| `at_risk` | The account needs follow-up or recovery work. |
+| `former` | The account is retained for history but is no longer active. |
+
+## 02. Account priority
+
+Priority says how much attention the account deserves, independently of state.
+
+| Priority | Use when |
+| --- | --- |
+| `strategic` | The account is strategically important. |
+| `high` | The account deserves elevated attention. |
+| `standard` | Normal account management. |
+| `low` | Low-touch or low-priority account. |
+
+A high-priority account can still be at risk. That combination is useful because it tells the team where follow-up matters most.
+
+## 03. Customer categories
+
+Category is different from state and priority. It is a named customer group used by pricing schedules.
+
+A customer can have one category or no category. A pricing schedule can target one category or all customers, and multiple overlapping schedules can still be candidates for an order line. Pricing chooses the lowest resulting unit price among matching schedule breaks.
+
+Use state and priority to decide who needs attention. Use category to decide which pricing schedules can apply.

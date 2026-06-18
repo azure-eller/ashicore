@@ -1,0 +1,32 @@
+---
+title: Stock & lots
+description: Lot-backed inventory balances, dispositions, and events.
+sidebar:
+  label: Overview
+---
+
+Stock is projected from inventory events. Lots carry quantity, disposition, location, and cost, so the app can preserve audit history while showing current balances.
+
+<p class="po-meta">
+  <span class="po-chip">ledger-backed</span>
+  <span class="po-chip"><b>3</b> dispositions</span>
+  <span class="po-chip">default location aware</span>
+</p>
+
+## Dispositions
+
+| Disposition | Meaning | Counts toward usable stock |
+| --- | --- | --- |
+| Available | Ready to sell, consume, or allocate. | yes |
+| Blocked | Held for review or quality control. | no |
+| Rejected | Failed quality review and may be scrapped. | no |
+
+Only available stock is treated as consumable or sellable. Blocking and rejection preserve the lot trail instead of hiding the quantity.
+
+## Work with stock
+
+<div class="po-tasklist">
+  <a class="po-task" href="/docs/inventory/adjust-stock"><span class="po-taskicon po-taskicon--plus" aria-hidden="true"></span><span><b>Adjust stock</b><small>Set a corrected physical count for one item or lot.</small></span><span aria-hidden="true">›</span></a>
+  <a class="po-task" href="/docs/inventory/block-release-and-scrap"><span class="po-taskicon po-taskicon--box" aria-hidden="true"></span><span><b>Block, release &amp; scrap</b><small>Move lot quantities between quality dispositions, or remove rejected stock.</small></span><span aria-hidden="true">›</span></a>
+  <a class="po-task" href="/docs/inventory/ledger"><span class="po-taskicon po-taskicon--doc" aria-hidden="true"></span><span><b>The inventory ledger</b><small>Read the immutable event trail behind balances.</small></span><span aria-hidden="true">›</span></a>
+</div>

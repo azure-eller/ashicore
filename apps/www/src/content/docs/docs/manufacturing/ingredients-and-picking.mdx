@@ -1,0 +1,59 @@
+---
+title: Ingredients and picking
+description: How manufacturing orders snapshot recipe components, allow alternates, enforce lot rules, and consume stock at completion.
+sidebar:
+  order: 7
+  badge:
+    text: Concept
+    variant: tip
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import Pill from '../../../../widgets/Pill.astro';
+import Frame from '../../../../widgets/Frame.astro';
+import Grid from '../../../../widgets/Grid.astro';
+
+Ingredients are the material requirements copied from the product's current recipe onto the manufacturing order. They become actual consumption when production picks stock and records output.
+
+<p class="po-meta">
+  <span class="po-chip">recipe snapshot</span>
+  <span class="po-chip">alternates</span>
+  <span class="po-chip">lot-aware picking</span>
+</p>
+
+## Snapshotted From The Recipe
+
+When you choose a product, Ashicore snapshots the current recipe components into order ingredient rows. Each row stores the item identity, unit, per-unit or per-batch quantity, planned total, lot strategy, pick status, and later actual quantity and actual cost.
+
+<Frame title="<b>Ingredients</b> · MO-2052">
+  <Grid>
+    <thead><tr><th>Ingredient</th><th>SKU</th><th class="num">Per unit</th><th class="num">Total</th><th>Pick</th></tr></thead>
+    <tbody>
+      <tr><td>Screened Compost</td><td><span class="mk-sku">CMP-SCR</span></td><td class="num">0.5</td><td class="num">20 yd3</td><td><Pill status="draft" label="Not Started" /></td></tr>
+      <tr><td>Coir Pith</td><td><span class="mk-sku">COIR</span></td><td class="num">0.3</td><td class="num">12 yd3</td><td><Pill status="draft" label="Not Started" /></td></tr>
+    </tbody>
+  </Grid>
+</Frame>
+
+## Alternates
+
+Recipe components can include approved alternate items with quantity factors. On the manufacturing order, alternates can be swapped while the ingredient is still not picked. After picking starts, the row locks because the inventory trail already references the selected item and lots.
+
+## Lot Strategy And Age Requirements
+
+Each ingredient carries a lot strategy: `fifo`, `lifo`, or `custom`. A recipe component can also require lots to be at least a certain number of days old based on received date. Picking enforces eligible stock first and can show a requirement-warning override when lots are too young.
+
+| Rule | Effect |
+| --- | --- |
+| FIFO | Consume oldest eligible lots first. |
+| LIFO | Consume newest eligible lots first. |
+| Custom | Use a submitted allocation plan. |
+| Minimum lot age | Blocks or warns when no eligible old-enough stock is available. |
+
+## Picking And Shortages
+
+In the web order card, there is no manual per-ingredient pick button. The completion dialog picks all required materials as part of **Done** or record-output actions. If there is not enough available stock, Ashicore shows a shortage warning with need, have, and short quantities; confirming again allows the operation to drive stock negative.
+
+<Aside type="note" title="Pick progress is still visible">
+The orders list and card use pick progress to derive readiness and production state. Explicit per-ingredient picking is an execution-surface action outside the current web card flow.
+</Aside>

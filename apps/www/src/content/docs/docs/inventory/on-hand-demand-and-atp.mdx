@@ -1,0 +1,47 @@
+---
+title: On-hand, demand and ATP
+description: How item balances summarize usable stock, promised demand, incoming supply, and available-to-promise.
+sidebar:
+  order: 7
+  badge:
+    text: Concept
+    variant: tip
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Inventory balances are projections from events. Operators use them for the current answer; the ledger remains the audit trail.
+
+<p class="po-meta">
+  <span class="po-chip">item x location</span>
+  <span class="po-chip">available-only use</span>
+  <span class="po-chip">planning projection</span>
+</p>
+
+## The four numbers
+
+| Number | Meaning |
+| --- | --- |
+| On hand | Sum of all lot balances — every disposition. Scrap and consumption reduce it; receipts and gains increase it. |
+| Demand | Quantity promised to downstream work, such as sales or manufacturing ingredients. |
+| Expected | Quantity expected to arrive or be produced, but not yet physical on-hand stock. |
+| Available to promise | Available stock + expected supply − demand. |
+
+## On-hand vs usable
+
+Lot balances are split by disposition: `available`, `blocked`, and `rejected`. Only available quantity is usable for selling, consuming, and stocktake reconciliation. Blocked and rejected quantity remains on the lot for traceability, but it is intentionally held back from normal use.
+
+## How balances change
+
+| Action | Balance effect |
+| --- | --- |
+| Receive a purchase order | Increases on hand and releases matching expected supply. |
+| Order a purchase order | Increases expected supply until receipt or release. |
+| Ship or consume stock | Decreases on hand and releases matching demand when applicable. |
+| Create or adjust demand | Increases or releases demand without moving physical stock. |
+| Complete a stocktake | Posts gains, losses, or verification and updates last verified date. |
+| Scrap stock | Decreases on hand from the scrapped disposition. |
+
+<Aside type="note" title="Default-location planning constraint">
+The code keeps balances per location. Some planning projections are default-location pinned in v1, while physical operations such as receive, adjust, stocktake, and transfer can resolve or select a location depending on the workflow.
+</Aside>

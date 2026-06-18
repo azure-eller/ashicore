@@ -1,0 +1,31 @@
+---
+title: Transfers
+description: Move stock between locations with paired inventory events.
+---
+
+Transfers are recorded from an inventory dialog, not a separate navigation workspace. When multi-location inventory is enabled, transfer stock from one location to another and keep the lot cost with the stock.
+
+import { Aside } from '@astrojs/starlight/components';
+
+<Aside type="note" title="Transfers need more than one location">
+Transfers are part of multi-location inventory. The action appears once your workspace has at least two active inventory locations — a single-location workspace has nowhere to move stock to.
+</Aside>
+
+<p class="po-meta">
+  <span class="po-chip">Needs 2+ locations</span>
+  <span class="po-chip">paired events</span>
+  <span class="po-chip">source != destination</span>
+</p>
+
+## Recording a transfer
+
+Choose the source location, destination location, item, and quantity. The source and destination must differ. Each transfer line records a movement out of the source and into the destination, drawn first-in-first-out from the source lots, preserving lot cost across locations.
+
+| Event | Quantity effect | Location |
+| --- | --- | --- |
+| transfer_out | decreases stock | source |
+| transfer_in | increases stock | destination |
+
+## Cost & lots
+
+The receiving leg keeps the same lot cost context as the outgoing leg. Operators choose item quantities, not specific lots, in the current transfer dialog. Use transfers for movement between locations; use adjustments or stocktakes when the physical quantity is wrong.

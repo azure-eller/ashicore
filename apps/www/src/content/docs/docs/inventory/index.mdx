@@ -1,0 +1,93 @@
+---
+title: Inventory
+description: Items, lots, balances, stocktakes, and the ledger that every workflow depends on.
+sidebar:
+  order: 0
+  label: Overview
+  badge:
+    text: Module
+    variant: note
+---
+
+Inventory is the source of truth for what you have, where it sits, what it is worth, and whether it can be used. Start with the object you are working in.
+
+<p class="po-meta">
+  <span class="po-chip"><b>5</b> objects</span>
+  <span class="po-chip"><b>5</b> how-tos</span>
+  <span class="po-chip"><b>5</b> concepts</span>
+</p>
+
+## Objects
+
+<div class="po-section-title" aria-hidden="true">
+  <span>Objects</span>
+  <strong>What's in Inventory</strong>
+</div>
+
+<div class="po-objgrid">
+  <a class="po-objcard po-objcard--wide" href="/docs/inventory/items">
+    <span class="po-objicon po-objicon--items" aria-hidden="true"></span>
+    <span class="po-objarrow" aria-hidden="true">-&gt;</span>
+    <span class="po-objtitle">Items</span>
+    <span class="po-objdesc">The shared model behind products and materials. Items carry units, lot tracking, prices, variants, and the flags that decide whether they can be bought, made, or sold.</span>
+    <span class="po-objlinks">
+      <span>Add a product or material <small>how-to</small></span>
+      <span>Item variants &amp; families <small>concept</small></span>
+      <span>Item fields <small>reference</small></span>
+    </span>
+  </a>
+  <a class="po-objcard" href="/docs/manufacturing/bills-of-materials">
+    <span class="po-objicon po-objicon--bom" aria-hidden="true"></span>
+    <span class="po-objarrow" aria-hidden="true">-&gt;</span>
+    <span class="po-objtitle">Bills of materials</span>
+    <span class="po-objdesc">The recipe on a product card: components, alternates, lot-age constraints, operation costs, and revision history that manufacturing snapshots per order.</span>
+    <span class="po-objlinks">
+      <span>Build a recipe <small>how-to</small></span>
+      <span>Revisions &amp; locking <small>concept</small></span>
+    </span>
+  </a>
+  <a class="po-objcard" href="/docs/inventory/stock-and-lots">
+    <span class="po-objicon po-objicon--stock" aria-hidden="true"></span>
+    <span class="po-objarrow" aria-hidden="true">-&gt;</span>
+    <span class="po-objtitle">Stock &amp; lots</span>
+    <span class="po-objdesc">Lot-backed quantity, disposition, cost, and inventory events. Only available stock can be consumed or promised.</span>
+    <span class="po-objlinks">
+      <span>Adjust stock <small>how-to</small></span>
+      <span>The inventory ledger <small>concept</small></span>
+      <span>On-hand, demand &amp; ATP <small>concept</small></span>
+    </span>
+  </a>
+  <a class="po-objcard" href="/docs/inventory/stocktakes">
+    <span class="po-objicon po-objicon--stocktake" aria-hidden="true"></span>
+    <span class="po-objarrow" aria-hidden="true">-&gt;</span>
+    <span class="po-objtitle">Stocktakes</span>
+    <span class="po-objdesc">Physical counts that snapshot expected available stock, capture counted quantities, and post variance events when completed.</span>
+    <span class="po-objlinks">
+      <span>Run a stocktake <small>how-to</small></span>
+      <span>Scoping a count <small>reference</small></span>
+    </span>
+  </a>
+  <a class="po-objcard" href="/docs/inventory/transfers">
+    <span class="po-objicon po-objicon--transfer" aria-hidden="true"></span>
+    <span class="po-objarrow" aria-hidden="true">-&gt;</span>
+    <span class="po-objtitle">Transfers</span>
+    <span class="po-objdesc">A stock movement action for multi-location inventory. The app stores a transfer document and records paired transfer-out and transfer-in events from the transfer dialog.</span>
+    <span class="po-objlinks">
+      <span>Move stock between locations in a multi-location workspace <small>how-to</small></span>
+      <span>Cost &amp; lots travel <small>concept</small></span>
+    </span>
+  </a>
+</div>
+
+## Common tasks
+
+<div class="po-section-title" aria-hidden="true">
+  <span>Start</span>
+  <strong>Common tasks</strong>
+</div>
+
+<div class="po-tasklist">
+  <a class="po-task" href="/docs/inventory/add-a-product-or-material"><span class="po-taskicon po-taskicon--plus" aria-hidden="true"></span><span><b>Add a product or material</b><small>Choose the item type and stock unit before other workflows use it.</small></span><span aria-hidden="true">›</span></a>
+  <a class="po-task" href="/docs/inventory/adjust-stock"><span class="po-taskicon po-taskicon--box" aria-hidden="true"></span><span><b>Adjust stock</b><small>Set the correct quantity for one item or lot and post a manual inventory event.</small></span><span aria-hidden="true">›</span></a>
+  <a class="po-task" href="/docs/inventory/run-a-stocktake"><span class="po-taskicon po-taskicon--doc" aria-hidden="true"></span><span><b>Run a stocktake</b><small>Count a scoped slice of inventory and post variances when the count is final.</small></span><span aria-hidden="true">›</span></a>
+</div>

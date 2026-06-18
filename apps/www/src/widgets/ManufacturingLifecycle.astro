@@ -1,0 +1,166 @@
+---
+const NODES = [
+  { k: "notStarted", label: "Not started", tone: "draft", short: "Open plan. No execution history." },
+  { k: "wip", label: "Work in progress", tone: "partial", short: "Started, picked, or output recorded." },
+  { k: "blocked", label: "Blocked", tone: "ordered", short: "Open but paused." },
+  { k: "done", label: "Done", tone: "received", short: "Closed production history." },
+];
+---
+
+<starlight-manufacturing-lifecycle class="po-life mo-life">
+  <div class="po-life-track" role="tablist" aria-label="Manufacturing production states">
+    {
+      NODES.map((n) => (
+        <button class="po-life-node" type="button" data-k={n.k} role="tab" aria-selected="false">
+          <span class={`po-pill po-pill--${n.tone}`}>{n.label}</span>
+          <span class="po-life-short">{n.short}</span>
+        </button>
+      ))
+    }
+  </div>
+  <div class="po-life-detail" data-detail aria-live="polite"></div>
+</starlight-manufacturing-lifecycle>
+
+<script>
+  type Status = "notStarted" | "wip" | "blocked" | "done";
+  interface LifeEntry {
+    tone: "draft" | "ordered" | "partial" | "received";
+    label: string;
+    desc: string;
+    actions: { ok: boolean; text: string }[];
+    trans: { label: string; to: Status | null }[];
+  }
+
+  const LIFE: Record<Status, LifeEntry> = {
+    notStarted: {
+      tone: "draft",
+      label: "Not started",
+      desc:
+        "The order is open and no execution history exists yet. Planning fields are still editable, and deletion is still reversible.",
+      actions: [
+        { ok: true, text: "Edit product, planned quantity, ingredients, and dates" },
+        { ok: true, text: "Start, block, complete, or delete the order" },
+        { ok: false, text: "Treat this as a stored draft status — stored status is open" },
+      ],
+      trans: [
+        { label: "start", to: "wip" },
+        { label: "block", to: "blocked" },
+        { label: "complete", to: "done" },
+        { label: "delete", to: null },
+      ],
+    },
+    wip: {
+      tone: "partial",
+      label: "Work in progress",
+      desc:
+        "Execution has started through a start action, picked ingredients, recorded output, or batch activity. Planning fields lock to preserve inventory history.",
+      actions: [
+        { ok: true, text: "Record output or complete the order" },
+        { ok: true, text: "Block the order if production cannot proceed" },
+        { ok: false, text: "Return to not started" },
+        { ok: false, text: "Edit planning fields that would rewrite picked history" },
+      ],
+      trans: [
+        { label: "block", to: "blocked" },
+        { label: "complete", to: "done" },
+      ],
+    },
+    blocked: {
+      tone: "ordered",
+      label: "Blocked",
+      desc:
+        "The order is still open, but the visible state is paused. Unblocking returns it to the derived state implied by its execution history.",
+      actions: [
+        { ok: true, text: "Unblock when work can continue" },
+        { ok: true, text: "Complete if execution details are otherwise valid" },
+        { ok: false, text: "Assume blocked is a separate stored database status" },
+      ],
+      trans: [
+        { label: "unblock", to: "wip" },
+        { label: "complete", to: "done" },
+      ],
+    },
+    done: {
+      tone: "received",
+      label: "Done",
+      desc:
+        "The order is closed. Output, consumption, operation cost, and queue history are preserved for audit and costing.",
+      actions: [
+        { ok: true, text: "View production and inventory history" },
+        { ok: false, text: "Edit, start, block, or complete again" },
+        { ok: false, text: "Delete output history" },
+      ],
+      trans: [],
+    },
+  };
+
+  if (!customElements.get("starlight-manufacturing-lifecycle")) {
+    customElements.define(
+      "starlight-manufacturing-lifecycle",
+      class extends HTMLElement {
+        connectedCallback() {
+          const detail = this.querySelector<HTMLElement>("[data-detail]");
+          if (!detail) return;
+          const nodes = Array.from(this.querySelectorAll<HTMLElement>(".po-life-node"));
+          const check =
+            '<svg class="po-life-ai" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12l5 5L20 6"/></svg>';
+          const cross =
+            '<svg class="po-life-ai" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+          const arrow =
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+          const pill = (k: Status | null) =>
+            k
+              ? '<span class="po-pill po-pill--' + LIFE[k].tone + '">' + LIFE[k].label + "</span>"
+              : '<span class="po-life-removed">removed</span>';
+
+          const render = (key: string) => {
+            const d = LIFE[key as Status];
+            if (!d) return;
+            nodes.forEach((n) => {
+              const on = n.dataset.k === key;
+              n.classList.toggle("active", on);
+              n.setAttribute("aria-selected", String(on));
+            });
+            detail.innerHTML =
+              '<div class="po-life-main"><div class="po-life-h">' +
+              pill(key as Status) +
+              '</div><p class="po-life-d">' +
+              d.desc +
+              "</p></div>" +
+              '<div class="po-life-cols"><div class="po-life-col"><h4>Allowed here</h4><div class="po-life-acts">' +
+              d.actions
+                .map(
+                  (a) =>
+                    '<div class="po-life-act ' +
+                    (a.ok ? "yes" : "no") +
+                    '">' +
+                    (a.ok ? check : cross) +
+                    "<span>" +
+                    a.text +
+                    "</span></div>",
+                )
+                .join("") +
+              '</div></div><div class="po-life-col"><h4>Transitions out</h4><div class="po-life-trans">' +
+              (d.trans.length
+                ? d.trans
+                    .map(
+                      (t) =>
+                        '<div class="po-life-tr"><span class="po-life-act-label">' +
+                        t.label +
+                        "</span>" +
+                        arrow +
+                        pill(t.to) +
+                        "</div>",
+                    )
+                    .join("")
+                : '<span class="po-life-removed">terminal</span>') +
+              "</div></div></div>";
+          };
+
+          nodes.forEach((n) => n.addEventListener("click", () => n.dataset.k && render(n.dataset.k)));
+          render("notStarted");
+        }
+      },
+    );
+  }
+</script>

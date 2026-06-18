@@ -1,0 +1,55 @@
+---
+title: Make to order
+description: Create linked manufacturing orders for sales lines that need production.
+sidebar:
+  label: Make to order
+---
+
+Use make-to-order when a sales line needs production before it can be delivered. Sales previews makeable lines, creates manufacturing orders, and links them back to the sales order lines.
+
+<p class="po-meta">
+  <span class="po-chip">bridges sales to manufacturing</span>
+  <span class="po-chip">planned date defaults from ship date</span>
+  <span class="po-chip">one linked MO per selected line</span>
+</p>
+
+## Make to order vs. make to stock
+
+`Make to order` links the manufacturing output to the sales line demand. `Make to stock` creates manufacturing work for the same product without earmarking it to the sales line.
+
+Both paths create real manufacturing orders. The difference is how the output relates to the sales demand queue.
+
+## 1. Find a line that needs production
+
+A sales line's `Production` cell shows `Make` when the line can be manufactured and needs production. You can open the manufacturing dialog from:
+
+| Place | Action |
+| --- | --- |
+| Order menu | `Create manufacturing order(s)` when the order has manufacturable lines. |
+| Line `Production` cell | `Make to order` or `Make to stock` for that line. |
+| Orders list `Production` cell | The same production options and linked-order status. |
+
+## 2. Review the preview
+
+The dialog loads a preview of creatable and skipped lines. It includes a planned date that defaults to one day before the order's shipping date when a shipping date exists.
+
+For batch-mode products, the editable quantity can represent batch count and is converted into planned output. For normal lines, the make quantity follows the remaining demand.
+
+## 3. Create the manufacturing orders
+
+Confirm the selected lines. Sales creates linked manufacturing orders with `salesOrderId` and `salesOrderLineId`, then refreshes the order.
+
+Skipped lines show a reason, such as:
+
+| Reason | Meaning |
+| --- | --- |
+| Non-product | The line is not a manufacturable product. |
+| Inactive product | The product cannot currently be made. |
+| No active BOM | There is no current recipe for the product. |
+| Existing active MO | An open linked manufacturing order already exists. |
+| No remaining demand | Nothing remains to make for the line. |
+| Order not open | The sales order is no longer open. |
+
+## Track the link
+
+After creation, the line's `Production` cell follows the linked manufacturing order: `Not started`, `Work in progress`, `Blocked`, or `Done`. When manufacturing completes and records output, allocation can use that expected or available supply for the sales order.

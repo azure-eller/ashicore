@@ -1,0 +1,57 @@
+---
+title: The production lifecycle
+description: How manufacturing orders move from open planning to started work, blocked work, output, and done history.
+sidebar:
+  order: 5
+  badge:
+    text: Concept
+    variant: tip
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import Pill from '../../../../widgets/Pill.astro';
+import ManufacturingLifecycle from '../../../../widgets/ManufacturingLifecycle.astro';
+
+Manufacturing has two layers of state. The database stores `open` or `done`; the UI shows a derived production state so operators can see whether open work is not started, blocked, or in progress.
+
+<p class="po-meta">
+  <span class="po-chip"><b>2</b> stored statuses</span>
+  <span class="po-chip"><b>4</b> visible states</span>
+  <span class="po-chip">history-preserving</span>
+</p>
+
+## Explore Each State
+
+Select a state to see what it allows and where the order can move next.
+
+<ManufacturingLifecycle />
+
+| Visible state | Stored status | What makes it appear | What it means |
+| --- | --- | --- | --- |
+| <Pill status="draft" label="Not started" /> | `open` | No start, no picks, no completed batches. | Planned work is still fully editable. |
+| <Pill status="partial" label="Work in progress" /> | `open` | `startedAt`, pick progress, or completed batch activity exists. | Execution has started and planning is locked. |
+| <Pill status="ordered" label="Blocked" /> | `open` | `isBlocked` is true. | Work is paused but still open. |
+| <Pill status="received" label="Done" /> | `done` | The order was completed. | Production history is terminal and read-only. |
+
+## What Happens When You Complete
+
+Completing a discrete order usually performs the whole execution write in one action: pick remaining materials, calculate actual material cost, absorb operation cost, create the finished output lot, record output-to-input consumption, close the order, clear its queue rank, and rerank open work.
+
+Batch orders close batch rows. **Partially complete** records a chosen number of whole batches and leaves the order open. **Done** closes all remaining planned batch output.
+
+## Valid And Invalid Transitions
+
+| From | Allowed | Blocked |
+| --- | --- | --- |
+| Not started | Start, block, complete, delete, edit plan. | - |
+| Work in progress | Block, complete, record output. | Return to not started, edit planning fields. |
+| Blocked | Unblock, complete if execution is otherwise valid. | Treat blocked as a separate stored status. |
+| Done | View history. | Edit, delete, start, block, complete again. |
+
+<Aside type="note" title="Partially complete is a dialog action">
+The production status menu includes **Partially complete** for batch orders. It is not a stored manufacturing order status; it opens the completion dialog in batch output mode.
+</Aside>
+
+## Why Can't I Delete This Order?
+
+Open orders can be soft-deleted while no production output has been recorded. Deleting releases reversible picked stock and open demand. Once output exists, the order is preserved as production history and delete is blocked.

@@ -1,0 +1,154 @@
+---
+const NODES = [
+  { k: "notShipped", label: "Not shipped", tone: "draft", short: "Open and editable. No stock shipped." },
+  { k: "partial", label: "Partially shipped", tone: "partial", short: "Some quantity shipped. History is protected." },
+  { k: "shipped", label: "Shipped", tone: "received", short: "Final delivery. Order is done." },
+];
+---
+
+<starlight-sales-lifecycle class="po-life so-life">
+  <div class="po-life-track" role="tablist" aria-label="Sales delivery states">
+    {
+      NODES.map((n) => (
+        <button class="po-life-node" type="button" data-k={n.k} role="tab" aria-selected="false">
+          <span class={`po-pill po-pill--${n.tone}`}>{n.label}</span>
+          <span class="po-life-short">{n.short}</span>
+        </button>
+      ))
+    }
+  </div>
+  <div class="po-life-detail" data-detail aria-live="polite"></div>
+</starlight-sales-lifecycle>
+
+<script>
+  type Status = "notShipped" | "partial" | "shipped";
+  interface LifeEntry {
+    tone: "draft" | "partial" | "received";
+    label: string;
+    desc: string;
+    actions: { ok: boolean; text: string }[];
+    trans: { label: string; to: Status | null }[];
+  }
+
+  const LIFE: Record<Status, LifeEntry> = {
+    notShipped: {
+      tone: "draft",
+      label: "Not shipped",
+      desc:
+        "No ordered quantity has shipped. The order remains open, pricing and unshipped lines can still change, and deletion is still possible while no inventory or accounting history exists.",
+      actions: [
+        { ok: true, text: "Edit unshipped order details and lines" },
+        { ok: true, text: "Deliver some or all remaining quantity" },
+        { ok: true, text: "Delete while no shipped/accounting history exists" },
+        { ok: false, text: "Invoice shipped history — nothing has shipped yet" },
+      ],
+      trans: [
+        { label: "deliver some", to: "partial" },
+        { label: "deliver all", to: "shipped" },
+        { label: "delete", to: null },
+      ],
+    },
+    partial: {
+      tone: "partial",
+      label: "Partially shipped",
+      desc:
+        "Some quantity has shipped and inventory has been consumed. Shipped quantities are protected, but remaining quantity can still be delivered.",
+      actions: [
+        { ok: true, text: "Deliver remaining quantity" },
+        { ok: true, text: "Push an invoice to the connected accounting provider" },
+        { ok: false, text: "Reduce a line below shipped plus cancelled quantity" },
+        { ok: false, text: "Delete the order" },
+      ],
+      trans: [{ label: "deliver rest", to: "shipped" }],
+    },
+    shipped: {
+      tone: "received",
+      label: "Shipped",
+      desc:
+        "All deliverable quantity has shipped or the order is otherwise done. The order is preserved as delivery, inventory, and accounting history.",
+      actions: [
+        { ok: true, text: "View delivery and invoice history" },
+        { ok: true, text: "Review actual cost and margin context where available" },
+        { ok: false, text: "Reopen from the order UI" },
+        { ok: false, text: "Delete shipped history" },
+      ],
+      trans: [],
+    },
+  };
+
+  if (!customElements.get("starlight-sales-lifecycle")) {
+    customElements.define(
+      "starlight-sales-lifecycle",
+      class extends HTMLElement {
+        connectedCallback() {
+          const detail = this.querySelector<HTMLElement>("[data-detail]");
+          if (!detail) return;
+          const nodes = Array.from(this.querySelectorAll<HTMLElement>(".po-life-node"));
+          const check =
+            '<svg class="po-life-ai" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12l5 5L20 6"/></svg>';
+          const cross =
+            '<svg class="po-life-ai" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+          const arrow =
+            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+          const pill = (k: Status | null) =>
+            k
+              ? '<span class="po-pill po-pill--' + LIFE[k].tone + '">' + LIFE[k].label + "</span>"
+              : '<span class="po-life-removed">removed</span>';
+
+          const render = (key: string) => {
+            const d = LIFE[key as Status];
+            if (!d) return;
+            nodes.forEach((n) => {
+              const on = n.dataset.k === key;
+              n.classList.toggle("active", on);
+              n.setAttribute("aria-selected", String(on));
+            });
+            detail.innerHTML =
+              '<div class="po-life-main"><div class="po-life-h">' +
+              pill(key as Status) +
+              '</div><p class="po-life-d">' +
+              d.desc +
+              "</p></div>" +
+              '<div class="po-life-cols"><div class="po-life-col"><h4>Allowed here</h4><div class="po-life-acts">' +
+              d.actions
+                .map(
+                  (a) =>
+                    '<div class="po-life-act ' +
+                    (a.ok ? "yes" : "no") +
+                    '">' +
+                    (a.ok ? check : cross) +
+                    "<span>" +
+                    a.text +
+                    "</span></div>",
+                )
+                .join("") +
+              '</div></div><div class="po-life-col"><h4>Transitions out</h4><div class="po-life-trans">' +
+              (d.trans.length
+                ? d.trans
+                    .map(
+                      (t) =>
+                        '<div class="po-life-tr"><span class="po-life-act-label">' +
+                        t.label +
+                        "</span>" +
+                        arrow +
+                        pill(t.to) +
+                        "</div>",
+                    )
+                    .join("")
+                : '<span class="po-life-removed">terminal</span>') +
+              "</div></div></div>";
+          };
+
+          nodes.forEach((n) => n.addEventListener("click", () => n.dataset.k && render(n.dataset.k)));
+          render("notShipped");
+        }
+      },
+    );
+  }
+</script>
+
+<style is:global>
+  .so-life .po-life-track {
+    grid-template-columns: repeat(3, 1fr);
+  }
+</style>

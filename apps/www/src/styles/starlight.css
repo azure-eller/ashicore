@@ -261,6 +261,417 @@ a[aria-current="page"] {
   font-weight: 600;
 }
 
+/* ---- module landing: object cards + common tasks ---- */
+.sl-markdown-content h2#objects,
+.sl-markdown-content h2#common-tasks {
+  color: transparent;
+  height: 0;
+  line-height: 0;
+  margin: 0;
+  overflow: hidden;
+  position: absolute;
+  scroll-margin-top: 5rem;
+  width: 1px;
+}
+
+.sl-markdown-content h2#objects > *,
+.sl-markdown-content h2#common-tasks > * {
+  visibility: hidden;
+}
+
+.sl-markdown-content h2#objects::before,
+.sl-markdown-content h2#common-tasks::before,
+.sl-markdown-content h2#objects::after,
+.sl-markdown-content h2#common-tasks::after {
+  content: none;
+}
+
+.sl-markdown-content .po-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-top: 2.6rem;
+  scroll-margin-top: 5rem;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.018em;
+  line-height: 1.2;
+  text-transform: none;
+}
+
+.sl-markdown-content .po-section-title::before {
+  content: "";
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 2px;
+  background: var(--accent-2);
+  transform: rotate(45deg) translateY(-1px);
+}
+
+.sl-markdown-content .po-section-title span {
+  color: var(--accent-ink);
+  font-family: var(--font-mono);
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  line-height: 1.8;
+  text-transform: uppercase;
+}
+
+.sl-markdown-content .po-section-title strong {
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.018em;
+  line-height: 1.2;
+  text-transform: none;
+}
+
+.sl-markdown-content .po-objgrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+  margin-top: 1rem;
+}
+
+.sl-markdown-content .po-objcard {
+  position: relative;
+  display: flex;
+  min-height: 16rem;
+  flex-direction: column;
+  padding: 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  text-decoration: none;
+  transition: border-color 0.14s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.sl-markdown-content .po-objcard:hover {
+  border-color: color-mix(in oklch, var(--accent) 55%, var(--line));
+  box-shadow: var(--shadow-sm);
+  transform: translateY(-1px);
+}
+
+.sl-markdown-content .po-objcard--wide {
+  grid-column: 1 / -1;
+}
+
+.sl-markdown-content .po-objicon,
+.sl-markdown-content .po-taskicon {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+}
+
+.sl-markdown-content .po-objicon {
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 0.7rem;
+}
+
+.sl-markdown-content .po-objicon::before,
+.sl-markdown-content .po-taskicon::before {
+  content: "";
+  width: 1.15rem;
+  height: 1.15rem;
+  background: currentColor;
+}
+
+.sl-markdown-content .po-objicon--orders::before {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 7h16v2H4V7Zm0 4h16v2H4v-2Zm0 4h10v2H4v-2Z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 7h16v2H4V7Zm0 4h16v2H4v-2Zm0 4h10v2H4v-2Z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.sl-markdown-content .po-objicon--suppliers::before {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M9 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm0 2c-4 0-7 2-7 5v1h14v-1c0-3-3-5-7-5Zm8-2 2 2 4-5-2-1-3 3-1-1-2 2Z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M9 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm0 2c-4 0-7 2-7 5v1h14v-1c0-3-3-5-7-5Zm8-2 2 2 4-5-2-1-3 3-1-1-2 2Z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.sl-markdown-content .po-objicon--items::before,
+.sl-markdown-content .po-objicon--stock::before,
+.sl-markdown-content .po-objicon--manufacturing::before {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 5h7v7H4V5Zm9 0h7v7h-7V5ZM4 14h7v5H4v-5Zm9 0h7v5h-7v-5Z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 5h7v7H4V5Zm9 0h7v7h-7V5ZM4 14h7v5H4v-5Zm9 0h7v5h-7v-5Z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.sl-markdown-content .po-objicon--bom::before,
+.sl-markdown-content .po-objicon--recipe::before,
+.sl-markdown-content .po-objicon--pricing::before {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M6 3h12v18H6V3Zm2 3v2h8V6H8Zm0 4v2h8v-2H8Zm0 4v2h5v-2H8Z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M6 3h12v18H6V3Zm2 3v2h8V6H8Zm0 4v2h8v-2H8Zm0 4v2h5v-2H8Z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.sl-markdown-content .po-objicon--stocktake::before,
+.sl-markdown-content .po-objicon--resources::before {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5 4h14v3H5V4Zm0 5h14v11H5V9Zm3 3v2h8v-2H8Zm0 4v2h5v-2H8Z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M5 4h14v3H5V4Zm0 5h14v11H5V9Zm3 3v2h8v-2H8Zm0 4v2h5v-2H8Z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.sl-markdown-content .po-objicon--transfer::before,
+.sl-markdown-content .po-objicon--sales::before {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='m7 7 4-4 4 4h-3v7h-2V7H7Zm10 10-4 4-4-4h3v-7h2v7h3Z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='m7 7 4-4 4 4h-3v7h-2V7H7Zm10 10-4 4-4-4h3v-7h2v7h3Z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.sl-markdown-content .po-objicon--customers::before {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M8 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm8-1a3 3 0 1 1 0-6 3 3 0 0 1 0 6ZM2 20c0-4 3-7 7-7s7 3 7 7v1H2v-1Zm13.5-7c3.3.2 5.5 2.8 5.5 6v1h-3v-1c0-2.3-.9-4.4-2.5-6Z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M8 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm8-1a3 3 0 1 1 0-6 3 3 0 0 1 0 6ZM2 20c0-4 3-7 7-7s7 3 7 7v1H2v-1Zm13.5-7c3.3.2 5.5 2.8 5.5 6v1h-3v-1c0-2.3-.9-4.4-2.5-6Z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.sl-markdown-content .po-objarrow {
+  position: absolute;
+  top: 1.55rem;
+  right: 1.35rem;
+  color: var(--ink-faint);
+}
+
+.sl-markdown-content .po-objtitle {
+  margin-top: 0.8rem;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.sl-markdown-content .po-objdesc {
+  margin-top: 0.85rem;
+  color: var(--ink-soft);
+  line-height: 1.52;
+}
+
+.sl-markdown-content .po-objlinks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: auto;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line-soft);
+  color: var(--ink);
+}
+
+.sl-markdown-content .po-objlinks span {
+  display: block;
+}
+
+.sl-markdown-content .po-objlinks small {
+  margin-left: 0.25rem;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+}
+
+.sl-markdown-content .po-tasklist {
+  clear: both;
+  overflow: hidden;
+  margin-top: 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.sl-markdown-content .po-task {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.sl-markdown-content .po-task:last-child {
+  border-bottom: 0;
+}
+
+.sl-markdown-content .po-task:hover {
+  background: var(--bg-2);
+}
+
+.sl-markdown-content .po-taskicon {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.45rem;
+}
+
+.sl-markdown-content .po-taskicon::before {
+  width: 0.82rem;
+  height: 0.82rem;
+}
+
+.sl-markdown-content .po-taskicon--plus::before {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 5h2v14h-2V5Zm-6 6h14v2H5v-2Z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 5h2v14h-2V5Zm-6 6h14v2H5v-2Z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.sl-markdown-content .po-taskicon--box::before {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='m12 3 8 4v10l-8 4-8-4V7l8-4Zm0 2.2L6.5 8 12 10.8 17.5 8 12 5.2ZM6 9.6v6.2l5 2.5v-6.2L6 9.6Zm7 8.7 5-2.5V9.6l-5 2.5v6.2Z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='m12 3 8 4v10l-8 4-8-4V7l8-4Zm0 2.2L6.5 8 12 10.8 17.5 8 12 5.2ZM6 9.6v6.2l5 2.5v-6.2L6 9.6Zm7 8.7 5-2.5V9.6l-5 2.5v6.2Z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.sl-markdown-content .po-taskicon--doc::before {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M6 3h8l4 4v14H6V3Zm8 2.5V8h2.5L14 5.5ZM8 11h8v2H8v-2Zm0 4h8v2H8v-2Z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M6 3h8l4 4v14H6V3Zm8 2.5V8h2.5L14 5.5ZM8 11h8v2H8v-2Zm0 4h8v2H8v-2Z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.sl-markdown-content .po-task b {
+  display: block;
+  color: var(--ink);
+}
+
+.sl-markdown-content .po-task small {
+  display: block;
+  margin-top: 0.12rem;
+  color: var(--ink-soft);
+}
+
+@media (max-width: 48rem) {
+  .sl-markdown-content .po-objgrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- lifecycle diagrams shared by purchasing, sales, manufacturing ---- */
+.po-life {
+  display: block;
+  margin-top: 1.4rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.po-life-track {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: var(--bg-2);
+}
+
+.po-life-node {
+  position: relative;
+  padding: 1.05rem 1rem 1.15rem;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: var(--bg-2);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  transition: background 0.15s;
+}
+
+.po-life-node:last-child {
+  border-right: none;
+}
+
+.po-life-node:hover,
+.po-life-node.active {
+  background: var(--surface);
+}
+
+.po-life-node.active {
+  box-shadow: inset 0 -3px 0 var(--accent);
+}
+
+.po-life-short {
+  display: block;
+  color: var(--ink-soft);
+  margin-top: 0.55rem;
+  line-height: 1.4;
+}
+
+.po-life-detail {
+  padding: 1.25rem;
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 1.5rem;
+}
+
+.po-life-d {
+  color: var(--ink-soft);
+  margin-top: 0.6rem;
+  line-height: 1.55;
+}
+
+.po-life-col h4 {
+  font-family: var(--font-mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 0.6rem;
+}
+
+.po-life-acts,
+.po-life-trans {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.po-life-act {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  color: var(--ink-soft);
+}
+
+.po-life-ai {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin-top: 1px;
+}
+
+.po-life-act.yes .po-life-ai {
+  color: var(--st-success-ink);
+}
+
+.po-life-act.no .po-life-ai {
+  color: var(--st-danger-ink);
+}
+
+.po-life-tr {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  color: var(--ink-soft);
+}
+
+.po-life-tr svg {
+  width: 13px;
+  height: 13px;
+  color: var(--ink-faint);
+}
+
+.po-life-act-label {
+  font-family: var(--font-mono);
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  border-radius: 5px;
+  padding: 2px 7px;
+}
+
+.po-life-removed {
+  font-family: var(--font-mono);
+  color: var(--ink-faint);
+}
+
+@media (max-width: 640px) {
+  .po-life-detail {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .po-life-node {
+    transition: none;
+  }
+}
+
 /* ---- reference-table look applied to docs markdown tables ---- */
 .sl-markdown-content table {
   display: table;
@@ -714,6 +1125,11 @@ h1#_top {
   letter-spacing: -0.02em;
   margin-top: 2rem;
 }
+
+.sl-markdown-content .sl-heading-wrapper {
+  --sl-anchor-icon-gap: 0.75em;
+}
+
 /* Section eyebrow marker — a small accent glyph before each section heading */
 .sl-markdown-content h2::before {
   content: "";

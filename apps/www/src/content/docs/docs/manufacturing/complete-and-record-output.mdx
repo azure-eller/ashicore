@@ -1,0 +1,77 @@
+---
+title: Complete and record output
+description: Use the completion dialog to consume materials, produce finished lots, choose disposition and location, and close or partially complete production.
+sidebar:
+  order: 3
+  badge:
+    text: How-to
+    variant: note
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+import Pill from '../../../../widgets/Pill.astro';
+import Frame from '../../../../widgets/Frame.astro';
+import Field from '../../../../widgets/Field.astro';
+import Grid from '../../../../widgets/Grid.astro';
+import Button from '../../../../widgets/Button.astro';
+import Totals from '../../../../widgets/Totals.astro';
+
+Record finished output from a manufacturing order. On the web card, completion picks the required materials as part of the action, writes the output lot, and records actual material and operation cost.
+
+<p class="po-meta">
+  <span class="po-chip">3 steps · ~4 min</span>
+  <span class="po-chip">Applies to: <b>Open → Done</b></span>
+  <span class="po-chip">Writes: <b>inventory output</b></span>
+</p>
+
+<Aside type="caution" title="Completion can consume stock">
+For a discrete order with no prior output, **Done** says it will pick all materials and produce the output. If stock would go negative, Ashicore shows the shortage and requires an explicit **Complete anyway** or **Record anyway** confirmation.
+</Aside>
+
+<Steps>
+
+1. **Open the completion dialog.** From the order header or list row, choose **Done** from the **Production** control. Batch orders can also choose **Partially complete** to complete whole batches while leaving the order open.
+
+   <Frame title="<b>MO-2052</b> · Premium Potting Mix">
+     <div class="mk-drop">
+       <div class="mk-opt"><Pill status="partial" label="Work in progress" /> <span class="sub">current</span></div>
+       <div class="mk-opt hi"><Pill status="received" label="Done" /> <span class="sub">opens dialog</span></div>
+     </div>
+   </Frame>
+
+2. **Enter output details.** For a discrete completion, enter **Completed quantity**, optional **Lot number**, **Output disposition**, and **Produce into** location. Available output is normal sellable stock. Blocked holds the lot out of use (a paid lot-tracking feature) and depends on lot-tracking access and product settings.
+
+   <Frame title="<b>Complete order</b> · MO-2052">
+     <div class="mk-pad">
+       <div class="mk-rows mk-rows--2">
+         <Field label="Completed quantity (yd3)">40</Field>
+         <Field label="Lot number" muted>LOT-2026-04-24</Field>
+       </div>
+       <div class="mk-rows mk-rows--2">
+         <Field label="Output disposition">Available</Field>
+         <Field label="Produce into">Default location</Field>
+       </div>
+     </div>
+   </Frame>
+
+3. **Confirm and clear any warnings.** Choose **Complete**. Ashicore consumes the selected ingredient lots, creates the finished output lot, links output consumption to the picked inputs, calculates actual cost, sets the stored order status to `done`, clears priority rank, and reranks the remaining open queue.
+
+   <Frame title="<b>Actual cost rollup</b>">
+     <div class="mk-pad">
+       <Totals rows={[
+         { label: "Material cost", value: "$920.00" },
+         { label: "Operation cost", value: "$180.00" },
+         { label: "Actual cost per unit", value: "$27.50", grand: true },
+       ]} />
+     </div>
+   </Frame>
+
+</Steps>
+
+## Recording Output In Stages
+
+Discrete output can be recorded without closing the order when the dialog is used in record-output mode. The order stays open for the remaining quantity. Batch **Partially complete** completes a chosen number of whole batches; **Done** completes the remaining planned batches and closes the order.
+
+<Aside type="note" title="Already recorded output">
+If output already exists on a discrete order, choosing **Done** closes the order and releases remaining open demand instead of creating a duplicate output row.
+</Aside>

@@ -1,0 +1,64 @@
+---
+title: Output lots and cost
+description: How manufacturing output becomes inventory lots and how material plus operation cost roll up to actual unit cost.
+sidebar:
+  order: 8
+  badge:
+    text: Concept
+    variant: tip
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import Pill from '../../../../widgets/Pill.astro';
+import Frame from '../../../../widgets/Frame.astro';
+import Grid from '../../../../widgets/Grid.astro';
+import Totals from '../../../../widgets/Totals.astro';
+
+Manufacturing output writes finished stock through inventory events. The output row points at the created lot, its location, disposition, quantity, material unit cost, and the ingredient consumption rows that fed it. Order totals and produced stock costing also include absorbed operation cost.
+
+<p class="po-meta">
+  <span class="po-chip">lot-backed output</span>
+  <span class="po-chip">actual cost</span>
+  <span class="po-chip">operation absorption</span>
+</p>
+
+## Output Becomes A Lot
+
+Completing production creates a `manufacturing_output` inventory event and a `manufacturing_order_outputs` row. Discrete production normally creates one output lot; batch production creates lots as batches are completed.
+
+<Frame title="<b>Output</b> · MO-2052">
+  <Grid>
+	    <thead><tr><th>Lot</th><th>Location</th><th>Disposition</th><th class="num">Quantity</th><th class="num">Material unit cost</th></tr></thead>
+    <tbody>
+      <tr><td><span class="num">LOT-2026-04-24</span></td><td>Default location</td><td><Pill status="received" label="Available" /></td><td class="num">40 yd3</td><td class="num">$27.50</td></tr>
+    </tbody>
+  </Grid>
+</Frame>
+
+## Disposition And Reversal
+
+Output disposition can be **Available** or **Blocked**. Available output can be consumed or sold normally. Blocked output is held out of use and depends on lot-tracking access.
+
+Produced output is permanent — a completed order isn't deleted. To correct finished stock after the fact, adjust or disposition it through inventory rather than un-producing the order.
+
+## The Actual Cost Rollup
+
+On completion, Ashicore reconciles actual consumed ingredient quantities and lot costs, sums material cost, absorbs planned operation cost for the produced quantity, and calculates actual cost per unit.
+
+<Frame title="<b>Actual cost</b>">
+  <div class="mk-pad">
+    <Totals rows={[
+      { label: "Actual material cost", value: "$920.00" },
+      { label: "Actual operations cost", value: "$180.00" },
+      { label: "Actual cost per unit", value: "$27.50", grand: true },
+    ]} />
+  </div>
+</Frame>
+
+## Operations And Resource Cost
+
+Operation costs are authored on the product **Production** tab and snapshotted onto the manufacturing order. The MO operations section is read-only. Cost rows carry operation name, resource, crew size, planned minutes, loaded hourly rate, planned total, and a scaling mode. (A data-level option exists for a fixed total per order; the recipe operations editor currently applies cost per output unit.) The UI currently presents operation cost conservatively; do not assume every schema option is exposed for editing on every surface.
+
+<Aside type="note" title="Snapshot history">
+If a resource or product recipe changes later, existing manufacturing orders keep their copied operation cost details for history.
+</Aside>

@@ -1,0 +1,72 @@
+---
+title: Customer fields
+description: Reference for customer, contact, activity, task, and project fields.
+sidebar:
+  label: Customer fields
+---
+
+Customers store account details, CRM contacts, activity, and projects. Customers are soft-deleted, while sales orders keep customer snapshots for history.
+
+<p class="po-meta">
+  <span class="po-chip">customer</span>
+  <span class="po-chip">contacts</span>
+  <span class="po-chip">activities and projects</span>
+</p>
+
+## 01. Customer
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `name` | varchar(255) | required | Customer or account name. |
+| `customerCategoryId` | uuid | null | Category used for pricing scope and grouping. |
+| `accountState` | constrained varchar | `active` | `active`, `growth`, `at_risk`, or `former`. |
+| `accountPriority` | constrained varchar | `standard` | `strategic`, `high`, `standard`, or `low`. |
+| `email` | varchar | null | Main account email. |
+| `phone` | varchar | null | Main account phone. |
+| `billing*` fields | varchar | null | Billing address: line 1, line 2, city, region, postcode, country. |
+| `ship*` fields | varchar | null | Shipping address: line 1, line 2, city, region, postcode, country. |
+| `version` | integer | 1 | Optimistic concurrency version. |
+| `deletedAt` | timestamptz | null | Set when the customer is soft-deleted. |
+
+## 02. Contacts
+
+Contacts belong to the customer and are reconciled by id when the customer document saves.
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `name` | varchar(255) | required | Contact name. |
+| `title` | varchar | null | Role or title at the account. |
+| `email` | varchar | null | Contact email. |
+| `phone` | varchar | null | Contact phone. |
+| `addressEntryId` | uuid | null | Optional shared address-book entry. |
+| `roles` | logical role list | `[]` | `primary`, `shipping`, `invoicing`, `billing`, `field`. |
+
+Role flags map to `isPrimary`, `receivesShipping`, `receivesInvoices`, `receivesBillingCc`, and `isOnSite` in storage.
+
+## 03. Activities and tasks
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `type` | constrained varchar | required | `note`, `call`, `email`, `meeting`, or `task`. |
+| `occurredAt` | timestamptz | now | When the activity happened. |
+| `title` | varchar(255) | null | Required for tasks. |
+| `body` | text | null | Required for non-task activities. |
+| `dueDate` | date | null | Tasks only. |
+| `status` | constrained varchar | null | Tasks only: `open` or `done`. |
+| `completedAt` | timestamptz | null | Set when a task is done. |
+| `customerProjectId` | uuid | null | Optional project link. |
+| `attendees` | rows | `[]` | Optional contact attendees. |
+
+Non-task activities cannot have task due dates or task status. Tasks require a title and carry status.
+
+## 04. Projects
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `name` | varchar(255) | required | Project name. |
+| `status` | constrained varchar | `planning` | `planning`, `active`, `hold`, or `done`. |
+| `startDate` | date | null | Optional start date. |
+| `targetEndDate` | date | null | Optional target date. |
+| `summary` | text | null | Optional project description. |
+
+Projects can be linked to sales orders and activities, then read back with order count and order value.

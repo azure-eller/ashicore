@@ -1,0 +1,58 @@
+---
+title: Block, release and scrap
+description: Move lot quantity between quality dispositions, or remove it from stock as scrap.
+sidebar:
+  order: 5
+  badge:
+    text: How-to
+    variant: note
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+import Frame from '../../../../widgets/Frame.astro';
+import Field from '../../../../widgets/Field.astro';
+
+Use lot actions to block, release, reject, or scrap a quantity. These actions preserve the audit trail: disposition changes write quality disposition records and inventory events.
+
+<p class="po-meta">
+  <span class="po-chip">4 actions</span>
+  <span class="po-chip">lot-level</span>
+  <span class="po-chip">default location</span>
+</p>
+
+<Steps>
+
+1. **Open the lot action menu.** On an item lot, open the lot actions menu. The menu shows actions for dispositions that currently have positive quantity.
+
+2. **Choose the target action.**
+
+   | Action | Effect |
+   | --- | --- |
+   | Release | Moves quantity from blocked or rejected to available. |
+   | Block | Moves quantity from available or rejected to blocked. |
+   | Reject | Moves quantity from available or blocked to rejected. |
+   | Scrap | Removes quantity from the selected disposition. |
+
+3. **Enter quantity and notes.** The dialog defaults to the full quantity for that disposition. Enter a positive quantity no greater than what is available in the source disposition, then add optional notes.
+
+   <Frame title="<b>Reject</b>">
+     <div class="mk-pad">
+       <div class="mk-rows mk-rows--2">
+         <Field label="Quantity" required focus>4</Field>
+         <Field label="From disposition">Available</Field>
+       </div>
+       <Field label="Notes">Moisture test failed</Field>
+     </div>
+   </Frame>
+
+4. **Confirm.** Release, block, and reject write `quality_disposition_change` events. Scrap writes `quality_scrap`, decrements on-hand quantity, and records a quality disposition event with no target disposition.
+
+</Steps>
+
+<Aside type="note" title="Only available stock is usable">
+Blocked and rejected quantities remain visible on the lot, but they are held out of sellable and consumable stock. Scrap is different: it removes stock from inventory.
+</Aside>
+
+<Aside type="caution" title="Location behavior">
+The current disposition operation resolves the default inventory location. Treat these actions as default-location quality moves unless the app adds a location picker.
+</Aside>

@@ -1,0 +1,69 @@
+---
+title: Integrations
+description: Connect accounting, your storefront, and planning assistants — all under Settings → Integrations.
+sidebar:
+  order: 0
+  label: Overview
+  badge:
+    text: Module
+    variant: note
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Ashicore runs alongside the systems you already use — it doesn't replace them. Connect your accounting provider so invoices and bills flow to the right place, pull online orders in from your storefront, and give planning assistants read-only access to your production data. Connections are managed under <span class="po-uikey">Settings → Integrations</span>. The Agent API has its own settings surface — <span class="po-uikey">Settings → Agent API</span> — separate from Integrations.
+
+<p class="po-meta">
+  <span class="po-chip"><b>3</b> connections</span>
+  <span class="po-chip">Settings → Integrations</span>
+</p>
+
+## Connections
+
+<div class="po-objgrid">
+  <a class="po-objcard po-objcard--wide" href="/docs/integrations/accounting-sync">
+    <span class="po-objicon po-objicon--pricing" aria-hidden="true"></span>
+    <span class="po-objarrow" aria-hidden="true">→</span>
+    <span class="po-objtitle">Accounting sync</span>
+    <span class="po-objdesc">Connect Xero or QuickBooks — one accounting provider at a time. Push sales invoices and supplier bills out, import open purchase orders for receiving, and pull customer and supplier contacts in from Xero.</span>
+    <span class="po-objlinks">
+      <span>Sales invoice push <small>out</small></span>
+      <span>Supplier bill creation <small>out</small></span>
+      <span>Open purchase-order import <small>in</small></span>
+      <span>Contact import <small>xero</small></span>
+    </span>
+  </a>
+  <a class="po-objcard" href="/docs/integrations/shopify">
+    <span class="po-objicon po-objicon--orders" aria-hidden="true"></span>
+    <span class="po-objarrow" aria-hidden="true">→</span>
+    <span class="po-objtitle">Shopify orders</span>
+    <span class="po-objdesc">Connect your storefront with a private Admin API token and import paid orders as sales orders, ready to fulfill against live inventory.</span>
+    <span class="po-objlinks">
+      <span>Import paid orders <small>in</small></span>
+    </span>
+  </a>
+  <a class="po-objcard" href="/docs/integrations/agent-api">
+    <span class="po-objicon po-objicon--resources" aria-hidden="true"></span>
+    <span class="po-objarrow" aria-hidden="true">→</span>
+    <span class="po-objtitle">Agent API</span>
+    <span class="po-objdesc">Give Claude, ChatGPT, or your own tools read-only access to production and replenishment planning data over MCP or a bearer-token API.</span>
+    <span class="po-objlinks">
+      <span>Production and replenishment planning context <small>read-only</small></span>
+    </span>
+  </a>
+</div>
+
+## What moves, and which way
+
+A quick map of where data travels once a connection is live. Accounting is bidirectional; the storefront and agent surfaces are one-way.
+
+| Connection | Direction | What moves |
+|------------|-----------|------------|
+| Xero / QuickBooks | <span class="po-tok po-tok--muted">out</span> | Sales invoices on shipment; supplier bills created from purchase orders. |
+| Xero / QuickBooks | <span class="po-tok po-tok--muted">in</span> | Open purchase orders for receiving (both providers); customer and supplier contacts (Xero only). |
+| Shopify | <span class="po-tok po-tok--muted">in</span> | Paid, unshipped storefront orders become sales orders. |
+| Agent API | <span class="po-tok po-tok--muted">read-only</span> | Open sales orders, open manufacturing orders, product counts, lot counts, and BOM requirements (unit costs excluded). |
+
+<Aside type="note" title="One accounting provider at a time">
+Ashicore syncs accounting documents to exactly one of Xero *or* QuickBooks. To switch, disconnect one before connecting the other — existing records stay put either way.
+</Aside>

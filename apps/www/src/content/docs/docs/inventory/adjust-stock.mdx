@@ -1,0 +1,67 @@
+---
+title: Adjust stock
+description: Correct the available physical quantity for one item or lot and post a manual adjustment event.
+sidebar:
+  order: 4
+  badge:
+    text: How-to
+    variant: note
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+import Frame from '../../../../widgets/Frame.astro';
+import Field from '../../../../widgets/Field.astro';
+import Grid from '../../../../widgets/Grid.astro';
+
+Use an adjustment when one item or lot needs its physical available quantity corrected. The app calculates the difference from the current available balance and writes a manual inventory event.
+
+<p class="po-meta">
+  <span class="po-chip">3 steps / ~2 min</span>
+  <span class="po-chip">available stock only</span>
+  <span class="po-chip">posts ledger events</span>
+</p>
+
+<Aside type="note" title="Adjust to a new quantity">
+You do not enter +3 or -3. Enter the corrected physical count. The kernel posts `manual_adjustment_increase` or `manual_adjustment_decrease` for the difference.
+</Aside>
+
+<Steps>
+
+1. **Open the item or lot adjustment.** Choose the item and location to correct. If no location is supplied, the API resolves the default inventory location.
+
+   <Frame title="<b>Adjust stock</b>">
+     <div class="mk-pad">
+       <div class="mk-rows mk-rows--2">
+         <Field label="Item">Screened Compost</Field>
+         <Field label="Location">Main Yard</Field>
+       </div>
+     </div>
+   </Frame>
+
+2. **Enter the corrected quantity.** For untracked items, enter one **New quantity**. For tracked items, enter a new quantity for each counted lot. A new lot number is allowed for discovered stock, but it must not duplicate an existing lot for that item.
+
+   <Frame title="<b>Tracked item</b> / available lots">
+     <Grid>
+       <thead><tr><th>Lot</th><th class="num">Current</th><th class="num">New quantity</th></tr></thead>
+       <tbody>
+         <tr><td><span class="mk-sku">R-114</span></td><td class="num">28</td><td class="num">26</td></tr>
+         <tr><td><span class="mk-sku">R-118</span></td><td class="num">0</td><td class="num">18</td></tr>
+       </tbody>
+     </Grid>
+   </Frame>
+
+3. **Choose a reason and confirm.** Pick a required reason and add an optional note. The reason is stored beside the inventory event for audit review.
+
+   | Reason | Use when |
+   | --- | --- |
+   | `cycle_count` | A routine count found a small difference. |
+   | `found_stock` | Physical stock exists but was not recorded. |
+   | `damaged_spoiled` | Stock was damaged, spoiled, or otherwise lost. |
+   | `data_correction` | You are correcting an earlier data entry issue. |
+   | `other` | The correction does not fit the other reasons. |
+
+</Steps>
+
+<Aside type="caution" title="Blocked and rejected stock are separate">
+Manual adjustment counts available stock. To move quantity between available, blocked, and rejected, use [Block, release and scrap](/docs/inventory/block-release-and-scrap) instead.
+</Aside>

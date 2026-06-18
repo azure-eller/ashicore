@@ -1,0 +1,78 @@
+---
+title: Agent API
+description: Give Claude, ChatGPT, or your own tools read-only access to production-planning data over MCP or a bearer-token API.
+sidebar:
+  order: 3
+  label: Agent API
+  badge:
+    text: Concept
+    variant: tip
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+Give AI assistants and your own tools a **read-only** window into production planning — the data needed to answer "what should we make today, and will any shipments slip?" Connect over the Model Context Protocol for Claude, wire it into a custom GPT, or call a bearer-token API directly. Ashicore exposes context; it never lets an assistant change your workspace.
+
+<p class="po-meta">
+  <span class="po-chip">Access: <b>read-only</b></span>
+  <span class="po-chip">Manage: <b>Owner or settings admin</b></span>
+  <span class="po-chip">Settings → Agent API</span>
+</p>
+
+## What it exposes
+
+The agent surface serves read-only planning data over two tools — a production-planning context and a replenishment context. Unit costs are stripped out before anything leaves your workspace. Together they provide a snapshot of everything a scheduler needs, and nothing it doesn't:
+
+<div class="po-enums">
+  <span class="po-enum">Open sales orders</span>
+  <span class="po-enum">Open manufacturing orders</span>
+  <span class="po-enum">Product counts on hand</span>
+  <span class="po-enum">Lot counts</span>
+  <span class="po-enum">BOM requirements</span>
+</div>
+
+<Aside type="note" title="Read-only by design">
+This is the external planning surface — it reads production context and returns answers. It does not create orders, move stock, or change anything in Ashicore. On-screen, the app states it plainly: *"Credentials are read-only in v1 — assistants can look things up but can't change your data."* The in-app agent chat panel is a separate, currently-disabled surface.
+</Aside>
+
+## Ways to connect
+
+<div class="po-annot">
+  <div class="arow"><span class="aidx">A</span><div><div class="at">Claude — over MCP</div><div class="ad">An OAuth endpoint (PKCE, with a fixed set of redirect URIs — not a pasted token). From <span class="po-uikey">Settings → Agent API</span>, choose <span class="po-uikey">Connect Claude</span> — it opens Claude with the Ashicore connector pre-filled. Authorizing requires planning-read access.</div></div></div>
+  <div class="arow"><span class="aidx">B</span><div><div class="at">ChatGPT — a custom GPT action</div><div class="ad">Use <span class="po-uikey">Setup guide</span> and <span class="po-uikey">Copy schema URL</span> to add a custom GPT action backed by a bearer token and the published OpenAPI schema.</div></div></div>
+  <div class="arow"><span class="aidx">C</span><div><div class="at">Your own tools — a bearer-token API</div><div class="ad">Mint a bearer API token (shown once, then listed by name) with the planning-read scope and call the planning context endpoints directly. An OpenAPI description is published, so you can wire it into scripts, dashboards, or a custom GPT. Managing tokens is a team-manager task.</div></div></div>
+</div>
+
+The remote MCP server lives at a single URL:
+
+```
+https://ashicore.app/api/agent/mcp
+```
+
+## Setting it up
+
+<Steps>
+
+1. Open <span class="po-uikey">Settings → Agent API</span>. You'll need to be the workspace owner or a team manager.
+
+2. For Claude (Method A), choose <span class="po-uikey">Connect Claude</span> — this starts the OAuth/PKCE flow. For ChatGPT (Method B), use <span class="po-uikey">Setup guide</span> and <span class="po-uikey">Copy schema URL</span>.
+
+3. For direct access, choose <span class="po-uikey">Create API token</span> and store it as a bearer secret in your tool — the token is shown once.
+
+4. Review <span class="po-uikey">Active credentials</span> any time. Granted MCP authorizations and API tokens are listed together, and you can **Revoke** either.
+
+</Steps>
+
+## The Ashicore Claude plugin
+
+Alongside the raw connection, Ashicore ships a small Claude plugin that adds a **Production Schedule** skill on top of the MCP server. Ask Claude what to make each day, or whether any shipments are at risk, and it pulls your live planning context first, then returns a clear daily schedule — explicitly calling out any shipment that will be missed and what would have to happen, on what day, to save it.
+
+<Aside type="tip" title="It won't invent capacity">
+If the schedule needs a daily capacity you haven't provided, the skill says so rather than guessing — the planning stays grounded in your real production data.
+</Aside>
+
+## Related
+
+- **[Prioritize the queue](/docs/manufacturing/prioritize-the-queue)** — the open-order ranking the schedule reads from.
+- **[Fulfillment &amp; allocation](/docs/sales/fulfillment-and-allocation)** — how demand and coverage are computed across orders.
+- **[Integrations overview](/docs/integrations/)** — all connections at a glance.

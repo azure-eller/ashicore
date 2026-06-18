@@ -1,0 +1,80 @@
+---
+title: Pricing, discounts and margin
+description: How sales lines resolve price, store discount source, and move from estimated to actual margin.
+sidebar:
+  label: Pricing and margin
+---
+
+When you add or reprice a line, Sales resolves a suggested unit price from the customer, item, quantity, and any matching pricing schedules. Margin starts as an estimate and can become actual after delivery consumes real stock.
+
+<p class="po-meta">
+  <span class="po-chip">lowest matching unit price wins</span>
+  <span class="po-chip">manual overrides are tracked</span>
+  <span class="po-chip">estimated then actual margin</span>
+</p>
+
+## 01. How a line price is chosen
+
+Pricing evaluates the customer category, item scope, and ordered quantity:
+
+1. The item's base selling price becomes `listUnitPrice`.
+2. The pricing lookup gathers every schedule that can apply to the customer and item.
+3. Each candidate schedule contributes a matching quantity break when the quantity falls inside that break.
+4. The engine calculates each candidate unit price as `base price * (1 - discount percent / 100)`.
+5. The lowest resulting unit price wins.
+
+This means an all-customer schedule and a category-scoped schedule can both be candidates. The category-scoped schedule does not automatically beat the all-customer schedule; the lowest resulting unit price wins.
+
+If no schedule break matches, the suggested unit price is the base selling price and the source is `base_price`.
+
+Schedule-based pricing is part of the wholesale pricing add-on; without it, new lines price at base.
+
+## 02. What the line stores
+
+| Field | Meaning |
+| --- | --- |
+| `pricingSourceType` | `schedule_break` or `base_price`. |
+| `pricingScheduleName` | Snapshot of the winning schedule name. |
+| `pricingBreakLabel` | Snapshot of the winning break range. |
+| `suggestedUnitPrice` | What pricing resolution suggested. |
+| `unitPrice` | What the order will charge. |
+| `isPriceOverridden` | True when the user changed the suggested price. |
+
+The discount cell tooltip shows the schedule and break, `Manual price override`, or `Base price`.
+
+## 03. Discounts, totals, and tax
+
+Discount is derived from list price versus unit price. Editing the discount column reprices the unit price down from the base price.
+
+| Amount | Formula |
+| --- | --- |
+| Line subtotal | `quantity * unitPrice` |
+| Line tax | `lineSubtotal * taxRatePercent` |
+| Line total | `lineSubtotal + lineTaxAmount` |
+| Order total | Line totals plus shipping fee and shipping tax. |
+
+Tax rate name and percent are snapshotted to the line so later tax setup changes do not rewrite order history.
+
+## 04. Estimated vs. actual margin
+
+The order detail data carries estimated and actual margin fields, but the visible order card currently keeps the main totals strip focused on revenue, discount, shipping fee, tax, and total.
+
+Before delivery, line margin can use estimated unit cost:
+
+| Estimated field | Meaning |
+| --- | --- |
+| `estimatedUnitCost` | Current estimated cost for the item. |
+| `estimatedCogs` | Estimated cost of goods for the line. |
+| `estimatedGrossProfit` | Estimated line profit. |
+| `estimatedMarginPercent` | Estimated margin percentage. |
+
+After delivery consumes real inventory lots, actual cost fields can be populated:
+
+| Actual field | Meaning |
+| --- | --- |
+| `actualUnitCost` | Cost from consumed stock. |
+| `actualCogs` | Actual cost of goods for shipped quantity. |
+| `actualGrossProfit` | Actual line profit. |
+| `actualMarginPercent` | Actual margin percentage. |
+
+The order-level margin summary tracks product revenue, freight recovery, product COGS, fulfillment costs, contribution margin, margin percent, and whether the cost side is estimated, actual, mixed, or unknown.

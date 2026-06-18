@@ -1,0 +1,103 @@
+---
+title: Accounting sync
+description: Connect Xero or QuickBooks so sales invoices and supplier bills flow out, and open purchase orders and contacts flow in. Ashicore keeps no ledger of its own.
+sidebar:
+  order: 1
+  label: Accounting sync
+  badge:
+    text: Concept
+    variant: tip
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+import Frame from '../../../../widgets/Frame.astro';
+import Grid from '../../../../widgets/Grid.astro';
+import Pill from '../../../../widgets/Pill.astro';
+
+Connect one accounting provider and Ashicore keeps your books in step with operations: sales invoices and supplier bills flow out as documents post, and open purchase orders and contacts flow in. Ashicore never keeps its own ledger — your accounting system stays the book of record.
+
+<p class="po-meta">
+  <span class="po-chip">Provider: <b>Xero or QuickBooks</b></span>
+  <span class="po-chip">Settings → Integrations</span>
+</p>
+
+<Aside type="note" title="Exactly one provider, connected via OAuth">
+Connect **Xero** or **QuickBooks** — not both. Xero can authorize more than one organisation — you pick the active one and can use **Switch organisation** to re-point the connection. QuickBooks connects a single company. If one provider is already connected, the app blocks the second: *"Xero is already connected. Disconnect it before connecting QuickBooks."* **Disconnect** pauses syncing and leaves all existing data in place.
+</Aside>
+
+## What syncs
+
+Four flows ride the same connection — two pushing documents out to your provider, two pulling records in.
+
+<div class="po-annot">
+  <div class="arow"><span class="aidx">↑</span><div><div class="at">Sales invoices → your provider</div><div class="ad">When a sales order ships, Ashicore can push an invoice. Send it from the order with <span class="po-uikey">Send invoice to Xero</span> (or QuickBooks), or turn on the <span class="po-uikey">Sales invoices</span> automation to push automatically on shipment. The automatic-on-ship toggle is a Xero feature; on QuickBooks, push manually — and note taxable orders can't post to QuickBooks, which has no tax mapping. A failed push never blocks the shipment and is safe to retry.</div></div></div>
+  <div class="arow"><span class="aidx">↑</span><div><div class="at">Supplier bills ← purchase orders</div><div class="ad">Create a payable bill from a purchase order — a manual step, never an automatic side effect of receiving. On Xero, a multi-vendor order splits into one bill group per supplier; QuickBooks creates a single bill. See <a href="/docs/purchasing/sync-a-bill-to-xero">Sync a supplier bill</a>.</div></div></div>
+  <div class="arow"><span class="aidx">↓</span><div><div class="at">Purchase orders → for receiving</div><div class="ad">Import <strong>open</strong> purchase orders raised in your provider so you can receive them in Ashicore. A bulk import can create missing materials once you've reviewed them; a scheduled <span class="po-uikey">Purchase order import</span> skips any order that would create a new material, leaving it for you to import by hand.</div></div></div>
+  <div class="arow"><span class="aidx">↓</span><div><div class="at">Customers &amp; suppliers ← Xero contacts</div><div class="ad">Pull existing contacts from Xero into Ashicore customers and suppliers, so you're not retyping your address book. Each run reports how many were created, updated, and skipped — available in the Xero connection only.</div></div></div>
+</div>
+
+## Document statuses
+
+A supplier bill tracks two independent things: whether Ashicore successfully sent it, and where it sits in your billing workflow.
+
+<div class="po-enums">
+  <span class="po-enum">Creating bill</span>
+  <span class="po-enum" style="color:var(--st-success-ink)">Billed</span>
+  <span class="po-enum" style="color:var(--st-danger-ink)">Bill failed</span>
+  <span class="po-enum">Not billed</span>
+  <span class="po-enum">Partly billed</span>
+  <span class="po-enum">Billed</span>
+</div>
+
+While a push runs the bill shows **Creating bill**, then settles to **Billed** or **Bill failed** (safe to retry). Separately, you can set a **manual bill status** — **Not billed**, **Partly billed**, or **Billed** — as the supplier invoice gets paid down. Creating a bill never changes a purchase order's status, and receiving never creates a bill, so billing and receiving stay independent.
+
+## Posting defaults &amp; automation
+
+Set the accounts and tax treatment Ashicore uses when it posts, from <span class="po-uikey">Defaults</span> on the provider card. These apply to new exports only.
+
+| Setting | Applies to | What it controls |
+|---------|------------|------------------|
+| **Sales invoice account** | Invoices out | The income account new sales invoices post against. |
+| **Purchase bill account** | Bills out | The default account for bills created from purchase orders. |
+| **Tax treatment** | Invoices out · Xero | The output tax code on invoices — Output tax, Output tax reduced, Zero rated, Exempt, or No tax. (QuickBooks has no tax mapping; taxable orders can't post.) |
+| **Send as** | Invoices out · Xero | Whether sales invoices arrive as **Draft** (review before approval) or **Approved**. |
+| **Sales invoices** | Automation | Push invoices automatically the moment a sales order ships. (Xero only — on QuickBooks, push manually.) |
+| **Purchase order import** | Automation | Import open purchase orders from your provider on a schedule. |
+
+<Aside type="note" title="Xero and QuickBooks differ on defaults">
+The account fields apply to both providers. **Tax treatment** and **Send as** are Xero invoice options — QuickBooks invoices are always posted as drafts for you to review there, and taxable orders can't post to QuickBooks.
+</Aside>
+
+## Connecting a provider
+
+<Frame title="<b>Settings</b> · Integrations">
+  <Grid>
+    <thead><tr><th>Provider</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td><span class="mk-name">Xero</span> <span class="mk-sku">Send invoices · import POs for receiving</span></td><td><Pill status="received" label="Connected" /></td></tr>
+      <tr><td><span class="mk-name">QuickBooks</span> <span class="mk-sku">Connect as your accounting provider</span></td><td><Pill status="draft" label="Not connected" /></td></tr>
+    </tbody>
+  </Grid>
+</Frame>
+
+<Steps>
+
+1. From <span class="po-uikey">Settings → Integrations</span>, choose **Connect** on Xero or QuickBooks and authorize the organisation in the provider's window.
+
+2. Set your **defaults** — at minimum the sales invoice account and purchase bill account — so the first export posts where you expect.
+
+3. Decide your **automation**: push invoices on shipment, and whether to import open purchase orders on a schedule.
+
+4. Optionally run a one-time **import** of customers and suppliers to seed your address book.
+
+</Steps>
+
+<Aside type="caution" title="After disconnecting">
+Existing data stays put, but new exports and imports pause until the provider is reconnected. Use <span class="po-uikey">Sync history</span> on the Xero card to review every push and import — each is recorded as **Success** or **Failed** with a short reason.
+</Aside>
+
+## Related
+
+- **[Sync a supplier bill](/docs/purchasing/sync-a-bill-to-xero)** — the step-by-step for creating bills from a purchase order.
+- **[Deliver &amp; invoice](/docs/sales/deliver-and-invoice)** — where the invoice push happens in the sales flow.
+- **[Integrations overview](/docs/integrations/)** — all connections at a glance.

@@ -1,0 +1,55 @@
+---
+title: BOM revisions and locking
+description: Understand append-only product recipe history, current revisions, order snapshots, and locked formulas.
+sidebar:
+  order: 11
+  badge:
+    text: Concept
+    variant: tip
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import Pill from '../../../../widgets/Pill.astro';
+import Frame from '../../../../widgets/Frame.astro';
+import Grid from '../../../../widgets/Grid.astro';
+
+Every saved product recipe is a BOM revision. A product has one current revision, and manufacturing orders copy that current revision when they are created.
+
+<p class="po-meta">
+  <span class="po-chip">append-only history</span>
+  <span class="po-chip">one current revision</span>
+  <span class="po-chip">order snapshots</span>
+</p>
+
+## How Revisions Work
+
+Recipe edits append a new revision instead of rewriting the old one. Each revision records its components, alternates, constraints, operation costs, output quantity, recipe basis, creator, timestamp, and note.
+
+<Frame title="<b>Premium Potting Mix</b> · recipe history">
+  <Grid>
+    <thead><tr><th>Revision</th><th>Note</th><th>By</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td class="num">4</td><td>Swapped perlite grade</td><td>A. Wells</td><td><Pill status="received" label="Current" /></td></tr>
+      <tr><td class="num">3</td><td>Added lot age rule</td><td>A. Wells</td><td>-</td></tr>
+      <tr><td class="num">2</td><td>Initial spring recipe</td><td>M. Vela</td><td>-</td></tr>
+    </tbody>
+  </Grid>
+</Frame>
+
+| Rule | Effect |
+| --- | --- |
+| Append, don't overwrite | Previous revisions remain available for history. |
+| One current revision | New manufacturing orders copy the current revision. |
+| Order snapshots | Later recipe changes do not alter already-created orders. |
+
+## Locking A BOM
+
+A product recipe can be locked to prevent normal edits. The product records whether it is locked, when it was locked, and who locked it. Unlocking is required before making a recipe change, and the change still creates a new revision.
+
+<Aside type="caution" title="Locking controls edits, not history">
+A locked formula stops quiet changes to a validated recipe. It does not replace revision history; every saved recipe change is still a new revision.
+</Aside>
+
+## Recipe Basis: Unit Vs Batch
+
+The revision stores whether quantities are based on a unit or a batch. Unit recipes scale by output quantity. Batch recipes scale by whole batch count and expected batch yield. See **[Discrete and batch production](/docs/manufacturing/discrete-and-batch-production)** for order behavior.

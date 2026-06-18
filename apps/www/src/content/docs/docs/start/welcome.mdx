@@ -1,0 +1,99 @@
+---
+title: Welcome to Ashicore
+description: Orient yourself before you open a module — the inventory-first model, where the work happens, and how to get set up.
+sidebar:
+  order: 1
+  label: Welcome
+  badge:
+    text: Start here
+    variant: tip
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Ashicore is an inventory-first operations app — a light MRP for small-scale batch manufacturers who buy materials, make products to a recipe, and ship them to customers. One lot-backed, costed inventory core sits at the center, and Purchasing, Manufacturing, and Sales all read from and write to it. This page orients you before you dive into a module.
+
+<p class="po-meta">
+  <span class="po-chip"><b>4</b> modules</span>
+  <span class="po-chip"><b>1</b> shared inventory core</span>
+  <span class="po-chip">~5 min read</span>
+</p>
+
+## The model
+
+Ashicore is event-sourced at its core. Every movement — a receipt, a build, a shipment, an adjustment — is recorded as an event in an append-only inventory ledger. On-hand quantity, demand, expected supply, and available-to-promise are all projected from that ledger, never typed in by hand. The four modules are different lenses onto the same shared core: Purchasing writes stock in, Manufacturing turns materials into products, Sales commits and ships them out, and Stocktakes reconciles the records to what is physically on the shelf.
+
+<Aside type="note" title="Read the ledger concept early">
+Most "why is this number what it is?" questions resolve once the ledger clicks. See [The inventory ledger](/docs/inventory/ledger) and [On-hand, demand &amp; ATP](/docs/inventory/on-hand-demand-and-atp).
+</Aside>
+
+## Modules
+
+<div class="po-objgrid">
+  <a class="po-objcard" href="/docs/inventory/">
+    <span class="po-objicon po-objicon--items" aria-hidden="true"></span>
+    <span class="po-objarrow" aria-hidden="true">→</span>
+    <span class="po-objtitle">Inventory</span>
+    <span class="po-objdesc">Items, recipes, the ledger, lots, stocktakes, and transfers — the single source of truth the other three modules build on.</span>
+    <span class="po-objlinks">
+      <span>Items <small>object</small></span>
+      <span>Stock &amp; lots <small>object</small></span>
+      <span>The inventory ledger <small>concept</small></span>
+    </span>
+  </a>
+  <a class="po-objcard" href="/docs/sales/">
+    <span class="po-objicon po-objicon--sales" aria-hidden="true"></span>
+    <span class="po-objarrow" aria-hidden="true">→</span>
+    <span class="po-objtitle">Sales</span>
+    <span class="po-objdesc">Sales orders, customers, and pricing schedules. Orders pull live availability, drive production, and book margin when they ship.</span>
+    <span class="po-objlinks">
+      <span>Sales orders <small>object</small></span>
+      <span>Customers <small>object</small></span>
+      <span>Pricing schedules <small>object</small></span>
+    </span>
+  </a>
+  <a class="po-objcard" href="/docs/purchasing/">
+    <span class="po-objicon po-objicon--orders" aria-hidden="true"></span>
+    <span class="po-objarrow" aria-hidden="true">→</span>
+    <span class="po-objtitle">Purchasing</span>
+    <span class="po-objdesc">Purchase orders and suppliers. A draft-to-received workflow with lot-backed receiving and landed cost.</span>
+    <span class="po-objlinks">
+      <span>Purchase orders <small>object</small></span>
+      <span>Suppliers <small>object</small></span>
+    </span>
+  </a>
+  <a class="po-objcard" href="/docs/manufacturing/">
+    <span class="po-objicon po-objicon--manufacturing" aria-hidden="true"></span>
+    <span class="po-objarrow" aria-hidden="true">→</span>
+    <span class="po-objtitle">Manufacturing</span>
+    <span class="po-objdesc">Manufacturing orders and resources. Snapshots a product's recipe per order and books costed, lot-backed output.</span>
+    <span class="po-objlinks">
+      <span>Manufacturing orders <small>object</small></span>
+      <span>Bills of materials <small>object</small></span>
+      <span>Resources <small>object</small></span>
+    </span>
+  </a>
+</div>
+
+## Get set up
+
+A workspace becomes useful once it knows your materials, products, partners, and what you have on hand. The fastest path is to bring your existing records in, then connect the systems you already run your business on.
+
+<div class="po-tasklist">
+  <a class="po-task" href="/docs/start/importing-data"><span class="po-taskicon po-taskicon--doc" aria-hidden="true"></span><span><b>Import your existing data</b><small>Upload spreadsheets and let Ashicore compile a reviewable starting catalog — units, partners, items, opening stock, and recipes.</small></span><span aria-hidden="true">›</span></a>
+  <a class="po-task" href="/docs/integrations/accounting-sync"><span class="po-taskicon po-taskicon--box" aria-hidden="true"></span><span><b>Connect your accounting</b><small>Link Xero or QuickBooks so sales invoices and supplier bills sync with your books.</small></span><span aria-hidden="true">›</span></a>
+  <a class="po-task" href="/docs/inventory/add-a-product-or-material"><span class="po-taskicon po-taskicon--plus" aria-hidden="true"></span><span><b>Add a product or material by hand</b><small>Prefer to start clean? Create the item everything else references, then build its recipe.</small></span><span aria-hidden="true">›</span></a>
+</div>
+
+## Good to know
+
+- **Built for batch makers.** Materials, products defined by a bill of materials, and production in discrete or batch runs.
+- **Lot- and cost-aware throughout.** Stock is tracked in lots with cost attached; margin on a sale is estimated up front and booked for real when it ships.
+- **Not a general ledger.** Ashicore syncs accounting documents to Xero or QuickBooks rather than keeping its own AP/AR, GL, or payments — your accounting system stays the book of record.
+- **No capacity or auto-MRP planning.** You plan and prioritize manufacturing orders directly; there's no work-center scheduling or auto-generated MRP run.
+
+## What's next
+
+- **[Import your existing data](/docs/start/importing-data)** — turn your spreadsheets into a reviewable starting catalog.
+- **[The inventory ledger](/docs/inventory/ledger)** — the event-sourced core every balance is projected from.
+- **[Integrations](/docs/integrations/)** — connect accounting, your storefront, and planning assistants.

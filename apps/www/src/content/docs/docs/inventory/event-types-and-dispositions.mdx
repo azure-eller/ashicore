@@ -1,0 +1,65 @@
+---
+title: Event types and dispositions
+description: Reference for inventory event types, quality dispositions, and adjustment reasons.
+sidebar:
+  order: 8
+  badge:
+    text: Reference
+    variant: default
+---
+
+The inventory event vocabulary is fixed by the schema. Events are append-only and idempotency-protected; projected balances are derived from these rows.
+
+<p class="po-meta">
+  <span class="po-chip"><b>23</b> event types</span>
+  <span class="po-chip"><b>3</b> dispositions</span>
+  <span class="po-chip"><b>5</b> adjustment reasons</span>
+</p>
+
+## Event types
+
+| Event type | Class | Written by |
+| --- | --- | --- |
+| `opening_balance` | Stock increase | Initial stock creation/seed history. |
+| `purchase_receipt` | Stock increase | Receiving a purchase order. |
+| `manufacturing_output` | Stock increase | Recording produced output. |
+| `manual_adjustment_increase` | Stock increase | Adjustment count above current available quantity. |
+| `stocktake_gain` | Stock increase | Completed stocktake count above expected quantity. |
+| `manufacturing_variance_gain` | Stock increase | Manufacturing variance that returns stock. |
+| `transfer_in` | Stock increase | Receiving side of an inventory transfer. |
+| `unpick_restock` | Stock increase | Returning picked material to stock. |
+| `manual_adjustment_decrease` | Stock decrease | Adjustment count below current available quantity. |
+| `stocktake_loss` | Stock decrease | Completed stocktake count below expected quantity. |
+| `sales_consumption` | Stock decrease | Delivering sales stock. |
+| `manufacturing_ingredient_consumption` | Stock decrease | Consuming ingredients into production. |
+| `manufacturing_variance_loss` | Stock decrease | Manufacturing variance that consumes extra stock. |
+| `quality_scrap` | Stock decrease | Scrapping quantity from a disposition. |
+| `transfer_out` | Stock decrease | Sending side of an inventory transfer. |
+| `quality_disposition_change` | Disposition | Moving quantity between available, blocked, and rejected. |
+| `demand_increase` | Planning | Registering demand without moving stock. |
+| `demand_release` | Planning | Releasing demand without moving stock. |
+| `expected_increase` | Planning | Registering expected supply without moving stock. |
+| `expected_release` | Planning | Releasing expected supply without moving stock. |
+| `cost_basis_change` | Cost only | Changing item cost basis with quantity `0`. |
+| `landed_cost_revaluation` | Cost only | Revaluing PO-referenced tracked stock still on hand. |
+| `stocktake_verification` | Cost only | Completing a zero-variance stocktake line. |
+
+## Dispositions
+
+| Disposition | Meaning | Usable |
+| --- | --- | --- |
+| `available` | Ready to sell, consume, allocate, or count as usable stock. | Yes |
+| `blocked` | Hold for inspection without passing or failing it yet. | No |
+| `rejected` | Failed quality review and may be scrapped. | No |
+
+Quality actions are `release`, `block`, `reject`, and `scrap`. Release/block/reject write `quality_disposition_change`; scrap writes `quality_scrap`.
+
+## Adjustment reasons
+
+| Reason | Use when |
+| --- | --- |
+| `cycle_count` | A routine count corrected inventory. |
+| `found_stock` | Physical stock exists but was missing from the system. |
+| `damaged_spoiled` | Stock was lost to damage, spoilage, or similar. |
+| `data_correction` | Correcting an earlier entry or system data issue. |
+| `other` | None of the specific reasons fit. |

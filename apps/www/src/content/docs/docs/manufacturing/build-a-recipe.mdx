@@ -1,0 +1,82 @@
+---
+title: Build a recipe
+description: Create a product recipe from the product card Recipe and Production tabs so manufacturing orders can snapshot it.
+sidebar:
+  order: 10
+  badge:
+    text: How-to
+    variant: note
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+import Frame from '../../../../widgets/Frame.astro';
+import Field from '../../../../widgets/Field.astro';
+import Grid from '../../../../widgets/Grid.astro';
+import Button from '../../../../widgets/Button.astro';
+
+Recipes belong to products. Use the product card **Recipe** tab for components, alternates, and lot-age constraints; use the product card **Production** tab for operation costs.
+
+<p class="po-meta">
+  <span class="po-chip">product card</span>
+  <span class="po-chip">Recipe tab</span>
+  <span class="po-chip">Production tab</span>
+</p>
+
+<Aside type="note" title="No standalone BOM screen">
+Manufacturing orders use BOM revisions, but the UI does not expose a separate Manufacturing BOM screen. Start from **Inventory > Products**, open the product, then use **Recipe** and **Production**.
+</Aside>
+
+<Steps>
+
+1. **Open the product's Recipe tab.** Create or open the product you make, then choose **Recipe**. Select whether the recipe basis is per unit or per batch, and confirm the output quantity or expected batch yield where the product supports batch production.
+
+   <Frame title="<b>Premium Potting Mix</b> · Recipe">
+     <div class="mk-pad">
+       <div class="mk-rows mk-rows--2">
+         <Field label="Recipe basis">Per unit</Field>
+         <Field label="Output quantity">1 yd3</Field>
+       </div>
+     </div>
+   </Frame>
+
+2. **Add components.** Add each material component and the quantity needed for the recipe basis. Components are stored on the current BOM revision and later copied to manufacturing order ingredients.
+
+   <Frame title="<b>Components</b>">
+     <span slot="action"><Button variant="subtle">+ Add component</Button></span>
+     <Grid>
+       <thead><tr><th>Component</th><th class="num">Quantity</th><th>Unit</th></tr></thead>
+       <tbody>
+         <tr><td>Screened Compost</td><td class="num">0.5</td><td>yd3</td></tr>
+         <tr><td>Coir Pith</td><td class="num">0.3</td><td>yd3</td></tr>
+       </tbody>
+     </Grid>
+   </Frame>
+
+3. **Add alternates and constraints.** Add approved alternate items where substitutions are allowed. Add a minimum lot-age rule when an ingredient must use lots old enough based on received date.
+
+   <Frame title="<b>Coir Pith</b> · alternates and constraints">
+     <Grid>
+       <thead><tr><th>Type</th><th>Value</th><th>Effect</th></tr></thead>
+       <tbody>
+         <tr><td>Alternate</td><td>Coconut Fiber</td><td>Can be swapped before picking.</td></tr>
+         <tr><td>Lot age</td><td>30 days</td><td>Picking prefers eligible old-enough lots.</td></tr>
+       </tbody>
+     </Grid>
+   </Frame>
+
+4. **Add operations and save.** Move to the product **Production** tab to add operation cost rows. Choose the resource, crew size, planned minutes, and loaded rate. Saving creates a new current BOM revision; older revisions remain available for history.
+
+   <Frame title="<b>Production</b> · operation costs">
+     <Grid>
+       <thead><tr><th>Operation</th><th>Resource</th><th class="num">Minutes</th><th class="num">Rate / hour</th></tr></thead>
+       <tbody>
+         <tr><td>Blend</td><td>Mixing line</td><td class="num">45</td><td class="num">$160.00</td></tr>
+       </tbody>
+     </Grid>
+   </Frame>
+
+</Steps>
+
+<Aside type="caution" title="Orders snapshot the current revision">
+Changing the recipe later creates a new revision for future manufacturing orders. Existing orders keep the components and operation costs they copied at creation.
+</Aside>

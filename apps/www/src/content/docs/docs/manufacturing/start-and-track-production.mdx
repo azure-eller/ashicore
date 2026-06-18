@@ -1,0 +1,66 @@
+---
+title: Start and track production
+description: Use the production status control to start, block, and monitor manufacturing orders from the card or the orders list.
+sidebar:
+  order: 2
+  badge:
+    text: How-to
+    variant: note
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+import Pill from '../../../../widgets/Pill.astro';
+import Frame from '../../../../widgets/Frame.astro';
+import Grid from '../../../../widgets/Grid.astro';
+
+Move planned work onto the floor and read where each order stands. The stored manufacturing order status is only **open** or **done**; the UI derives the production state from start, block, pick progress, batch progress, and output history.
+
+<p class="po-meta">
+  <span class="po-chip">3 steps · ~3 min</span>
+  <span class="po-chip">Applies to: <b>Not started → Work in progress</b></span>
+  <span class="po-chip">Access: <b>Manufacturing operate</b></span>
+</p>
+
+<Aside type="note" title="One control, two surfaces">
+The **Production** dropdown appears in the manufacturing order header and in the **Production** column on the orders list. **Work in progress** and **Blocked** apply immediately. **Done** and batch **Partially complete** open the completion dialog.
+</Aside>
+
+<Steps>
+
+1. **Start the order.** Open the **Production** menu and choose **Work in progress**. Ashicore stamps `startedAt`, keeps the order open, and locks planning fields so execution history stays consistent.
+
+   <Frame title="<b>MO-2052</b> · Premium Potting Mix">
+     <span slot="action"><Pill status="partial" label="Work in progress" /></span>
+     <div class="mk-pad">Planning is locked after start. Production, notes, output, and completion workflows remain available while the order is open.</div>
+   </Frame>
+
+2. **Block work that cannot proceed.** Choose **Blocked** when an open order should stay in the queue but should not proceed. Blocking is separate from the stored status; unblocking returns the order to the derived state it otherwise has.
+
+   <Frame title="<b>Production</b> status menu">
+     <div class="mk-drop">
+       <div class="mk-opt"><Pill status="draft" label="Not started" /></div>
+       <div class="mk-opt hi"><Pill status="ordered" label="Blocked" /></div>
+       <div class="mk-opt"><Pill status="partial" label="Work in progress" /></div>
+       <div class="mk-opt"><Pill status="received" label="Done" /></div>
+     </div>
+   </Frame>
+
+3. **Track readiness and progress.** Use the list to compare rank, ingredients, production state, progress, sales order link, resource filter, and production deadline. The open tab is the queue; the done tab is closed production history.
+
+   <Frame title="Ashicore · <b>Manufacturing orders</b>">
+     <Grid>
+       <thead><tr><th>Rank</th><th>Order</th><th>Product</th><th>Ingredients</th><th>Production</th><th class="num">Progress</th></tr></thead>
+       <tbody>
+         <tr><td class="num">1</td><td><span class="num">MO-2052</span></td><td>Premium Potting Mix</td><td><Pill status="received" label="Done" /></td><td><Pill status="partial" label="Work in progress" /></td><td class="num">0 / 40 yd3</td></tr>
+         <tr><td class="num">2</td><td><span class="num">MO-2053</span></td><td>Raised-Bed Blend</td><td><Pill status="partial" label="In Progress" /></td><td><Pill status="draft" label="Not started" /></td><td class="num">0 / 12 yd3</td></tr>
+       </tbody>
+     </Grid>
+   </Frame>
+
+</Steps>
+
+## What's Next
+
+- **[Ingredients & picking](/docs/manufacturing/ingredients-and-picking)** — how ingredient readiness and shortages are handled.
+- **[Prioritize the queue](/docs/manufacturing/prioritize-the-queue)** — drag open orders into the right sequence.
+- **[Complete & record output](/docs/manufacturing/complete-and-record-output)** — produce finished lots and close work.

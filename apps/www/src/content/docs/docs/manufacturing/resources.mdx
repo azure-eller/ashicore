@@ -1,0 +1,72 @@
+---
+title: Resources
+description: Labor, machine, overhead, and other production cost resources.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import Frame from '../../../../widgets/Frame.astro';
+import Field from '../../../../widgets/Field.astro';
+import Grid from '../../../../widgets/Grid.astro';
+import Button from '../../../../widgets/Button.astro';
+
+Resources are the labor, machine, overhead, or other cost centers that product operations can reference. Manufacturing orders snapshot operation cost context so historical orders keep their cost trail.
+
+<p class="po-meta">
+  <span class="po-chip">4 resource types</span>
+  <span class="po-chip">name required</span>
+  <span class="po-chip">loaded rate</span>
+  <span class="po-chip">archived, not erased</span>
+</p>
+
+## Manage Resources
+
+Open **Manufacturing > Resources** to see the active resource list. The grid shows name, type, loaded rate per hour, and description. Use **New Resource** to add a cost center, or **Edit** on a row to update it.
+
+<Frame title="Ashicore · <b>Resources</b>">
+  <span slot="action"><Button variant="primary">New Resource</Button></span>
+  <Grid>
+    <thead><tr><th>Name</th><th>Type</th><th class="num">Loaded rate / hour</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>Mixing line</td><td>Machine</td><td class="num">$54.00</td><td>3-yard batch mixer</td></tr>
+      <tr><td>Blend labor</td><td>Labor</td><td class="num">$38.00</td><td>Operator time</td></tr>
+      <tr><td>Yard overhead</td><td>Overhead</td><td class="num">$12.00</td><td>Allocated facility cost</td></tr>
+    </tbody>
+  </Grid>
+</Frame>
+
+## The Resource Form
+
+The dialog has four fields. **Name** and **Loaded rate / hour** are required. The loaded rate must be zero or positive.
+
+<Frame title="<b>New Resource</b>">
+  <div class="mk-pad">
+    <div class="mk-rows mk-rows--4">
+      <Field label="Name" required>Mixing line</Field>
+      <Field label="Type">Machine</Field>
+      <Field label="Loaded rate / hour" required>$54.00</Field>
+      <Field label="Description">3-yard batch mixer</Field>
+    </div>
+  </div>
+</Frame>
+
+<Aside type="note" title="Loaded means fully burdened">
+Recipe operation costs multiply the loaded hourly rate by crew size and planned minutes. The result is snapshotted onto manufacturing orders when the order copies the current product recipe.
+</Aside>
+
+## Fields
+
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| Name | text | none | User-facing resource name. Required. |
+| Type | enum | `labor` | `labor`, `machine`, `overhead`, or `other`. |
+| Loaded rate / hour | money | none | Fully burdened hourly cost. Must be zero or positive. |
+| Description | text | blank | Optional operating context. |
+| Deleted at | timestamp | blank | Set when the resource is archived. |
+
+## Archiving
+
+Deleting a resource archives it for future selection and detaches active BOM operation references. Manufacturing order snapshots keep their copied operation costs for history.
+
+<Aside type="caution" title="Archiving changes live recipes">
+The delete action removes BOM operation cost lines that still reference the resource. Existing manufacturing orders keep their copied operation cost details, with the resource link detached.
+</Aside>

@@ -1,0 +1,112 @@
+---
+title: Import your data
+description: Turn the spreadsheets you already keep your operation in into a reviewable starting catalog — units, partners, items, opening stock, and recipes.
+sidebar:
+  order: 2
+  label: Import your data
+  badge:
+    text: How-to
+    variant: note
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+import Frame from '../../../../widgets/Frame.astro';
+import Field from '../../../../widgets/Field.astro';
+import Grid from '../../../../widgets/Grid.astro';
+import Button from '../../../../widgets/Button.astro';
+
+Most businesses arrive with years of records in spreadsheets. The onboarding importer reads those files and compiles a reviewable starting catalog — units, suppliers, customers, items, opening stock, and recipes — for you to check before anything lands. It's an import compiler, not an autonomous agent: it works only from what's in your files, and no business records are created in your workspace until you approve them.
+
+<p class="po-meta">
+  <span class="po-chip"><b>4</b> steps · ~15 min</span>
+  <span class="po-chip">Files: <b>CSV, Excel, PDF, images</b></span>
+  <span class="po-chip">Access: <b>Inventory, Sales &amp; Purchasing admin</b></span>
+</p>
+
+<Aside type="note" title="Where it lives, and who can run it">
+Import runs from the **AI Onboarding** flow when a workspace is new (the <span class="po-uikey">Import</span> step, before <span class="po-uikey">Review</span> and <span class="po-uikey">Connect</span>). Because it can create records across your whole business, it's limited to the workspace **owner** or a member who is an **admin in Inventory, Sales, and Purchasing**.
+</Aside>
+
+## What you can import
+
+A single import builds the whole foundation. Each record type maps to a real object in Ashicore, and the importer keeps them internally consistent — an item points at a unit, opening stock points at an item, a recipe points at its components.
+
+| Record | Creates | Key fields |
+|--------|---------|------------|
+| **Units** | Unit definitions | Display name, a numeric **size**, and a measurable base unit (e.g. `cu ft`, `lb`, `kg`). Packaging words like bag, tote, or pallet live in the name, never the base unit. |
+| **Suppliers** | Purchasing suppliers | Name, code, contact name, email, phone. |
+| **Customers** | Sales customers | Name, email, phone. Master data only — no orders are invented from transactional rows. |
+| **Items** | Materials &amp; products | Type (`material` or `product`), name, SKU, stock unit, optional purchase unit &amp; factor, default purchase/selling prices, sellable, lot tracking. |
+| **Opening stock** | Starting balances | Item, quantity, unit cost, lot number, and received date — captured as of a single opening date. |
+| **BOMs** | Recipes | Product, output quantity &amp; unit, and components (item, quantity, per-unit or per-batch). |
+
+## The import flow
+
+<Steps>
+
+1. **Upload your files.** Drop in whatever you already keep your operation in — inventory spreadsheets, price lists, supplier and customer lists, recipe sheets. Upload up to 12 files by drag-and-drop or the file picker (50 MB each, 100 MB total). Across a workbook the importer reads more than the active sheet — including hidden sheets and cell comments — so a quantity tucked in a comment can still be picked up. When the files are in, choose **Extract my data**.
+
+   <Frame title="<b>AI Onboarding</b> · Bring in your data">
+     <span slot="action"><Button variant="primary">Extract my data</Button></span>
+     <div class="mk-pad">
+       <Field muted>Drag files here, or browse your computer</Field>
+       <div class="po-enums">
+         <span class="po-enum">current-inventory-2026.xlsx</span>
+         <span class="po-enum">wholesale-price-list.xlsx</span>
+         <span class="po-enum">suppliers.csv</span>
+       </div>
+     </div>
+   </Frame>
+
+2. **Ashicore reads and structures your files.** The importer extracts your files into the catalog above, maps shorthand to real units, normalizes obvious spelling variants, and prefers full product names from your current-inventory sheets over abbreviations buried elsewhere. Where the source is genuinely ambiguous, it flags it for review rather than guessing.
+
+   <div class="po-enums">
+     <span class="po-enum">Reading your files</span>
+     <span class="po-enum">Recognizing products &amp; quantities</span>
+     <span class="po-enum">Matching suppliers &amp; customers</span>
+     <span class="po-enum">Structuring into your ERP</span>
+   </div>
+
+   <Aside type="tip" title="It reads signals, not just columns">
+   A unit price sitting beside a stock quantity on a current-inventory row is read as that lot's cost. A comment like *"≈ 40 kg available, aged"* becomes a reviewable stock row. Archive sheets, historical orders, and recipe quantities are **not** mistaken for stock on hand.
+   </Aside>
+
+3. **Review every record before it lands.** This is where you spend your time. Each row carries a **confidence score**, a link back to its **source** (file → sheet → row), and a **match** against anything already in your workspace — <span class="po-enum" style="color:var(--st-success-ink)">create</span>, <span class="po-enum" style="color:var(--st-info-ink)">update</span>, or <span class="po-enum">skip</span>. Suppliers match by code or name, customers by name, and items by SKU or name, so a second import doesn't duplicate your catalog. Deselect rows you don't want, and filter to <span class="po-enum">Needs review</span> to focus on what's uncertain — anything below 70% confidence, or that you've deselected, lands there.
+
+   <Frame title="<b>Review</b> · Here's what we found">
+     <Grid>
+       <thead><tr><th>Action</th><th>Item</th><th>Source</th><th class="num">Confidence</th></tr></thead>
+       <tbody>
+         <tr><td><span class="po-enum" style="color:var(--st-success-ink)">create</span></td><td><span class="mk-name">House Espresso</span> <span class="mk-sku">product</span></td><td><span class="mk-sku">current-inventory · A14</span></td><td class="num">0.94</td></tr>
+         <tr><td><span class="po-enum" style="color:var(--st-success-ink)">create</span></td><td><span class="mk-name">Huila Green</span> <span class="mk-sku">RVS-GRN-HUILA</span></td><td><span class="mk-sku">current-inventory · A22</span></td><td class="num">0.88</td></tr>
+         <tr><td><span class="po-enum" style="color:var(--st-info-ink)">update</span></td><td><span class="mk-name">Decaf Espresso</span> <span class="mk-sku">was "Decaff Espresso"</span></td><td><span class="mk-sku">price-list · 31</span></td><td class="num">0.71</td></tr>
+       </tbody>
+     </Grid>
+   </Frame>
+
+4. **Approve, and commit.** When you're ready, Ashicore validates your selections and returns a preview split into **blocking issues** (must fix) and **warnings** worth a look. Opening stock, for example, needs an active item, a positive quantity, and a unit cost — a row missing any of those blocks until fixed. Clear the blockers and choose **Approve all &amp; continue** — your units, partners, items, opening balances, and recipes are written in one pass. A committed import can't be edited, so review carefully first.
+
+   <Aside type="note" title="On a paid plan, checkout comes first">
+   If your plan needs payment, approval routes through checkout and your records commit once payment and entitlements clear. On a free trial they commit on approval.
+   </Aside>
+
+</Steps>
+
+## How the importer thinks
+
+<div class="po-annot">
+  <div class="arow"><span class="aidx">1</span><div><div class="at">A compiler, not an agent</div><div class="ad">It transforms the files you give it into reviewable records. It works only from what's in your files — it doesn't browse the web, write to your workspace on its own, or fill in values that aren't there.</div></div></div>
+  <div class="arow"><span class="aidx">2</span><div><div class="at">Provenance &amp; confidence score on every record</div><div class="ad">Each row knows which file, sheet, and cell it came from, and carries a confidence score. Low-confidence rows are exactly where your review attention belongs.</div></div></div>
+  <div class="arow"><span class="aidx">3</span><div><div class="at">Matched against what you already have</div><div class="ad">Re-importing or topping up? Rows are matched to existing records and proposed as create, update, or skip — so a second import doesn't duplicate your catalog.</div></div></div>
+  <div class="arow"><span class="aidx">4</span><div><div class="at">Ambiguity is flagged, not guessed</div><div class="ad">Where the source is unclear, the importer flags it for review and tags it as a warning or a blocker — it doesn't browse the web or fill in values that aren't there. Blockers must be resolved before you commit; warnings let you proceed with eyes open.</div></div></div>
+</div>
+
+<Aside type="caution" title="Two things that trip people up">
+**Units need a real base measure.** "Bag", "tote", and "pallet" are packaging, not units — they belong in a unit's name with an explicit size and a measurable base unit. **Opening stock is "now", not history.** Counts come from your current-inventory sheets and post as starting balances on one date; archived and historical rows are deliberately ignored so you don't reload last year's stock.
+</Aside>
+
+## What's next
+
+- **[Connect your integrations](/docs/integrations/)** — after the initial import you can keep pulling data in: contacts from Xero or QuickBooks, paid orders from Shopify.
+- **[The inventory ledger](/docs/inventory/ledger)** — opening stock posts as starting balances; see how every balance is projected from events.
+- **[Add a product or material](/docs/inventory/add-a-product-or-material)** — fill any gaps the import left, by hand.

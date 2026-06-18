@@ -1,0 +1,52 @@
+---
+title: Add a customer
+description: Create an account, add addresses and contacts, and set category, state, and priority.
+sidebar:
+  label: Add a customer
+---
+
+Customers are the accounts you sell to. Only the customer name is required; category, addresses, contacts, state, and priority make the record useful for pricing and CRM.
+
+<p class="po-meta">
+  <span class="po-chip">name is required</span>
+  <span class="po-chip">autosaves</span>
+  <span class="po-chip">orders keep snapshots</span>
+</p>
+
+## 1. Create the account
+
+From `Sales` -> `Customers`, choose `New customer`. Enter the customer name, then optionally add main email, main phone, category, state, and priority.
+
+The category is the field pricing schedules use for customer scope. State and priority are informational triage fields; they do not block orders.
+
+## 2. Add addresses
+
+Fill shipping and billing address fields. These include line 1, line 2, city, region, postcode, and country.
+
+New sales orders can prefill address values from the customer. The order then stores its own address copy, so later customer address changes do not rewrite old orders.
+
+## 3. Add contacts
+
+Use the `Contacts` section to add people at the account. Contacts ride inside the customer document and are reconciled by id as you edit.
+
+| Contact field | Meaning |
+| --- | --- |
+| Name | Required for a saved contact. |
+| Role / title | The person's job role or title. |
+| Email | Contact email. |
+| Phone | Contact phone. |
+| Roles | `primary`, `shipping`, `invoicing`, `billing`, `field`. |
+| Address | Optional shared address-book entry. |
+
+The star in the contacts grid toggles the primary-contact role.
+
+## 4. Keep history safe
+
+Deleting a customer soft-deletes the customer record. Existing sales orders keep their customer snapshot, so order history remains readable.
+
+## What's next
+
+<div class="po-tasklist">
+  <a class="po-task" href="/docs/sales/contacts-activity-and-tasks"><span class="po-taskicon po-taskicon--box" aria-hidden="true"></span><span><b>Contacts, activity &amp; tasks</b><small>Track notes, calls, meetings, tasks, and projects.</small></span><span aria-hidden="true">›</span></a>
+  <a class="po-task" href="/docs/sales/account-state-and-priority"><span class="po-taskicon po-taskicon--doc" aria-hidden="true"></span><span><b>Account state and priority</b><small>Use state, priority, and category for account triage.</small></span><span aria-hidden="true">›</span></a>
+</div>
