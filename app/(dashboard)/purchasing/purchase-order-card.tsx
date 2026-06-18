@@ -1622,7 +1622,6 @@ export function PurchaseOrderCard({
                       <Input
                         id="purchaseOrderNumber"
                         value={draftValues.orderNumber ?? savedOrderNumber ?? ""}
-                        disabled={!savedOrderId}
                         onChange={(event) =>
                           commitPurchaseOrderDraft({
                             orderNumber: event.target.value,

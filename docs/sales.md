@@ -18,6 +18,7 @@ Sales v1 includes:
 - customer-category and selected-item pricing schedules with quantity breaks
 - customer projects/jobs as optional sales-order context
 - multi-line sales orders
+- unsaved new sales-order cards that keep local edits and wait for a customer before the first create
 - customer and product snapshots on saved orders
 - `open` and `done` statuses
 - projection-backed demand coverage from non-deleted open orders with non-deleted lines
@@ -103,6 +104,9 @@ The redesign moves a few entry points out of the deprecated tabs:
 
 ## Status Rules
 
+- A new sales-order card is local-only until a customer is selected. Header and
+  line edits remain on the card, but the first autosave is deferred so the
+  server only creates valid customer-backed orders.
 - `open` orders are editable operational work
 - `done` orders are terminal fulfillment history
 - delete is allowed only before shipped fulfillment, finalized invoice, or accounting-push history exists

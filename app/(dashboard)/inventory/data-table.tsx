@@ -15,12 +15,14 @@ interface DataTableProps {
   initialData: ItemRow[];
   itemType: ItemType;
   organizationId: string;
+  canOperateInventory: boolean;
 }
 
 export function DataTable({
   initialData,
   itemType,
   organizationId,
+  canOperateInventory,
 }: DataTableProps) {
   const queryClient = useQueryClient();
   const columns = useMemo(() => getColumns(itemType), [itemType]);
@@ -54,7 +56,7 @@ export function DataTable({
       })}
       queryErrorMessage="Failed to fetch items."
       searchAriaLabel="Search items"
-      actions={<TransferStockDialog />}
+      actions={canOperateInventory ? <TransferStockDialog /> : undefined}
       toolbarContent={
         locations.length > 1 ? (
           <div className="w-56">
@@ -75,18 +77,34 @@ export function DataTable({
           </div>
         ) : undefined
       }
-      addHref={itemType === "product" ? "/inventory/product" : "/inventory/material"}
-      addAriaLabel={itemType === "product" ? "New Product" : "New Material"}
+      addHref={
+        canOperateInventory
+          ? itemType === "product"
+            ? "/inventory/product"
+            : "/inventory/material"
+          : undefined
+      }
+      addAriaLabel={
+        canOperateInventory
+          ? itemType === "product"
+            ? "New Product"
+            : "New Material"
+          : undefined
+      }
       emptyMessage={isProduct ? "No items yet." : "No materials yet."}
-      deleteAction={{
-        endpoint: "/api/items",
-        invalidateQueryKeys: [queryKeys.items.root],
-        defaultErrorMessage: "Failed to delete items.",
-        confirmTitle: (count) =>
-          `Delete ${count} item${count !== 1 ? "s" : ""}?`,
-        confirmDescription: (count) =>
-          `The selected item${count !== 1 ? "s" : ""} will be removed from your inventory.`,
-      }}
+      deleteAction={
+        canOperateInventory
+          ? {
+              endpoint: "/api/items",
+              invalidateQueryKeys: [queryKeys.items.root],
+              defaultErrorMessage: "Failed to delete items.",
+              confirmTitle: (count) =>
+                `Delete ${count} item${count !== 1 ? "s" : ""}?`,
+              confirmDescription: (count) =>
+                `The selected item${count !== 1 ? "s" : ""} will be removed from your inventory.`,
+            }
+          : undefined
+      }
     />
   );
 }

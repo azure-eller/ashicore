@@ -175,6 +175,11 @@ export function useSalesOrderDraftController({
   const flush = kernel.flush;
   const adoptServerDoc = kernel.adoptServerDoc;
   const getPersistedId = kernel.getPersistedId;
+  const deferFirstSave = useCallback(
+    (nextCustomerId: string | null | undefined = kernel.draft.customerId) =>
+      !kernel.isPersisted && !(nextCustomerId ?? "").trim(),
+    [kernel.draft.customerId, kernel.isPersisted],
+  );
 
   // Make-to-order prefills land with a saveable draft; persist it right away.
   useEffect(() => {
@@ -187,21 +192,25 @@ export function useSalesOrderDraftController({
   const patchHeader = useCallback(
     (patch: SalesOrderDraftHeaderPatch) => {
       update((draft) => ({ ...draft, ...patch }) as SalesOrderDetail, {
-        debounceMs: isQuickHeaderPatch(patch)
-          ? QUICK_FLUSH_DELAY_MS
-          : TEXT_FLUSH_DELAY_MS,
+        debounceMs: deferFirstSave(patch.customerId ?? undefined)
+          ? Number.POSITIVE_INFINITY
+          : isQuickHeaderPatch(patch)
+            ? QUICK_FLUSH_DELAY_MS
+            : TEXT_FLUSH_DELAY_MS,
       });
     },
-    [update],
+    [deferFirstSave, update],
   );
 
   const addLine = useCallback(
     (line: SalesOrderDetailLine) => {
       update((draft) => ({ ...draft, lines: [...draft.lines, line] }), {
-        debounceMs: QUICK_FLUSH_DELAY_MS,
+        debounceMs: deferFirstSave()
+          ? Number.POSITIVE_INFINITY
+          : QUICK_FLUSH_DELAY_MS,
       });
     },
-    [update],
+    [deferFirstSave, update],
   );
 
   const updateLine = useCallback(
@@ -213,10 +222,14 @@ export function useSalesOrderDraftController({
             line.id === lineId ? patchLine(line, patch) : line,
           ),
         }),
-        { debounceMs: QUICK_FLUSH_DELAY_MS },
+        {
+          debounceMs: deferFirstSave()
+            ? Number.POSITIVE_INFINITY
+            : QUICK_FLUSH_DELAY_MS,
+        },
       );
     },
-    [update],
+    [deferFirstSave, update],
   );
 
   const removeLine = useCallback(
@@ -226,10 +239,14 @@ export function useSalesOrderDraftController({
           ...draft,
           lines: draft.lines.filter((line) => line.id !== lineId),
         }),
-        { debounceMs: QUICK_FLUSH_DELAY_MS },
+        {
+          debounceMs: deferFirstSave()
+            ? Number.POSITIVE_INFINITY
+            : QUICK_FLUSH_DELAY_MS,
+        },
       );
     },
-    [update],
+    [deferFirstSave, update],
   );
 
   const reorderLines = useCallback(
@@ -241,10 +258,14 @@ export function useSalesOrderDraftController({
             .map((id) => draft.lines.find((line) => line.id === id))
             .filter((line): line is SalesOrderDetailLine => line != null),
         }),
-        { debounceMs: QUICK_FLUSH_DELAY_MS },
+        {
+          debounceMs: deferFirstSave()
+            ? Number.POSITIVE_INFINITY
+            : QUICK_FLUSH_DELAY_MS,
+        },
       );
     },
-    [update],
+    [deferFirstSave, update],
   );
 
   const refreshFromServer = useCallback(async () => {

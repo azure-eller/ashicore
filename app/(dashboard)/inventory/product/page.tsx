@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import { requireModuleAccess } from "@/lib/dal/auth";
 import { hasModuleAccess } from "@/lib/authz";
 import { getUnitDefinitions } from "@/lib/inventory/queries/units";
@@ -35,14 +34,11 @@ export default async function ProductDraftPage() {
   const units = await getUnitDefinitions();
   const defaultUnit =
     units.find((unit) => unit.name.toLowerCase() === "each") ?? units[0];
-  if (!defaultUnit) {
-    redirect("/inventory/products");
-  }
 
   return (
     <ProductCard
       initialItemId={null}
-      initialCard={emptyCard("product", defaultUnit.id)}
+      initialCard={emptyCard("product", defaultUnit?.id ?? "")}
       unitOptions={units.map((unit) => ({
         id: unit.id,
         name: unit.name,

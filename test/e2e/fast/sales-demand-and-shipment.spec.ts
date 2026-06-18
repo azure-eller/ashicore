@@ -187,6 +187,53 @@ test.describe("sales demand and shipping heartbeat", () => {
   const ts = Date.now();
   const unitId = getUnitId();
 
+  test("new sales order waits for a customer before first autosave", async ({
+    db,
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const orderNumber = `SO-DEFER-${unique}`;
+    const customer = await createCustomer({
+      name: `Fast Deferred SO Customer ${unique}`,
+    });
+    expect(customer.status).toBe(201);
+
+    await page.goto("/sales/order");
+    await expect(page.getByText("New sales order")).toBeVisible();
+    await page.getByLabel("Sales order").fill(orderNumber);
+    await page.waitForTimeout(1_000);
+
+    let rows = await db
+      .select({ id: salesOrders.id })
+      .from(salesOrders)
+      .where(eq(salesOrders.orderNumber, orderNumber));
+    expect(rows).toHaveLength(0);
+
+    await page.getByPlaceholder("Search customers…").fill(customer.body.name);
+    await page
+      .locator('[data-slot="combobox-item"]')
+      .filter({ hasText: customer.body.name })
+      .first()
+      .click();
+    await page.waitForURL(/\/sales\/order\/[0-9a-f-]+$/);
+
+    rows = await db
+      .select({
+        id: salesOrders.id,
+        customerId: salesOrders.customerId,
+        orderNumber: salesOrders.orderNumber,
+      })
+      .from(salesOrders)
+      .where(eq(salesOrders.orderNumber, orderNumber));
+    expect(rows).toEqual([
+      {
+        id: page.url().split("/").pop(),
+        customerId: customer.body.id,
+        orderNumber,
+      },
+    ]);
+  });
+
   async function createStockedProduct(label: string, stock: string) {
     const component = await createItem({
       itemType: "material",

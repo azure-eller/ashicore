@@ -398,6 +398,11 @@ test.describe("Team access", () => {
 
     await expect(page.getByRole("link", { name: "Sales", exact: true })).toBeVisible();
     await expect(page.getByRole("link", { name: "Settings", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Create" }).click();
+    await expect(page.getByRole("menuitem", { name: "Sales Order" })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "Product" })).toHaveCount(0);
+    await expect(page.getByRole("menuitem", { name: "Material" })).toHaveCount(0);
+    await page.keyboard.press("Escape");
 
     const allowedSalesMutation = await apiCall<{ error?: string; errors?: Record<string, string[]> }>(
       page,

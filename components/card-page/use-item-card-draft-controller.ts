@@ -216,6 +216,17 @@ export function useItemCardDraftController({
     },
     [unitNameById, update],
   );
+  const canCreateDraft = useCallback(
+    (patch?: UpdateItemCardInput) => {
+      if (getPersistedId()) return true;
+      const nextUnitDefinitionId =
+        patch && "unitDefinitionId" in patch
+          ? patch.unitDefinitionId
+          : kernel.draft.family.unitDefinitionId;
+      return Boolean(nextUnitDefinitionId);
+    },
+    [getPersistedId, kernel],
+  );
 
   return {
     card: kernel.draft,
@@ -234,9 +245,10 @@ export function useItemCardDraftController({
     commitFamily: useCallback(
       (patch?: UpdateItemCardInput) => {
         if (patch) patchFamily(patch, Number.POSITIVE_INFINITY);
+        if (!canCreateDraft(patch)) return;
         void flush();
       },
-      [flush, patchFamily],
+      [canCreateDraft, flush, patchFamily],
     ),
     setSellable: useCallback(
       (sellable: boolean) => {

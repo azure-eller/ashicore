@@ -475,21 +475,32 @@ export function usePurchaseOrderDraftController({
   });
 
   const update = kernel.update;
+  const deferFirstSave = useCallback(
+    (nextSupplierId: string | null | undefined = kernel.draft.supplierId) =>
+      !kernel.isPersisted && !(nextSupplierId ?? "").trim(),
+    [kernel.draft.supplierId, kernel.isPersisted],
+  );
   const patchHeader = useCallback(
     (
       patch: Partial<Omit<PurchaseOrderDraft, "lines" | "additionalCosts">>,
       delayMs = TEXT_FLUSH_DELAY_MS,
     ) => {
-      update((draft) => ({ ...draft, ...patch }), { debounceMs: delayMs });
+      update((draft) => ({ ...draft, ...patch }), {
+        debounceMs: deferFirstSave(patch.supplierId ?? undefined)
+          ? Number.POSITIVE_INFINITY
+          : delayMs,
+      });
     },
-    [update],
+    [deferFirstSave, update],
   );
 
   const replaceLines = useCallback(
     (rows: PurchaseOrderLineDraftRow[], delayMs = QUICK_FLUSH_DELAY_MS) => {
-      update((draft) => ({ ...draft, lines: rows }), { debounceMs: delayMs });
+      update((draft) => ({ ...draft, lines: rows }), {
+        debounceMs: deferFirstSave() ? Number.POSITIVE_INFINITY : delayMs,
+      });
     },
-    [update],
+    [deferFirstSave, update],
   );
 
   const replaceAdditionalCosts = useCallback(
@@ -498,10 +509,10 @@ export function usePurchaseOrderDraftController({
       delayMs = QUICK_FLUSH_DELAY_MS,
     ) => {
       update((draft) => ({ ...draft, additionalCosts: rows }), {
-        debounceMs: delayMs,
+        debounceMs: deferFirstSave() ? Number.POSITIVE_INFINITY : delayMs,
       });
     },
-    [update],
+    [deferFirstSave, update],
   );
 
   return useMemo(

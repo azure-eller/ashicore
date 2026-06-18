@@ -24,8 +24,9 @@ read_when:
 - `owner` bypasses module checks
 - Non-owner users are exposed as `User` in the team UI and get only the module access explicitly assigned in the matrix
 - `settings:admin` can invite users, edit non-owner user permissions, remove non-owner users, and grant `settings:admin` to other non-owner users
+- Create actions in global nav/search require module write access (`operate` or `admin`); read-only access shows module navigation and search/read actions only
 - `inventory:operate` covers normal item master create/edit plus stock workflows
-- `inventory:admin` is reserved for higher-risk inventory controls such as destructive item actions
+- `inventory:admin` is reserved for higher-risk inventory controls such as destructive item actions and unit definition management
 - Unlocked product BOMs use `inventory:operate`
 - Locked BOMs are flagged on the product item row and require `inventory:admin` to lock, unlock, or edit
 - Manufacturing admin may view locked BOMs in inventory detail views, but manufacturing execution is not blocked by BOM lock

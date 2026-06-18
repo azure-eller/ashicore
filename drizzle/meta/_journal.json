@@ -1212,6 +1212,13 @@
       "when": 1781640854940,
       "tag": "0172_bent_roland_deschain",
       "breakpoints": true
+    },
+    {
+      "idx": 173,
+      "version": "7",
+      "when": 1781808426986,
+      "tag": "0173_default_inventory_units",
+      "breakpoints": true
     }
   ]
 }

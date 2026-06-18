@@ -14,6 +14,7 @@ Purchasing v1 includes:
 
 - supplier CRUD
 - draft purchase orders for purchasable materials and products
+- unsaved new purchase-order cards that keep local edits and wait for a supplier before the first create
 - supplier and material snapshots on saved orders
 - `draft`, `ordered`, `partial`, and `received` statuses
 - partial receiving into tracked lots or untracked internal inventory buckets
@@ -154,6 +155,9 @@ Update rules:
 
 ## Status Rules
 
+- A new purchase-order card is local-only until a supplier is selected. Header,
+  line, and additional-cost edits remain on the card, but the first autosave is
+  deferred so the server only creates valid supplier-backed orders.
 - `draft` orders are editable
 - `ordered` orders may be edited, received, or deleted before any receipt
 - `partial` orders may be edited or received; already received lines cannot be removed

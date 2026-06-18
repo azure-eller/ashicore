@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import { requireModuleAccess } from "@/lib/dal/auth";
 import { hasModuleAccess } from "@/lib/authz";
 import { getUnitDefinitions } from "@/lib/inventory/queries/units";
@@ -33,17 +32,17 @@ function emptyCard(itemType: "material", unitDefinitionId: string): ItemCardDto 
 
 export default async function MaterialDraftPage() {
   const context = await requireModuleAccess("inventory", "operate");
-  const [units, suppliers] = await Promise.all([getUnitDefinitions(), getSuppliers()]);
+  const [units, suppliers] = await Promise.all([
+    getUnitDefinitions(),
+    getSuppliers(),
+  ]);
   const defaultUnit =
     units.find((unit) => unit.name.toLowerCase() === "each") ?? units[0];
-  if (!defaultUnit) {
-    redirect("/inventory/materials");
-  }
 
   return (
     <MaterialCard
       initialItemId={null}
-      initialCard={emptyCard("material", defaultUnit.id)}
+      initialCard={emptyCard("material", defaultUnit?.id ?? "")}
       usedInBoms={[]}
       unitOptions={units.map((unit) => ({
         id: unit.id,

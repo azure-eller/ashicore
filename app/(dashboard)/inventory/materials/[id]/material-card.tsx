@@ -30,6 +30,7 @@ import { MaterialSupplyDetailsTab } from "./tabs/supply-details";
 import type { SupplierOption } from "@/lib/purchasing/types";
 import { useItemCardDraftController } from "@/components/card-page/use-item-card-draft-controller";
 import { queryKeys } from "@/lib/client/query-keys";
+import type { UnitSelectOption } from "@/components/card-page/unit-select-field";
 
 export type MaterialCardProps = {
   initialItemId: string | null;
@@ -39,7 +40,7 @@ export type MaterialCardProps = {
     name: string;
     displayName: string;
   }>;
-  unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
+  unitOptions: UnitSelectOption[];
   supplierOptions: SupplierOption[];
   initialLots: CardLotRow[];
   canAdminInventory?: boolean;
@@ -60,6 +61,7 @@ export function MaterialCard({
   const queryClient = useQueryClient();
   const [configOpen, setConfigOpen] = useState(false);
   const [variantsEnabled, setVariantsEnabled] = useState(false);
+  const [availableUnitOptions, setAvailableUnitOptions] = useState(unitOptions);
   const persistedHref = useCallback((id: string) => `/inventory/materials/${id}`, []);
 
   const controller = useItemCardDraftController({
@@ -67,7 +69,7 @@ export function MaterialCard({
     initialCard,
     itemType: "material",
     persistedHref,
-    unitOptions,
+    unitOptions: availableUnitOptions,
   });
   const currentItemId = controller.currentItemId;
   const isDraft = !controller.hasPersistedEntity;
@@ -268,7 +270,14 @@ export function MaterialCard({
               <MaterialGeneralInfoTab
                 card={renderedCard}
                 focusItemId={currentItemId}
-                unitOptions={unitOptions}
+                unitOptions={availableUnitOptions}
+                onUnitCreated={(unit) =>
+                  setAvailableUnitOptions((current) =>
+                    current.some((option) => option.id === unit.id)
+                      ? current
+                      : [...current, unit],
+                  )
+                }
                 onOpenConfig={() => setConfigOpen(true)}
                 onFamilyChange={controller.patchFamily}
                 onFamilyCommit={controller.commitFamily}
@@ -307,7 +316,7 @@ export function MaterialCard({
           supply: (
             <MaterialSupplyDetailsTab
               card={renderedCard}
-              unitOptions={unitOptions}
+              unitOptions={availableUnitOptions}
               supplierOptions={supplierOptions}
               onFamilyChange={controller.patchFamily}
               onVariantPatch={controller.patchVariant}

@@ -1,6 +1,7 @@
 import "server-only";
 import {
   and,
+  asc,
   eq,
   isNotNull,
   isNull,
@@ -18,10 +19,8 @@ import {
 import {
   withAuthedOrgContext,
 } from "@/lib/dal/auth";
-import type {
-  InsertUnitDefinition,
-} from "@/lib/schemas/units";
 import type { Tx } from "@/lib/db/with-org-context";
+import type { InsertUnitDefinition } from "@/lib/schemas/units";
 import { InventoryError } from "./errors";
 
 export async function getValidatedUnitDefinitionInTx(tx: Tx, unitDefinitionId: string) {
@@ -121,6 +120,18 @@ export async function updateUnitDefinition(
 
 export async function deleteUnitDefinition(unitId: string): Promise<boolean> {
   return withAuthedOrgContext(async (tx) => {
+    const activeUnits = await tx
+      .select({ id: unitDefinitions.id })
+      .from(unitDefinitions)
+      .where(isNull(unitDefinitions.deletedAt))
+      .orderBy(asc(unitDefinitions.id))
+      .for("update");
+    const deletingActiveUnit = activeUnits.some((unit) => unit.id === unitId);
+
+    if (deletingActiveUnit && activeUnits.length === 1) {
+      throw new InventoryError("At least one unit is required.", 409);
+    }
+
     const [referencedFamily] = await tx
       .select({ id: itemFamilies.id })
       .from(itemFamilies)

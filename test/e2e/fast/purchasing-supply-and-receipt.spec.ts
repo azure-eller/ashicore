@@ -103,6 +103,53 @@ test.describe("purchasing supply and receipt heartbeat", () => {
   const ts = Date.now();
   const unitId = getUnitId();
 
+  test("new purchase order waits for a supplier before first autosave", async ({
+    db,
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const orderNumber = `PO-DEFER-${unique}`;
+    const supplier = await createSupplier({
+      name: `Fast Deferred PO Supplier ${unique}`,
+    });
+    expect(supplier.status).toBe(201);
+
+    await page.goto("/purchasing/order");
+    await expect(page.getByText("New purchase order")).toBeVisible();
+    await page.getByLabel("Purchase order").fill(orderNumber);
+    await page.waitForTimeout(1_000);
+
+    let rows = await db
+      .select({ id: purchaseOrders.id })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.orderNumber, orderNumber));
+    expect(rows).toHaveLength(0);
+
+    await page.getByPlaceholder("Search suppliers...").fill(supplier.body.name);
+    await page
+      .locator('[data-slot="combobox-item"]')
+      .filter({ hasText: supplier.body.name })
+      .first()
+      .click();
+    await page.waitForURL(/\/purchasing\/order\/[0-9a-f-]+$/);
+
+    rows = await db
+      .select({
+        id: purchaseOrders.id,
+        supplierId: purchaseOrders.supplierId,
+        orderNumber: purchaseOrders.orderNumber,
+      })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.orderNumber, orderNumber));
+    expect(rows).toEqual([
+      {
+        id: page.url().split("/").pop(),
+        supplierId: supplier.body.id,
+        orderNumber,
+      },
+    ]);
+  });
+
   test("card save with a stale expectedVersion returns 409 with the fresh doc and applies nothing", async ({ db }) => {
     const supplier = await createSupplier({ name: `Fast Version Gate ${ts}` });
     expect(supplier.status).toBe(201);

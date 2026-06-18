@@ -5,8 +5,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   CardCheckboxField,
   CardField,
-  CardSelectField,
 } from "@/components/card-page/card-field";
+import {
+  UnitSelectField,
+  type UnitSelectOption,
+} from "@/components/card-page/unit-select-field";
 import { CardSection } from "@/components/card-page/card-page";
 import { CardPageTwoColumn } from "@/components/card-page/card-page-two-column";
 import {
@@ -30,7 +33,8 @@ export type ProductGeneralInfoTabProps = {
   card: ItemCardDto;
   /** Null on the /new draft page; the name input bootstraps creation. */
   focusItemId: string | null;
-  unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
+  unitOptions: UnitSelectOption[];
+  onUnitCreated: (unit: UnitSelectOption) => void;
   onOpenConfig: () => void;
   onFamilyChange: (patch: DraftFamilyPatch, delayMs?: number) => void;
   onFamilyCommit: (patch?: DraftFamilyPatch) => void;
@@ -50,6 +54,7 @@ export function ProductGeneralInfoTab({
   card,
   focusItemId,
   unitOptions,
+  onUnitCreated,
   onOpenConfig,
   onFamilyChange,
   onFamilyCommit,
@@ -115,8 +120,15 @@ export function ProductGeneralInfoTab({
             <UnitSelectField
               currentUnitId={card.family.unitDefinitionId}
               unitOptions={unitOptions}
-              onFamilyChange={onFamilyChange}
-              onFamilyCommit={onFamilyCommit}
+              required
+              invalid={!card.family.unitDefinitionId}
+              canCreateUnit={canAdminInventory}
+              onUnitCreated={onUnitCreated}
+              onUnitChange={(unit) => {
+                const patch = { unitDefinitionId: unit.id };
+                onFamilyChange(patch, Number.POSITIVE_INFINITY);
+                onFamilyCommit(patch);
+              }}
             />
             <CardField label="Usability">
               <CardCheckboxField
@@ -201,41 +213,5 @@ export function ProductGeneralInfoTab({
         />
       </CardSection>
     </>
-  );
-}
-
-type UnitSelectFieldProps = {
-  currentUnitId: string;
-  unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
-  disabled?: boolean;
-  onFamilyChange: (patch: DraftFamilyPatch, delayMs?: number) => void;
-  onFamilyCommit: (patch?: DraftFamilyPatch) => void;
-};
-
-function UnitSelectField({
-  currentUnitId,
-  unitOptions,
-  disabled,
-  onFamilyChange,
-  onFamilyCommit,
-}: UnitSelectFieldProps) {
-  return (
-    <CardSelectField
-      label="Unit of measure"
-      value={currentUnitId}
-      onValueChange={(value) => {
-        if (disabled) return;
-        if (value === currentUnitId) return;
-        const patch = { unitDefinitionId: value };
-        onFamilyChange(patch, Number.POSITIVE_INFINITY);
-        onFamilyCommit(patch);
-      }}
-      disabled={disabled}
-      placeholder="Select a unit"
-      options={unitOptions.map((unit) => ({
-        value: unit.id,
-        label: `${unit.name} (${unit.size} ${unit.uom})`,
-      }))}
-    />
   );
 }

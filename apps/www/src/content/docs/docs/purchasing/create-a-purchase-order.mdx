@@ -30,7 +30,7 @@ You'll need at least one **supplier**, and the materials you're buying must be *
 
 <Steps>
 
-1. **Start a new order.** From **Purchasing > Orders**, choose **New Purchase Order**. Ashicore opens an unsaved card titled **New purchase order**. Once the draft first saves, Ashicore assigns the next PO number, changes the URL to the saved order, and keeps the order in <Pill status="draft" />.
+1. **Start a new order.** From **Purchasing > Orders**, choose **New Purchase Order**. Ashicore opens an unsaved card titled **New purchase order**. You can enter a purchase order number right away, or leave it blank so Ashicore assigns the next PO number on the first successful save. Once the draft first saves, Ashicore changes the URL to the saved order and keeps the order in <Pill status="draft" />.
 
    <Frame title="Ashicore · <b>Purchasing</b>">
      <span slot="action"><Button variant="primary">New Purchase Order</Button></span>
@@ -45,7 +45,7 @@ You'll need at least one **supplier**, and the materials you're buying must be *
    </Frame>
    <p class="mk-cap">The purchase orders list. New orders open unsaved; after a valid autosave, you can leave and return to them at any time.</p>
 
-2. **Choose a supplier.** Pick who you're buying from. The supplier is required, and its name is copied onto the order when the order is saved. Later edits to the purchase order refresh that copied name from the current supplier record.
+2. **Choose a supplier.** Pick who you're buying from. The supplier is required before the first save; edits you make before choosing one stay on the unsaved card. The supplier's name is copied onto the order when the order is saved. Later edits to the purchase order refresh that copied name from the current supplier record.
 
    <Frame title="<b>New purchase order</b>" status="draft">
      <div class="mk-pad">
@@ -100,7 +100,7 @@ You'll need at least one **supplier**, and the materials you're buying must be *
    Only **by-value** costs flow into your inventory cost and, for tracked items, the lot cost when you receive. A not-distributed cost raises the order total but never the inventory valuation. Editing a by-value cost *after* receipt revalues tracked stock still on hand from this order; untracked shared-bucket materials save the edit without rebasing in v1.
    </Aside>
 
-5. **Set delivery details.** Add the delivery address and an optional expected arrival date. There is no Save button: valid changes autosave. Until the draft has enough required data to save, it remains unsaved; after the first save, it has a PO number and can be reopened. It stays editable and deletable until the first receipt.
+5. **Set delivery details.** Add the delivery address and an optional expected arrival date. There is no Save button: valid changes autosave. Until you choose a supplier, the draft remains unsaved; after the first save, it has a PO number and can be reopened. It stays editable and deletable until the first receipt.
 
    <Frame title="<b>Delivery &amp; details</b>">
      <span slot="action"><span class="mk-saved">✓ Saved</span></span>

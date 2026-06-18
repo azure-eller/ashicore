@@ -19,6 +19,7 @@ import {
 import { db } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { withOrgContext } from "@/lib/db/with-org-context";
+import { initializeDefaultUnitDefinitionsInTx } from "@/lib/inventory/default-units";
 import { initializeDefaultTaxSettingsInTx } from "@/lib/tax-settings/defaults";
 import { xeroSignupAuthPlugin } from "@/lib/xero/signup-auth-plugin";
 import { env } from "@/lib/env";
@@ -220,9 +221,10 @@ const organizationTaxDefaultsPlugin = (): BetterAuthPlugin => ({
             return;
           }
 
-          await withOrgContext(createdOrganization.id, (tx) =>
-            initializeDefaultTaxSettingsInTx(tx, createdOrganization.id),
-          );
+          await withOrgContext(createdOrganization.id, async (tx) => {
+            await initializeDefaultTaxSettingsInTx(tx, createdOrganization.id);
+            await initializeDefaultUnitDefinitionsInTx(tx, createdOrganization.id);
+          });
 
           try {
             const session = await getSessionFromCtx(ctx).catch(() => null);

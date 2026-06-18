@@ -115,12 +115,7 @@ export function OrderDetailsGrid({
             label="Sales order"
             field="orderNumber"
             value={order.orderNumber}
-            editable={editable && controller.hasPersistedOrder}
-            disabledReason={
-              !controller.hasPersistedOrder
-                ? "Sales order number is assigned after you select a customer."
-                : undefined
-            }
+            editable={editable}
           />
           <ProjectCell order={order} editable={editable} projects={customerProjects} />
           <DateCell

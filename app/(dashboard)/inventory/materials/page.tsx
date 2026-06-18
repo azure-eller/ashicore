@@ -3,6 +3,7 @@ import { DataTable } from "../data-table";
 import DataTableLoading from "../data-table-loading";
 import { getItems } from "@/lib/inventory/queries/items-list";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
+import { hasModuleAccess } from "@/lib/authz";
 
 export default function MaterialsPage() {
   return (
@@ -23,6 +24,7 @@ async function MaterialsData() {
       initialData={items}
       itemType="material"
       organizationId={context.orgId}
+      canOperateInventory={hasModuleAccess(context.assignedRoles, "inventory", "operate")}
     />
   );
 }

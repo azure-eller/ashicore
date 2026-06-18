@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import dotenv from "dotenv";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { test, expect } from "./fixtures";
 import {
   createCustomer,
@@ -13,7 +13,14 @@ import {
 } from "../helpers/api";
 import { extractFirstUrl, waitForOutboxEmail } from "../helpers/email-outbox";
 import { TEST_ACCOUNT_EMAIL } from "../helpers/test-account";
-import { invitation, member, salesOrders, user } from "../../lib/db/schema";
+import {
+  invitation,
+  items,
+  member,
+  salesOrders,
+  unitDefinitions,
+  user,
+} from "../../lib/db/schema";
 
 dotenv.config({ path: ".env.local" });
 
@@ -196,6 +203,60 @@ test.describe("Auth and security regressions", () => {
   const productName = `Auth Guard Product ${run}`;
   const customerName = `Auth Guard Customer ${run}`;
   let orderId = "";
+
+  test("legacy orgs without units can create a product after adding a unit inline", async ({ page, db }) => {
+    const activeUnits = await db
+      .select({ id: unitDefinitions.id })
+      .from(unitDefinitions)
+      .where(isNull(unitDefinitions.deletedAt));
+    const activeUnitIds = activeUnits.map((unit) => unit.id);
+    const legacyProductName = `Legacy Unit Product ${run}`;
+
+    try {
+      if (activeUnitIds.length > 0) {
+        await db
+          .update(unitDefinitions)
+          .set({ deletedAt: new Date(), updatedAt: new Date() })
+          .where(inArray(unitDefinitions.id, activeUnitIds));
+      }
+
+      await page.goto("/inventory/products");
+      await page.getByLabel("New Product").click();
+
+      await expect(page).toHaveURL(/\/inventory\/product$/);
+      await expect(page.getByRole("heading", { name: "New product" })).toBeVisible();
+      await expect(page.getByLabel("Unit of measure")).toBeVisible();
+
+      await page.getByLabel("Product name").fill(legacyProductName);
+      await page.getByLabel("Product name").blur();
+
+      await page.waitForTimeout(1_000);
+      const itemsBeforeUnit = await db
+        .select({ id: items.id })
+        .from(items)
+        .where(eq(items.name, legacyProductName));
+      expect(itemsBeforeUnit).toHaveLength(0);
+
+      await page.getByLabel("Unit of measure").click();
+      await page.getByRole("option", { name: /Create unit/ }).click();
+      await page.getByLabel("Unit name").fill(`Inline Unit ${run}`);
+      await page.getByRole("button", { name: "Create unit" }).click();
+
+      await expect(page).toHaveURL(/\/inventory\/products\/[0-9a-f-]+$/);
+      const createdItems = await db
+        .select({ id: items.id })
+        .from(items)
+        .where(eq(items.name, legacyProductName));
+      expect(createdItems).toHaveLength(1);
+    } finally {
+      if (activeUnitIds.length > 0) {
+        await db
+          .update(unitDefinitions)
+          .set({ deletedAt: null, updatedAt: new Date() })
+          .where(inArray(unitDefinitions.id, activeUnitIds));
+      }
+    }
+  });
 
   test("creates confirmed sales fixtures for manufacturing guard coverage", async () => {
     const materialResult = await createItem({

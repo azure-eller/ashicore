@@ -15,7 +15,7 @@ import {
   TruckIcon,
   WarehouseIcon,
 } from "@hugeicons/core-free-icons";
-import { canReadModule } from "@/lib/authz";
+import { canReadModule, canWriteModule } from "@/lib/authz";
 
 export type DashboardModuleKey =
   | "inventory"
@@ -161,7 +161,7 @@ export function getDashboardNavModules(assignedRoles: string[]) {
 
 export function getDashboardCreateActions(assignedRoles: string[]) {
   return dashboardCreateActions.filter((action) =>
-    canReadModule(assignedRoles, action.module)
+    canWriteModule(assignedRoles, action.module)
   );
 }
 
@@ -170,7 +170,7 @@ export function getDashboardSearchActions(
 ): DashboardSearchAction[] {
   const actions: DashboardSearchAction[] = [];
 
-  if (canReadModule(assignedRoles, "sales")) {
+  if (canWriteModule(assignedRoles, "sales")) {
     actions.push(
       {
         title: "New Sales Order",
@@ -185,7 +185,12 @@ export function getDashboardSearchActions(
         href: "/sales/customer",
         icon: Add01Icon,
         group: "Sales",
-      },
+      }
+    );
+  }
+
+  if (canReadModule(assignedRoles, "sales")) {
+    actions.push(
       {
         title: "Sales Orders - All",
         description: "View all sales orders",
@@ -217,7 +222,7 @@ export function getDashboardSearchActions(
     );
   }
 
-  if (canReadModule(assignedRoles, "inventory")) {
+  if (canWriteModule(assignedRoles, "inventory")) {
     actions.push(
       {
         title: "New Material",
@@ -239,7 +244,12 @@ export function getDashboardSearchActions(
         href: "/inventory/stocktakes?create=1",
         icon: Add01Icon,
         group: "Inventory",
-      },
+      }
+    );
+  }
+
+  if (canReadModule(assignedRoles, "inventory")) {
+    actions.push(
       {
         title: "Inventory - Materials",
         description: "View all materials",
@@ -271,7 +281,7 @@ export function getDashboardSearchActions(
     );
   }
 
-  if (canReadModule(assignedRoles, "purchasing")) {
+  if (canWriteModule(assignedRoles, "purchasing")) {
     actions.push(
       {
         title: "New Purchase Order",
@@ -286,7 +296,12 @@ export function getDashboardSearchActions(
         href: "/purchasing/suppliers/new",
         icon: Add01Icon,
         group: "Purchasing",
-      },
+      }
+    );
+  }
+
+  if (canReadModule(assignedRoles, "purchasing")) {
+    actions.push(
       {
         title: "Purchase Orders - All",
         description: "View all purchase orders",
@@ -332,7 +347,7 @@ export function getDashboardSearchActions(
     );
   }
 
-  if (canReadModule(assignedRoles, "manufacturing")) {
+  if (canWriteModule(assignedRoles, "manufacturing")) {
     actions.push(
       {
         title: "New Manufacturing Order",
@@ -340,7 +355,12 @@ export function getDashboardSearchActions(
         href: "/manufacturing/order",
         icon: Add01Icon,
         group: "Manufacturing",
-      },
+      }
+    );
+  }
+
+  if (canReadModule(assignedRoles, "manufacturing")) {
+    actions.push(
       {
         title: "Manufacturing Orders - Open",
         description: "View open manufacturing orders",

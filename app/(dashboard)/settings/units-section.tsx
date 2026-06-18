@@ -217,7 +217,11 @@ export function UnitsSection({ initialUnits }: { initialUnits: UnitRow[] }) {
             initializeBlankRow={false}
             enableReorder={false}
             getDeleteDisabledReason={(row) =>
-              row.isInUse ? "Unit is in use and cannot be deleted." : null
+              row.isInUse
+                ? "Unit is in use and cannot be deleted."
+                : rows.length <= 1
+                  ? "At least one unit is required."
+                  : null
             }
             onDeleteRow={async (row) => {
               if (!isDraftRow(row)) {

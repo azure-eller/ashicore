@@ -441,6 +441,14 @@ Pre-cutover history can stay in `inventory.stock_movements_archive`, but all new
 
 The shared unit picker is built from `lib/units-of-measure.ts`. Packaging and internal assemblies sometimes need count semantics even when no convert-library mass/volume unit fits.
 
+Every organization should have at least one active `inventory.unit_definitions`
+row. New organizations are initialized with common stocking units (`Each`,
+`Piece`, `Pound`, `Ounce`, `Kilogram`, `Gram`, `Gallon`, `Liter`), and the
+default-unit migration backfills the same set only for orgs that had no active
+units. Unit management requires `inventory:admin`; deleting the final active
+unit is blocked, and item creation defers the first save until a unit is
+selected or created inline.
+
 Use the shared `Each` unit for:
 
 - blank bags

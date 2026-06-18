@@ -33,13 +33,14 @@ import { ProductGeneralInfoTab } from "./tabs/general-info";
 import { useItemCardDraftController } from "@/components/card-page/use-item-card-draft-controller";
 import { ItemCardProvider } from "@/components/card-page/item-card-focus-context";
 import { queryKeys } from "@/lib/client/query-keys";
+import type { UnitSelectOption } from "@/components/card-page/unit-select-field";
 
 export type ProductCardTab = "general" | "recipe" | "production" | "lots";
 
 export type ProductCardProps = {
   initialItemId: string | null;
   initialCard: ItemCardDto;
-  unitOptions: Array<{ id: string; name: string; size: string; uom: string }>;
+  unitOptions: UnitSelectOption[];
   activeTab?: ProductCardTab;
   lotsCount?: number;
   canAdminInventory?: boolean;
@@ -62,6 +63,7 @@ export function ProductCard({
   const focusedVariantParam = searchParams.get("variant");
   const [configOpen, setConfigOpen] = useState(false);
   const [variantsEnabled, setVariantsEnabled] = useState(false);
+  const [availableUnitOptions, setAvailableUnitOptions] = useState(unitOptions);
   const [focusedItemId, setFocusedItemIdState] = useState<string | null>(
     initialCard.variants.some(
       (variant) => variant.id === focusedVariantParam && variant.deletedAt == null,
@@ -79,7 +81,7 @@ export function ProductCard({
     initialCard,
     itemType: "product",
     persistedHref,
-    unitOptions,
+    unitOptions: availableUnitOptions,
   });
   const currentItemId = controller.currentItemId;
   useEffect(() => {
@@ -379,7 +381,14 @@ export function ProductCard({
               <ProductGeneralInfoTab
                 card={renderedCard}
                 focusItemId={resolvedFocusedItemId ?? currentItemId}
-                unitOptions={unitOptions}
+                unitOptions={availableUnitOptions}
+                onUnitCreated={(unit) =>
+                  setAvailableUnitOptions((current) =>
+                    current.some((option) => option.id === unit.id)
+                      ? current
+                      : [...current, unit],
+                  )
+                }
                 onOpenConfig={() => setConfigOpen(true)}
                 onFamilyChange={controller.patchFamily}
                 onFamilyCommit={controller.commitFamily}

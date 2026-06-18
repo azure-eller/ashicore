@@ -61,6 +61,14 @@ delete-and-reinsert reconciliations and the rebase matches rows exactly.
 and callers must branch on it (`useCardEntityActions` does; status
 transitions do). It never throws and never silently no-ops.
 
+Never-persisted cards may deliberately defer their first save until required
+foreign keys exist. Item cards keep local edits until a unit is selected, sales
+orders until a customer is selected, and purchase orders until a supplier is
+selected. The controller should keep using `update()` so the card stays editable,
+but pass an infinite debounce or skip `flush()` until the first create payload is
+valid. Once the server row exists, later invalid edits should flow through the
+normal `blocked` outcome rather than becoming silent local-only state.
+
 Kernels live **outside React** in a module registry keyed by entity id:
 unmount can't drop a debounced edit, and payload-dirty kernels flush on
 `pagehide` with `keepalive` fetches. A dirty draft is also mirrored to
