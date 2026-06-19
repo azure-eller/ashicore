@@ -127,6 +127,15 @@ function sumQuantities(values: Array<string | null | undefined>) {
   return normalizeNumeric(values.reduce((sum, value) => sum + Number(value ?? 0), 0));
 }
 
+function findCanonicalLotByNumber(
+  lotsForLine: StocktakeDetailLine["lots"],
+  lotNumber: string
+) {
+  return lotsForLine.find(
+    (lot) => !lot.isFound && lot.lotNumber.trim() === lotNumber
+  );
+}
+
 function stocktakeEligibleItemConditions() {
   return [
     isNull(items.deletedAt),
@@ -184,6 +193,51 @@ async function findActiveLotByNumberInTx(
     );
 
   return existing?.id ?? null;
+}
+
+async function findLotByNumberInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    itemId: string;
+    lotNumber: string;
+    locationId?: string | null;
+  }
+): Promise<{ lotId: string; expectedQty: string } | null> {
+  const [existing] = await tx
+    .select({ id: lots.id })
+    .from(lots)
+    .where(
+      and(
+        eq(lots.organizationId, params.organizationId),
+        eq(lots.itemId, params.itemId),
+        eq(lots.lotNumber, params.lotNumber)
+      )
+    );
+
+  if (!existing) return null;
+
+  const [balance] = await tx
+    .select({
+      expectedQty: trimScale(sql`COALESCE(SUM(${inventoryLotBalances.quantity}), 0)`).as(
+        "expectedQty"
+      ),
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, params.organizationId),
+        eq(inventoryLotBalances.itemId, params.itemId),
+        eq(inventoryLotBalances.lotId, existing.id),
+        eq(inventoryLotBalances.disposition, "available"),
+        sql`${inventoryLotBalances.locationId} = ${locationIdOrDefaultSubquery(
+          inventoryLotBalances.organizationId,
+          params.locationId
+        )}`
+      )
+    );
+
+  return { lotId: existing.id, expectedQty: balance?.expectedQty ?? "0" };
 }
 
 async function getStocktakeLinesInTx(
@@ -763,12 +817,13 @@ export async function getStocktake(id: string): Promise<StocktakeDetail | null> 
 export async function getStocktakeCompletionPreview(
   id: string
 ): Promise<StocktakeCompletionPreview | null> {
-  return withAuthedOrgContext(async (tx) => {
+  return withAuthedOrgContext(async (tx, orgId) => {
     const [stocktake] = await tx
       .select({
         id: stocktakes.id,
         name: stocktakes.name,
         status: stocktakes.status,
+        locationId: stocktakes.locationId,
       })
       .from(stocktakes)
       .where(and(eq(stocktakes.id, id), sql`${stocktakes.status} NOT IN ('cancelled', 'deleted')`));
@@ -795,20 +850,29 @@ export async function getStocktakeCompletionPreview(
       id: stocktake.id,
       name: stocktake.name,
       status: stocktake.status as StocktakeCompletionPreview["status"],
-      lines: countedLines.map((line) => {
+      lines: await Promise.all(countedLines.map(async (line) => {
         const liveLine = liveLineById.get(line.id);
         if (line.lots.length > 0) {
           const liveLotsById = new Map(
             (liveLine?.lots ?? []).map((lot) => [lot.id, lot])
           );
-          const allLots = line.lots.map((lot) => {
-            const currentQty = lot.isFound
-              ? "0"
-              : liveLotsById.get(lot.id)?.expectedQty ?? "0";
+          const allLots = await Promise.all(line.lots.map(async (lot) => {
+            const liveLot = lot.isFound
+              ? findCanonicalLotByNumber(liveLine?.lots ?? [], lot.lotNumber)
+              : liveLotsById.get(lot.id);
+            const canonicalLot = lot.isFound
+              ? await findLotByNumberInTx(tx, {
+                  organizationId: orgId,
+                  itemId: line.itemId,
+                  lotNumber: lot.lotNumber,
+                  locationId: stocktake.locationId,
+                })
+              : null;
+            const currentQty = liveLot?.expectedQty ?? canonicalLot?.expectedQty ?? "0";
             const countedQty = lot.countedQty ?? currentQty;
             return {
               lotLineId: lot.id,
-              lotId: lot.lotId,
+              lotId: lot.lotId ?? liveLot?.lotId ?? canonicalLot?.lotId ?? null,
               isFound: lot.isFound,
               lotNumber: lot.lotNumber,
               expectedQty: lot.isFound ? "0" : lot.expectedQty,
@@ -818,7 +882,7 @@ export async function getStocktakeCompletionPreview(
               notes: lot.notes,
               wasCounted: lot.countedQty != null,
             };
-          });
+          }));
           const lots = allLots
             .filter((lot) => lot.wasCounted)
             .map((lot) => ({
@@ -866,7 +930,7 @@ export async function getStocktakeCompletionPreview(
           notes: line.notes,
           lots: [],
         };
-      }),
+      })),
     };
   });
 }
@@ -930,13 +994,28 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
     // Counting lots (including re-counts of already-recorded found lots) and
     // deleting found lines stay free; only recording a newly discovered lot
     // is a lot-tracking workflow.
-    const recordsNewFoundLot = data.foundLotLines.some((foundLot) => {
+    let recordsNewFoundLot = false;
+    for (const foundLot of data.foundLotLines) {
       const ownerLine = lineMap.get(foundLot.stocktakeItemId);
-      if (!ownerLine) return false;
-      return !ownerLine.lots.some(
+      if (!ownerLine || ownerLine.lotTrackingMode !== "tracked") continue;
+      const existingFoundLot = ownerLine.lots.some(
         (lot) => lot.isFound && lot.lotNumber.trim() === foundLot.lotNumber
       );
-    });
+      if (existingFoundLot || findCanonicalLotByNumber(ownerLine.lots, foundLot.lotNumber)) {
+        continue;
+      }
+
+      const canonicalLot = await findLotByNumberInTx(tx, {
+        organizationId: orgId,
+        itemId: ownerLine.itemId,
+        lotNumber: foundLot.lotNumber,
+        locationId: stocktake.locationId,
+      });
+      if (!canonicalLot) {
+        recordsNewFoundLot = true;
+        break;
+      }
+    }
     if (recordsNewFoundLot) {
       await assertFeatureAccessInTx(tx, orgId, "lot_tracking", {
         route: "PUT /api/stocktakes/[id]",
@@ -1130,33 +1209,21 @@ export async function updateStocktakeCounts(id: string, data: UpdateStocktakeCou
         );
       }
 
-      // A "found" lot must not collide with active inventory. If it
-      // already exists as a tracked snapshot line on this item, or as a live
-      // positive-quantity lot, it must be counted as that lot instead of
-      // posted as a raw +gain. Zero-quantity historical lot rows are inactive.
-      const collidesWithSnapshotLot = ownerLine.lots.some(
-        (lot) =>
-          !lot.isFound && lot.lotNumber.trim() === foundLot.lotNumber
-      );
-      if (collidesWithSnapshotLot) {
-        throw new StocktakeError(
-          `Lot ${foundLot.lotNumber} already exists for this item — count it as the listed lot.`,
-          400,
-          { errors: { lotLines: ["This lot already exists for this item."] } }
-        );
-      }
+      const snapshotLot = findCanonicalLotByNumber(ownerLine.lots, foundLot.lotNumber);
+      if (snapshotLot) {
+        const countedQty = foundLot.countedQty;
+        await tx
+          .update(stocktakeLotItems)
+          .set({
+            countedQty,
+            varianceQty: getVariance(snapshotLot.expectedQty, countedQty),
+            ...(foundLot.notes !== undefined ? { notes: foundLot.notes } : {}),
+            updatedAt: new Date(),
+          })
+          .where(eq(stocktakeLotItems.id, snapshotLot.id));
 
-      const liveLotId = await findActiveLotByNumberInTx(tx, {
-        organizationId: orgId,
-        itemId: ownerLine.itemId,
-        lotNumber: foundLot.lotNumber,
-      });
-      if (liveLotId) {
-        throw new StocktakeError(
-          `Lot ${foundLot.lotNumber} already exists for this item — count it as the listed lot.`,
-          400,
-          { errors: { lotLines: ["This lot already exists for this item."] } }
-        );
+        stocktakeItemIdsToRollUp.add(ownerLine.id);
+        continue;
       }
 
       const countedQty = foundLot.countedQty;
@@ -1302,9 +1369,19 @@ export async function completeStocktake(
 
         const lotRollupLines: Array<{ expectedQty: string; countedQty: string }> = [];
         for (const lot of line.lots) {
-          const currentQty = lot.isFound
-            ? "0"
-            : liveLotsById.get(lot.id)?.expectedQty ?? "0";
+          const liveLot = lot.isFound
+            ? findCanonicalLotByNumber(liveLine?.lots ?? [], lot.lotNumber)
+            : liveLotsById.get(lot.id);
+          const canonicalLot = lot.isFound
+            ? await findLotByNumberInTx(tx, {
+                organizationId: orgId,
+                itemId: line.itemId,
+                lotNumber: lot.lotNumber,
+                locationId: stocktake.locationId,
+              })
+            : null;
+          const currentQty =
+            liveLot?.expectedQty ?? canonicalLot?.expectedQty ?? "0";
 
           if (lot.countedQty == null) {
             lotRollupLines.push({
@@ -1316,20 +1393,36 @@ export async function completeStocktake(
 
           if (lot.isFound) {
             // Found lots are not in the live snapshot. Defer lot creation to
-            // the kernel: pass the operator lot number through reconcile, which
-            // creates the lot and posts the gain atomically and audited. No
-            // manual lots INSERT here (removes the kernel bypass + TOCTOU race).
+            // the kernel: pass the operator lot number through reconcile, or
+            // reuse a zero-balance historical lot with the same number.
+            if (
+              (liveLot?.lotId ?? canonicalLot?.lotId) != null &&
+              Number(currentQty) !== Number(lot.expectedQty)
+            ) {
+              staleItems.push({
+                lineId: line.id,
+                lotLineId: lot.id,
+                itemId: line.itemId,
+                itemName: line.itemName,
+                lotNumber: lot.lotNumber,
+                unitName: line.unitName,
+                expectedQty: lot.expectedQty,
+                currentQty,
+                countedQty: lot.countedQty,
+              });
+            }
+
             countedLines.push({
               stocktakeLineId: lot.id,
               stocktakeItemId: line.id,
               itemId: line.itemId,
-              lotId: null,
+              lotId: liveLot?.lotId ?? canonicalLot?.lotId ?? null,
               foundLotNumber: lot.lotNumber,
-              expectedQty: "0",
+              expectedQty: currentQty,
               countedQty: lot.countedQty,
             });
             lotRollupLines.push({
-              expectedQty: "0",
+              expectedQty: currentQty,
               countedQty: lot.countedQty,
             });
             continue;
@@ -1461,15 +1554,17 @@ export async function completeStocktake(
     // (or matched) so display/allocation/rollup logic can treat them as lot
     // lines. The kernel resolves found lots by (org, item, lotNumber).
     for (const line of countedLines) {
-      if (line.lotId != null || line.foundLotNumber == null) {
+      if (line.foundLotNumber == null) {
         continue;
       }
 
-      const lotId = await findActiveLotByNumberInTx(tx, {
-        organizationId: orgId,
-        itemId: line.itemId,
-        lotNumber: line.foundLotNumber,
-      });
+      const lotId =
+        line.lotId ??
+        (await findActiveLotByNumberInTx(tx, {
+          organizationId: orgId,
+          itemId: line.itemId,
+          lotNumber: line.foundLotNumber,
+        }));
 
       if (lotId) {
         line.lotId = lotId;

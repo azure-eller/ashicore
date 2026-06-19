@@ -286,7 +286,9 @@ export function StocktakeDetail({
     }
   };
 
-  const handleComplete = openCompletionReview;
+  const handleComplete = () => {
+    void openCompletionReview(false);
+  };
 
   const confirmCompletion = async () => {
     try {

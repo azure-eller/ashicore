@@ -130,19 +130,23 @@ test.describe("stocktake workflow operating story", () => {
     expect(response.status).toBe(400);
   });
 
-  test("commits the saved count as authoritative stock truth", async ({ db }) => {
-    const complete = await testFetch("/api/inventory/reconciliations", {
-      method: "POST",
-      body: JSON.stringify({
-        source: {
-          kind: "stocktake",
-          stocktakeId,
-          confirmStale: false,
-        },
-        lines: [],
-      }),
-    });
-    expect(complete.status).toBe(200);
+  test("commits the saved count as authoritative stock truth", async ({
+    db,
+    page,
+  }) => {
+    await page.goto(`/inventory/stocktakes/${stocktakeId}`);
+    await page.getByRole("button", { name: "Complete" }).click();
+    await expect(page.getByRole("dialog", { name: "Review stocktake" })).toBeVisible();
+
+    const completeResponse = page.waitForResponse(
+      (response) =>
+        response.url().includes(`/api/stocktakes/${stocktakeId}/complete`) &&
+        response.request().method() === "POST"
+    );
+    await page.getByRole("dialog", { name: "Review stocktake" })
+      .getByRole("button", { name: "Complete stocktake" })
+      .click();
+    expect((await completeResponse).status()).toBe(200);
 
     await expect
       .poll(async () => {
@@ -384,16 +388,16 @@ test.describe("stocktake found-lot operating story", () => {
     expect(reconciledFound.lotId).toBe(createdLot.id);
   });
 
-  test("rejects a found lot number that exists as active inventory for the item", async ({
+  test("counts an existing active lot when a stale client submits it as found", async ({
     db,
   }) => {
     const material = await createMaterialFixture({
-      name: "Found Lot Reject Material",
+      name: "Found Lot Existing Material",
       stock: "2",
       cost: "3.00",
     });
     const [existingLot] = await db
-      .select({ lotNumber: lots.lotNumber })
+      .select({ id: lots.id, lotNumber: lots.lotNumber })
       .from(lots)
       .where(eq(lots.itemId, material.id));
     expect(existingLot?.lotNumber).toBeTruthy();
@@ -401,7 +405,7 @@ test.describe("stocktake found-lot operating story", () => {
     const create = await testFetch("/api/stocktakes", {
       method: "POST",
       body: JSON.stringify({
-        name: `Found Lot Reject ${Date.now()}`,
+        name: `Found Lot Existing ${Date.now()}`,
         scope: "all",
         reason: "Cycle count",
         notes: null,
@@ -430,14 +434,13 @@ test.describe("stocktake found-lot operating story", () => {
             isFound: true,
             stocktakeItemId: line.id,
             lotNumber: existingLot.lotNumber,
-            countedQty: "2",
+            countedQty: "1",
           },
         ],
       }),
     });
-    expect(save.status).toBe(400);
+    expect(save.status, await save.text()).toBe(200);
 
-    // No found row was persisted for the colliding lot number.
     const foundRows = await db
       .select({ id: stocktakeLotItems.id })
       .from(stocktakeLotItems)
@@ -448,6 +451,129 @@ test.describe("stocktake found-lot operating story", () => {
         )
     );
     expect(foundRows).toHaveLength(0);
+
+    const [countedExistingLot] = await db
+      .select({
+        countedQty: stocktakeLotItems.countedQty,
+        varianceQty: stocktakeLotItems.varianceQty,
+      })
+      .from(stocktakeLotItems)
+      .where(
+        and(
+          eq(stocktakeLotItems.stocktakeItemId, line.id),
+          eq(stocktakeLotItems.lotId, existingLot.id)
+        )
+      );
+    expect(countedExistingLot.countedQty).toBe("1.0000");
+    expect(countedExistingLot.varianceQty).toBe("-1.0000");
+
+    const complete = await testFetch(`/api/stocktakes/${stocktakeId}/complete`, {
+      method: "POST",
+      body: JSON.stringify({ confirmStale: false }),
+    });
+    expect(complete.status, await complete.text()).toBe(200);
+
+    const [stock] = await db
+      .select({ quantity: lots.quantity })
+      .from(lots)
+      .where(eq(lots.id, existingLot.id));
+    expect(stock.quantity).toBe("1.0000");
+  });
+
+  test("reconciles a live lot created after the stocktake snapshot when submitted as found", async ({
+    db,
+  }) => {
+    const material = await createMaterialFixture({
+      name: "Found Lot Late Live Material",
+      stock: "0",
+      cost: "3.00",
+    });
+
+    const create = await testFetch("/api/stocktakes", {
+      method: "POST",
+      body: JSON.stringify({
+        name: `Found Lot Late Live ${Date.now()}`,
+        scope: "all",
+        reason: "Cycle count",
+        notes: null,
+        itemIds: [material.id],
+      }),
+    });
+    expect(create.status).toBe(201);
+    const stocktakeId = (await create.json()).id as string;
+
+    const [line] = await db
+      .select()
+      .from(stocktakeItems)
+      .where(
+        and(
+          eq(stocktakeItems.stocktakeId, stocktakeId),
+          eq(stocktakeItems.itemId, material.id)
+        )
+      );
+
+    const lateLotNumber = `LATE-${Date.now()}`;
+    const adjust = await testFetch(`/api/items/${material.id}/stock-adjustments`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "data_correction",
+        lots: [{ lotNumber: lateLotNumber, newQuantity: "3" }],
+      }),
+    });
+    expect(adjust.status, await adjust.text()).toBe(200);
+
+    const [lateLot] = await db
+      .select({ id: lots.id })
+      .from(lots)
+      .where(
+        and(eq(lots.itemId, material.id), eq(lots.lotNumber, lateLotNumber))
+      );
+    expect(lateLot?.id).toBeTruthy();
+
+    const save = await testFetch(`/api/stocktakes/${stocktakeId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        lines: [],
+        lotLines: [
+          {
+            isFound: true,
+            stocktakeItemId: line.id,
+            lotNumber: lateLotNumber,
+            countedQty: "1",
+          },
+        ],
+      }),
+    });
+    expect(save.status, await save.text()).toBe(200);
+
+    const staleComplete = await testFetch(`/api/stocktakes/${stocktakeId}/complete`, {
+      method: "POST",
+      body: JSON.stringify({ confirmStale: false }),
+    });
+    expect(staleComplete.status, await staleComplete.text()).toBe(409);
+
+    const complete = await testFetch(`/api/stocktakes/${stocktakeId}/complete`, {
+      method: "POST",
+      body: JSON.stringify({ confirmStale: true }),
+    });
+    expect(complete.status, await complete.text()).toBe(200);
+
+    const [stock] = await db
+      .select({ quantity: lots.quantity })
+      .from(lots)
+      .where(eq(lots.id, lateLot.id));
+    expect(stock.quantity).toBe("1.0000");
+
+    const [completedFound] = await db
+      .select({ lotId: stocktakeLotItems.lotId })
+      .from(stocktakeLotItems)
+      .where(
+        and(
+          eq(stocktakeLotItems.stocktakeItemId, line.id),
+          eq(stocktakeLotItems.isFound, true)
+        )
+      );
+    expect(completedFound.lotId).toBe(lateLot.id);
   });
 
   test("does not snapshot zero-balance lots as active countable lots", async ({
@@ -459,7 +585,7 @@ test.describe("stocktake found-lot operating story", () => {
       cost: "3.00",
     });
     const existingLotNumber = `ZERO-${Date.now()}`;
-    await db
+    const [existingLot] = await db
       .insert(lots)
       .values({
         organizationId: getOrgId(),
@@ -467,7 +593,8 @@ test.describe("stocktake found-lot operating story", () => {
         lotNumber: existingLotNumber,
         quantity: "0",
         receivedAt: new Date(),
-      });
+      })
+      .returning({ id: lots.id });
 
     const create = await testFetch("/api/stocktakes", {
       method: "POST",
@@ -519,7 +646,7 @@ test.describe("stocktake found-lot operating story", () => {
     expect(save.status).toBe(200);
 
     const foundRows = await db
-      .select({ id: stocktakeLotItems.id })
+      .select({ id: stocktakeLotItems.id, lotId: stocktakeLotItems.lotId })
       .from(stocktakeLotItems)
       .where(
         and(
@@ -528,6 +655,18 @@ test.describe("stocktake found-lot operating story", () => {
         )
       );
     expect(foundRows).toHaveLength(1);
+
+    const complete = await testFetch(`/api/stocktakes/${stocktakeId}/complete`, {
+      method: "POST",
+      body: JSON.stringify({ confirmStale: false }),
+    });
+    expect(complete.status, await complete.text()).toBe(200);
+
+    const [completedFound] = await db
+      .select({ lotId: stocktakeLotItems.lotId })
+      .from(stocktakeLotItems)
+      .where(eq(stocktakeLotItems.id, foundRows[0].id));
+    expect(completedFound.lotId).toBe(existingLot.id);
   });
 
   test("completing one lot preserves untouched lots in the parent completed total", async ({

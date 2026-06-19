@@ -118,7 +118,7 @@ Existing examples:
 | Gated (entering paid state) | Free (returning to / staying in default) |
 | --- | --- |
 | Disposition to `blocked`/`rejected`, scrap | `release` back to `available` |
-| Recording a NEW stocktake found lot | Re-counting/deleting existing found lots |
+| Recording a NEW stocktake found lot | Re-counting/deleting existing found lots; resolving a found lot to an existing lot number |
 | New lot via stock adjustment | Adjusting existing lots |
 | New lot from a positive aggregate count at stocktake completion | Zero/negative aggregate counts; untracked items |
 | Non-FIFO ingredient `lotStrategy` | Reverting to `fifo`; execution always picks FIFO |

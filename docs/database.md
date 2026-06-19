@@ -357,6 +357,7 @@ Workflow rules:
 - saving counts updates snapshot rows only; it must not mutate live stock
 - completing a stocktake applies deltas from current live stock to counted truth and writes `stocktake_gain`, `stocktake_loss`, or `stocktake_verification` events
 - if current live stock differs from the original snapshot `expectedQty`, completion returns `409` until the caller confirms the stale apply
+- lot-tracked found rows resolve by `(item, lotNumber)` first, so stale clients and zero-balance historical lots reconcile the canonical lot instead of creating duplicates
 - `cancelled` stocktakes keep history and do not mutate stock
 
 Positive stock writes must always have a lot cost:
