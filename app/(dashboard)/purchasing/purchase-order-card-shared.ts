@@ -360,6 +360,10 @@ export function deliveryAddressKey(address: DeliveryAddressFields | undefined) {
   return deliveryAddressContentKey(normalized);
 }
 
+/**
+ * Stable key for matching nonblank copied PO addresses to saved address entries.
+ * An empty result means the PO has no delivery address and must stay unmatched.
+ */
 export function deliveryAddressContentKey(address: DeliveryAddressFields | undefined) {
   const normalized = normalizeDeliveryAddress(address);
   return [

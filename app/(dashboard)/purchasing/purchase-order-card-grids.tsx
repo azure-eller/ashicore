@@ -603,7 +603,9 @@ export function DeliveryAddressInput({
   );
   const currentContentKey = deliveryAddressContentKey(value);
   const matchedCurrentOption =
-    optionMap.get(currentAddressId) ?? optionByContent.get(currentContentKey) ?? null;
+    optionMap.get(currentAddressId) ??
+    (currentContentKey ? optionByContent.get(currentContentKey) : null) ??
+    null;
   const currentComboboxValue = matchedCurrentOption?.id ?? currentAddressId;
   const items = canEditCurrent
     ? [...optionIds, EDIT_DELIVERY_ADDRESS_VALUE, ADD_DELIVERY_ADDRESS_VALUE]
