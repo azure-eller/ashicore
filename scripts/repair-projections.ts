@@ -25,7 +25,7 @@ function getArgValues(flag: string) {
 
 function printUsage() {
   console.error(
-    "Usage: pnpm repair:projections -- --org-id <org-id> [--item-id <id> ...] [--apply] [--json]"
+    "Usage: pnpm repair:projections -- --org-id <org-id> [--item-id <id> ...] [--apply] [--repair-stock-ledger] [--json]"
   );
 }
 
@@ -33,6 +33,7 @@ async function main() {
   const orgId = getArgValue("--org-id");
   const itemIds = getArgValues("--item-id");
   const apply = process.argv.includes("--apply");
+  const repairStockLedger = process.argv.includes("--repair-stock-ledger");
   const json = process.argv.includes("--json");
 
   if (!orgId) {
@@ -46,6 +47,7 @@ async function main() {
 
   const result = await repairInventoryStockProjectionsForOrg(orgId, {
     apply,
+    repairStockLedger,
     itemIds: itemIds.length > 0 ? itemIds : undefined,
   });
   const hasRemainingStockDrift =
@@ -62,6 +64,7 @@ async function main() {
     console.log(`Projection repair for org ${orgId}`);
     console.log(`- mode: ${result.mode}`);
     console.log(`- scoped item ids: ${itemIds.length || "all"}`);
+    console.log(`- repair stock ledger: ${repairStockLedger ? "yes" : "no"}`);
     console.log("- before:");
     console.log(`  - item deltas: ${result.beforeSummary.itemDeltas}`);
     console.log(`  - lot deltas: ${result.beforeSummary.lotDeltas}`);
@@ -81,7 +84,19 @@ async function main() {
 
     if (!apply) {
       console.log("");
-      console.log("Dry run only. Re-run with --apply to write item, lot, and legacy lot projection repairs.");
+      console.log("Dry run only. Re-run with --apply to write item and legacy lot projection repairs.");
+      console.log("Add --repair-stock-ledger only when raw stock events are known to be the intended source of truth for lot rows.");
+    }
+
+    if (
+      apply &&
+      !repairStockLedger &&
+      (result.afterSummary.lotDeltas > 0 || result.afterSummary.legacyLotDeltas > 0)
+    ) {
+      console.log("");
+      console.log("Raw stock-ledger lot drift remains diagnostic-only.");
+      console.log("Default repair keeps current lot balances as the stock source of truth.");
+      console.log("Add --repair-stock-ledger only after confirming raw stock events should overwrite lot rows.");
     }
 
     if (hasPlanningDrift) {

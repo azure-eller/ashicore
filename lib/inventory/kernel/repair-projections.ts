@@ -396,59 +396,60 @@ async function repairItemProjectionRowsInTx(
   orgId: string,
   itemIds?: string[]
 ) {
-  const filter = eventItemScope(itemIds);
   const storedFilter = itemScope(itemIds);
 
   const upserted = await tx.execute(sql`
-    WITH event_totals AS (
+    WITH item_locations AS (
       SELECT
-        e.organization_id,
-        e.location_id,
-        e.item_id,
-        ROUND(SUM(
-          CASE
-            WHEN e.event_type IN (
-              'opening_balance',
-              'purchase_receipt',
-              'manufacturing_output',
-              'manual_adjustment_increase',
-              'stocktake_gain',
-              'manufacturing_variance_gain',
-              'unpick_restock',
-              'transfer_in'
-            ) THEN e.quantity
-            WHEN e.event_type IN (
-              'manual_adjustment_decrease',
-              'stocktake_loss',
-              'sales_consumption',
-              'manufacturing_ingredient_consumption',
-              'manufacturing_variance_loss',
-              'quality_scrap',
-              'transfer_out'
-            ) THEN -e.quantity
-            ELSE 0
-          END
-        ), 4) AS on_hand_qty,
-        ROUND(SUM(
-          CASE
-            WHEN e.event_type = 'demand_increase' THEN e.quantity
-            WHEN e.event_type = 'demand_release' THEN -e.quantity
-            ELSE 0
-          END
-        ), 4) AS demand_qty,
-        ROUND(SUM(
-          CASE
-            WHEN e.event_type = 'expected_increase' THEN e.quantity
-            WHEN e.event_type = 'expected_release' THEN -e.quantity
-            ELSE 0
-          END
-        ), 4) AS expected_qty
-      FROM inventory.inventory_events e
-      WHERE e.organization_id = ${orgId}
-        ${filter}
-      GROUP BY e.organization_id, e.location_id, e.item_id
+        organization_id,
+        location_id,
+        item_id
+      FROM inventory.inventory_item_balances
+      WHERE organization_id = ${orgId}
+        ${storedFilter}
+
+      UNION
+
+      SELECT
+        organization_id,
+        location_id,
+        item_id
+      FROM inventory.inventory_lot_balances
+      WHERE organization_id = ${orgId}
+        ${storedFilter}
+
+      UNION
+
+      SELECT
+        organization_id,
+        location_id,
+        item_id
+      FROM inventory.inventory_demands_summary
+      WHERE organization_id = ${orgId}
+        ${storedFilter}
+
+      UNION
+
+      SELECT
+        organization_id,
+        location_id,
+        item_id
+      FROM inventory.inventory_expected_summary
+      WHERE organization_id = ${orgId}
+        ${storedFilter}
     ),
-    available_lots AS (
+    lot_totals AS (
+      SELECT
+        b.organization_id,
+        b.location_id,
+        b.item_id,
+        ROUND(SUM(b.quantity), 4) AS on_hand_qty
+      FROM inventory.inventory_lot_balances b
+      WHERE b.organization_id = ${orgId}
+        ${storedFilter}
+      GROUP BY b.organization_id, b.location_id, b.item_id
+    ),
+    available_lot_totals AS (
       SELECT
         b.organization_id,
         b.location_id,
@@ -460,6 +461,28 @@ async function repairItemProjectionRowsInTx(
         ${storedFilter}
         AND b.disposition = 'available'
       GROUP BY b.organization_id, b.location_id, b.item_id
+    ),
+    demand_totals AS (
+      SELECT
+        organization_id,
+        location_id,
+        item_id,
+        ROUND(SUM(quantity), 4) AS demand_qty
+      FROM inventory.inventory_demands_summary
+      WHERE organization_id = ${orgId}
+        ${storedFilter}
+      GROUP BY organization_id, location_id, item_id
+    ),
+    expected_totals AS (
+      SELECT
+        organization_id,
+        location_id,
+        item_id,
+        ROUND(SUM(quantity), 4) AS expected_qty
+      FROM inventory.inventory_expected_summary
+      WHERE organization_id = ${orgId}
+        ${storedFilter}
+      GROUP BY organization_id, location_id, item_id
     ),
     changed AS (
       INSERT INTO inventory.inventory_item_balances (
@@ -473,24 +496,36 @@ async function repairItemProjectionRowsInTx(
         updated_at
       )
       SELECT
-        e.organization_id,
-        e.location_id,
-        e.item_id,
-        e.on_hand_qty,
-        e.demand_qty,
-        e.expected_qty,
+        scoped.organization_id,
+        scoped.location_id,
+        scoped.item_id,
+        COALESCE(l.on_hand_qty, 0),
+        COALESCE(d.demand_qty, 0),
+        COALESCE(x.expected_qty, 0),
         GREATEST(
           0,
           COALESCE(a.positive_qty, 0)
             - COALESCE(a.debt_qty, 0)
-            + e.expected_qty
-        ) - e.demand_qty,
+            + COALESCE(x.expected_qty, 0)
+        ) - COALESCE(d.demand_qty, 0),
         NOW()
-      FROM event_totals e
-      LEFT JOIN available_lots a
-        ON a.organization_id = e.organization_id
-       AND a.location_id = e.location_id
-       AND a.item_id = e.item_id
+      FROM item_locations scoped
+      LEFT JOIN lot_totals l
+        ON l.organization_id = scoped.organization_id
+       AND l.location_id = scoped.location_id
+       AND l.item_id = scoped.item_id
+      LEFT JOIN available_lot_totals a
+        ON a.organization_id = scoped.organization_id
+       AND a.location_id = scoped.location_id
+       AND a.item_id = scoped.item_id
+      LEFT JOIN demand_totals d
+        ON d.organization_id = scoped.organization_id
+       AND d.location_id = scoped.location_id
+       AND d.item_id = scoped.item_id
+      LEFT JOIN expected_totals x
+        ON x.organization_id = scoped.organization_id
+       AND x.location_id = scoped.location_id
+       AND x.item_id = scoped.item_id
       ON CONFLICT (organization_id, location_id, item_id)
       DO UPDATE SET
         on_hand_qty = EXCLUDED.on_hand_qty,
@@ -513,15 +548,34 @@ async function repairItemProjectionRowsInTx(
   `);
 
   const zeroed = await tx.execute(sql`
-    WITH event_totals AS (
+    WITH item_locations AS (
       SELECT
-        e.organization_id,
-        e.location_id,
-        e.item_id
-      FROM inventory.inventory_events e
-      WHERE e.organization_id = ${orgId}
-        ${filter}
-      GROUP BY e.organization_id, e.location_id, e.item_id
+        organization_id,
+        location_id,
+        item_id
+      FROM inventory.inventory_lot_balances
+      WHERE organization_id = ${orgId}
+        ${storedFilter}
+
+      UNION
+
+      SELECT
+        organization_id,
+        location_id,
+        item_id
+      FROM inventory.inventory_demands_summary
+      WHERE organization_id = ${orgId}
+        ${storedFilter}
+
+      UNION
+
+      SELECT
+        organization_id,
+        location_id,
+        item_id
+      FROM inventory.inventory_expected_summary
+      WHERE organization_id = ${orgId}
+        ${storedFilter}
     ),
     changed AS (
       UPDATE inventory.inventory_item_balances b
@@ -541,7 +595,7 @@ async function repairItemProjectionRowsInTx(
         )
         AND NOT EXISTS (
           SELECT 1
-          FROM event_totals e
+          FROM item_locations e
           WHERE e.organization_id = b.organization_id
             AND e.location_id = b.location_id
             AND e.item_id = b.item_id
@@ -601,6 +655,7 @@ export async function repairInventoryStockProjectionsForOrg(
   options?: {
     apply?: boolean;
     itemIds?: string[];
+    repairStockLedger?: boolean;
   }
 ): Promise<InventoryProjectionRepairResult> {
   return db.transaction(async (tx) => {
@@ -624,7 +679,10 @@ export async function repairInventoryStockProjectionsForOrg(
     if (mode === "apply") {
       await lockRepairScopeInTx(tx, orgId, itemIds);
 
-      repaired.lotRows = await repairLotProjectionRowsInTx(tx, orgId, itemIds);
+      if (options?.repairStockLedger) {
+        repaired.lotRows = await repairLotProjectionRowsInTx(tx, orgId, itemIds);
+      }
+
       repaired.itemRows = await repairItemProjectionRowsInTx(tx, orgId, itemIds);
       repaired.legacyLotRows = await repairLegacyLotRowsInTx(tx, orgId, itemIds);
     }

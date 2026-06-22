@@ -48,7 +48,7 @@ Local fast lanes default to 2 Playwright workers. CI overrides with `PLAYWRIGHT_
 
 Do not run the whole slow lane locally unless the change is cross-domain or explicitly needs broad workflow verification.
 
-`pnpm verify:inventory` is the standard inventory integrity workflow: kernel grep guards, projection diff, and planning-reference integrity checks for the current Playwright test org. The planning checks fail on negative, orphaned, inactive, or over-target demand/expected rows even when the ledger-derived projections otherwise balance.
+`pnpm verify:inventory` is the standard inventory integrity workflow: kernel grep guards, projection diff, and planning-reference integrity checks for the current Playwright test org. The projection diff compares item balances to current lot balances plus active demand/expected summaries, while lot and reference drift remain ledger diagnostics. The planning checks fail on negative, orphaned, inactive, or over-target demand/expected rows even when projection totals otherwise balance.
 
 ## Fast Test Guardrails
 

@@ -422,9 +422,9 @@ test.describe("inventory kernel invariants", () => {
     });
 
     expect(dryRun.mode).toBe("dry-run");
-    expect(dryRun.beforeSummary.itemDeltas).toBe(1);
+    expect(dryRun.beforeSummary.itemDeltas).toBe(0);
     expect(dryRun.beforeSummary.lotDeltas).toBe(1);
-    expect(dryRun.beforeSummary.legacyLotDeltas).toBe(1);
+    expect(dryRun.beforeSummary.legacyLotDeltas).toBe(0);
     expect(dryRun.repaired).toMatchObject({
       itemRows: 0,
       lotRows: 0,
@@ -434,10 +434,13 @@ test.describe("inventory kernel invariants", () => {
     const stillDrifted = await withTestOrg(orgId, (tx) =>
       diffProjections(tx, orgId, [itemId])
     );
-    expect(stillDrifted.itemDeltas).toHaveLength(1);
+    expect(stillDrifted.itemDeltas).toHaveLength(0);
+    expect(stillDrifted.lotDeltas).toHaveLength(1);
+    expect(stillDrifted.legacyLotDeltas).toHaveLength(0);
 
     const applied = await repairInventoryStockProjectionsForOrg(orgId, {
       apply: true,
+      repairStockLedger: true,
       itemIds: [itemId],
     });
 
@@ -452,6 +455,170 @@ test.describe("inventory kernel invariants", () => {
     expect(applied.afterSummary.legacyLotDeltas).toBe(0);
 
     await expectProjectionDiffClean(orgId, [itemId]);
+  });
+
+  test("repairs item planning balances from active summaries instead of stale planning events", async () => {
+    const itemId = await createMaterialFixture(
+      `Projection Planning Repair ${ts}`,
+      `Projection Planning Repair ${ts}`,
+      "10"
+    );
+    const staleDemandReferenceId = randomUUID();
+    const staleExpectedReferenceId = randomUUID();
+
+    await withTestOrg(orgId, async (tx) => {
+      const location = await getDefaultInventoryLocationInTx(tx, orgId);
+
+      await tx.insert(inventoryEvents).values([
+        {
+          organizationId: orgId,
+          locationId: location.id,
+          itemId,
+          eventType: "demand_release",
+          quantity: "100",
+          referenceType: "manufacturing_order_ingredient",
+          referenceId: staleDemandReferenceId,
+        },
+        {
+          organizationId: orgId,
+          locationId: location.id,
+          itemId,
+          eventType: "expected_release",
+          quantity: "50",
+          referenceType: "manufacturing_order",
+          referenceId: staleExpectedReferenceId,
+        },
+      ]);
+
+      await tx
+        .update(inventoryItemBalances)
+        .set({
+          demandQty: "-100",
+          expectedQty: "-50",
+          availableToPromise: "60",
+        })
+        .where(eq(inventoryItemBalances.itemId, itemId));
+    });
+
+    const dryRun = await repairInventoryStockProjectionsForOrg(orgId, {
+      itemIds: [itemId],
+    });
+
+    expect(dryRun.beforeSummary.itemDeltas).toBe(1);
+    expect(dryRun.beforeSummary.demandDeltas).toBe(1);
+    expect(dryRun.beforeSummary.expectedDeltas).toBe(1);
+
+    const applied = await repairInventoryStockProjectionsForOrg(orgId, {
+      apply: true,
+      itemIds: [itemId],
+    });
+
+    expect(applied.repaired.itemRows).toBe(1);
+    expect(applied.afterSummary.itemDeltas).toBe(0);
+    expect(applied.afterSummary.demandDeltas).toBe(1);
+    expect(applied.afterSummary.expectedDeltas).toBe(1);
+
+    const [balance] = await withTestOrg(orgId, (tx) =>
+      tx
+        .select({
+          onHandQty: inventoryItemBalances.onHandQty,
+          demandQty: inventoryItemBalances.demandQty,
+          expectedQty: inventoryItemBalances.expectedQty,
+          availableToPromise: inventoryItemBalances.availableToPromise,
+        })
+        .from(inventoryItemBalances)
+        .where(eq(inventoryItemBalances.itemId, itemId))
+    );
+
+    expect(balance).toMatchObject({
+      onHandQty: "10.0000",
+      demandQty: "0.0000",
+      expectedQty: "0.0000",
+      availableToPromise: "10.0000",
+    });
+
+    await withTestOrg(orgId, async (tx) => {
+      const location = await getDefaultInventoryLocationInTx(tx, orgId);
+
+      await tx.insert(inventoryEvents).values([
+        {
+          organizationId: orgId,
+          locationId: location.id,
+          itemId,
+          eventType: "demand_increase",
+          quantity: "100",
+          referenceType: "manufacturing_order_ingredient",
+          referenceId: staleDemandReferenceId,
+        },
+        {
+          organizationId: orgId,
+          locationId: location.id,
+          itemId,
+          eventType: "expected_increase",
+          quantity: "50",
+          referenceType: "manufacturing_order",
+          referenceId: staleExpectedReferenceId,
+        },
+      ]);
+    });
+  });
+
+  test("keeps non-available lot quantities in item on-hand while excluding them from ATP", async () => {
+    const itemId = await createMaterialFixture(
+      `Projection Blocked Stock ${ts}`,
+      `Projection Blocked Stock ${ts}`,
+      "10"
+    );
+
+    await withTestOrg(orgId, async (tx) => {
+      const [lotBalance] = await tx
+        .select()
+        .from(inventoryLotBalances)
+        .where(eq(inventoryLotBalances.itemId, itemId));
+      expect(lotBalance).toBeTruthy();
+
+      await tx.insert(inventoryLotBalances).values({
+        organizationId: orgId,
+        locationId: lotBalance.locationId,
+        itemId,
+        lotId: lotBalance.lotId,
+        disposition: "blocked",
+        quantity: "3",
+        unitCost: lotBalance.unitCost,
+        receivedAt: lotBalance.receivedAt,
+        originEventId: lotBalance.originEventId,
+      });
+
+      await tx
+        .update(inventoryItemBalances)
+        .set({
+          onHandQty: "10",
+          availableToPromise: "10",
+        })
+        .where(eq(inventoryItemBalances.itemId, itemId));
+    });
+
+    const applied = await repairInventoryStockProjectionsForOrg(orgId, {
+      apply: true,
+      itemIds: [itemId],
+    });
+
+    expect(applied.afterSummary.itemDeltas).toBe(0);
+
+    const [balance] = await withTestOrg(orgId, (tx) =>
+      tx
+        .select({
+          onHandQty: inventoryItemBalances.onHandQty,
+          availableToPromise: inventoryItemBalances.availableToPromise,
+        })
+        .from(inventoryItemBalances)
+        .where(eq(inventoryItemBalances.itemId, itemId))
+    );
+
+    expect(balance).toMatchObject({
+      onHandQty: "13.0000",
+      availableToPromise: "10.0000",
+    });
   });
 
   test("clamps expected supply releases to the open reference quantity", async ({

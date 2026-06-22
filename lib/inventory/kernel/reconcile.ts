@@ -129,14 +129,6 @@ export async function computeItemBalancesFromLedger(
       current.onHandQty = roundQuantity(current.onHandQty + quantity);
     } else if (STOCK_DECREASE_TYPES.has(row.eventType)) {
       current.onHandQty = roundQuantity(current.onHandQty - quantity);
-    } else if (DEMAND_INCREASE_TYPES.has(row.eventType)) {
-      current.demandQty = roundQuantity(current.demandQty + quantity);
-    } else if (DEMAND_RELEASE_TYPES.has(row.eventType)) {
-      current.demandQty = roundQuantity(current.demandQty - quantity);
-    } else if (EXPECTED_INCREASE_TYPES.has(row.eventType)) {
-      current.expectedQty = roundQuantity(current.expectedQty + quantity);
-    } else if (EXPECTED_RELEASE_TYPES.has(row.eventType)) {
-      current.expectedQty = roundQuantity(current.expectedQty - quantity);
     }
 
     computed.set(key, current);
@@ -441,6 +433,22 @@ export async function diffProjections(
       row,
     ])
   );
+  const demandByItemKey = new Map<BalanceKey, number>();
+  for (const row of storedDemand) {
+    const key = balanceKey([row.locationId, row.itemId]);
+    demandByItemKey.set(
+      key,
+      roundQuantity((demandByItemKey.get(key) ?? 0) + parseFloat(row.quantity))
+    );
+  }
+  const expectedByItemKey = new Map<BalanceKey, number>();
+  for (const row of storedExpected) {
+    const key = balanceKey([row.locationId, row.itemId]);
+    expectedByItemKey.set(
+      key,
+      roundQuantity((expectedByItemKey.get(key) ?? 0) + parseFloat(row.quantity))
+    );
+  }
   const storedLegacyLotsByKey = new Map(
     storedLegacyLots.map((row) => [row.lotId, row])
   );
@@ -454,24 +462,42 @@ export async function diffProjections(
     current.quantity = roundQuantity(current.quantity + row.quantity);
     computedLotsByLotId.set(row.lotId, current);
   }
+  const storedLotsByLotId = new Map<string, ComputedLotBalance>();
+  const onHandByItemKey = new Map<BalanceKey, number>();
   const reservableOnHandByItemKey = new Map<BalanceKey, number>();
   const debtByItemKey = new Map<BalanceKey, number>();
 
-  for (const lot of computedLots.values()) {
-    if (lot.disposition !== "available" || lot.quantity === 0) {
+  for (const lot of storedLots) {
+    const storedLot = storedLotsByLotId.get(lot.lotId) ?? {
+      locationId: lot.locationId,
+      lotId: lot.lotId,
+      itemId: lot.itemId,
+      disposition: "available",
+      quantity: 0,
+    };
+    const quantity = parseFloat(lot.quantity);
+    storedLot.quantity = roundQuantity(storedLot.quantity + quantity);
+    storedLotsByLotId.set(lot.lotId, storedLot);
+
+    const itemKey = balanceKey([lot.locationId, lot.itemId]);
+    onHandByItemKey.set(
+      itemKey,
+      roundQuantity((onHandByItemKey.get(itemKey) ?? 0) + quantity)
+    );
+
+    if (lot.disposition !== "available" || quantity === 0) {
       continue;
     }
 
-    const itemKey = balanceKey([lot.locationId, lot.itemId]);
-    if (lot.quantity > 0) {
+    if (quantity > 0) {
       reservableOnHandByItemKey.set(
         itemKey,
-        roundQuantity((reservableOnHandByItemKey.get(itemKey) ?? 0) + lot.quantity)
+        roundQuantity((reservableOnHandByItemKey.get(itemKey) ?? 0) + quantity)
       );
     } else {
       debtByItemKey.set(
         itemKey,
-        roundQuantity((debtByItemKey.get(itemKey) ?? 0) + Math.abs(lot.quantity))
+        roundQuantity((debtByItemKey.get(itemKey) ?? 0) + Math.abs(quantity))
       );
     }
   }
@@ -479,6 +505,9 @@ export async function diffProjections(
   const itemKeys = new Set([
     ...computedItems.keys(),
     ...storedItemsByKey.keys(),
+    ...storedLots.map((row) => balanceKey([row.locationId, row.itemId])),
+    ...storedDemand.map((row) => balanceKey([row.locationId, row.itemId])),
+    ...storedExpected.map((row) => balanceKey([row.locationId, row.itemId])),
   ]);
   const lotKeys = new Set([
     ...computedLots.keys(),
@@ -492,7 +521,7 @@ export async function diffProjections(
     ...computedExpected.keys(),
     ...storedExpectedByKey.keys(),
   ]);
-  const legacyLotKeys = new Set(computedLotsByLotId.keys());
+  const legacyLotKeys = new Set(storedLotsByLotId.keys());
 
   for (const lotId of storedLegacyLotsByKey.keys()) {
     legacyLotKeys.add(lotId);
@@ -517,17 +546,17 @@ export async function diffProjections(
       };
 
       const expected = {
-        onHandQty: normalizeNumeric(computed.onHandQty),
-        demandQty: normalizeNumeric(computed.demandQty),
-        expectedQty: normalizeNumeric(computed.expectedQty),
+        onHandQty: normalizeNumeric(onHandByItemKey.get(key) ?? 0),
+        demandQty: normalizeNumeric(demandByItemKey.get(key) ?? 0),
+        expectedQty: normalizeNumeric(expectedByItemKey.get(key) ?? 0),
         availableToPromise: normalizeNumeric(
           roundQuantity(
             Math.max(
               0,
               (reservableOnHandByItemKey.get(key) ?? 0)
                 - (debtByItemKey.get(key) ?? 0)
-                + computed.expectedQty
-            ) - computed.demandQty
+                + (expectedByItemKey.get(key) ?? 0)
+            ) - (demandByItemKey.get(key) ?? 0)
           )
         ),
       };
@@ -638,7 +667,7 @@ export async function diffProjections(
     legacyLotDeltas: Array.from(legacyLotKeys)
       .map((lotId) => {
         const row = storedLegacyLotsByKey.get(lotId);
-        const computed = computedLotsByLotId.get(lotId) ?? {
+        const computed = storedLotsByLotId.get(lotId) ?? {
           locationId: "",
           lotId,
           itemId: row?.itemId ?? "",

@@ -299,7 +299,7 @@ use this workflow before calling the change done:
 `pnpm verify:inventory` is the standard post-test inventory integrity check:
 
 - `pnpm verify:inventory-kernel` makes sure old direct stock helpers and removed truth fields do not leak back into active code
-- `pnpm verify:inventory-state` diffs ledger-derived balances against stored projections for the current Playwright test org from `test/.test-env.json`
+- `pnpm verify:inventory-state` compares stored item balances to current lot balances plus active demand/expected summaries for the current Playwright test org from `test/.test-env.json`; lot and reference rows are still checked against the ledger as drift diagnostics
 - the same state verifier also checks planning-reference integrity: demand and expected rows must be non-negative, reference live source rows, be active for their source status, and not exceed the source remaining quantity
 
 Run `pnpm verify:inventory` after the tests you want to validate. It depends on the latest Playwright global setup having refreshed `test/.test-env.json`.
@@ -379,18 +379,18 @@ This keeps future FIFO allocations from being consumed at zero cost.
 
 Inventory truth now lives in:
 
-- `inventory.inventory_events` — append-only for stock economics; `lot_id`
+- `inventory.inventory_events` — append-only audit trail for stock economics; `lot_id`
   references and metadata may be canonicalized during lot tracking mode
   transitions without changing event quantities, costs, or occurrence times
-- `inventory.inventory_lot_balances` — hot-path lot projection
-- `inventory.inventory_item_balances` — hot-path item projection
+- `inventory.inventory_lot_balances` — hot-path lot stock truth
+- `inventory.inventory_item_balances` — hot-path item projection derived from lot balances plus active demand and expected summaries
 - `inventory.inventory_demands_summary` — open demand rows, used as a
   projection/cache of business demand rather than allocation truth
 - `inventory.inventory_expected_summary` — open expected-supply rows
 
 The kernel is the only write path for stock, demand, expected supply, and cost-bearing inventory events. There is no persisted soft reservation model; planning coverage is computed from open demand, current stock, expected supply, and priority order.
 
-Demand and expected summaries are reference projections, not source truth. For supported business references, non-zero summary rows must match active source state: open sales lines and released manufacturing ingredients for demand; ordered/partial purchase lines and released manufacturing output for expected supply. Repairs must append compensating kernel events, not mutate summary rows or historical events in place.
+Demand and expected summaries are reference projections, not source truth. For supported business references, non-zero summary rows must match active source state: open sales lines and released manufacturing ingredients for demand; ordered/partial purchase lines and released manufacturing output for expected supply. Repairs must append compensating kernel events, not mutate summary rows or historical events in place. Item-balance repair uses the current lot balances plus these active summaries; replaying stale planning events into item balances is diagnostic-only.
 
 Active code must not:
 

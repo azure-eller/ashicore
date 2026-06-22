@@ -10,7 +10,7 @@ sidebar:
 
 import { Aside } from '@astrojs/starlight/components';
 
-The inventory ledger is the audit trail. Stock movements, planning projections, disposition moves, and cost-only changes are appended as events; projected balance tables make those events fast to read.
+The inventory ledger is the audit trail. Stock movements, planning projections, disposition moves, and cost-only changes are appended as events; hot balance tables keep the current operating answer fast to read.
 
 <p class="po-meta">
   <span class="po-chip">append-only</span>
@@ -36,12 +36,12 @@ Stock event quantities are positive; the event type determines whether the movem
 3. **Compare before and after.** On-hand event rows show signed movement and on-hand before/after when the ledger can calculate it.
 4. **Use cost fields for valuation history.** Stock events carry unit and extended cost. Revaluation events show cost-only changes.
 
-## Projections built from it
+## Hot balances maintained beside it
 
 | Projection | Grain | Holds |
 | --- | --- | --- |
 | `inventory_lot_balances` | item x location x lot x disposition | Quantity, unit cost, received date, origin event, active flag. |
-| `inventory_item_balances` | item x location | On hand, demand, expected, available to promise, last verified date. |
+| `inventory_item_balances` | item x location | On hand from current lot balances, demand and expected from active summaries, available to promise, last verified date. |
 | `inventory_expected_summary` | item x location x reference | Remaining expected supply by source document. |
 | `inventory_demands_summary` | item x location x reference | Remaining demand by source document. |
 

@@ -255,7 +255,8 @@ Schedule:
 Behavior:
 
 - the route walks every organization in `system.organization`
-- for each org, it recomputes item, lot, demand, and expected projections from `inventory.inventory_events`
+- for each org, it compares item balances to current lot balances plus active demand/expected summaries
+- it also reports raw ledger drift for lot, demand, and expected projections as diagnostics
 - if any org has drift, the route throws
 - `apiHandler` sends the exception to Sentry and returns a non-2xx response so the cron run is visibly failed
 
@@ -266,8 +267,11 @@ Manual repair:
 - inspect first with `pnpm diff:projections -- --org-id <org-id> [--item-id <id> ...]`
 - dry-run the repair with `pnpm repair:projections -- --org-id <org-id> [--item-id <id> ...]`
 - apply with `pnpm repair:projections -- --org-id <org-id> --apply [--item-id <id> ...]`
+- apply raw stock-ledger lot repair only when required with `pnpm repair:projections -- --org-id <org-id> --apply --repair-stock-ledger [--item-id <id> ...]`
 
-The repair command rebuilds item balances, lot balances, and legacy lot quantities from `inventory.inventory_events`. It does not mutate demand or expected summary rows; those remain kernel-event repairs because they are business-reference projections. For Paonia planning-reference drift, preview and apply the compensating event repair with:
+The default repair command rebuilds item balances from current lot balances plus active demand/expected summaries, and keeps legacy lot quantities aligned to current lot balances. It does not mutate demand or expected summary rows; those remain kernel-event repairs because they are business-reference projections. It also does not rewrite lot balances from raw stock events unless `--repair-stock-ledger` is provided. Use that flag only after confirming raw stock events should overwrite current lot rows.
+
+For Paonia planning-reference drift, preview and apply the compensating event repair with:
 
 ```bash
 tsx scripts/repair-planning-references.ts --org-slug paonia-soil-company
