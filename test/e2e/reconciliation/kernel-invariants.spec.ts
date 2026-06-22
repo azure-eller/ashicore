@@ -1,10 +1,14 @@
 import { and, eq, sql } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 import { db as appDb } from "@/lib/db";
 import {
   inventoryIdempotencyClaims,
   inventoryItemBalances,
+  inventoryLotBalances,
   inventoryEvents,
+  inventoryExpectedSummary,
   items,
+  lots,
   manufacturingOrderIngredients,
   purchaseOrders,
   salesOrderLines,
@@ -18,10 +22,15 @@ import {
   IdempotencyInFlightError,
 } from "@/lib/inventory/kernel/errors";
 import {
+  applyExpectedReferenceDeltasInTx,
+  getDefaultInventoryLocationInTx,
+} from "@/lib/inventory/kernel";
+import {
   claimInventoryIdempotencyInTx,
   completeInventoryIdempotencyClaimInTx,
 } from "@/lib/inventory/kernel/idempotency";
 import { diffProjections } from "@/lib/inventory/kernel/reconcile";
+import { repairInventoryStockProjectionsForOrg } from "@/lib/inventory/kernel/repair-projections";
 import { test, expect } from "../fixtures";
 import {
   confirmSalesOrder,
@@ -365,6 +374,150 @@ test.describe("inventory kernel invariants", () => {
       );
 
     expect(claimRow?.resultEnvelope).toEqual({ status: "pending" });
+  });
+
+  test("repairs stale stock projections from the ledger with dry-run by default", async () => {
+    const itemId = await createMaterialFixture(
+      `Projection Repair ${ts}`,
+      `Projection Repair ${ts}`,
+      "5"
+    );
+
+    const [lotBalance] = await withTestOrg(orgId, (tx) =>
+      tx
+        .select({
+          locationId: inventoryLotBalances.locationId,
+          lotId: inventoryLotBalances.lotId,
+        })
+        .from(inventoryLotBalances)
+        .where(eq(inventoryLotBalances.itemId, itemId))
+    );
+    expect(lotBalance).toBeTruthy();
+
+    await withTestOrg(orgId, async (tx) => {
+      await tx
+        .update(inventoryItemBalances)
+        .set({
+          onHandQty: "4",
+          availableToPromise: "4",
+        })
+        .where(eq(inventoryItemBalances.itemId, itemId));
+      await tx
+        .update(inventoryLotBalances)
+        .set({ quantity: "4", stillActive: true })
+        .where(
+          and(
+            eq(inventoryLotBalances.itemId, itemId),
+            eq(inventoryLotBalances.lotId, lotBalance.lotId)
+          )
+        );
+      await tx
+        .update(lots)
+        .set({ quantity: "4" })
+        .where(eq(lots.id, lotBalance.lotId));
+    });
+
+    const dryRun = await repairInventoryStockProjectionsForOrg(orgId, {
+      itemIds: [itemId],
+    });
+
+    expect(dryRun.mode).toBe("dry-run");
+    expect(dryRun.beforeSummary.itemDeltas).toBe(1);
+    expect(dryRun.beforeSummary.lotDeltas).toBe(1);
+    expect(dryRun.beforeSummary.legacyLotDeltas).toBe(1);
+    expect(dryRun.repaired).toMatchObject({
+      itemRows: 0,
+      lotRows: 0,
+      legacyLotRows: 0,
+    });
+
+    const stillDrifted = await withTestOrg(orgId, (tx) =>
+      diffProjections(tx, orgId, [itemId])
+    );
+    expect(stillDrifted.itemDeltas).toHaveLength(1);
+
+    const applied = await repairInventoryStockProjectionsForOrg(orgId, {
+      apply: true,
+      itemIds: [itemId],
+    });
+
+    expect(applied.mode).toBe("apply");
+    expect(applied.repaired).toMatchObject({
+      itemRows: 1,
+      lotRows: 1,
+      legacyLotRows: 1,
+    });
+    expect(applied.afterSummary.itemDeltas).toBe(0);
+    expect(applied.afterSummary.lotDeltas).toBe(0);
+    expect(applied.afterSummary.legacyLotDeltas).toBe(0);
+
+    await expectProjectionDiffClean(orgId, [itemId]);
+  });
+
+  test("clamps expected supply releases to the open reference quantity", async ({
+    db,
+  }) => {
+    const itemId = await createMaterialFixture(
+      `Recon Expected Clamp ${ts}`,
+      `Recon Expected Clamp ${ts}`,
+      "0"
+    );
+    const referenceId = randomUUID();
+
+    await withTestOrg(orgId, async (tx) => {
+      const location = await getDefaultInventoryLocationInTx(tx, orgId);
+      await applyExpectedReferenceDeltasInTx(tx, {
+        organizationId: orgId,
+        locationId: location.id,
+        deltas: [
+          {
+            itemId,
+            referenceType: "manufacturing_order",
+            referenceId,
+            quantity: 10,
+          },
+        ],
+      });
+
+      await applyExpectedReferenceDeltasInTx(tx, {
+        organizationId: orgId,
+        locationId: location.id,
+        deltas: [
+          {
+            itemId,
+            referenceType: "manufacturing_order",
+            referenceId,
+            quantity: -500,
+          },
+        ],
+      });
+    });
+
+    const events = await db
+      .select({
+        eventType: inventoryEvents.eventType,
+        quantity: inventoryEvents.quantity,
+      })
+      .from(inventoryEvents)
+      .where(eq(inventoryEvents.referenceId, referenceId))
+      .orderBy(inventoryEvents.occurredAt);
+
+    expect(events).toEqual([
+      { eventType: "expected_increase", quantity: "10.0000" },
+      { eventType: "expected_release", quantity: "10.0000" },
+    ]);
+
+    const summaryRows = await db
+      .select({ quantity: inventoryExpectedSummary.quantity })
+      .from(inventoryExpectedSummary)
+      .where(eq(inventoryExpectedSummary.referenceId, referenceId));
+    expect(summaryRows).toHaveLength(0);
+
+    const [balance] = await db
+      .select({ expectedQty: inventoryItemBalances.expectedQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, itemId));
+    expect(balance.expectedQty).toBe("0.0000");
   });
 
   test("replays item creation at the business-operation boundary", async ({ db }) => {

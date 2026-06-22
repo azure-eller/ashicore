@@ -203,6 +203,8 @@ Inventory effects are now split between pick and produce:
 
 Discrete completion must reuse persisted pick allocations and must not deduct ingredient stock a second time. Batch-mode completion uses the batch’s pick allocations and creates one finished lot per completed batch.
 
+Completion also closes the remaining manufacturing planning references: the output-side expected supply is released and any still-open ingredient demand for the completed order is released through the kernel. A `done` manufacturing order must not leave non-zero `manufacturing_order` expected rows or `manufacturing_order_ingredient` demand rows.
+
 ### Lot Numbers
 
 Auto-created inventory lots use the received business date as their display number. The first lot for an item/date is `LOT-YYYY-MM-DD`; additional lots for the same item/date use `LOT-YYYY-MM-DD-01`, `LOT-YYYY-MM-DD-02`, and so on. The uniqueness boundary is `organization_id + item_id + lot_number`, so different products may share the same date lot number.
@@ -298,6 +300,7 @@ use this workflow before calling the change done:
 
 - `pnpm verify:inventory-kernel` makes sure old direct stock helpers and removed truth fields do not leak back into active code
 - `pnpm verify:inventory-state` diffs ledger-derived balances against stored projections for the current Playwright test org from `test/.test-env.json`
+- the same state verifier also checks planning-reference integrity: demand and expected rows must be non-negative, reference live source rows, be active for their source status, and not exceed the source remaining quantity
 
 Run `pnpm verify:inventory` after the tests you want to validate. It depends on the latest Playwright global setup having refreshed `test/.test-env.json`.
 
@@ -342,6 +345,7 @@ Expected supply is shared inbound supply:
 - released manufacturing orders contribute finished-product planned quantity
 - ordered and partially received purchase orders contribute material remaining quantity
 - these paths must go through the kernel expected-supply operations
+- release deltas are clamped to the open expected row so an oversized release appends only the remaining quantity instead of driving expected supply negative
 - never increment/decrement expected supply directly outside the kernel
 
 ## Stocktakes
@@ -385,6 +389,8 @@ Inventory truth now lives in:
 - `inventory.inventory_expected_summary` — open expected-supply rows
 
 The kernel is the only write path for stock, demand, expected supply, and cost-bearing inventory events. There is no persisted soft reservation model; planning coverage is computed from open demand, current stock, expected supply, and priority order.
+
+Demand and expected summaries are reference projections, not source truth. For supported business references, non-zero summary rows must match active source state: open sales lines and released manufacturing ingredients for demand; ordered/partial purchase lines and released manufacturing output for expected supply. Repairs must append compensating kernel events, not mutate summary rows or historical events in place.
 
 Active code must not:
 

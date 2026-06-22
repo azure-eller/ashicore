@@ -609,6 +609,15 @@ export async function getStocktakePreviewItems(
       lotTrackingMode: row.lotTrackingMode as StocktakePreviewItem["lotTrackingMode"],
       stocktakeType: row.stocktakeType as StocktakeScopeItemType,
       displayName: row.name,
+      searchText: [
+        row.name,
+        row.sku,
+        row.itemType,
+        row.category,
+        row.unitName,
+      ]
+        .filter((part): part is string => part != null && part.trim() !== "")
+        .join(" "),
     }));
   });
 }

@@ -3,6 +3,7 @@ import { normalizeNumeric, roundQuantity } from "@/lib/format";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
   inventoryDemandSummary,
+  inventoryExpectedSummary,
 } from "@/lib/db/schema";
 import {
   applyDemandSummaryDeltasInTx,
@@ -23,6 +24,7 @@ export type QuantityReferenceDelta = {
   referenceType: string;
   referenceId: string;
   quantity: number;
+  metadata?: Record<string, unknown> | null;
 };
 
 export async function beginInventoryOperationInTx<TResult>(
@@ -204,6 +206,62 @@ async function clampDemandDeltasInTx(
   return adjusted;
 }
 
+async function clampExpectedDeltasInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    locationId: string;
+    deltas: QuantityReferenceDelta[];
+  }
+) {
+  const itemIds = [...new Set(params.deltas.map((delta) => delta.itemId))];
+  const existingRows = itemIds.length
+    ? await tx
+        .select({
+          itemId: inventoryExpectedSummary.itemId,
+          referenceType: inventoryExpectedSummary.referenceType,
+          referenceId: inventoryExpectedSummary.referenceId,
+          quantity: inventoryExpectedSummary.quantity,
+        })
+        .from(inventoryExpectedSummary)
+        .where(
+          and(
+            eq(inventoryExpectedSummary.organizationId, params.organizationId),
+            eq(inventoryExpectedSummary.locationId, params.locationId),
+            inArray(inventoryExpectedSummary.itemId, itemIds)
+          )
+        )
+    : [];
+
+  const currentByReference = new Map(
+    existingRows.map((row) => [referenceKey(row), parseFloat(row.quantity)])
+  );
+  const adjusted: QuantityReferenceDelta[] = [];
+
+  for (const delta of params.deltas) {
+    const key = referenceKey(delta);
+
+    if (delta.quantity > 0) {
+      adjusted.push(delta);
+      currentByReference.set(
+        key,
+        roundQuantity((currentByReference.get(key) ?? 0) + delta.quantity)
+      );
+      continue;
+    }
+
+    const current = Math.max(0, currentByReference.get(key) ?? 0);
+    const quantity = roundQuantity(Math.min(Math.abs(delta.quantity), current));
+
+    if (quantity > 0) {
+      adjusted.push({ ...delta, quantity: -quantity });
+      currentByReference.set(key, roundQuantity(current - quantity));
+    }
+  }
+
+  return adjusted;
+}
+
 export async function applyDemandReferenceDeltasInTx(
   tx: Tx,
   params: {
@@ -255,6 +313,7 @@ export async function applyDemandReferenceDeltasInTx(
       referenceId: delta.referenceId,
       actorUserId: params.actorUserId ?? null,
       idempotencyKey: index === 0 ? params.idempotencyKey ?? null : null,
+      metadata: delta.metadata ?? null,
     }))
   );
 
@@ -309,9 +368,19 @@ export async function applyExpectedReferenceDeltasInTx(
     filtered.map((delta) => delta.itemId)
   );
 
+  const adjusted = await clampExpectedDeltasInTx(tx, {
+    organizationId: params.organizationId,
+    locationId: params.locationId,
+    deltas: filtered,
+  });
+
+  if (adjusted.length === 0) {
+    return [];
+  }
+
   const inserted = await insertInventoryEventsInTx(
     tx,
-    filtered.map((delta, index) => ({
+    adjusted.map((delta, index) => ({
       organizationId: params.organizationId,
       locationId: params.locationId,
       eventType:
@@ -323,12 +392,13 @@ export async function applyExpectedReferenceDeltasInTx(
       referenceId: delta.referenceId,
       actorUserId: params.actorUserId ?? null,
       idempotencyKey: index === 0 ? params.idempotencyKey ?? null : null,
+      metadata: delta.metadata ?? null,
     }))
   );
 
   await applyExpectedSummaryDeltasInTx(
     tx,
-    filtered.map((delta) => ({
+    adjusted.map((delta) => ({
       organizationId: params.organizationId,
       locationId: params.locationId,
       itemId: delta.itemId,
@@ -340,7 +410,7 @@ export async function applyExpectedReferenceDeltasInTx(
 
   await applyItemBalanceDeltasInTx(
     tx,
-    summarizeItemDeltas(filtered, "expected").map((delta) => ({
+    summarizeItemDeltas(adjusted, "expected").map((delta) => ({
       ...delta,
       organizationId: params.organizationId,
       locationId: params.locationId,

@@ -8,7 +8,7 @@ import { withAuthedOrgContext } from "@/lib/dal/auth";
 import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
 import type { Tx } from "@/lib/db/with-org-context";
 import { lockManufacturingPriorityQueueInTx } from "@/lib/manufacturing-priority-lock";
-import { applyExpectedReferenceDeltasInTx, beginInventoryOperationInTx, deriveInventoryIdempotencyKey, finishInventoryOperationInTx, getDefaultInventoryLocationInTx, produceManufacturedStockInTx, reconcileIngredientActualsInTx, releaseIngredientDemandForManufacturingInTx } from "@/lib/inventory/kernel";
+import { applyExpectedReferenceDeltasInTx, beginInventoryOperationInTx, deriveInventoryIdempotencyKey, finishInventoryOperationInTx, getDefaultInventoryLocationInTx, getManufacturingIngredientDemandRowsInTx, produceManufacturedStockInTx, reconcileIngredientActualsInTx, releaseIngredientDemandForManufacturingInTx } from "@/lib/inventory/kernel";
 import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
 import { notifyManufacturingOrderCompleted } from "@/lib/notifications/manufacturing";
 import type { CompleteManufacturingBatch, CompleteManufacturingOrder } from "@/lib/schemas/manufacturing-orders";
@@ -294,14 +294,16 @@ export async function completeManufacturingBatch(
             .where(eq(manufacturingOrderBatches.id, batchId))
         )[0]?.plannedQuantity ?? "0"
       );
-      const ingredientRows = await getBatchIngredientsInTx(tx, batchId);
-      await releaseIngredientDemandForManufacturingInTx(tx, {
-        organizationId: orgId,
-        manufacturingOrderId: orderId,
-        actorUserId: userId,
-        reason: "completed",
-        ingredientIds: ingredientRows.map((row) => row.id),
-      });
+      if (completesOrder) {
+        const demandRows = await getManufacturingIngredientDemandRowsInTx(tx, orderId);
+        await releaseIngredientDemandForManufacturingInTx(tx, {
+          organizationId: orgId,
+          manufacturingOrderId: orderId,
+          actorUserId: userId,
+          reason: "completed",
+          ingredientIds: demandRows.map((row) => row.ingredientId),
+        });
+      }
       if (!completesOrder) {
         await releaseRemainingExpectedOutputInTx(tx, {
           organizationId: orgId,
@@ -532,6 +534,16 @@ export async function completeManufacturingBatch(
       overheadCostTotal: absorbedOperationCost,
       ingredientRows: produceIngredientRows,
     });
+    if (completesOrder) {
+      const demandRows = await getManufacturingIngredientDemandRowsInTx(tx, orderId);
+      await releaseIngredientDemandForManufacturingInTx(tx, {
+        organizationId: orgId,
+        manufacturingOrderId: orderId,
+        actorUserId: userId,
+        reason: "completed",
+        ingredientIds: demandRows.map((row) => row.ingredientId),
+      });
+    }
 
     const pickAllocationsByIngredient = await getPickAllocationsByIngredientInTx(
       tx,

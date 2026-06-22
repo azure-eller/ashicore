@@ -248,6 +248,7 @@ One-shot completion remains available as the complete-all path:
 - one finished-product lot is created with `available` or `blocked` disposition
 - one `manufacturing_output` event is written
 - completion releases the output-side expected supply
+- completion releases any remaining ingredient demand for the order
 - the order stores `actualQuantity`, `actualMaterialCost`, and `actualCostPerUnit`
 
 For lot-untracked finished products, output still creates an internal lot for
@@ -281,6 +282,7 @@ The parent order:
 - stays `open` while any batch is `pending` or `in_progress`
 - accumulates total `actualQuantity` and cost across completed batches
 - becomes `done` automatically when the final batch completes
+- releases any remaining ingredient demand when the final batch completes
 
 Direct parent completion is valid for batch-mode orders. It completes every remaining
 batch at its planned remaining output in one API request, using the same output and

@@ -49,6 +49,46 @@ import {
 } from "@/lib/inventory/kernel";
 import { stockSubquery, lastCountedAtSubquery, demandQtySubquery, availableQtySubquery, expectedQtySubquery, potentialSubquery, getVariantOptionValuesByItemIdInTx, formatNormalizedVariantDisplay, buildDuplicateCombinationWarnings, type BomViewPermissions, getBomViewPermissions, hasBomViewAccess, getBomParentVisibilityCondition } from "./shared";
 
+function buildItemSearchText({
+  displayName,
+  name,
+  familyName,
+  sku,
+  category,
+  unit,
+  optionValues,
+}: {
+  displayName: string;
+  name: string;
+  familyName: string | null;
+  sku: string | null;
+  category: string | null;
+  unit: string | null;
+  optionValues: Array<{
+    optionName: string;
+    optionCode: string;
+    valueLabel: string;
+    valueCode: string;
+  }>;
+}) {
+  return [
+    displayName,
+    name,
+    familyName,
+    sku,
+    category,
+    unit,
+    ...optionValues.flatMap((value) => [
+      value.optionName,
+      value.optionCode,
+      value.valueLabel,
+      value.valueCode,
+    ]),
+  ]
+    .filter((part): part is string => part != null && part.trim() !== "")
+    .join(" ");
+}
+
 async function getCurrentBomProductIdSetInTx(tx: Tx, productIds: string[]) {
   const uniqueProductIds = [...new Set(productIds)];
 
@@ -289,6 +329,15 @@ export async function getItems(filters?: {
                   familyName: row.familyName,
                   name: row.name,
                   displayName,
+                  searchText: buildItemSearchText({
+                    displayName,
+                    name: row.name,
+                    familyName: row.familyName,
+                    sku: row.sku,
+                    category: row.familyCategory ?? row.category,
+                    unit: row.unit ?? null,
+                    optionValues,
+                  }),
                   sku: row.sku,
                   itemType: row.itemType as ItemType,
                   lotTrackingMode:

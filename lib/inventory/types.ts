@@ -57,6 +57,7 @@ export type ItemRow = {
   familyName: string | null;
   name: string;
   displayName: string;
+  searchText: string;
   sku: string | null;
   itemType: ItemType;
   lotTrackingMode: "tracked" | "untracked";

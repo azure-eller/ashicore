@@ -176,7 +176,7 @@ export function getColumns(itemType: ItemType): ColDef<ItemRow>[] {
       cellRenderer: ({ data }: ICellRendererParams<ItemRow>) =>
         data ? <NameCell row={data} isProduct={isProduct} /> : null,
       getQuickFilterText: ({ data }) =>
-        [data?.displayName, data?.name, data?.sku, data?.category]
+        [data?.searchText, data?.displayName, data?.name, data?.sku, data?.category]
           .filter(Boolean)
           .join(" "),
     },

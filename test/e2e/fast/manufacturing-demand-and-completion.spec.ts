@@ -401,6 +401,7 @@ test.describe("manufacturing demand and completion heartbeat", () => {
 
     await page.goto(`/manufacturing/order/${orderId}`);
     const notesInput = page.getByPlaceholder("Notes for this order…");
+    await notesInput.scrollIntoViewIfNeeded();
     await expect(notesInput).toBeVisible();
     await notesInput.fill(notes);
 
@@ -486,6 +487,7 @@ test.describe("manufacturing demand and completion heartbeat", () => {
 
     await page.goto(`/manufacturing/order/${orderId}`);
     const notesInput = page.getByPlaceholder("Notes for this order…");
+    await notesInput.scrollIntoViewIfNeeded();
     await expect(notesInput).toBeVisible();
     await notesInput.fill(notes);
 
@@ -549,6 +551,7 @@ test.describe("manufacturing demand and completion heartbeat", () => {
 
     await page.goto(`/manufacturing/order/${orderId}`);
     const quantityInput = page.getByLabel("Quantity", { exact: true });
+    await quantityInput.scrollIntoViewIfNeeded();
     await expect(quantityInput).toBeVisible();
     await quantityInput.fill("0");
 
@@ -781,6 +784,17 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       .from(manufacturingOrders)
       .where(eq(manufacturingOrders.id, order.body.id));
     expect(savedOrder.status).toBe("done");
+
+    const remainingDemand = await db
+      .select({ quantity: inventoryDemandSummary.quantity })
+      .from(inventoryDemandSummary)
+      .where(
+        and(
+          eq(inventoryDemandSummary.referenceType, "manufacturing_order_ingredient"),
+          eq(inventoryDemandSummary.referenceId, order.body.ingredients[0].id)
+        )
+      );
+    expect(remainingDemand).toHaveLength(0);
   });
 
   test("confirmed completion can consume ingredients into negative stock", async ({
@@ -847,6 +861,17 @@ test.describe("manufacturing demand and completion heartbeat", () => {
 
     expect(componentBalance.onHandQty).toBe("-2.0000");
     expect(savedOrder.status).toBe("done");
+
+    const remainingDemand = await db
+      .select({ quantity: inventoryDemandSummary.quantity })
+      .from(inventoryDemandSummary)
+      .where(
+        and(
+          eq(inventoryDemandSummary.referenceType, "manufacturing_order_ingredient"),
+          eq(inventoryDemandSummary.referenceId, order.body.ingredients[0].id)
+        )
+      );
+    expect(remainingDemand).toHaveLength(0);
   });
 
   test("batch order completion lots each batch into its own produced lot", async ({

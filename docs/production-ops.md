@@ -261,6 +261,19 @@ Behavior:
 
 Use this as a production backstop, not as the primary correctness check. The primary workflow for code changes is still Playwright plus `pnpm verify:inventory` in the worktree.
 
+Manual repair:
+
+- inspect first with `pnpm diff:projections -- --org-id <org-id> [--item-id <id> ...]`
+- dry-run the repair with `pnpm repair:projections -- --org-id <org-id> [--item-id <id> ...]`
+- apply with `pnpm repair:projections -- --org-id <org-id> --apply [--item-id <id> ...]`
+
+The repair command rebuilds item balances, lot balances, and legacy lot quantities from `inventory.inventory_events`. It does not mutate demand or expected summary rows; those remain kernel-event repairs because they are business-reference projections. For Paonia planning-reference drift, preview and apply the compensating event repair with:
+
+```bash
+tsx scripts/repair-planning-references.ts --org-slug paonia-soil-company
+tsx scripts/repair-planning-references.ts --org-slug paonia-soil-company --apply
+```
+
 ## Billing Adjustments Cron
 
 Bucket adjustment billing has a scheduled production retry path.

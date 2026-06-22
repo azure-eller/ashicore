@@ -21,6 +21,7 @@ export type StocktakePreviewItem = {
   id: string;
   name: string;
   displayName: string;
+  searchText: string;
   sku: string | null;
   itemType: ItemType;
   stocktakeType: StocktakeScopeItemType;

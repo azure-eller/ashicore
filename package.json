@@ -27,6 +27,7 @@
     "ops:split-multi-shipment-sales-orders": "tsx scripts/split-multi-shipment-sales-orders.ts",
     "rename:paonia-lots": "tsx scripts/rename-lots-to-dates.ts",
     "diff:projections": "tsx scripts/diff-projections.ts",
+    "repair:projections": "tsx scripts/repair-projections.ts",
     "verify:inventory-state": "tsx scripts/verify-inventory-state.ts",
     "verify:inventory-kernel": "tsx scripts/verify-inventory-kernel.ts",
     "repair:untracked-lots": "tsx scripts/consolidate-untracked-internal-lots.ts",

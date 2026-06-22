@@ -370,6 +370,7 @@ export function StocktakeDetail({
         id: item.id,
         name: item.name,
         displayName: item.displayName,
+        searchText: item.searchText,
         sku: item.sku,
         itemType: item.itemType,
         unitName: item.unitName,

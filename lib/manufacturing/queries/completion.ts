@@ -396,6 +396,13 @@ async function completeDiscreteManufacturingOrder(
       overheadCostTotal: absorbedOperationCost,
       ingredientRows: produceIngredientRows,
     });
+    await releaseIngredientDemandForManufacturingInTx(tx, {
+      organizationId: orgId,
+      manufacturingOrderId: id,
+      actorUserId: userId,
+      reason: "completed",
+      ingredientIds: produceIngredientRows.map((row) => row.ingredientId),
+    });
 
     const pickAllocationsByIngredient = await getPickAllocationsByIngredientInTx(
       tx,

@@ -21,6 +21,7 @@ export type InventoryItemComboboxOption = {
   id: string;
   name: string;
   displayName?: string | null;
+  searchText?: string | null;
   sku?: string | null;
   itemType?: string | null;
   unitName?: string | null;
@@ -30,6 +31,7 @@ export function inventoryItemSearchText(option: InventoryItemComboboxOption) {
   return [
     option.displayName,
     option.name,
+    option.searchText,
     option.sku,
     option.itemType,
     option.unitName,
