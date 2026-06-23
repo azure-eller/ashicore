@@ -22,7 +22,7 @@ import type { CreateManufacturingOrdersFromSalesOrder, InsertManufacturingOrder,
 import type { ManufacturingOrdersFromSalesOrderResult } from "../types";
 import { ManufacturingError } from "./errors";
 import { ensureBatchExecutionRowsInTx } from "./execution-state";
-import { type LockedManufacturingOrder, canonicalItemName, getLockedManufacturingOrderInTx, getManufacturingItemDisplayMetadataInTx, isOpenManufacturingOrder, rerankOpenManufacturingOrdersInTx, validateActiveIngredientItemsInTx } from "./shared";
+import { type LockedManufacturingOrder, canonicalItemName, getActiveSiblingVariantsByItemIdInTx, getLockedManufacturingOrderInTx, getManufacturingItemDisplayMetadataInTx, isOpenManufacturingOrder, rerankOpenManufacturingOrdersInTx, validateActiveIngredientItemsInTx } from "./shared";
 
 type ProductSnapshot = {
   id: string;
@@ -149,17 +149,26 @@ type ManufacturingScalingPlan = {
   expectedBatchYield: string | null;
 };
 
-function multiplyQuantityString(quantity: string, multiplier: number) {
-  return normalizeNumeric(Number(quantity) * multiplier);
-}
-
 function deriveScalingPlan(
   outputQuantity: number,
-  ingredients: ValidatedIngredient[]
+  ingredients: ValidatedIngredient[],
+  batchCountInput?: string | null
 ): ManufacturingScalingPlan {
   const batchIngredient = ingredients.find((ingredient) => ingredient.recipeBasis === "batch");
   const expectedBatchYield = batchIngredient?.recipeOutputQuantity ?? null;
   const batchYield = expectedBatchYield == null ? NaN : Number(expectedBatchYield);
+
+  if (batchIngredient && batchCountInput != null) {
+    const batchCount = parsePositiveWholeBatchCount(batchCountInput);
+    if (!Number.isFinite(outputQuantity) || outputQuantity <= 0) {
+      throw new ManufacturingError("Batch products need an expected batch output.", 400);
+    }
+    return {
+      manufacturingMode: "batch",
+      numberOfBatches: batchCount,
+      expectedBatchYield: normalizeNumeric(outputQuantity / batchCount),
+    };
+  }
 
   if (
     batchIngredient &&
@@ -186,6 +195,19 @@ function deriveScalingPlan(
     numberOfBatches: null,
     expectedBatchYield: null,
   };
+}
+
+function parsePositiveWholeBatchCount(value: string | number) {
+  const quantity = Number(value);
+  const batchCount = Math.round(quantity);
+  if (
+    !Number.isFinite(quantity) ||
+    quantity <= 0 ||
+    Math.abs(quantity - batchCount) > 0.0001
+  ) {
+    throw new ManufacturingError("Enter a whole number of batches.", 400);
+  }
+  return batchCount;
 }
 
 function deriveBatchCount(params: {
@@ -217,17 +239,38 @@ function calculatePlannedIngredientQuantity(params: {
   quantityPerUnit: string;
   outputQuantity: number;
   recipeOutputQuantity: string | number;
+  batchCount?: number | null;
 }) {
   return calculateIngredientPlannedQuantity({
     recipeBasis: params.recipeBasis,
     quantityPerRecipeBasis: params.quantityPerUnit,
     outputQuantity: params.outputQuantity,
-    numberOfBatches: deriveBatchCount({
-      recipeBasis: params.recipeBasis,
-      recipeOutputQuantity: params.recipeOutputQuantity,
-      outputQuantity: params.outputQuantity,
-    }),
+    numberOfBatches:
+      params.recipeBasis === "batch" && params.batchCount != null
+        ? params.batchCount
+        : deriveBatchCount({
+            recipeBasis: params.recipeBasis,
+            recipeOutputQuantity: params.recipeOutputQuantity,
+            outputQuantity: params.outputQuantity,
+      }),
   });
+}
+
+function applyScalingPlanToIngredients(
+  ingredients: ValidatedIngredient[],
+  outputQuantity: number,
+  scalingPlan: ManufacturingScalingPlan
+): ValidatedIngredient[] {
+  return ingredients.map((ingredient) => ({
+    ...ingredient,
+    plannedQuantity: calculatePlannedIngredientQuantity({
+      recipeBasis: ingredient.recipeBasis,
+      quantityPerUnit: ingredient.quantityPerUnit,
+      outputQuantity,
+      recipeOutputQuantity: ingredient.recipeOutputQuantity,
+      batchCount: scalingPlan.numberOfBatches,
+    }),
+  }));
 }
 
 async function generateMONumber(tx: Tx, orgId: string) {
@@ -487,7 +530,8 @@ async function prepareCreateIngredientsInTx(
   tx: Tx,
   productId: string,
   outputQuantity: number,
-  submittedIngredients: InsertManufacturingOrder["ingredients"]
+  submittedIngredients: InsertManufacturingOrder["ingredients"],
+  batchCount?: number | null
 ): Promise<{ bomRevisionId: string; ingredients: ValidatedIngredient[] }> {
   const bomRows = await getCurrentBomIngredientsInTx(tx, productId);
 
@@ -502,56 +546,63 @@ async function prepareCreateIngredientsInTx(
     throw new ManufacturingError("The product BOM changed. Reload and try again.", 409);
   }
 
-  const itemDisplayById = await getManufacturingItemDisplayMetadataInTx(tx, [
-    ...bomRows.flatMap((row) => [
-      row.itemId,
-      ...row.alternates.map((alternate) => alternate.itemId),
-    ]),
-  ]);
+  const itemDisplayById = await getManufacturingItemDisplayMetadataInTx(
+    tx,
+    bomRows.map((row) => row.itemId)
+  );
+  const siblingVariantsByItemId = await getActiveSiblingVariantsByItemIdInTx(
+    tx,
+    bomRows.map((row) => row.itemId)
+  );
+  const bomByComponentId = new Map(bomRows.map((row) => [row.itemId, row]));
+  const submittedComponentIds = submittedIngredients.map(
+    (row, index) => row.defaultItemId ?? bomRows[index]?.itemId
+  );
+  if (submittedComponentIds.some((componentId) => !componentId)) {
+    throw new ManufacturingError("The product BOM changed. Reload and try again.", 409);
+  }
+  if (new Set(submittedComponentIds).size !== bomRows.length) {
+    throw new ManufacturingError("The product BOM changed. Reload and try again.", 409);
+  }
+  const sortedSubmittedIngredients = submittedIngredients
+    .map((submitted, index) => {
+      const componentId = submitted.defaultItemId ?? bomRows[index]?.itemId;
+      const row = componentId ? bomByComponentId.get(componentId) : undefined;
+      if (!row) {
+        throw new ManufacturingError("The product BOM changed. Reload and try again.", 409);
+      }
+      return { submitted, row };
+    })
+    .sort((left, right) => left.row.sortOrder - right.row.sortOrder);
 
   return {
     bomRevisionId: bomRows[0].bomRevisionId,
-    ingredients: bomRows.map((row, index) => {
-      const submitted = submittedIngredients[index];
-      const alternate = row.alternates.find(
-        ({ itemId: alternateItemId }) => alternateItemId === submitted.itemId
+    ingredients: sortedSubmittedIngredients.map(({ submitted, row }, index) => {
+      const submittedItemId = submitted?.itemId;
+      const submittedQuantityPerUnit = submitted?.quantityPerUnit;
+      if (!submittedItemId || !submittedQuantityPerUnit) {
+        throw new ManufacturingError("Ingredient is required", 400);
+      }
+      const selected = getAllowedSiblingBomMaterialOption(
+        {
+          componentId: row.itemId,
+          componentName: canonicalItemName(itemDisplayById, row.itemId, row.itemName),
+          componentSku: row.itemSku,
+          componentItemType: row.itemType,
+          unitName: row.unitName,
+        },
+        siblingVariantsByItemId.get(row.itemId) ?? [],
+        submittedItemId
       );
-      const selected =
-        submitted.itemId === row.itemId
-          ? {
-              itemId: row.itemId,
-              itemName: canonicalItemName(itemDisplayById, row.itemId, row.itemName),
-              itemSku: row.itemSku,
-              itemType: row.itemType,
-              unitName: row.unitName,
-              quantityPerUnit: row.quantityPerUnit,
-            }
-          : alternate
-            ? {
-                itemId: alternate.itemId,
-                itemName: canonicalItemName(
-                  itemDisplayById,
-                  alternate.itemId,
-                  alternate.itemName
-                ),
-                itemSku: alternate.itemSku,
-                itemType: alternate.itemType,
-                unitName: alternate.unitName,
-                quantityPerUnit: multiplyQuantityString(
-                  row.quantityPerUnit,
-                  Number(alternate.quantityFactor)
-                ),
-              }
-            : null;
 
       if (!selected) {
         throw new ManufacturingError(
-          "Select an approved alternate for this ingredient.",
+          "Select a variant from the same item family for this ingredient.",
           400
         );
       }
 
-      const quantityPerUnit = normalizeNumeric(Number(selected.quantityPerUnit));
+      const quantityPerUnit = normalizeNumeric(Number(submittedQuantityPerUnit));
       const recipeBasis = normalizeRecipeBasis(row.recipeBasis);
 
       return {
@@ -568,6 +619,7 @@ async function prepareCreateIngredientsInTx(
           quantityPerUnit,
           outputQuantity,
           recipeOutputQuantity: row.bomOutputQuantity,
+          batchCount,
         }),
         sortOrder: index,
         constraints: row.constraints,
@@ -576,10 +628,31 @@ async function prepareCreateIngredientsInTx(
   };
 }
 
-function getApprovedBomMaterialOption(
-  row: BomRevisionComponentSnapshot,
+function getAllowedSiblingBomMaterialOption(
+  row: Pick<
+    BomRevisionComponentSnapshot,
+    "componentId" | "componentName" | "componentSku" | "componentItemType" | "unitName"
+  >,
+  siblings: Array<{
+    itemId: string;
+    itemName: string;
+    itemSku: string | null;
+    itemType: string;
+    unitName: string;
+  }>,
   itemId: string
 ) {
+  const sibling = siblings.find((candidate) => candidate.itemId === itemId);
+  if (sibling) {
+    return {
+      itemId: sibling.itemId,
+      itemName: sibling.itemName,
+      itemSku: sibling.itemSku,
+      itemType: sibling.itemType,
+      unitName: sibling.unitName,
+    };
+  }
+
   if (itemId === row.componentId) {
     return {
       itemId: row.componentId,
@@ -587,40 +660,10 @@ function getApprovedBomMaterialOption(
       itemSku: row.componentSku,
       itemType: row.componentItemType,
       unitName: row.unitName,
-      quantityPerUnit: row.quantity,
     };
   }
 
-  const alternate = row.alternates.find(
-    (candidate) => candidate.alternateItemId === itemId
-  );
-
-  if (!alternate) {
-    throw new ManufacturingError("Select an approved alternate for this ingredient.", 400);
-  }
-
-  return {
-    itemId: alternate.alternateItemId,
-    itemName: alternate.alternateItemName,
-    itemSku: alternate.alternateItemSku,
-    itemType: alternate.alternateItemType,
-    unitName: alternate.unitName,
-    quantityPerUnit: multiplyQuantityString(
-      row.quantity,
-      Number(alternate.quantityFactor)
-    ),
-  };
-}
-
-function tryGetApprovedBomMaterialOption(
-  row: BomRevisionComponentSnapshot,
-  itemId: string
-) {
-  try {
-    return getApprovedBomMaterialOption(row, itemId);
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 async function getActiveIngredientItemMapInTx(tx: Tx, ingredientIds: string[]) {
@@ -987,7 +1030,8 @@ async function prepareUpdatedIngredientsInTx(
   manufacturingOrderId: string,
   bomRevisionId: string | null,
   outputQuantity: number,
-  submittedIngredients: UpdateManufacturingOrder["ingredients"]
+  submittedIngredients: UpdateManufacturingOrder["ingredients"],
+  batchCount?: number | null
 ): Promise<ValidatedIngredient[]> {
   if (!bomRevisionId) {
     return prepareFreeformUpdatedIngredientsInTx(tx, outputQuantity, submittedIngredients);
@@ -1001,16 +1045,43 @@ async function prepareUpdatedIngredientsInTx(
     })
     .from(bomRevisions)
     .where(eq(bomRevisions.id, bomRevisionId));
-  const bomBySortOrder = new Map(bomRows.map((row) => [row.sortOrder, row]));
+  if (submittedIngredients.length !== bomRows.length) {
+    throw new ManufacturingError("The product BOM changed. Reload and try again.", 409);
+  }
+
   const recipeBasis = normalizeRecipeBasis(bomRevision?.recipeBasis);
   const recipeOutputQuantity = bomRevision?.outputQuantity ?? "1";
+  const bomByComponentId = new Map(bomRows.map((row) => [row.componentId, row]));
+  const submittedComponentIds = submittedIngredients.map(
+    (row, index) => row.defaultItemId ?? bomRows[index]?.componentId
+  );
+  if (submittedComponentIds.some((componentId) => !componentId)) {
+    throw new ManufacturingError("The product BOM changed. Reload and try again.", 409);
+  }
+  if (new Set(submittedComponentIds).size !== bomRows.length) {
+    throw new ManufacturingError("The product BOM changed. Reload and try again.", 409);
+  }
+
+  const sortedSubmittedIngredients = submittedIngredients
+    .map((submitted, index) => {
+      const componentId = submitted.defaultItemId ?? bomRows[index]?.componentId;
+      const row = componentId ? bomByComponentId.get(componentId) : undefined;
+      if (!row) {
+        throw new ManufacturingError("The product BOM changed. Reload and try again.", 409);
+      }
+      return { submitted, row };
+    })
+    .sort((left, right) => left.row.sortOrder - right.row.sortOrder);
   const activeItemById = await getActiveIngredientItemMapInTx(
     tx,
     submittedIngredients.map((row) => row.itemId)
   );
+  const siblingVariantsByItemId = await getActiveSiblingVariantsByItemIdInTx(
+    tx,
+    bomRows.map((row) => row.componentId)
+  );
 
-  return submittedIngredients.map((submitted, index) => {
-    const row = bomBySortOrder.get(index);
+  return sortedSubmittedIngredients.map(({ submitted, row }, index) => {
     const activeItem = activeItemById.get(submitted.itemId);
     if (!activeItem) {
       throw new ManufacturingError(
@@ -1018,23 +1089,17 @@ async function prepareUpdatedIngredientsInTx(
         400
       );
     }
-    const selected = row
-      ? tryGetApprovedBomMaterialOption(row, submitted.itemId) ?? {
-          itemId: activeItem.id,
-          itemName: activeItem.name,
-          itemSku: activeItem.sku,
-          itemType: activeItem.itemType,
-          unitName: activeItem.unitName,
-          quantityPerUnit: submitted.quantityPerUnit,
-        }
-      : {
-          itemId: activeItem.id,
-          itemName: activeItem.name,
-          itemSku: activeItem.sku,
-          itemType: activeItem.itemType,
-          unitName: activeItem.unitName,
-          quantityPerUnit: submitted.quantityPerUnit,
-        };
+    const selected = getAllowedSiblingBomMaterialOption(
+      row,
+      siblingVariantsByItemId.get(row.componentId) ?? [],
+      submitted.itemId
+    );
+    if (!selected) {
+      throw new ManufacturingError(
+        "Select a variant from the same item family for this ingredient.",
+        400
+      );
+    }
     const quantityPerUnit = normalizeNumeric(Number(submitted.quantityPerUnit));
 
     return {
@@ -1051,9 +1116,10 @@ async function prepareUpdatedIngredientsInTx(
         quantityPerUnit,
         outputQuantity,
         recipeOutputQuantity,
+        batchCount,
       }),
       sortOrder: index,
-      constraints: row?.constraints ?? [],
+      constraints: row.constraints,
     };
   });
 }
@@ -1139,6 +1205,8 @@ export async function createManufacturingOrderInTx(
 
       const product = await getValidatedProductInTx(tx, payload.productId);
       const plannedQuantity = Number(payload.plannedQuantity);
+      const batchCount =
+        payload.batchCount != null ? parsePositiveWholeBatchCount(payload.batchCount) : null;
 
       const salesLink = await validateSalesLineLinkInTx(tx, {
         salesOrderId: payload.salesOrderId,
@@ -1149,9 +1217,19 @@ export async function createManufacturingOrderInTx(
         tx,
         payload.productId,
         plannedQuantity,
-        payload.ingredients
+        payload.ingredients,
+        batchCount
       );
-      const scalingPlan = deriveScalingPlan(plannedQuantity, ingredients);
+      const scalingPlan = deriveScalingPlan(
+        plannedQuantity,
+        ingredients,
+        payload.batchCount ?? null
+      );
+      const scaledIngredients = applyScalingPlanToIngredients(
+        ingredients,
+        plannedQuantity,
+        scalingPlan
+      );
       const order = await insertManufacturingOrderInTx(tx, orgId, {
         id: payload.id,
         product,
@@ -1165,7 +1243,7 @@ export async function createManufacturingOrderInTx(
         priorityRank: null,
         plannedDate: payload.plannedDate ?? null,
         notes: payload.notes ?? null,
-        ingredients,
+        ingredients: scaledIngredients,
       });
 
       const lockedOrder = await getLockedManufacturingOrderInTx(tx, order.id);
@@ -1228,7 +1306,9 @@ export async function duplicateManufacturingOrder(
           productId: source.productId,
           salesOrderId: null,
           salesOrderLineId: null,
-          plannedQuantity: source.requestedQuantity,
+          plannedQuantity: source.plannedQuantity,
+          batchCount:
+            source.numberOfBatches == null ? undefined : String(source.numberOfBatches),
           priorityRank: null,
           plannedDate: source.plannedDate,
           notes: source.notes,
@@ -1255,7 +1335,8 @@ async function getManufacturingOrderForDuplicateInTx(
   id: string
 ): Promise<{
   productId: string;
-  requestedQuantity: string;
+  plannedQuantity: string;
+  numberOfBatches: number | null;
   plannedDate: string | null;
   notes: string | null;
   ingredients: { itemId: string; quantityPerUnit: string }[];
@@ -1263,9 +1344,10 @@ async function getManufacturingOrderForDuplicateInTx(
   const [order] = await tx
     .select({
       productId: manufacturingOrders.productId,
-      requestedQuantity: trimScale(manufacturingOrders.requestedQuantity).as(
-        "requestedQuantity"
+      plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
+        "plannedQuantity"
       ),
+      numberOfBatches: manufacturingOrders.numberOfBatches,
       plannedDate: manufacturingOrders.plannedDate,
       notes: manufacturingOrders.notes,
     })
@@ -1297,7 +1379,8 @@ async function getManufacturingOrderForDuplicateInTx(
 
   return {
     productId: order.productId,
-    requestedQuantity: order.requestedQuantity,
+    plannedQuantity: order.plannedQuantity,
+    numberOfBatches: order.numberOfBatches,
     plannedDate: order.plannedDate,
     notes: order.notes,
     ingredients,
@@ -1413,6 +1496,11 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
     plannedQuantity = outputQuantity;
     requestedQuantity = normalizeNumeric(outputQuantity);
     const scalingPlan = deriveScalingPlan(plannedQuantity, ingredients);
+    const scaledIngredients = applyScalingPlanToIngredients(
+      ingredients,
+      plannedQuantity,
+      scalingPlan
+    );
     const createdOrder = await insertManufacturingOrderInTx(tx, orgId, {
       product,
       bomRevisionId,
@@ -1433,7 +1521,7 @@ export async function createManufacturingOrdersFromSalesOrderInTx(
       priorityRank: null,
       plannedDate,
       notes: payload.notes ?? null,
-      ingredients,
+      ingredients: scaledIngredients,
     });
     const lockedOrder = await getLockedManufacturingOrderInTx(tx, createdOrder.id);
     if (!lockedOrder) {
@@ -1498,6 +1586,12 @@ async function isManufacturingMetadataOnlyEditInTx(
 
   if (
     hasManufacturingQuantityChanged(existing.plannedQuantity, payload.plannedQuantity)
+  ) {
+    return false;
+  }
+  if (
+    payload.batchCount != null &&
+    existing.numberOfBatches !== parsePositiveWholeBatchCount(payload.batchCount)
   ) {
     return false;
   }
@@ -1599,6 +1693,12 @@ export async function updateManufacturingOrder(
           unitName: existing.unitName,
         };
     const plannedQuantity = Number(payload.plannedQuantity);
+    const batchCount =
+      payload.batchCount != null
+        ? parsePositiveWholeBatchCount(payload.batchCount)
+        : productChanged
+          ? null
+          : existing.numberOfBatches;
     const salesOrderId = payload.salesOrderId ?? (productChanged ? null : existing.salesOrderId);
     const salesOrderLineId =
       payload.salesOrderLineId ?? (productChanged ? null : existing.salesOrderLineId);
@@ -1625,19 +1725,30 @@ export async function updateManufacturingOrder(
           tx,
           nextProductId,
           plannedQuantity,
-          payload.ingredients
+          payload.ingredients,
+          batchCount
         )
       : await prepareUpdatedIngredientsInTx(
           tx,
           id,
           existing.bomRevisionId,
           plannedQuantity,
-          payload.ingredients
+          payload.ingredients,
+          batchCount
         ).then((result) => ({
           bomRevisionId: existing.bomRevisionId,
           ingredients: result,
         }));
-    const scalingPlan = deriveScalingPlan(plannedQuantity, ingredients);
+    const scalingPlan = deriveScalingPlan(
+      plannedQuantity,
+      ingredients,
+      batchCount == null ? null : String(batchCount)
+    );
+    const scaledIngredients = applyScalingPlanToIngredients(
+      ingredients,
+      plannedQuantity,
+      scalingPlan
+    );
     // Editing re-derives the mode from the BOM; entering batch is the
     // batch_production workflow. Already-batch MOs stay editable (in-flight rule).
     if (
@@ -1700,7 +1811,7 @@ export async function updateManufacturingOrder(
     const insertedIngredients = await insertManufacturingIngredientsInTx(
       tx,
       id,
-      ingredients
+      scaledIngredients
     );
     await insertManufacturingOperationCostsInTx(tx, {
       manufacturingOrderId: id,

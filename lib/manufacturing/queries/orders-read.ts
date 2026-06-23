@@ -17,7 +17,7 @@ import { measureObservedOperation } from "@/lib/observability/request-log";
 import type { ManufacturingBatchStatus, ManufacturingLotStrategy, ManufacturingOrderStatus, ManufacturingPickStatus } from "@/lib/schemas/manufacturing-orders";
 import type { ManufacturingOrderDetail, ManufacturingOrderEditData, ManufacturingOrderListRow, ManufacturingIngredientReadiness, ManufacturingPickProgressStatus, ManufacturingProductOption, ManufacturingSalesOrderOption, ManufacturingSalesOrderPreview, ManufacturingSalesLineOption } from "../types";
 import { type ExecutionIngredientRow, aggregateBatchIngredients, getBatchPickProgressStatus, getBatchRowsInTx, getExecutionLotAllocationsByIngredientInTx, getExecutionLotAllocationsByItemId, getIngredientConstraintsByIdInTx, getTemplateIngredientsInTx, toIngredientDetail, withIngredientLotTrackingModesInTx } from "./execution-state";
-import { type IngredientProgressRow, canonicalItemName, effectiveManufacturingPriorityRankSql, getManufacturingItemDisplayMetadataInTx, getPickProgressStatus, getRemainingQuantityNumber, sumNumericStrings } from "./shared";
+import { type IngredientProgressRow, canonicalItemName, effectiveManufacturingPriorityRankSql, getActiveSiblingVariantsByItemIdInTx, getManufacturingItemDisplayMetadataInTx, getPickProgressStatus, getRemainingQuantityNumber, sumNumericStrings } from "./shared";
 
 type EditableManufacturingIngredientSnapshotRow = {
   id: string;
@@ -34,6 +34,24 @@ type EditableManufacturingIngredientSnapshotRow = {
   actualCostTotal: string | null;
   sortOrder: number;
 };
+
+type ActiveSiblingVariant = {
+  itemId: string;
+  itemName: string;
+  itemSku: string | null;
+  itemType: string;
+  unitName: string;
+};
+
+function markCurrentSiblingVariants(
+  siblings: ActiveSiblingVariant[] | undefined,
+  currentItemId: string
+) {
+  return (siblings ?? []).map((sibling) => ({
+    ...sibling,
+    isCurrent: sibling.itemId === currentItemId,
+  }));
+}
 
 function getPickProgressPercent(rows: IngredientProgressRow[]) {
   const plannedTotal = sumNumericStrings(rows.map((row) => row.plannedQuantity));
@@ -639,6 +657,14 @@ export async function getManufacturingProductTemplates(): Promise<
         unitName: string;
         quantityPerUnit: string;
         defaultQuantityPerUnit: string;
+        siblingVariants: Array<{
+          itemId: string;
+          itemName: string;
+          itemSku: string | null;
+          itemType: string;
+          unitName: string;
+          isCurrent: boolean;
+        }>;
         alternates: Array<{
           itemId: string;
           itemName: string;
@@ -692,6 +718,12 @@ export async function getManufacturingProductTemplates(): Promise<
         ),
       ]
     );
+    const siblingVariantsByItemId = await getActiveSiblingVariantsByItemIdInTx(
+      tx,
+      [...bomByProduct.values()].flatMap((bomRows) =>
+        bomRows.map((row) => row.componentId)
+      )
+    );
 
     return products
       .filter((product) => (bomByProduct.get(product.id) ?? []).length > 0)
@@ -721,6 +753,10 @@ export async function getManufacturingProductTemplates(): Promise<
             unitName: row.unitName,
             quantityPerUnit: row.quantity ?? "0",
             defaultQuantityPerUnit: row.quantity ?? "0",
+            siblingVariants: markCurrentSiblingVariants(
+              siblingVariantsByItemId.get(row.componentId),
+              row.componentId
+            ),
             alternates: row.alternates.map((alternate) => ({
               itemId: alternate.alternateItemId,
               itemName: canonicalItemName(
@@ -1055,6 +1091,11 @@ export async function getManufacturingOrder(
       order.bomRevisionId
         ? await (async () => {
             const bomRows = await getBomRevisionComponentsInTx(tx, order.bomRevisionId!);
+            const siblingVariantsByItemId =
+              await getActiveSiblingVariantsByItemIdInTx(
+                tx,
+                bomRows.map((row) => row.componentId)
+              );
             return ingredients.map((ingredient) => {
               const bomRow = bomRows.find((row) => row.sortOrder === ingredient.sortOrder);
 
@@ -1062,6 +1103,7 @@ export async function getManufacturingOrder(
                 return {
                   ...ingredient,
                   lotAllocations: lotAllocationsByItemId.get(ingredient.itemId) ?? [],
+                  siblingVariants: [],
                 };
               }
 
@@ -1073,6 +1115,10 @@ export async function getManufacturingOrder(
                 defaultItemSku: bomRow.componentSku,
                 defaultUnitName: bomRow.unitName,
                 defaultQuantityPerUnit: bomRow.quantity,
+                siblingVariants: markCurrentSiblingVariants(
+                  siblingVariantsByItemId.get(bomRow.componentId),
+                  ingredient.itemId
+                ),
                 alternates: bomRow.alternates.map((alternate) => ({
                   itemId: alternate.alternateItemId,
                   itemName: alternate.alternateItemName,
@@ -1088,6 +1134,7 @@ export async function getManufacturingOrder(
         : ingredients.map((ingredient) => ({
             ...ingredient,
             lotAllocations: lotAllocationsByItemId.get(ingredient.itemId) ?? [],
+            siblingVariants: [],
           }));
     const itemDisplayById = await getManufacturingItemDisplayMetadataInTx(tx, [
       order.productId,
@@ -1256,6 +1303,10 @@ export async function getManufacturingOrderEditData(
         ...row.alternates.map((alternate) => alternate.alternateItemId),
       ]),
     ]);
+    const siblingVariantsByItemId = await getActiveSiblingVariantsByItemIdInTx(
+      tx,
+      bomRows.map((row) => row.componentId)
+    );
 
     return {
       ...order,
@@ -1281,6 +1332,12 @@ export async function getManufacturingOrderEditData(
           defaultItemSku: bomRow?.componentSku ?? ingredient.itemSku,
           defaultUnitName: bomRow?.unitName ?? ingredient.unitName,
           defaultQuantityPerUnit: bomRow?.quantity ?? ingredient.quantityPerUnit,
+          siblingVariants: bomRow
+            ? markCurrentSiblingVariants(
+                siblingVariantsByItemId.get(bomRow.componentId),
+                ingredient.itemId
+              )
+            : [],
           alternates: (bomRow?.alternates ?? []).map((alternate) => ({
             itemId: alternate.alternateItemId,
             itemName: canonicalItemName(

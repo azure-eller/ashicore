@@ -14,7 +14,7 @@ import Field from '../../../../widgets/Field.astro';
 import Grid from '../../../../widgets/Grid.astro';
 import Button from '../../../../widgets/Button.astro';
 
-Recipes belong to products. Use the product card **Recipe** tab for components, alternates, and lot-age constraints; use the product card **Production** tab for operation costs.
+Recipes belong to products. Use the product card **Recipe** tab for components and lot-age constraints; use the product card **Production** tab for operation costs.
 
 <p class="po-meta">
   <span class="po-chip">product card</span>
@@ -52,13 +52,12 @@ Manufacturing orders use BOM revisions, but the UI does not expose a separate Ma
      </Grid>
    </Frame>
 
-3. **Add alternates and constraints.** Add approved alternate items where substitutions are allowed. Add a minimum lot-age rule when an ingredient must use lots old enough based on received date.
+3. **Add constraints.** Add a minimum lot-age rule when an ingredient must use lots old enough based on received date. If a component belongs to an item family, manufacturing orders can swap it to another active variant in that same family while planning; that swap is not configured on the recipe.
 
-   <Frame title="<b>Coir Pith</b> · alternates and constraints">
+   <Frame title="<b>Coir Pith</b> · constraints">
      <Grid>
        <thead><tr><th>Type</th><th>Value</th><th>Effect</th></tr></thead>
        <tbody>
-         <tr><td>Alternate</td><td>Coconut Fiber</td><td>Can be swapped before picking.</td></tr>
          <tr><td>Lot age</td><td>30 days</td><td>Picking prefers eligible old-enough lots.</td></tr>
        </tbody>
      </Grid>

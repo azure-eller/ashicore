@@ -30,7 +30,41 @@ import {
 import {
   getCurrentBomOperationCostsInTx,
 } from "@/lib/bom/operation-costs";
+import { getActiveSiblingVariantsByItemIdInTx } from "@/lib/manufacturing/queries/shared";
 import { getVariantOptionValuesByItemIdInTx, formatNormalizedVariantDisplay, getBomViewPermissions, hasBomViewAccess, getBomParentVisibilityCondition } from "./shared";
+
+type BomRevisionComponentWithSiblings = Awaited<
+  ReturnType<typeof getBomRevisionComponentsInTx>
+>[number] & {
+  siblingVariants: Array<{
+    itemId: string;
+    itemName: string;
+    itemSku: string | null;
+    itemType: string;
+    unitName: string;
+    isCurrent: boolean;
+  }>;
+};
+
+async function addSiblingVariantsToBomComponentsInTx(
+  tx: Parameters<typeof getActiveSiblingVariantsByItemIdInTx>[0],
+  components: Awaited<ReturnType<typeof getBomRevisionComponentsInTx>>
+): Promise<BomRevisionComponentWithSiblings[]> {
+  const siblingVariantsByItemId = await getActiveSiblingVariantsByItemIdInTx(
+    tx,
+    components.map((component) => component.componentId)
+  );
+
+  return components.map((component) => ({
+    ...component,
+    siblingVariants: (siblingVariantsByItemId.get(component.componentId) ?? []).map(
+      (sibling) => ({
+        ...sibling,
+        isCurrent: sibling.itemId === component.componentId,
+      })
+    ),
+  }));
+}
 
 export async function getBomComponents(itemId: string) {
   return withAuthedOrgContext(async (tx) => {
@@ -70,10 +104,20 @@ export async function getBomRevisionHistory(itemId: string) {
       tx,
       revisions.map((revision) => revision.id)
     );
+    const components = await addSiblingVariantsToBomComponentsInTx(
+      tx,
+      [...componentsByRevisionId.values()].flat()
+    );
+    const componentsWithSiblingsByRevisionId = new Map<string, BomRevisionComponentWithSiblings[]>();
+    for (const component of components) {
+      const bucket = componentsWithSiblingsByRevisionId.get(component.bomRevisionId) ?? [];
+      bucket.push(component);
+      componentsWithSiblingsByRevisionId.set(component.bomRevisionId, bucket);
+    }
 
     return revisions.map((revision) => ({
       ...revision,
-      components: componentsByRevisionId.get(revision.id) ?? [],
+      components: componentsWithSiblingsByRevisionId.get(revision.id) ?? [],
     }));
   });
 }
@@ -89,7 +133,10 @@ export async function getBomRevision(itemId: string, revisionId: string) {
 
     return {
       ...revision,
-      components: await getBomRevisionComponentsInTx(tx, revision.id),
+      components: await addSiblingVariantsToBomComponentsInTx(
+        tx,
+        await getBomRevisionComponentsInTx(tx, revision.id)
+      ),
     };
   });
 }

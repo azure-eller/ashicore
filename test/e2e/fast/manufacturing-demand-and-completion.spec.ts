@@ -2,13 +2,15 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { Page } from "@playwright/test";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { test, expect } from "../fixtures";
 import {
   inventoryDemandSummary,
   inventoryEvents,
   inventoryItemBalances,
   lots,
+  itemFamilies,
+  items,
   manufacturingResources,
   manufacturingOrderBatches,
   manufacturingOrderIngredients,
@@ -193,6 +195,701 @@ test.describe("manufacturing demand and completion heartbeat", () => {
         )
       );
     expect(rows).toHaveLength(1);
+  });
+
+  test("BOM ingredient can swap to an active same-family variant and keeps submitted quantity", async ({
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const defaultMaterial = await createItem({
+      itemType: "material",
+      name: `Fast Variant Small ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-VAR-SM-${unique}`,
+      category: `Fast Variant ${ts}`,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "12",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(defaultMaterial.status).toBe(201);
+
+    const [familyRow] = await db
+      .select({ id: itemFamilies.id })
+      .from(items)
+      .innerJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
+      .where(eq(items.id, defaultMaterial.body.id));
+    expect(familyRow?.id).toBeTruthy();
+
+    const [largeSibling] = await db
+      .insert(items)
+      .values({
+        organizationId: orgId,
+        familyId: familyRow.id,
+        name: `Fast Variant Large ${unique}`,
+        sku: `FAST-VAR-LG-${unique}`,
+        itemType: "material",
+        unitDefinitionId: unitId,
+        safetyStock: "0",
+        defaultPurchasePrice: "10.00",
+        defaultSellingPrice: null,
+        sellable: false,
+        manufacturingMode: "discrete",
+        optionCombinationKey: `fast-large-${unique}`,
+        isMaster: false,
+        sortOrder: 1,
+      })
+      .returning({ id: items.id });
+
+    const unrelatedMaterial = await createItem({
+      itemType: "material",
+      name: `Fast Variant Unrelated ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-VAR-OTHER-${unique}`,
+      category: `Fast Variant ${ts}`,
+      description: null,
+      defaultPurchasePrice: "1.00",
+      defaultSellingPrice: null,
+      stock: "12",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(unrelatedMaterial.status).toBe(201);
+
+    const product = await createItem({
+      itemType: "product",
+      name: `Fast Variant Product ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-VAR-PRODUCT-${unique}`,
+      category: `Fast Variant ${ts}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "25.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: defaultMaterial.body.id, quantity: "2" }],
+    });
+    expect(product.status).toBe(201);
+
+    const order = await createManufacturingOrder({
+      productId: product.body.id,
+      plannedQuantity: "3",
+      ingredients: [{ itemId: defaultMaterial.body.id, quantityPerUnit: "2" }],
+      confirmShortage: false,
+    });
+    expect(order.status).toBe(201);
+    const orderId = order.body.id as string;
+
+    const detailResponse = await testFetch(`/api/manufacturing-orders/${orderId}`);
+    expect(detailResponse.status).toBe(200);
+    const detail = await detailResponse.json();
+    expect(
+      detail.ingredients[0].siblingVariants.map((row: { itemId: string }) => row.itemId),
+    ).toEqual(expect.arrayContaining([defaultMaterial.body.id, largeSibling.id]));
+
+    const siblingUpdate = await testFetch(`/api/manufacturing-orders/${orderId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        productId: product.body.id,
+        plannedQuantity: "3",
+        plannedDate: null,
+        notes: null,
+        salesOrderId: null,
+        salesOrderLineId: null,
+        ingredients: [
+          {
+            itemId: largeSibling.id,
+            defaultItemId: defaultMaterial.body.id,
+            quantityPerUnit: "7",
+          },
+        ],
+      }),
+    });
+    expect(siblingUpdate.status, await siblingUpdate.text()).toBe(200);
+
+    const [savedIngredient] = await db
+      .select({
+        id: manufacturingOrderIngredients.id,
+        itemId: manufacturingOrderIngredients.itemId,
+        quantityPerUnit: manufacturingOrderIngredients.quantityPerUnit,
+        plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
+    expect(savedIngredient).toMatchObject({
+      itemId: largeSibling.id,
+      quantityPerUnit: "7.0000",
+      plannedQuantity: "21.0000",
+    });
+
+    const [demand] = await db
+      .select({ quantity: inventoryDemandSummary.quantity })
+      .from(inventoryDemandSummary)
+      .where(
+        and(
+          eq(inventoryDemandSummary.referenceType, "manufacturing_order_ingredient"),
+          eq(inventoryDemandSummary.referenceId, savedIngredient.id),
+          eq(inventoryDemandSummary.itemId, largeSibling.id),
+        ),
+      );
+    expect(demand.quantity).toBe("21.0000");
+
+    const crossFamilyUpdate = await testFetch(`/api/manufacturing-orders/${orderId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        productId: product.body.id,
+        plannedQuantity: "3",
+        plannedDate: null,
+        notes: null,
+        salesOrderId: null,
+        salesOrderLineId: null,
+        ingredients: [
+          {
+            itemId: unrelatedMaterial.body.id,
+            defaultItemId: defaultMaterial.body.id,
+            quantityPerUnit: "7",
+          },
+        ],
+      }),
+    });
+    expect(crossFamilyUpdate.status).toBe(400);
+
+    const [ingredientAfterRejectedUpdate] = await db
+      .select({
+        itemId: manufacturingOrderIngredients.itemId,
+        quantityPerUnit: manufacturingOrderIngredients.quantityPerUnit,
+        plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.id, savedIngredient.id));
+    expect(ingredientAfterRejectedUpdate).toMatchObject({
+      itemId: largeSibling.id,
+      quantityPerUnit: "7.0000",
+      plannedQuantity: "21.0000",
+    });
+
+    const leftoverDemand = await db
+      .select({ itemId: inventoryDemandSummary.itemId })
+      .from(inventoryDemandSummary)
+      .where(
+        and(
+          eq(inventoryDemandSummary.referenceType, "manufacturing_order_ingredient"),
+          eq(inventoryDemandSummary.referenceId, savedIngredient.id),
+          ne(inventoryDemandSummary.itemId, largeSibling.id),
+        ),
+      );
+    expect(leftoverDemand).toHaveLength(0);
+  });
+
+  test("BOM-backed updates keep all component rows by default item identity", async ({
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const firstComponent = await createItem({
+      itemType: "material",
+      name: `Fast Bom Identity First ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-BOM-ID-1-${unique}`,
+      category: `Fast Bom Identity ${ts}`,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "12",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(firstComponent.status).toBe(201);
+
+    const secondComponent = await createItem({
+      itemType: "material",
+      name: `Fast Bom Identity Second ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-BOM-ID-2-${unique}`,
+      category: `Fast Bom Identity ${ts}`,
+      description: null,
+      defaultPurchasePrice: "3.00",
+      defaultSellingPrice: null,
+      stock: "12",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(secondComponent.status).toBe(201);
+
+    const product = await createItem({
+      itemType: "product",
+      name: `Fast Bom Identity Product ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-BOM-ID-PRODUCT-${unique}`,
+      category: `Fast Bom Identity ${ts}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "25.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [
+        { componentId: firstComponent.body.id, quantity: "1" },
+        { componentId: secondComponent.body.id, quantity: "2" },
+      ],
+    });
+    expect(product.status).toBe(201);
+
+    const order = await testFetch("/api/manufacturing-orders", {
+      method: "POST",
+      headers: { "Idempotency-Key": `fast-bom-identity-create:${unique}` },
+      body: JSON.stringify({
+        productId: product.body.id,
+        plannedQuantity: "3",
+        plannedDate: null,
+        notes: null,
+        salesOrderId: null,
+        salesOrderLineId: null,
+        ingredients: [
+          {
+            itemId: secondComponent.body.id,
+            defaultItemId: secondComponent.body.id,
+            quantityPerUnit: "2",
+          },
+          {
+            itemId: firstComponent.body.id,
+            defaultItemId: firstComponent.body.id,
+            quantityPerUnit: "1",
+          },
+        ],
+        confirmShortage: false,
+      }),
+    });
+    const orderText = await order.text();
+    expect(order.status, orderText).toBe(201);
+    const createdOrder = JSON.parse(orderText);
+    const orderId = createdOrder.id as string;
+
+    const createdIngredients = await db
+      .select({
+        itemId: manufacturingOrderIngredients.itemId,
+        quantityPerUnit: manufacturingOrderIngredients.quantityPerUnit,
+        plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
+        sortOrder: manufacturingOrderIngredients.sortOrder,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId))
+      .orderBy(manufacturingOrderIngredients.sortOrder);
+    expect(createdIngredients).toMatchObject([
+      {
+        itemId: firstComponent.body.id,
+        quantityPerUnit: "1.0000",
+        plannedQuantity: "3.0000",
+        sortOrder: 0,
+      },
+      {
+        itemId: secondComponent.body.id,
+        quantityPerUnit: "2.0000",
+        plannedQuantity: "6.0000",
+        sortOrder: 1,
+      },
+    ]);
+
+    const omittedComponentUpdate = await testFetch(
+      `/api/manufacturing-orders/${orderId}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          productId: product.body.id,
+          plannedQuantity: "3",
+          plannedDate: null,
+          notes: null,
+          salesOrderId: null,
+          salesOrderLineId: null,
+          ingredients: [
+            {
+              itemId: firstComponent.body.id,
+              defaultItemId: firstComponent.body.id,
+              quantityPerUnit: "1",
+            },
+          ],
+        }),
+      }
+    );
+    expect(omittedComponentUpdate.status).toBe(409);
+
+    const reorderedUpdate = await testFetch(`/api/manufacturing-orders/${orderId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        productId: product.body.id,
+        plannedQuantity: "3",
+        plannedDate: null,
+        notes: null,
+        salesOrderId: null,
+        salesOrderLineId: null,
+        ingredients: [
+          {
+            itemId: secondComponent.body.id,
+            defaultItemId: secondComponent.body.id,
+            quantityPerUnit: "5",
+          },
+          {
+            itemId: firstComponent.body.id,
+            defaultItemId: firstComponent.body.id,
+            quantityPerUnit: "4",
+          },
+        ],
+      }),
+    });
+    expect(reorderedUpdate.status, await reorderedUpdate.text()).toBe(200);
+
+    const savedIngredients = await db
+      .select({
+        id: manufacturingOrderIngredients.id,
+        itemId: manufacturingOrderIngredients.itemId,
+        quantityPerUnit: manufacturingOrderIngredients.quantityPerUnit,
+        plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
+        sortOrder: manufacturingOrderIngredients.sortOrder,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId))
+      .orderBy(manufacturingOrderIngredients.sortOrder);
+    expect(savedIngredients).toMatchObject([
+      {
+        itemId: firstComponent.body.id,
+        quantityPerUnit: "4.0000",
+        plannedQuantity: "12.0000",
+        sortOrder: 0,
+      },
+      {
+        itemId: secondComponent.body.id,
+        quantityPerUnit: "5.0000",
+        plannedQuantity: "15.0000",
+        sortOrder: 1,
+      },
+    ]);
+
+    const demandRows = await db
+      .select({
+        itemId: inventoryDemandSummary.itemId,
+        referenceId: inventoryDemandSummary.referenceId,
+        quantity: inventoryDemandSummary.quantity,
+      })
+      .from(inventoryDemandSummary)
+      .where(
+        and(
+          eq(inventoryDemandSummary.referenceType, "manufacturing_order_ingredient"),
+          inArray(
+            inventoryDemandSummary.referenceId,
+            savedIngredients.map((ingredient) => ingredient.id)
+          )
+        )
+      );
+    expect(demandRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          itemId: firstComponent.body.id,
+          referenceId: savedIngredients[0].id,
+          quantity: "12.0000",
+        }),
+        expect.objectContaining({
+          itemId: secondComponent.body.id,
+          referenceId: savedIngredients[1].id,
+          quantity: "15.0000",
+        }),
+      ])
+    );
+    expect(demandRows).toHaveLength(2);
+  });
+
+  test("batch output override stores MO yield while ingredient demand follows batch count", async ({
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const component = await createItem({
+      itemType: "material",
+      name: `Fast Batch Override Component ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-BATCH-OVR-COMP-${unique}`,
+      category: `Fast Batch Override ${ts}`,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "12",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(component.status).toBe(201);
+
+    const product = await createItem({
+      itemType: "product",
+      name: `Fast Batch Override Product ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-BATCH-OVR-PRODUCT-${unique}`,
+      category: `Fast Batch Override ${ts}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "25.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: component.body.id, quantity: "1" }],
+    });
+    expect(product.status).toBe(201);
+
+    const batchRevision = await testFetch(
+      `/api/items/${product.body.id}/bom-revisions`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          recipeBasis: "batch",
+          expectedBatchYield: "10",
+          outputQuantity: "10",
+          bom: [{ componentId: component.body.id, quantity: "1" }],
+        }),
+      }
+    );
+    expect([200, 201]).toContain(batchRevision.status);
+
+    const create = await testFetch("/api/manufacturing-orders", {
+      method: "POST",
+      headers: { "Idempotency-Key": `fast-batch-output:${unique}` },
+      body: JSON.stringify({
+        id: randomUUID(),
+        productId: product.body.id,
+        plannedQuantity: "20",
+        batchCount: "2",
+        plannedDate: null,
+        notes: null,
+        salesOrderId: null,
+        salesOrderLineId: null,
+        ingredients: [{ itemId: component.body.id, quantityPerUnit: "1" }],
+        confirmShortage: false,
+      }),
+    });
+    expect(create.status, await create.text()).toBe(201);
+    const created = await create.json();
+
+    const update = await testFetch(`/api/manufacturing-orders/${created.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        productId: product.body.id,
+        plannedQuantity: "16",
+        batchCount: "2",
+        plannedDate: null,
+        notes: null,
+        salesOrderId: null,
+        salesOrderLineId: null,
+        ingredients: [{ itemId: component.body.id, quantityPerUnit: "1" }],
+      }),
+    });
+    expect(update.status, await update.text()).toBe(200);
+
+    const [savedOrder] = await db
+      .select({
+        plannedQuantity: manufacturingOrders.plannedQuantity,
+        numberOfBatches: manufacturingOrders.numberOfBatches,
+        expectedBatchYield: manufacturingOrders.expectedBatchYield,
+      })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, created.id));
+    expect(savedOrder).toMatchObject({
+      plannedQuantity: "16.0000",
+      numberOfBatches: 2,
+      expectedBatchYield: "8.0000",
+    });
+
+    const savedIngredients = await db
+      .select({
+        id: manufacturingOrderIngredients.id,
+        plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, created.id));
+    expect(
+      savedIngredients.reduce(
+        (sum, ingredient) => sum + Number(ingredient.plannedQuantity),
+        0
+      )
+    ).toBe(2);
+
+    const [savedDemand] = await db
+      .select({
+        quantity: sql<string>`COALESCE(SUM(${inventoryDemandSummary.quantity}), 0)`,
+      })
+      .from(inventoryDemandSummary)
+      .where(
+        and(
+          eq(inventoryDemandSummary.referenceType, "manufacturing_order_ingredient"),
+          inArray(
+            inventoryDemandSummary.referenceId,
+            savedIngredients.map((ingredient) => ingredient.id)
+          ),
+          eq(inventoryDemandSummary.itemId, component.body.id)
+        )
+      );
+    expect(savedDemand.quantity).toBe("2.0000");
+
+    const batchCountOnlyUpdate = await testFetch(
+      `/api/manufacturing-orders/${created.id}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          productId: product.body.id,
+          plannedQuantity: "16",
+          batchCount: "4",
+          plannedDate: null,
+          notes: null,
+          salesOrderId: null,
+          salesOrderLineId: null,
+          ingredients: [{ itemId: component.body.id, quantityPerUnit: "1" }],
+        }),
+      }
+    );
+    expect(batchCountOnlyUpdate.status, await batchCountOnlyUpdate.text()).toBe(200);
+
+    const [resavedOrder] = await db
+      .select({
+        plannedQuantity: manufacturingOrders.plannedQuantity,
+        numberOfBatches: manufacturingOrders.numberOfBatches,
+        expectedBatchYield: manufacturingOrders.expectedBatchYield,
+      })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, created.id));
+    expect(resavedOrder).toMatchObject({
+      plannedQuantity: "16.0000",
+      numberOfBatches: 4,
+      expectedBatchYield: "4.0000",
+    });
+
+    const resavedIngredients = await db
+      .select({
+        id: manufacturingOrderIngredients.id,
+        plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, created.id));
+    expect(
+      resavedIngredients.reduce(
+        (sum, ingredient) => sum + Number(ingredient.plannedQuantity),
+        0
+      )
+    ).toBe(4);
+
+    const resavedDemandRows = await db
+      .select({
+        referenceId: inventoryDemandSummary.referenceId,
+        quantity: inventoryDemandSummary.quantity,
+      })
+      .from(inventoryDemandSummary)
+      .where(
+        and(
+          eq(inventoryDemandSummary.referenceType, "manufacturing_order_ingredient"),
+          eq(inventoryDemandSummary.itemId, component.body.id),
+          inArray(
+            inventoryDemandSummary.referenceId,
+            resavedIngredients.map((ingredient) => ingredient.id)
+          )
+        )
+      );
+    expect(
+      resavedDemandRows.reduce((sum, demand) => sum + Number(demand.quantity), 0)
+    ).toBe(4);
+
+    const omittedBatchCountUpdate = await testFetch(
+      `/api/manufacturing-orders/${created.id}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          productId: product.body.id,
+          plannedQuantity: "15",
+          plannedDate: null,
+          notes: null,
+          salesOrderId: null,
+          salesOrderLineId: null,
+          ingredients: [{ itemId: component.body.id, quantityPerUnit: "1" }],
+        }),
+      }
+    );
+    expect(omittedBatchCountUpdate.status, await omittedBatchCountUpdate.text()).toBe(200);
+
+    const [omittedBatchCountOrder] = await db
+      .select({
+        plannedQuantity: manufacturingOrders.plannedQuantity,
+        numberOfBatches: manufacturingOrders.numberOfBatches,
+        expectedBatchYield: manufacturingOrders.expectedBatchYield,
+      })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, created.id));
+    expect(omittedBatchCountOrder).toMatchObject({
+      plannedQuantity: "15.0000",
+      numberOfBatches: 4,
+      expectedBatchYield: "3.7500",
+    });
+
+    const omittedBatchCountIngredients = await db
+      .select({
+        id: manufacturingOrderIngredients.id,
+        plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, created.id));
+    expect(
+      omittedBatchCountIngredients.reduce(
+        (sum, ingredient) => sum + Number(ingredient.plannedQuantity),
+        0
+      )
+    ).toBe(4);
+
+    const staleDemandRows = await db
+      .select({ referenceId: inventoryDemandSummary.referenceId })
+      .from(inventoryDemandSummary)
+      .where(
+        and(
+          eq(inventoryDemandSummary.referenceType, "manufacturing_order_ingredient"),
+          eq(inventoryDemandSummary.itemId, component.body.id),
+          inArray(
+            inventoryDemandSummary.referenceId,
+            savedIngredients.map((ingredient) => ingredient.id)
+          )
+        )
+      );
+    expect(staleDemandRows).toHaveLength(0);
+
+    const duplicate = await testFetch(
+      `/api/manufacturing-orders/${created.id}/duplicate`,
+      {
+        method: "POST",
+        headers: {
+          "Idempotency-Key": `fast-batch-output-duplicate:${unique}`,
+        },
+        body: JSON.stringify({}),
+      }
+    );
+    expect(duplicate.status, await duplicate.text()).toBe(201);
+    const duplicated = await duplicate.json();
+
+    const [duplicatedOrder] = await db
+      .select({
+        plannedQuantity: manufacturingOrders.plannedQuantity,
+        numberOfBatches: manufacturingOrders.numberOfBatches,
+        expectedBatchYield: manufacturingOrders.expectedBatchYield,
+      })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, duplicated.id));
+    expect(duplicatedOrder).toMatchObject({
+      plannedQuantity: "15.0000",
+      numberOfBatches: 4,
+      expectedBatchYield: "3.7500",
+    });
+
+    const duplicatedIngredients = await db
+      .select({
+        id: manufacturingOrderIngredients.id,
+        plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, duplicated.id));
+    expect(
+      duplicatedIngredients.reduce(
+        (sum, ingredient) => sum + Number(ingredient.plannedQuantity),
+        0
+      )
+    ).toBe(4);
   });
 
   test("sales-order make-to-stock MO creation is idempotent", async ({

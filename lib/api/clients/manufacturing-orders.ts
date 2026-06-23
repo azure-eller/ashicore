@@ -134,12 +134,19 @@ export async function startManufacturingOrder(
   });
 }
 
+type ManufacturingOrderIngredientInput = {
+  itemId: string;
+  defaultItemId?: string;
+  quantityPerUnit: string;
+};
+
 export type CreateManufacturingOrderInput = {
   productId: string;
   plannedQuantity: string;
+  batchCount?: string | null;
   plannedDate: string | null;
   notes?: string | null;
-  ingredients: Array<{ itemId: string; quantityPerUnit: string }>;
+  ingredients: ManufacturingOrderIngredientInput[];
 };
 
 /**
@@ -157,6 +164,7 @@ export async function createManufacturingOrder(
     body: {
       productId: input.productId,
       plannedQuantity: input.plannedQuantity,
+      batchCount: input.batchCount ?? undefined,
       plannedDate: input.plannedDate,
       notes: input.notes ?? null,
       ingredients: input.ingredients,
@@ -184,12 +192,13 @@ export async function saveManufacturingOrderIngredients(
   header: {
     productId?: string;
     plannedQuantity: string;
+    batchCount?: string | null;
     plannedDate: string | null;
     notes: string | null;
     salesOrderId: string | null;
     salesOrderLineId: string | null;
   },
-  ingredients: Array<{ itemId: string; quantityPerUnit: string }>,
+  ingredients: ManufacturingOrderIngredientInput[],
 ): Promise<ManufacturingOrderDetail> {
   const path = `/api/manufacturing-orders/${orderId}`;
   return json<ManufacturingOrderDetail>(path, {
@@ -198,6 +207,7 @@ export async function saveManufacturingOrderIngredients(
     body: {
       productId: header.productId,
       plannedQuantity: header.plannedQuantity,
+      batchCount: header.batchCount ?? undefined,
       plannedDate: header.plannedDate,
       notes: header.notes,
       salesOrderId: header.salesOrderId,

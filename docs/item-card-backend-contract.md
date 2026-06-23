@@ -66,5 +66,5 @@ soft-deleted.
 
 `POST /api/item-cards/:itemId/bom-copy` copies the current BOM from the focused
 product variant to sibling product variants. It creates new BOM revisions for
-targets and copies components, alternates, lot-age constraints, and operation
-costs. It does not create shared family-level BOM inheritance.
+targets and copies components, lot-age constraints, and operation costs. It does
+not create shared family-level BOM inheritance.

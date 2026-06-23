@@ -1,6 +1,6 @@
 ---
 title: Create a manufacturing order
-description: Pick a product, snapshot its current recipe, set the planned quantity or batch count, and let the order autosave into the open production queue.
+description: Pick a product, snapshot its current recipe, set the planned quantity or batch plan, and let the order autosave into the open production queue.
 sidebar:
   order: 1
   badge:
@@ -24,7 +24,7 @@ Create a production plan for one product. Ashicore copies the product's current 
 </p>
 
 <Aside type="note" title="Before you start">
-You need a **product** with a current recipe. Recipes are maintained on the product card: components and alternates live on the **Recipe** tab, while operation costs live on the **Production** tab. Manufacturing orders copy the current recipe; they do not edit the product recipe.
+You need a **product** with a current recipe. Recipes are maintained on the product card: components live on the **Recipe** tab, while operation costs live on the **Production** tab. Manufacturing orders copy the current recipe; they do not edit the product recipe.
 </Aside>
 
 <Steps>
@@ -55,19 +55,19 @@ You need a **product** with a current recipe. Recipes are maintained on the prod
      </div>
    </Frame>
 
-3. **Set how much to make.** For a discrete product, enter **Quantity** in the product's unit. For a batch product, enter **Number of batches**; Ashicore shows the total output from the batch count and expected batch yield.
+3. **Set how much to make.** For a discrete product, enter **Quantity** in the product's unit. For a batch product, enter **Number of batches** and confirm **Expected output**. Ingredient demand follows the batch count, while expected supply follows the planned output.
 
    <Frame title="<b>MO-2052</b> · Premium Potting Mix">
      <div class="mk-pad">
        <div class="mk-rows mk-rows--3">
-         <Field label="Quantity">40 yd3</Field>
+         <Field label="Number of batches">3 batches</Field>
+         <Field label="Expected output">40 yd3</Field>
          <Field label="Production deadline">Apr 24, 2026</Field>
-         <Field label="Manufacturing location" muted>Default location</Field>
        </div>
      </div>
    </Frame>
 
-4. **Review ingredients.** The **Ingredients** section is prefilled from the recipe. Each row shows the ingredient, SKU, per-unit or per-batch requirement, scaled total, and cost once production has consumed stock. You can add, remove, reorder, or swap eligible alternates while planning is still editable.
+4. **Review ingredients.** The **Ingredients** section is prefilled from the recipe. Each row shows the ingredient, SKU, per-unit or per-batch requirement, scaled total, and cost once production has consumed stock. BOM rows stay on the order, but you can swap an ingredient to another active variant in the same item family while planning is still editable. The swap preserves the row quantity.
 
    <Frame title="<b>Ingredients</b> · 3 items">
      <span slot="action"><Button variant="subtle">+ Add ingredient</Button></span>
@@ -75,7 +75,7 @@ You need a **product** with a current recipe. Recipes are maintained on the prod
        <thead><tr><th>Ingredient</th><th>SKU</th><th class="num">Per unit</th><th class="num">Total</th><th class="num">Cost</th></tr></thead>
        <tbody>
          <tr><td><span class="mk-name">Screened Compost</span></td><td><span class="mk-sku">CMP-SCR</span></td><td class="num">0.5</td><td class="num">20 yd3</td><td class="num">-</td></tr>
-         <tr><td><span class="mk-name">Coir Pith</span> <span class="mk-sku">alternate available</span></td><td><span class="mk-sku">COIR</span></td><td class="num">0.3</td><td class="num">12 yd3</td><td class="num">-</td></tr>
+         <tr><td><span class="mk-name">Coir Pith</span> <span class="mk-sku">variant available</span></td><td><span class="mk-sku">COIR</span></td><td class="num">0.3</td><td class="num">12 yd3</td><td class="num">-</td></tr>
        </tbody>
      </Grid>
    </Frame>

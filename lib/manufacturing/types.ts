@@ -206,6 +206,15 @@ export type ManufacturingExecutionQueueRow = {
   actionLabel: string;
 };
 
+export type ManufacturingIngredientSiblingVariant = {
+  itemId: string;
+  itemName: string;
+  itemSku: string | null;
+  itemType: string;
+  unitName: string;
+  isCurrent: boolean;
+};
+
 export type ManufacturingOrderIngredientDetail = {
   id: string;
   itemId: string;
@@ -238,6 +247,7 @@ export type ManufacturingOrderIngredientDetail = {
   defaultItemSku: string | null;
   defaultUnitName: string | null;
   defaultQuantityPerUnit: string | null;
+  siblingVariants: ManufacturingIngredientSiblingVariant[];
   alternates: Array<{
     itemId: string;
     itemName: string;

@@ -13,7 +13,7 @@ read_when:
 Manufacturing v1 now covers both planning and simple execution:
 
 - one finished product per manufacturing order
-- BOM ingredients stored per unit of output
+- BOM ingredients stored per recipe basis
 - editable draft snapshots before release
 - optional sales-order-line traceability
 - release without shortage confirmation
@@ -111,7 +111,11 @@ For quantities, store both:
 - `requested_quantity`: what the user or sales line asked for
 - `planned_quantity`: what execution will actually run
 
-Discrete orders keep these values the same. Batch-mode orders are created from a whole-number batch count; `planned_quantity` is derived as `number_of_batches * expected_batch_yield` while preserving `requested_quantity` when the order came from demand.
+Discrete orders keep these values the same. Batch-mode orders are created from a
+whole-number batch count and planned output; `number_of_batches` drives
+ingredient demand, while `planned_quantity` is the expected finished output.
+`expected_batch_yield` is the order-level planned output divided by batch count.
+Demand-created orders still preserve the requested quantity separately.
 
 ## Recipe Basis
 
@@ -222,11 +226,23 @@ Batch picking rules:
 - starting a batch marks it `in_progress`
 - a fully picked batch records `pickedAt`
 
-## Material Alternates
+## Material Variant Swaps
 
-Material alternates may exist in historical BOM data, but the current planning UI does not expose alternate selection. Planners adjust the manufacturing order's actual ingredient rows when a job needs a different material.
+Material alternates may exist in historical BOM data, but the current setup UI
+does not expose explicit alternate lists. A BOM line stores one concrete item
+variant as the default ingredient. While planning a manufacturing order, users
+may swap that ingredient only to another active variant in the same item family.
+The swap preserves the submitted quantity; users edit quantity directly when a
+different package size needs a different amount.
 
 Released execution does not change materials. Picking consumes the ingredient on the order row through the normal inventory kernel flow, and completion still requires all ingredients to be picked first.
+
+## Batch Output Overrides
+
+Batch yield changes live on the manufacturing order. Users edit the order's
+expected output while keeping the batch count explicit, so ingredient demand
+continues to scale from batch count and finished-good expected supply comes from
+the order's planned output.
 
 ## Completion Behavior
 

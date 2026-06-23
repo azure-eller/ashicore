@@ -1,11 +1,11 @@
 ---
 title: Bills of materials
-description: Product recipes, alternates, constraints, operation costs, and revisions.
+description: Product recipes, variant-ready components, constraints, operation costs, and revisions.
 sidebar:
   label: Overview
 ---
 
-Bills of materials are managed from product cards, not from a separate Manufacturing BOM screen. Use the product Recipe tab for components, alternates, and lot-age constraints, and the Production tab for operation costs and resources.
+Bills of materials are managed from product cards, not from a separate Manufacturing BOM screen. Use the product Recipe tab for components and lot-age constraints, and the Production tab for operation costs and resources.
 
 <p class="po-meta">
   <span class="po-chip">product card</span>
@@ -17,8 +17,7 @@ Bills of materials are managed from product cards, not from a separate Manufactu
 
 | Part | Purpose |
 | --- | --- |
-| Components | Required items and quantities per output. |
-| Alternates | Approved substitutes with quantity factors. |
+| Components | Required item variants and quantities per recipe basis. Manufacturing orders can swap a component only to another active variant in the same item family. |
 | Constraints | Lot strategy and minimum lot-age requirements. |
 | Operation costs | Resources, crew, minutes, and rate inputs for cost rollup. |
 

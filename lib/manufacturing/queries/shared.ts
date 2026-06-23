@@ -1,15 +1,21 @@
 import "server-only";
 
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { items, manufacturingOrders } from "@/lib/db/schema";
+import { items, manufacturingOrders, unitDefinitions } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { normalizeQuantityNumber } from "@/lib/format";
 import type { Tx } from "@/lib/db/with-org-context";
 import { lockManufacturingPriorityQueueInTx } from "@/lib/manufacturing-priority-lock";
 import { documentNumberSortSql } from "@/lib/document-numbers";
-import { getItemDisplayMetadataByIdInTx } from "@/lib/inventory/item-display";
+import {
+  getItemDisplayMetadataByIdInTx,
+  getItemDisplayNamesByIdInTx,
+} from "@/lib/inventory/item-display";
 import type { ManufacturingPickProgressStatus } from "../types";
+import type { ManufacturingIngredientSiblingVariant } from "../types";
 import { ManufacturingError } from "./errors";
+
+type ActiveSiblingVariant = Omit<ManufacturingIngredientSiblingVariant, "isCurrent">;
 
 export function effectiveManufacturingPriorityRankSql() {
   return sql<number | null>`${manufacturingOrders.priorityRank}`;
@@ -32,6 +38,74 @@ export function canonicalItemName(
   fallbackName: string
 ) {
   return (itemId ? displayByItemId.get(itemId)?.displayName : null) ?? fallbackName;
+}
+
+export async function getActiveSiblingVariantsByItemIdInTx(
+  tx: Tx,
+  itemIds: Array<string | null | undefined>
+) {
+  const uniqueItemIds = uniqueIds(itemIds);
+  const empty = new Map<string, ActiveSiblingVariant[]>();
+  if (uniqueItemIds.length === 0) return empty;
+
+  const sourceRows = await tx
+    .select({
+      id: items.id,
+      familyId: items.familyId,
+    })
+    .from(items)
+    .where(inArray(items.id, uniqueItemIds));
+
+  const familyIds = [
+    ...new Set(
+      sourceRows
+        .map((row) => row.familyId)
+        .filter((familyId): familyId is string => Boolean(familyId)),
+    ),
+  ];
+  if (familyIds.length === 0) return empty;
+
+  const siblingRows = await tx
+    .select({
+      id: items.id,
+      familyId: items.familyId,
+      name: items.name,
+      sku: items.sku,
+      itemType: items.itemType,
+      unitName: unitDefinitions.name,
+      sortOrder: items.sortOrder,
+    })
+    .from(items)
+    .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
+    .where(and(inArray(items.familyId, familyIds), isNull(items.deletedAt)))
+    .orderBy(asc(items.sortOrder), asc(items.name));
+
+  const displayNamesByItemId = await getItemDisplayNamesByIdInTx(
+    tx,
+    siblingRows.map((row) => row.id)
+  );
+
+  const siblingsByFamilyId = new Map<string, ActiveSiblingVariant[]>();
+  for (const row of siblingRows) {
+    if (!row.familyId) continue;
+    const bucket = siblingsByFamilyId.get(row.familyId) ?? [];
+    bucket.push({
+      itemId: row.id,
+      itemName: displayNamesByItemId.get(row.id) ?? row.name,
+      itemSku: row.sku,
+      itemType: row.itemType,
+      unitName: row.unitName,
+    });
+    siblingsByFamilyId.set(row.familyId, bucket);
+  }
+
+  const siblingsByItemId = new Map<string, ActiveSiblingVariant[]>();
+  for (const row of sourceRows) {
+    const siblings = row.familyId ? siblingsByFamilyId.get(row.familyId) ?? [] : [];
+    siblingsByItemId.set(row.id, siblings);
+  }
+
+  return siblingsByItemId;
 }
 
 export type LockedManufacturingOrder = {

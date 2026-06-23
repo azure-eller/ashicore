@@ -589,6 +589,7 @@ export function toIngredientDetail(ingredient: ExecutionIngredientRow): Manufact
     defaultItemSku: null,
     defaultUnitName: null,
     defaultQuantityPerUnit: null,
+    siblingVariants: [],
     alternates: [],
   };
 }
@@ -896,6 +897,7 @@ export function aggregateBatchIngredients(
         defaultItemSku: null,
         defaultUnitName: null,
         defaultQuantityPerUnit: null,
+        siblingVariants: [],
         alternates: [],
       });
       continue;

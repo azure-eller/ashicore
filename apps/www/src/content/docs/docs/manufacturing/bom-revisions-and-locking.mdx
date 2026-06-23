@@ -23,7 +23,7 @@ Every saved product recipe is a BOM revision. A product has one current revision
 
 ## How Revisions Work
 
-Recipe edits append a new revision instead of rewriting the old one. Each revision records its components, alternates, constraints, operation costs, output quantity, recipe basis, creator, timestamp, and note.
+Recipe edits append a new revision instead of rewriting the old one. Each revision records its components, constraints, operation costs, output quantity, recipe basis, creator, timestamp, and note.
 
 <Frame title="<b>Premium Potting Mix</b> · recipe history">
   <Grid>
@@ -52,4 +52,4 @@ A locked formula stops quiet changes to a validated recipe. It does not replace 
 
 ## Recipe Basis: Unit Vs Batch
 
-The revision stores whether quantities are based on a unit or a batch. Unit recipes scale by output quantity. Batch recipes scale by whole batch count and expected batch yield. See **[Discrete and batch production](/docs/manufacturing/discrete-and-batch-production)** for order behavior.
+The revision stores whether quantities are based on a unit or a batch. Unit recipes scale by output quantity. Batch recipes scale by whole batch count; the manufacturing order's expected output controls finished-good expected supply. See **[Discrete and batch production](/docs/manufacturing/discrete-and-batch-production)** for order behavior.

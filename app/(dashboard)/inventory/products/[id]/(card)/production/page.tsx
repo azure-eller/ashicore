@@ -49,9 +49,6 @@ export default async function ProductProductionPage({
           componentId: row.componentId,
           quantity: row.quantity,
           minimumLotAgeDays: row.minimumLotAgeDays ?? null,
-          alternates: row.alternates.map((alternate) => ({
-            itemId: alternate.itemId,
-          })),
       }))}
       initialOperationCosts={operationCosts.map((operation) => ({
           operationName: operation.operationName,

@@ -6,16 +6,12 @@ import type {
   ICellRendererParams,
   ValueSetterParams,
 } from "ag-grid-community";
-import { Cancel01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 
 import {
   MutableLines,
   type EditableLineDataGridChange,
   type LineField,
 } from "@/components/editable-lines";
-import { InventoryItemCombobox } from "@/components/inventory-item-combobox";
-import { Panel } from "@/components/panel";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -54,7 +50,6 @@ type BomPayloadRow = {
   componentId: string | null;
   quantity: string | null;
   minimumLotAgeDays?: string | number | null;
-  alternates?: Array<{ itemId: string }>;
 };
 
 type BomGridRow = BomPayloadRow & {
@@ -64,8 +59,7 @@ type BomGridRow = BomPayloadRow & {
 type BomColumnKey =
   | "componentId"
   | "quantity"
-  | "minimumLotAgeDays"
-  | "alternates";
+  | "minimumLotAgeDays";
 
 type BomErrorState = {
   gridError: string | null;
@@ -81,7 +75,6 @@ const blankBomLine = {
   componentId: "",
   quantity: null,
   minimumLotAgeDays: null,
-  alternates: [],
 };
 
 function createClientRowId() {
@@ -104,7 +97,6 @@ function toGridRows(rows: BomPayloadRow[] | undefined): BomGridRow[] {
       ...blankBomLine,
       ...row,
       componentId: row.componentId ?? "",
-      alternates: row.alternates ?? [],
       clientRowId: createClientRowId(),
     })) ?? [];
 
@@ -116,7 +108,6 @@ function toPayloadRows(rows: BomGridRow[]): BomPayloadRow[] {
     componentId: row.componentId ?? "",
     quantity: normalizeTextCell(row.quantity),
     minimumLotAgeDays: normalizeMinimumLotAge(row.minimumLotAgeDays),
-    alternates: row.alternates ?? [],
   }));
 }
 
@@ -136,7 +127,6 @@ export function toBomRevisionPayloadRows(rows: BomPayloadRow[]) {
       componentId: row.componentId ?? "",
       quantity: row.quantity ?? "",
       minimumLotAgeDays: row.minimumLotAgeDays ?? null,
-      alternates: row.alternates ?? [],
     }));
 }
 
@@ -148,7 +138,6 @@ function comparablePayload(rows: BomGridRow[]) {
         componentId: row.componentId ?? "",
         quantity: row.quantity ?? null,
         minimumLotAgeDays: row.minimumLotAgeDays ?? null,
-        alternates: row.alternates ?? [],
       }))
   );
 }
@@ -168,7 +157,7 @@ function buildErrorState(error: unknown, rows: BomGridRow[]): BomErrorState {
       : null;
   if (fieldErrors) {
     for (const [path, messages] of Object.entries(fieldErrors)) {
-      const match = /^bom\.(\d+)\.(componentId|quantity|minimumLotAgeDays|alternates)$/.exec(
+      const match = /^bom\.(\d+)\.(componentId|quantity|minimumLotAgeDays)$/.exec(
         path,
       );
       if (!match) continue;
@@ -189,7 +178,6 @@ function buildErrorState(error: unknown, rows: BomGridRow[]): BomErrorState {
       "componentId",
       "quantity",
       "minimumLotAgeDays",
-      "alternates",
     ],
     (row) => row.clientRowId,
   );
@@ -399,121 +387,6 @@ function RequirementsCell({
   );
 }
 
-function summarizeAlternates(row: BomGridRow | undefined) {
-  const count = row?.alternates?.length ?? 0;
-  if (count === 0) return "None";
-  return `${count} alt${count === 1 ? "" : "s"}`;
-}
-
-function AlternatesCell({
-  data,
-  node,
-  componentMap,
-  options,
-}: ICellRendererParams<BomGridRow> & {
-  componentMap: Map<string, AvailableComponent>;
-  options: Array<AvailableComponent & { unitName: string }>;
-}) {
-  const [open, setOpen] = useState(false);
-  if (!data) {
-    return null;
-  }
-
-  const alternates = data.alternates ?? [];
-  const alternateIds = new Set(alternates.map((alternate) => alternate.itemId));
-  const availableAlternates = options.filter(
-    (option) => option.id !== data.componentId && !alternateIds.has(option.id)
-  );
-
-  const updateAlternates = (nextAlternates: Array<{ itemId: string }>) => {
-    node.setDataValue("alternates", nextAlternates);
-  };
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className={cn(
-            "h-full w-full justify-start px-(--space-3)",
-            alternates.length === 0 && "text-[var(--color-ink-faint)]"
-          )}
-        >
-          {summarizeAlternates(data)}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-80">
-        <PopoverHeader>
-          <PopoverTitle>Alternates</PopoverTitle>
-          <PopoverDescription>
-            Approved substitute components for this line.
-          </PopoverDescription>
-        </PopoverHeader>
-        <div className="space-y-(--space-3)">
-          {alternates.length > 0 ? (
-            <div className="space-y-(--space-2)">
-              {alternates.map((alternate) => {
-                const item = componentMap.get(alternate.itemId);
-                return (
-                  <Panel
-                    key={alternate.itemId}
-                    className="flex min-w-0 items-center justify-between gap-(--space-3) px-(--space-4) py-(--space-2)"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-[length:var(--text-sm)] font-medium">
-                        {item?.displayName ?? item?.name ?? alternate.itemId}
-                      </p>
-                      <p className="truncate text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-                        {item?.unit ?? "Unit unavailable"}
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label={`Remove ${item?.name ?? "alternate"}`}
-                      onClick={() =>
-                        updateAlternates(
-                          alternates.filter(
-                            (entry) => entry.itemId !== alternate.itemId
-                          )
-                        )
-                      }
-                    >
-                      <HugeiconsIcon icon={Cancel01Icon} aria-hidden />
-                    </Button>
-                  </Panel>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
-              No alternates.
-            </p>
-          )}
-          <InventoryItemCombobox
-            options={availableAlternates}
-            value={null}
-            onValueChange={(itemId) => {
-              if (!itemId) return;
-              updateAlternates([...alternates, { itemId }]);
-            }}
-            placeholder="Add alternate..."
-            emptyMessage="No compatible options"
-            inputAriaInvalid={false}
-            inputClassName="h-(--height-input-sm)"
-            contentClassName="w-[min(28rem,calc(100vw-2rem))]"
-            showTypeBadge
-            getSecondaryText={(component) => component.unit}
-          />
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
 function getComponentUnit(
   row: BomGridRow | undefined,
   componentMap: Map<string, AvailableComponent>
@@ -691,25 +564,6 @@ export function BomEditor({
           "erp-editable-grid-cell-error": hasError("minimumLotAgeDays"),
         },
         tooltipValueGetter: errorTooltip("minimumLotAgeDays"),
-      },
-      {
-        field: "alternates",
-        kind: "display",
-        headerName: "Alternates",
-        minWidth: 116,
-        flex: 0.55,
-        valueFormatter: (params) => summarizeAlternates(params.data),
-        cellRenderer: (params: ICellRendererParams<BomGridRow>) => (
-          <AlternatesCell
-            {...params}
-            componentMap={componentMap}
-            options={componentOptions}
-          />
-        ),
-        cellClassRules: {
-          "erp-editable-grid-cell-error": hasError("alternates"),
-        },
-        tooltipValueGetter: errorTooltip("alternates"),
       },
       ];
 

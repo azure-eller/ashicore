@@ -1,6 +1,6 @@
 ---
 title: Ingredients and picking
-description: How manufacturing orders snapshot recipe components, allow alternates, enforce lot rules, and consume stock at completion.
+description: How manufacturing orders snapshot recipe components, allow same-family variant swaps, enforce lot rules, and consume stock at completion.
 sidebar:
   order: 7
   badge:
@@ -17,7 +17,7 @@ Ingredients are the material requirements copied from the product's current reci
 
 <p class="po-meta">
   <span class="po-chip">recipe snapshot</span>
-  <span class="po-chip">alternates</span>
+  <span class="po-chip">variant swaps</span>
   <span class="po-chip">lot-aware picking</span>
 </p>
 
@@ -35,9 +35,9 @@ When you choose a product, Ashicore snapshots the current recipe components into
   </Grid>
 </Frame>
 
-## Alternates
+## Variant Swaps
 
-Recipe components can include approved alternate items with quantity factors. On the manufacturing order, alternates can be swapped while the ingredient is still not picked. After picking starts, the row locks because the inventory trail already references the selected item and lots.
+A recipe component stores one default item variant. On the manufacturing order, that ingredient can be swapped only to another active variant in the same item family while the row is still not picked. The swap keeps the entered quantity; edit the quantity directly when a different package size needs a different amount. After picking starts, the row locks because the inventory trail already references the selected item and lots.
 
 ## Lot Strategy And Age Requirements
 

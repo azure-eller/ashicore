@@ -28,6 +28,7 @@ export type ManufacturingOrderDraftController = {
   patchHeader: (patch: ManufacturingOrderDraftHeaderPatch) => void;
   selectProduct: (product: ManufacturingProductOption) => void;
   updatePlannedInput: (inputQuantity: string) => void;
+  updatePlannedOutput: (outputQuantity: string) => void;
   addIngredient: (ingredient: ManufacturingOrderIngredientDetail) => void;
   updateIngredient: (
     ingredientId: string,
@@ -47,7 +48,12 @@ type ManufacturingOrderPayload = {
   notes: string | null;
   salesOrderId: string | null;
   salesOrderLineId: string | null;
-  ingredients: Array<{ itemId: string; quantityPerUnit: string }>;
+  ingredients: Array<{
+    itemId: string;
+    defaultItemId?: string;
+    quantityPerUnit: string;
+  }>;
+  batchCount?: string;
 };
 
 const QUICK_FLUSH_DELAY_MS = 150;
@@ -75,8 +81,13 @@ function serializeManufacturingOrder(draft: ManufacturingOrderDetail): {
       notes: draft.notes,
       salesOrderId: draft.salesOrderId,
       salesOrderLineId: draft.salesOrderLineId,
+      batchCount:
+        draft.manufacturingMode === "batch" && draft.numberOfBatches != null
+          ? String(draft.numberOfBatches)
+          : undefined,
       ingredients: payloadIngredients.map((ingredient) => ({
         itemId: ingredient.itemId,
+        defaultItemId: ingredient.defaultItemId ?? undefined,
         quantityPerUnit: ingredient.quantityPerUnit,
       })),
     },
@@ -240,6 +251,31 @@ export function useManufacturingOrderDraftController({
     [update],
   );
 
+  const updatePlannedOutput = useCallback(
+    (outputQuantity: string) => {
+      update(
+        (current) => {
+          const output = Number(outputQuantity);
+          const batchCount =
+            current.manufacturingMode === "batch"
+              ? Math.max(1, Math.round(Number(current.numberOfBatches ?? 1)))
+              : null;
+          if (!Number.isFinite(output) || output <= 0 || batchCount == null) {
+            return current;
+          }
+          return {
+            ...current,
+            requestedQuantity: formatDecimal(output),
+            plannedQuantity: formatDecimal(output),
+            expectedBatchYield: formatDecimal(output / batchCount),
+          };
+        },
+        { debounceMs: QUICK_FLUSH_DELAY_MS },
+      );
+    },
+    [update],
+  );
+
   const addIngredient = useCallback(
     (ingredient: ManufacturingOrderIngredientDetail) => {
       update(
@@ -348,6 +384,7 @@ export function useManufacturingOrderDraftController({
       updateIngredient,
       removeIngredient,
       reorderIngredients,
+      updatePlannedOutput,
       flush,
       refreshFromServer,
     }),
@@ -362,6 +399,7 @@ export function useManufacturingOrderDraftController({
       selectProduct,
       updateIngredient,
       updatePlannedInput,
+      updatePlannedOutput,
     ],
   );
 }
@@ -419,6 +457,7 @@ export function makeDraftIngredient(
     unitName: string;
     quantityPerUnit: string;
     defaultQuantityPerUnit?: string | null;
+    siblingVariants?: ManufacturingOrderIngredientDetail["siblingVariants"];
     alternates?: ManufacturingOrderIngredientDetail["alternates"];
   },
   requirementMultiplier: string,
@@ -449,6 +488,7 @@ export function makeDraftIngredient(
     defaultItemSku: input.itemSku,
     defaultUnitName: input.unitName,
     defaultQuantityPerUnit: input.defaultQuantityPerUnit ?? input.quantityPerUnit,
+    siblingVariants: input.siblingVariants ?? [],
     alternates: input.alternates ?? [],
   };
 }

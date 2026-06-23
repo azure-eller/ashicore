@@ -40,11 +40,13 @@ export type ManufacturingBatchStatus =
 
 const ingredientRowSchema = z.object({
   itemId: z.string().min(1, "Ingredient is required"),
+  defaultItemId: z.string().min(1, "Default ingredient is required").optional(),
   quantityPerUnit: positiveDecimalString("Quantity per unit"),
 }).strict();
 
 const rawIngredientRowSchema = z.object({
   itemId: z.string().nullable().optional(),
+  defaultItemId: z.string().nullable().optional(),
   quantityPerUnit: z.string().nullable().optional(),
 }).strict();
 
@@ -64,6 +66,7 @@ const cleanedIngredientRowsSchema = z
 
       const parsed = ingredientRowSchema.safeParse({
         itemId: row.itemId ?? "",
+        defaultItemId: row.defaultItemId ?? undefined,
         quantityPerUnit: row.quantityPerUnit ?? null,
       });
 

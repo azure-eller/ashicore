@@ -1,6 +1,6 @@
 ---
 title: Discrete and batch production
-description: How manufacturing orders scale quantities for one output run versus a fixed-yield batch process.
+description: How manufacturing orders scale quantities for one output run versus a batch-count process.
 sidebar:
   order: 6
   badge:
@@ -34,15 +34,15 @@ Discrete production is one production run that creates finished output for a req
   </div>
 </Frame>
 
-## Batch: Make N Batches Of A Fixed Yield
+## Batch: Make N Batches With Planned Output
 
-Batch production creates batch rows with their own status and output lot. The order field is **Number of batches**. Total output is batch count multiplied by the expected batch yield. Batch production is feature-gated; locked orgs do not see batch products in the create picker.
+Batch production creates batch rows with their own status and output lot. The order fields are **Number of batches** and **Expected output**. Ingredient demand scales from the batch count; finished-good expected supply uses the order's planned output. Batch production is feature-gated; locked orgs do not see batch products in the create picker.
 
 <Frame title="<b>Batch order</b>">
   <div class="mk-pad">
     <div class="mk-rows mk-rows--2">
       <Field label="Number of batches">3 batches</Field>
-      <Field label="Total output" muted>120 yd3</Field>
+      <Field label="Expected output">120 yd3</Field>
     </div>
   </div>
 </Frame>
@@ -65,5 +65,5 @@ Batch production creates batch rows with their own status and output lot. The or
 </Frame>
 
 <Aside type="caution" title="Batch counts must be whole">
-When a batch recipe has a fixed output quantity, Ashicore expects the requested output to resolve to a whole number of batches. Otherwise it asks you to enter a whole number of batches.
+Batch orders always use a whole number of batches. You can edit expected output separately when the planned yield differs from the recipe's default batch yield.
 </Aside>

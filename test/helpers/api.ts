@@ -906,7 +906,11 @@ export async function createManufacturingOrder(data: {
   plannedQuantity: string;
   plannedDate?: string | null;
   notes?: string | null;
-  ingredients: Array<{ itemId: string; quantityPerUnit: string }>;
+  ingredients: Array<{
+    itemId: string;
+    defaultItemId?: string;
+    quantityPerUnit: string;
+  }>;
   confirmShortage?: boolean;
 }) {
   const res = await testFetch("/api/manufacturing-orders", {

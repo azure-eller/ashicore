@@ -74,6 +74,7 @@ export type ManufacturingProductOption = {
     unitName: string;
     quantityPerUnit: string;
     defaultQuantityPerUnit: string;
+    siblingVariants: ManufacturingOrderIngredientDetail["siblingVariants"];
     alternates: Array<{
       itemId: string;
       itemName: string;
@@ -88,7 +89,6 @@ export type ManufacturingProductOption = {
 
 export type ManufacturingIngredientOption = InventoryItemComboboxOption & {
   quantityPerUnit?: string;
-  isAlternate?: boolean;
 };
 
 export function OrderDetailsSection({
@@ -113,19 +113,13 @@ export function OrderDetailsSection({
   const selectedProduct = productOptions.find((option) => option.id === selectedProductId);
   const isBatchProduct =
     order.manufacturingMode === "batch" || selectedProduct?.manufacturingMode === "batch";
-  const expectedBatchYield = order.expectedBatchYield ?? selectedProduct?.expectedBatchYield ?? null;
   const plannedInputValue =
     order.manufacturingMode === "batch" && order.numberOfBatches != null
       ? String(order.numberOfBatches)
       : order.requestedQuantity || order.plannedQuantity;
   const plannedFieldLabel = isBatchProduct ? "Number of batches" : "Quantity";
   const plannedFieldSuffix = isBatchProduct ? "batches" : unitName || "units";
-  const batchOutputHint =
-    isBatchProduct && expectedBatchYield != null
-      ? `Total output: ${formatQuantity(order.plannedQuantity)} ${
-          unitName || selectedProduct?.unitName || "units"
-        }`
-      : null;
+  const outputUnitName = unitName || selectedProduct?.unitName || "units";
   const productSelectDisabled = productOptions.length === 0;
   const productDisabledReason = productSelectDisabled
     ? "Create a product with a recipe before creating a manufacturing order."
@@ -240,9 +234,6 @@ export function OrderDetailsSection({
                 )}
                 <span className={styles.fieldSuffix}>{plannedFieldSuffix}</span>
               </div>
-              {batchOutputHint ? (
-                <p className={styles.fieldHint}>{batchOutputHint}</p>
-              ) : null}
             </>
           ) : (
             <>
@@ -255,12 +246,45 @@ export function OrderDetailsSection({
                 </span>
                 <span className={styles.fieldSuffix}>{plannedFieldSuffix}</span>
               </div>
-              {batchOutputHint ? (
-                <p className={styles.fieldHint}>{batchOutputHint}</p>
-              ) : null}
             </>
           )}
         </CardField>
+        {isBatchProduct ? (
+          <CardField
+            label="Expected output"
+            htmlFor={canEditPlanning ? "manufacturing-order-planned-output" : undefined}
+          >
+            {canEditPlanning ? (
+              <div className={styles.suffixField}>
+                <CommitInput
+                  id="manufacturing-order-planned-output"
+                  label="Expected output"
+                  value={order.plannedQuantity}
+                  inputMode="decimal"
+                  className={`${styles.underlineInput} ${styles.mono} text-right`}
+                  onDraftChange={(next) => controller.updatePlannedOutput(next)}
+                  onCommit={(next) => {
+                    if (!next) return;
+                    if (next !== order.plannedQuantity) {
+                      controller.updatePlannedOutput(next);
+                    }
+                  }}
+                />
+                <span className={styles.fieldSuffix}>{outputUnitName}</span>
+              </div>
+            ) : (
+              <div
+                className={`${styles.suffixField} ${styles.suffixFieldReadOnly}`}
+                title={planningLockedReason ?? undefined}
+              >
+                <span className={`${styles.underlineInput} ${styles.mono} text-right`}>
+                  {formatQuantity(order.plannedQuantity)}
+                </span>
+                <span className={styles.fieldSuffix}>{outputUnitName}</span>
+              </div>
+            )}
+          </CardField>
+        ) : null}
         {hasLinkedSalesOrder ? (
           <CardField label="Sales order">
             <ReadOnlyFieldValue title={salesOrderReadOnlyReason ?? undefined}>
@@ -278,64 +302,53 @@ function productLabel(option: ManufacturingProductOption) {
   return option.displayName || option.name;
 }
 
+function addIngredientAndSiblingOptions(
+  byId: Map<string, ManufacturingIngredientOption>,
+  ingredient: {
+    itemId: string;
+    itemName: string;
+    itemSku: string | null;
+    itemType: string;
+    unitName: string;
+    quantityPerUnit: string;
+    siblingVariants: ManufacturingOrderIngredientDetail["siblingVariants"];
+  }
+) {
+  if (!ingredient.itemId) return;
+  byId.set(ingredient.itemId, {
+    id: ingredient.itemId,
+    name: ingredient.itemName,
+    displayName: ingredient.itemName,
+    sku: ingredient.itemSku,
+    itemType: ingredient.itemType,
+    unitName: ingredient.unitName,
+    quantityPerUnit: ingredient.quantityPerUnit,
+  });
+
+  for (const sibling of ingredient.siblingVariants) {
+    byId.set(sibling.itemId, {
+      id: sibling.itemId,
+      name: sibling.itemName,
+      displayName: sibling.itemName,
+      sku: sibling.itemSku,
+      itemType: sibling.itemType,
+      unitName: sibling.unitName,
+      quantityPerUnit: ingredient.quantityPerUnit,
+    });
+  }
+}
+
 export function buildIngredientOptions(
   productOptions: ManufacturingProductOption[],
   currentIngredients: ManufacturingOrderIngredientDetail[],
 ): ManufacturingIngredientOption[] {
   const byId = new Map<string, ManufacturingIngredientOption>();
   for (const ingredient of currentIngredients) {
-    if (!ingredient.itemId) continue;
-    byId.set(ingredient.itemId, {
-      id: ingredient.itemId,
-      name: ingredient.itemName,
-      displayName: ingredient.itemName,
-      sku: ingredient.itemSku,
-      itemType: ingredient.itemType,
-      unitName: ingredient.unitName,
-      quantityPerUnit: ingredient.quantityPerUnit,
-    });
-    for (const alternate of ingredient.alternates) {
-      byId.set(alternate.itemId, {
-        id: alternate.itemId,
-        name: alternate.itemName,
-        displayName: alternate.itemName,
-        sku: alternate.itemSku,
-        itemType: alternate.itemType,
-        unitName: alternate.unitName,
-        quantityPerUnit: multiplyQuantityString(
-          ingredient.defaultQuantityPerUnit ?? ingredient.quantityPerUnit,
-          Number(alternate.quantityFactor),
-        ),
-        isAlternate: true,
-      });
-    }
+    addIngredientAndSiblingOptions(byId, ingredient);
   }
   for (const product of productOptions) {
     for (const ingredient of product.bom) {
-      byId.set(ingredient.itemId, {
-        id: ingredient.itemId,
-        name: ingredient.itemName,
-        displayName: ingredient.itemName,
-        sku: ingredient.itemSku,
-        itemType: ingredient.itemType,
-        unitName: ingredient.unitName,
-        quantityPerUnit: ingredient.quantityPerUnit,
-      });
-      for (const alternate of ingredient.alternates) {
-        byId.set(alternate.itemId, {
-          id: alternate.itemId,
-          name: alternate.itemName,
-          displayName: alternate.itemName,
-          sku: alternate.itemSku,
-          itemType: alternate.itemType,
-          unitName: alternate.unitName,
-          quantityPerUnit: multiplyQuantityString(
-            ingredient.defaultQuantityPerUnit,
-            Number(alternate.quantityFactor),
-          ),
-          isAlternate: true,
-        });
-      }
+      addIngredientAndSiblingOptions(byId, ingredient);
     }
   }
   return [...byId.values()].sort((a, b) =>
@@ -356,6 +369,7 @@ function ingredientFromOption(
       itemType: option.itemType ?? "material",
       unitName: option.unitName ?? "",
       quantityPerUnit: values?.quantityPerUnit ?? option.quantityPerUnit ?? "1",
+      siblingVariants: [],
       alternates: [],
     },
     requirementMultiplier,
@@ -517,11 +531,11 @@ function ingredientSelectionOptions(ingredient: ManufacturingOrderIngredientDeta
     label: "Default",
   });
 
-  for (const alternate of ingredient.alternates) {
-    options.set(alternate.itemId, {
-      itemId: alternate.itemId,
-      itemName: alternate.itemName,
-      label: "Alternate",
+  for (const sibling of ingredient.siblingVariants) {
+    options.set(sibling.itemId, {
+      itemId: sibling.itemId,
+      itemName: sibling.itemName,
+      label: sibling.itemId === defaultItemId ? "Default" : "Variant",
     });
   }
 
@@ -590,7 +604,7 @@ export function IngredientsSection({
     () => new Map(ingredientOptions.map((option) => [option.id, option])),
     [ingredientOptions],
   );
-  const getApprovedIngredientSelection = useCallback(
+  const getSiblingIngredientSelection = useCallback(
     (row: ManufacturingOrderIngredientDetail, itemId: string) => {
       if (itemId === row.defaultItemId) {
         return {
@@ -599,30 +613,25 @@ export function IngredientsSection({
           itemSku: row.defaultItemSku,
           itemType: row.itemType,
           unitName: row.defaultUnitName ?? row.unitName,
-          quantityPerUnit: row.defaultQuantityPerUnit ?? row.quantityPerUnit,
         };
       }
 
-      const alternate = row.alternates.find((candidate) => candidate.itemId === itemId);
-      if (!alternate) return null;
+      const sibling = row.siblingVariants.find((candidate) => candidate.itemId === itemId);
+      if (!sibling) return null;
       return {
-        itemId: alternate.itemId,
-        itemName: alternate.itemName,
-        itemSku: alternate.itemSku,
-        itemType: alternate.itemType,
-        unitName: alternate.unitName,
-        quantityPerUnit: multiplyQuantityString(
-          row.defaultQuantityPerUnit ?? row.quantityPerUnit,
-          Number(alternate.quantityFactor),
-        ),
+        itemId: sibling.itemId,
+        itemName: sibling.itemName,
+        itemSku: sibling.itemSku,
+        itemType: sibling.itemType,
+        unitName: sibling.unitName,
       };
     },
     [],
   );
-  const applyApprovedIngredientSelection = useCallback(
+  const applySiblingIngredientSelection = useCallback(
     (row: ManufacturingOrderIngredientDetail, itemId: string) => {
       if (itemId === row.itemId) return;
-      const selected = getApprovedIngredientSelection(row, itemId);
+      const selected = getSiblingIngredientSelection(row, itemId);
       if (!selected) return;
 
       controller.updateIngredient(row.id, {
@@ -631,14 +640,10 @@ export function IngredientsSection({
         itemSku: selected.itemSku,
         itemType: selected.itemType,
         unitName: selected.unitName,
-        quantityPerUnit: selected.quantityPerUnit,
-        plannedQuantity: multiplyQuantityString(
-          selected.quantityPerUnit,
-          requirementMultiplier,
-        ),
+        plannedQuantity: multiplyQuantityString(row.quantityPerUnit, requirementMultiplier),
       });
     },
-    [controller, getApprovedIngredientSelection, requirementMultiplier],
+    [controller, getSiblingIngredientSelection, requirementMultiplier],
   );
 
   const handleRowsChange = useCallback(
@@ -656,9 +661,10 @@ export function IngredientsSection({
       }
       if (change.type === "cell_edit_committed" && change.row && change.field) {
         if (change.field === "itemId") {
-          const selected = getApprovedIngredientSelection(change.row, change.row.itemId);
+          const selected = getSiblingIngredientSelection(change.row, change.row.itemId);
           const option = optionMap.get(change.row.itemId);
           if (!selected && !option) return;
+          if (!selected && change.row.defaultItemId) return;
           const nextIngredient = selected
             ? {
                 ...change.row,
@@ -667,9 +673,8 @@ export function IngredientsSection({
                 itemSku: selected.itemSku,
                 itemType: selected.itemType,
                 unitName: selected.unitName,
-                quantityPerUnit: selected.quantityPerUnit,
                 plannedQuantity: multiplyQuantityString(
-                  selected.quantityPerUnit,
+                  change.row.quantityPerUnit,
                   requirementMultiplier,
                 ),
               }
@@ -709,7 +714,7 @@ export function IngredientsSection({
     },
     [
       controller,
-      getApprovedIngredientSelection,
+      getSiblingIngredientSelection,
       ingredients,
       optionMap,
       quantityPerUnitFromBasis,
@@ -740,16 +745,16 @@ export function IngredientsSection({
             ingredientOption.sku,
             ingredientOption.itemType,
             ingredientOption.unitName,
-            ingredientOption.isAlternate ? "alternate" : null,
           ]
             .filter((part): part is string => part != null && part !== "")
             .join(" · ");
         },
         valueSetter: (params) => {
           const itemId = String(params.newValue ?? "");
-          const selected = getApprovedIngredientSelection(params.data, itemId);
+          const selected = getSiblingIngredientSelection(params.data, itemId);
           const option = optionMap.get(itemId);
           if (!selected && !option) return false;
+          if (!selected && params.data.defaultItemId) return false;
           if (selected) {
             Object.assign(params.data, {
               itemId: selected.itemId,
@@ -757,9 +762,8 @@ export function IngredientsSection({
               itemSku: selected.itemSku,
               itemType: selected.itemType,
               unitName: selected.unitName,
-              quantityPerUnit: selected.quantityPerUnit,
               plannedQuantity: multiplyQuantityString(
-                selected.quantityPerUnit,
+                params.data.quantityPerUnit,
                 requirementMultiplier,
               ),
             });
@@ -777,14 +781,14 @@ export function IngredientsSection({
         cellRenderer: (params: ICellRendererParams<ManufacturingOrderIngredientDetail>) => {
           if (!params.data) return null;
           const sub = [params.data.itemType, params.data.unitName].filter(Boolean).join(" · ");
-          const alternateOptions = ingredientSelectionOptions(params.data);
-          const canSelectAlternate =
-            alternateOptions.length > 1 &&
+          const siblingOptions = ingredientSelectionOptions(params.data);
+          const canSelectSibling =
+            siblingOptions.length > 1 &&
             canEditPlanning &&
             params.data.pickStatus === "not_picked";
           return (
             <div className="flex min-w-0 items-start gap-(--space-2) leading-tight">
-              {canSelectAlternate ? (
+              {canSelectSibling ? (
                 <div
                   className="mt-(--space-1) flex shrink-0"
                   onClick={(event) => event.stopPropagation()}
@@ -793,15 +797,15 @@ export function IngredientsSection({
                   <Select
                     value={params.data.itemId}
                     onValueChange={(itemId) => {
-                      if (params.data) applyApprovedIngredientSelection(params.data, itemId);
+                      if (params.data) applySiblingIngredientSelection(params.data, itemId);
                     }}
                   >
                     <SelectTrigger
-                      aria-label={`Choose alternate for ${params.data.itemName}`}
+                      aria-label={`Choose variant for ${params.data.itemName}`}
                       className="!h-(--space-8) !w-(--space-8) !gap-0 !border-0 !bg-transparent !p-0 text-[var(--color-ink-faint)] hover:text-[var(--color-ink)]"
                     />
                     <SelectContent align="start">
-                      {alternateOptions.map((option) => (
+                      {siblingOptions.map((option) => (
                         <SelectItem key={option.itemId} value={option.itemId}>
                           <div className="flex flex-col">
                             <span>{option.itemName}</span>
@@ -885,8 +889,8 @@ export function IngredientsSection({
     ],
     [
       canEditPlanning,
-      applyApprovedIngredientSelection,
-      getApprovedIngredientSelection,
+      applySiblingIngredientSelection,
+      getSiblingIngredientSelection,
       ingredientOptions,
       batchCount,
       isBatchMode,
@@ -920,8 +924,14 @@ export function IngredientsSection({
             ? "No ingredients yet."
             : "No ingredients yet. Pick a product to populate the bill of materials."
         }
-        canDeleteRow={() => canEditPlanning}
-        getDeleteDisabledReason={() => (!canEditPlanning ? planningLockedReason : null)}
+        canDeleteRow={(row) => canEditPlanning && !row.defaultItemId}
+        getDeleteDisabledReason={(row) =>
+          !canEditPlanning
+            ? planningLockedReason
+            : row.defaultItemId
+              ? "BOM ingredients stay on the order. Swap the variant or edit the quantity."
+              : null
+        }
         onDeleteRow={(row) => setConfirmDelete(row)}
       />
 

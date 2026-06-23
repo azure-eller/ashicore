@@ -30,6 +30,7 @@ export async function ManufacturingOrderCardShell({ orderId }: { orderId: string
           unitName: row.unitName,
           quantityPerUnit: row.quantityPerUnit,
           defaultQuantityPerUnit: row.defaultQuantityPerUnit,
+          siblingVariants: row.siblingVariants,
           alternates: row.alternates,
         })),
       }))}
