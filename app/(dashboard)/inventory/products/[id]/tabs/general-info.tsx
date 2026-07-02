@@ -6,6 +6,7 @@ import {
   CardCheckboxField,
   CardField,
 } from "@/components/card-page/card-field";
+import { SellableCardField } from "@/components/card-page/sellable-card-field";
 import {
   UnitSelectField,
   type UnitSelectOption,
@@ -70,15 +71,9 @@ export function ProductGeneralInfoTab({
   canAdminInventory,
 }: ProductGeneralInfoTabProps) {
   const hasOptions = card.options.some((option) => option.disabledAt == null);
-  const visibleVariantCount = card.variants.filter((variant) => variant.deletedAt == null)
-    .length;
-  const isDraft = focusItemId == null;
   const visibleVariants = card.variants.filter((variant) => variant.deletedAt == null);
-  const sellableChecked =
-    visibleVariants.length > 0 && visibleVariants.every((variant) => variant.sellable);
-  const sellableIndeterminate =
-    visibleVariants.some((variant) => variant.sellable) &&
-    visibleVariants.some((variant) => !variant.sellable);
+  const visibleVariantCount = visibleVariants.length;
+  const isDraft = focusItemId == null;
   const variantsActive = hasOptions || variantsEnabled;
 
   return (
@@ -130,16 +125,11 @@ export function ProductGeneralInfoTab({
                 onFamilyCommit(patch);
               }}
             />
-            <CardField label="Usability">
-              <CardCheckboxField
-                label="Sellable"
-                checked={sellableIndeterminate ? "indeterminate" : sellableChecked}
-                disabled={isDraft || visibleVariants.length === 0}
-                onCheckedChange={(checked) => {
-                  onSellableChange(checked === true);
-                }}
-              />
-            </CardField>
+            <SellableCardField
+              variants={card.variants}
+              disabled={isDraft}
+              onChange={onSellableChange}
+            />
             <CardField label="Tracking">
               <CardCheckboxField
                 label="Lot tracked"

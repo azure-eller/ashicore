@@ -18,6 +18,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { apiJson } from "@/lib/client/api";
+import { defaultStocktakeCopyName } from "@/lib/stocktake-names";
+import type { CloneStocktake } from "@/lib/schemas/stocktakes";
 import {
   STOCKTAKE_STATUS_COLUMN_TOOLTIP,
   STOCKTAKE_COUNTED_TOOLTIP,
@@ -146,10 +148,10 @@ function StocktakeRowActions({ stocktake }: { stocktake: StocktakeListRow }) {
   const queryClient = useQueryClient();
   const [cloneDialogOpen, setCloneDialogOpen] = useState(false);
   const cloneMutation = useMutation({
-    mutationFn: (reason: string) =>
+    mutationFn: (input: CloneStocktake) =>
       apiJson<CloneStocktakeResult>(`/api/stocktakes/${stocktake.id}/clone`, {
         method: "POST",
-        body: { reason },
+        body: input,
         idempotencyKey: "stocktake-clone",
         fallbackError: "Failed to clone stocktake.",
       }),
@@ -192,10 +194,12 @@ function StocktakeRowActions({ stocktake }: { stocktake: StocktakeListRow }) {
         </DropdownMenuContent>
       </DropdownMenu>
       <CloneStocktakeReasonDialog
+        key={cloneDialogOpen ? defaultStocktakeCopyName(stocktake.name) : "closed"}
         open={cloneDialogOpen}
         pending={cloneMutation.isPending}
+        defaultName={defaultStocktakeCopyName(stocktake.name)}
         onOpenChange={setCloneDialogOpen}
-        onSubmit={(reason) => cloneMutation.mutate(reason)}
+        onSubmit={(input) => cloneMutation.mutate(input)}
       />
     </>
   );

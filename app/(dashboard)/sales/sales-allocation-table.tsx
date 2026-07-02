@@ -66,7 +66,7 @@ import { usePersistentViewState } from "@/lib/client/use-persistent-view-state";
 import styles from "./sales-allocation-table.module.css";
 import { queryKeys } from "@/lib/client/query-keys";
 
-const STANDALONE_FAMILY_LABEL = "Standalone Products";
+const STANDALONE_FAMILY_LABEL = "Standalone Items";
 const ORDER_COL_WIDTH = 240;
 const SHIP_COL_WIDTH = 96;
 const PRODUCT_COL_WIDTH = 112;
@@ -255,7 +255,12 @@ function getInventoryProducts(inventory: ItemRow[]) {
       hasActiveDemand: false,
     });
 
-    if (item.itemType !== "product" || item.sellable !== true) return [];
+    if (
+      (item.itemType !== "product" && item.itemType !== "material") ||
+      item.sellable !== true
+    ) {
+      return [];
+    }
     return [toStandaloneProduct(item)];
   });
 }
@@ -328,11 +333,16 @@ function getAllocatorProducts(
     if (order.status !== "open") return;
 
     order.lines.forEach((line) => {
-      if (line.itemType !== "product") return;
+      if (line.itemType !== "product" && line.itemType !== "material") return;
 
       const existing = productsById.get(line.itemId);
       const inventoryItem = inventoryById.get(line.itemId);
-      if (inventoryItem?.itemType !== "product" || inventoryItem.sellable !== true) {
+      if (
+        inventoryItem == null ||
+        (inventoryItem?.itemType !== "product" &&
+          inventoryItem?.itemType !== "material") ||
+        inventoryItem.sellable !== true
+      ) {
         return;
       }
       const isStandalone = line.attrs.length === 0;
@@ -358,7 +368,11 @@ function getAllocatorProducts(
     row.ingredients.forEach((ingredient) => {
       const existing = productsById.get(ingredient.itemId);
       const inventoryItem = inventoryById.get(ingredient.itemId);
-      if (inventoryItem?.itemType !== "product" || inventoryItem.sellable !== true) {
+      if (
+        inventoryItem == null ||
+        (inventoryItem.itemType !== "product" && inventoryItem.itemType !== "material") ||
+        inventoryItem.sellable !== true
+      ) {
         return;
       }
       productsById.set(ingredient.itemId, {

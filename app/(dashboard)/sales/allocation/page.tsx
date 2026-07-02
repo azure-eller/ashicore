@@ -37,13 +37,13 @@ async function SalesAllocationData({ itemId }: { itemId: string | null }) {
   const [context, orders, inventory] = await Promise.all([
     getAuthedMemberContext(),
     getSalesOrders(),
-    getItems({ itemType: "product" }),
+    getItems(),
   ]);
-  const salesProductIds = orders
+  const salesItemIds = orders
     .filter((order) => order.status === "open")
     .flatMap((order) =>
       order.lines
-        .filter((line) => line.itemType === "product")
+        .filter((line) => line.itemType === "product" || line.itemType === "material")
         .map((line) => line.itemId)
     );
 
@@ -57,7 +57,7 @@ async function SalesAllocationData({ itemId }: { itemId: string | null }) {
     ? await getOpenManufacturingIngredientItemIds()
     : [];
   const allocationItemIds = itemId ? [itemId] : [
-    ...salesProductIds,
+    ...salesItemIds,
     ...manufacturingDemandRows,
   ];
   const coverage = await getInitialDemandQueueCoverage(

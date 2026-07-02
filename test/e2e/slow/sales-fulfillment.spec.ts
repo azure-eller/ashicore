@@ -52,6 +52,30 @@ async function expectSuggestedPrice(params: {
   expect(Number(body.suggestedUnitPrice)).toBe(Number(params.suggestedUnitPrice));
 }
 
+async function expectBasePrice(params: {
+  customerId: string;
+  itemId: string;
+  quantity: string;
+  suggestedUnitPrice: string;
+}) {
+  const response = await testFetch("/api/sales-orders/price", {
+    method: "POST",
+    body: JSON.stringify({
+      customerId: params.customerId,
+      itemId: params.itemId,
+      quantity: params.quantity,
+    }),
+  });
+  expect(response.status).toBe(200);
+  const body = await response.json();
+  expect(body).toMatchObject({
+    pricingSourceType: "base_price",
+    pricingScheduleName: null,
+    pricingBreakLabel: null,
+  });
+  expect(Number(body.suggestedUnitPrice)).toBe(Number(params.suggestedUnitPrice));
+}
+
 test.describe("sales fulfillment operating story", () => {
   test.describe.configure({ mode: "serial" });
 
@@ -595,6 +619,18 @@ test.describe("sales fulfillment operating story", () => {
       quantity: "2",
       suggestedUnitPrice: "90.00",
       pricingScheduleName: schedules[0].name,
+    });
+    const material = await createMaterialFixture({
+      name: "Pricing Material",
+      category: "Pricing Compost",
+      price: "100.00",
+      sellable: true,
+    });
+    await expectBasePrice({
+      customerId: openCustomer.id,
+      itemId: material.id,
+      quantity: "2",
+      suggestedUnitPrice: "100.00",
     });
 
     const literalAllProduct = await createSellableProductFixture({

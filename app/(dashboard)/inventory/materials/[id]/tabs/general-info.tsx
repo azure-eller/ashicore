@@ -6,6 +6,7 @@ import {
   CardCheckboxField,
   CardField,
 } from "@/components/card-page/card-field";
+import { SellableCardField } from "@/components/card-page/sellable-card-field";
 import {
   UnitSelectField,
   type UnitSelectOption,
@@ -38,6 +39,7 @@ export type MaterialGeneralInfoTabProps = {
   onOpenConfig: () => void;
   onFamilyChange: (patch: DraftFamilyPatch, delayMs?: number) => void;
   onFamilyCommit: (patch?: DraftFamilyPatch) => void;
+  onSellableChange: (sellable: boolean) => void;
   onVariantPatch: (variantId: string, patch: UpdateItemCardVariantInput) => void;
   onVariantReorder: (orderedVariantIds: string[]) => void;
   onCreateVariant: (input: CreateItemCardVariantInput) => Promise<CreateItemCardResult | null>;
@@ -57,6 +59,7 @@ export function MaterialGeneralInfoTab({
   onOpenConfig,
   onFamilyChange,
   onFamilyCommit,
+  onSellableChange,
   onVariantPatch,
   onVariantReorder,
   onCreateVariant,
@@ -68,8 +71,8 @@ export function MaterialGeneralInfoTab({
   canAdminInventory,
 }: MaterialGeneralInfoTabProps) {
   const hasOptions = card.options.some((option) => option.disabledAt == null);
-  const visibleVariantCount = card.variants.filter((variant) => variant.deletedAt == null)
-    .length;
+  const visibleVariants = card.variants.filter((variant) => variant.deletedAt == null);
+  const visibleVariantCount = visibleVariants.length;
   const isDraft = focusItemId == null;
   const variantsActive = hasOptions || variantsEnabled;
 
@@ -77,67 +80,71 @@ export function MaterialGeneralInfoTab({
     <>
       <CardSection>
         <CardPageTwoColumn
-        left={
-          <>
-            <ItemCardCommitField
-              field="name"
-              label="Material name"
-              value={card.family.name}
-              required
-              autoFocus={isDraft}
-              onFamilyChange={onFamilyChange}
-              onFamilyCommit={onFamilyCommit}
-            />
-            <CategoryComboboxField
-              itemType={card.family.itemType}
-              label="Category"
-              value={card.family.category}
-              placeholder="Select or create category"
-              onChange={(category, delayMs) => onFamilyChange({ category }, delayMs)}
-              onCommit={(category) =>
-                category === undefined ? onFamilyCommit() : onFamilyCommit({ category })
-              }
-            />
-            <ItemCardNotesField
-              field="description"
-              label="Additional info"
-              value={card.family.description}
-              onFamilyChange={onFamilyChange}
-              onFamilyCommit={onFamilyCommit}
-            />
-          </>
-        }
-        right={
-          <>
-            <UnitSelectField
-              currentUnitId={card.family.unitDefinitionId}
-              unitOptions={unitOptions}
-              required
-              invalid={!card.family.unitDefinitionId}
-              canCreateUnit={canAdminInventory}
-              onUnitCreated={onUnitCreated}
-              onUnitChange={(unit) => {
-                const patch = { unitDefinitionId: unit.id };
-                onFamilyChange(patch, Number.POSITIVE_INFINITY);
-                onFamilyCommit(patch);
-              }}
-            />
-            <CardField label="Tracking">
-              <CardCheckboxField
-                label="Lot tracked"
-                checked={card.family.lotTrackingMode === "tracked"}
-                disabled={isDraft || !canAdminInventory}
-                onCheckedChange={(checked) =>
-                  onFamilyCommit({
-                    lotTrackingMode: checked === true ? "tracked" : "untracked",
-                  })
+          left={
+            <>
+              <ItemCardCommitField
+                field="name"
+                label="Material name"
+                value={card.family.name}
+                required
+                autoFocus={isDraft}
+                onFamilyChange={onFamilyChange}
+                onFamilyCommit={onFamilyCommit}
+              />
+              <CategoryComboboxField
+                itemType={card.family.itemType}
+                label="Category"
+                value={card.family.category}
+                placeholder="Select or create category"
+                onChange={(category, delayMs) => onFamilyChange({ category }, delayMs)}
+                onCommit={(category) =>
+                  category === undefined ? onFamilyCommit() : onFamilyCommit({ category })
                 }
               />
-            </CardField>
-          </>
-        }
-      />
-
+              <ItemCardNotesField
+                field="description"
+                label="Additional info"
+                value={card.family.description}
+                onFamilyChange={onFamilyChange}
+                onFamilyCommit={onFamilyCommit}
+              />
+            </>
+          }
+          right={
+            <>
+              <UnitSelectField
+                currentUnitId={card.family.unitDefinitionId}
+                unitOptions={unitOptions}
+                required
+                invalid={!card.family.unitDefinitionId}
+                canCreateUnit={canAdminInventory}
+                onUnitCreated={onUnitCreated}
+                onUnitChange={(unit) => {
+                  const patch = { unitDefinitionId: unit.id };
+                  onFamilyChange(patch, Number.POSITIVE_INFINITY);
+                  onFamilyCommit(patch);
+                }}
+              />
+              <SellableCardField
+                variants={card.variants}
+                disabled={isDraft}
+                onChange={onSellableChange}
+              />
+              <CardField label="Tracking">
+                <CardCheckboxField
+                  label="Lot tracked"
+                  checked={card.family.lotTrackingMode === "tracked"}
+                  disabled={isDraft || !canAdminInventory}
+                  onCheckedChange={(checked) =>
+                    onFamilyCommit({
+                      lotTrackingMode: checked === true ? "tracked" : "untracked",
+                    })
+                  }
+                />
+              </CardField>
+            </>
+          }
+        />
       </CardSection>
 
       <CardSection

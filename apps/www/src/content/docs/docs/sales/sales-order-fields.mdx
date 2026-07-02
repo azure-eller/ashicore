@@ -32,7 +32,7 @@ Sales orders combine a header, one or more item lines, computed money fields, fu
 | `shippingFeeDescription` | varchar(255) | null | Label for the shipping charge. |
 | `shippingFeeAmount` | numeric(12,2) | 0 | Shipping charge. |
 | `shippingFeeTaxAmount` | numeric(12,2) | 0 | Tax on the shipping charge. |
-| `subtotalAmount` | numeric(12,2) | computed | Subtotal before tax: product line subtotals plus shipping fee. |
+| `subtotalAmount` | numeric(12,2) | computed | Subtotal before tax: item line subtotals plus shipping fee. |
 | `taxAmount` | numeric(12,2) | computed | Order tax total. |
 | `totalAmount` | numeric(12,2) | computed | Order total. |
 | `notes` | text | null | Free-text notes. |

@@ -1026,7 +1026,7 @@ export async function createItemCardInTx(
           purchaseToStockFactor:
             data.itemType === "material" ? data.purchaseToStockFactor ?? null : null,
           sku: data.sku ?? null,
-          sellable: data.itemType === "product" ? data.sellable ?? false : false,
+          sellable: data.sellable ?? false,
           defaultSellingPrice: data.defaultSellingPrice ?? null,
           defaultPurchasePrice: data.defaultPurchasePrice ?? null,
           currentStockUnitCost: data.currentStockUnitCost ?? null,

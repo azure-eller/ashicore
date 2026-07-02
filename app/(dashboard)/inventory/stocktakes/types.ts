@@ -5,6 +5,7 @@ import type {
 } from "@/lib/schemas/stocktakes";
 import { parseStocktakeScope } from "@/lib/schemas/stocktakes";
 import type { CloneStocktakeResult } from "@/lib/dal/stocktake-types";
+import { stocktakeDateToken } from "@/lib/stocktake-names";
 
 export type {
   CloneStocktakeResult,
@@ -46,7 +47,7 @@ export function buildStocktakeName(scope: StocktakeScope, date = new Date()) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
-  const dateToken = date.toISOString().slice(0, 10);
+  const dateToken = stocktakeDateToken(date);
 
   return `${scopeToken}_${dateToken}`;
 }
@@ -57,7 +58,7 @@ export function buildStocktakeModeName(
 ) {
   const label =
     mode === "empty" ? "empty" : mode === "in_stock" ? "items_in_stock" : "all_items";
-  return `${label}_${date.toISOString().slice(0, 10)}`;
+  return `${label}_${stocktakeDateToken(date)}`;
 }
 
 function formatStocktakeScopeTypeLabel(itemType: StocktakeScopeItemType) {

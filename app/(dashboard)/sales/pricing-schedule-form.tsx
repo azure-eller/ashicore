@@ -470,7 +470,7 @@ export function PricingScheduleForm({
   );
   const itemScopeSummary =
     itemScope === "all"
-      ? "All sellable items"
+      ? "All sellable products"
       : itemScope === "category"
         ? watchedItemCategory
           ? `Category: ${watchedItemCategory}`
@@ -1041,7 +1041,7 @@ export function PricingScheduleForm({
                 )
               ) : filteredItemOptions.length === 0 ? (
                 <EmptyState className="border-0" density="compact">
-                  No sellable items match that search.
+                  No sellable products match that search.
                 </EmptyState>
               ) : (
                 filteredItemOptions.map((item, index) => {
@@ -1088,7 +1088,7 @@ export function PricingScheduleForm({
                 setIsItemPickerOpen(false);
               }}
             >
-              Apply to all sellable items
+              Apply to all sellable products
             </Button>
             <Button type="button" onClick={() => setIsItemPickerOpen(false)}>
               Done

@@ -48,7 +48,7 @@ const salesOrderCreateInput = z.object({
     .string()
     .min(1)
     .describe("UUID of the customer (sales.customers.id — find it with the query tool)"),
-  lines: z.array(lineInput).min(1).describe("One line per product on the order"),
+  lines: z.array(lineInput).min(1).describe("One line per sellable item on the order"),
   orderDate: z.string().nullable().describe("Order date YYYY-MM-DD; null = today"),
   requestedDate: z.string().nullable().describe("Customer requested date YYYY-MM-DD, or null"),
   shipDate: z.string().nullable().describe("Planned ship date YYYY-MM-DD, or null"),
@@ -64,7 +64,7 @@ function previewLineTotal(quantity: string, unitPrice: string): string {
 export const salesOrderCreateAction = defineAgentAction({
   name: "sales_order.create",
   title: "Create sales order",
-  summary: "Raise a new sales order for a customer with one or more product lines.",
+  summary: "Raise a new sales order for a customer with one or more sellable item lines.",
   module: "sales",
   capability: "operate",
   inputSchema: salesOrderCreateInput,

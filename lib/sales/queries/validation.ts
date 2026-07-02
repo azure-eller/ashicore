@@ -257,8 +257,8 @@ export async function getValidatedSalesItemsInTx(
 
   const itemMap = new Map(
     rows.map((row) => {
-      if (row.itemType === "product" && row.sellable !== true) {
-        throw new SalesError("Only sellable products can be added to sales orders.", 400);
+      if (row.sellable !== true) {
+        throw new SalesError("Only sellable items can be added to sales orders.", 400);
       }
 
       const displayName = formatSalesItemDisplayName(

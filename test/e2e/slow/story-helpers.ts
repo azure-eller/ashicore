@@ -32,18 +32,21 @@ export async function createMaterialFixture(params: {
   name: string;
   stock?: string;
   cost?: string;
+  price?: string;
   category?: string;
+  sellable?: boolean;
 }) {
   const name = uniqueName(params.name);
   const response = await createItem({
     itemType: "material",
     name,
+    sellable: params.sellable ?? false,
     unitDefinitionId: unitId,
     sku: `SLOW-MAT-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
     category: params.category ?? "Slow Story",
     description: null,
     defaultPurchasePrice: params.cost ?? "2.00",
-    defaultSellingPrice: null,
+    defaultSellingPrice: params.price ?? null,
     stock: params.stock ?? "0",
     safetyStock: "0",
     bom: [],

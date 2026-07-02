@@ -1219,6 +1219,13 @@
       "when": 1781808426986,
       "tag": "0173_default_inventory_units",
       "breakpoints": true
+    },
+    {
+      "idx": 174,
+      "version": "7",
+      "when": 1782968879035,
+      "tag": "0174_sellable_material_sales_lines",
+      "breakpoints": true
     }
   ]
 }

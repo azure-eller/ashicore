@@ -281,6 +281,7 @@ export function MaterialCard({
                 onOpenConfig={() => setConfigOpen(true)}
                 onFamilyChange={controller.patchFamily}
                 onFamilyCommit={controller.commitFamily}
+                onSellableChange={controller.setSellable}
                 onVariantPatch={controller.patchVariant}
                 onVariantReorder={controller.reorderVariants}
                 onCreateVariant={handleCreateVariant}

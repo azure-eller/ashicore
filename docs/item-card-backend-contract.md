@@ -37,9 +37,11 @@ Legacy fake master rows are not returned.
 
 Card reads return `focusedVariantId`, `family`, `options`, and `variants`.
 Family fields include material-level `defaultSupplierId`, purchase unit, and
-purchase-to-stock conversion. Variant rows include SKU/barcode/default fields,
-option display, duplicate-combination warnings, and deleted variants display with
-`(deleted)`.
+purchase-to-stock conversion. Variant rows include `sellable`,
+SKU/barcode/default fields, option display, duplicate-combination warnings, and
+deleted variants display with `(deleted)`. Products and materials both use the
+variant-level `sellable` flag to control whether the item can appear on sales
+orders.
 
 `PATCH /api/item-cards/:itemId` updates family/card metadata only. Variant-owned
 fields such as SKU, prices, barcodes, lead time, and MOQ stay on

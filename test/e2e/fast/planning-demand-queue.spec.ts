@@ -14,6 +14,7 @@ import { withOrgContext } from "../../../lib/db/with-org-context";
 import {
   getDemandQueueCoverageForItemInTx,
   getDemandQueueCoverageForItemsInTx,
+  getOpenManufacturingIngredientItemIdsInTx,
 } from "../../../lib/inventory/allocation/demand-queue";
 import {
   createCustomer,
@@ -172,6 +173,101 @@ test("demand queue allocates scarce stock by rank without overclaiming", async (
     demandQty: "16.0000",
     availableToPromise: "-6.0000",
   });
+});
+
+test("open manufacturing ingredient prefetch includes sellable material demand", async () => {
+  const ts = Date.now();
+  const unitId = getUnitId();
+  const orgId = await getOrgId();
+
+  const sellableMaterial = await createItem({
+    itemType: "material",
+    name: `Fast Allocation Sellable Material ${ts}`,
+    sellable: true,
+    unitDefinitionId: unitId,
+    sku: `FAST-ALLOC-SELLABLE-MAT-${ts}`,
+    category: `Fast Allocation ${ts}`,
+    description: null,
+    defaultPurchasePrice: "2.00",
+    defaultSellingPrice: "8.00",
+    stock: "0",
+    safetyStock: "0",
+    bom: [],
+  });
+  expect(sellableMaterial.status).toBe(201);
+
+  const nonSellableMaterial = await createItem({
+    itemType: "material",
+    name: `Fast Allocation Non Sellable Material ${ts}`,
+    sellable: false,
+    unitDefinitionId: unitId,
+    sku: `FAST-ALLOC-NONSELL-MAT-${ts}`,
+    category: `Fast Allocation ${ts}`,
+    description: null,
+    defaultPurchasePrice: "2.00",
+    defaultSellingPrice: null,
+    stock: "0",
+    safetyStock: "0",
+    bom: [],
+  });
+  expect(nonSellableMaterial.status).toBe(201);
+
+  const sellableProduct = await createItem({
+    itemType: "product",
+    name: `Fast Allocation Sellable Product ${ts}`,
+    sellable: true,
+    unitDefinitionId: unitId,
+    sku: `FAST-ALLOC-SELLABLE-PROD-${ts}`,
+    category: `Fast Allocation ${ts}`,
+    description: null,
+    defaultPurchasePrice: null,
+    defaultSellingPrice: "12.00",
+    stock: "0",
+    safetyStock: "0",
+    bom: [],
+  });
+  expect(sellableProduct.status).toBe(201);
+
+  const finishedProduct = await createItem({
+    itemType: "product",
+    name: `Fast Allocation Finished ${ts}`,
+    sellable: true,
+    unitDefinitionId: unitId,
+    sku: `FAST-ALLOC-FINISHED-${ts}`,
+    category: `Fast Allocation ${ts}`,
+    description: null,
+    defaultPurchasePrice: null,
+    defaultSellingPrice: "20.00",
+    stock: "0",
+    safetyStock: "0",
+    bom: [
+      { componentId: sellableMaterial.body.id, quantity: "1" },
+      { componentId: nonSellableMaterial.body.id, quantity: "1" },
+      { componentId: sellableProduct.body.id, quantity: "1" },
+    ],
+  });
+  expect(finishedProduct.status).toBe(201);
+
+  const order = await createManufacturingOrder({
+    productId: finishedProduct.body.id,
+    plannedQuantity: "2",
+    plannedDate: "2026-06-15",
+    ingredients: [
+      { itemId: sellableMaterial.body.id, quantityPerUnit: "1" },
+      { itemId: nonSellableMaterial.body.id, quantityPerUnit: "1" },
+      { itemId: sellableProduct.body.id, quantityPerUnit: "1" },
+    ],
+    confirmShortage: true,
+  });
+  expect(order.status).toBe(201);
+
+  const itemIds = await withOrgContext(orgId, (tx) =>
+    getOpenManufacturingIngredientItemIdsInTx(tx, orgId)
+  );
+
+  expect(itemIds).toContain(sellableMaterial.body.id);
+  expect(itemIds).toContain(sellableProduct.body.id);
+  expect(itemIds).not.toContain(nonSellableMaterial.body.id);
 });
 
 test("demand queue treats constraint-delayed on-hand supply as expected", () => {

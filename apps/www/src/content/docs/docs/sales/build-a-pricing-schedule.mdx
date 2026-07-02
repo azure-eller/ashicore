@@ -12,7 +12,7 @@ import Grid from '../../../../widgets/Grid.astro';
 import Button from '../../../../widgets/Button.astro';
 import Totals from '../../../../widgets/Totals.astro';
 
-Pricing schedules suggest unit prices for sales-order lines. A schedule combines customer scope, item scope, and quantity breaks.
+Pricing schedules suggest unit prices for product sales-order lines. A schedule combines customer scope, product item scope, and quantity breaks.
 
 <p class="po-meta">
   <span class="po-chip">4 steps · ~3 min</span>
@@ -53,7 +53,7 @@ Pricing schedules suggest unit prices for sales-order lines. A schedule combines
 
    A customer in that category can match both this schedule and an all-customers one — the line takes whichever yields the lower price.
 
-2. **Choose the item scope.** Choose which items the schedule can cover. Exact duplicate scopes are blocked, but broader and narrower schedules can still overlap.
+2. **Choose the item scope.** Choose which sellable products the schedule can cover. Exact duplicate scopes are blocked, but broader and narrower schedules can still overlap.
 
    <Frame title="<b>Item scope</b>">
      <div class="mk-pad">
@@ -61,16 +61,16 @@ Pricing schedules suggest unit prices for sales-order lines. A schedule combines
          <Field label="Scope">Category</Field>
          <Field label="Item category">Bulk soils</Field>
        </div>
-       <Field label="Preview" muted>Premium Potting Mix, Screened Compost, Garden Blend</Field>
+       <Field label="Preview" muted>Premium Potting Mix, Raised Bed Blend, Garden Blend</Field>
      </div>
    </Frame>
 
    | Item scope | Required details |
    | --- | --- |
-   | All | No extra fields. |
-   | Category | Item category. |
-   | Variant | Variant option and variant value. |
-   | Selected | One or more selected items. |
+   | All | All sellable products. |
+   | Category | Product category. |
+   | Variant | Product variant option and variant value. |
+   | Selected | One or more selected products. |
 
    You can't create two schedules with the exact same customer-and-item scope; where scopes overlap, the lowest resulting price wins.
 

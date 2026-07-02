@@ -1931,6 +1931,7 @@ test.describe("sales demand and shipping heartbeat", () => {
     const agedComponent = await createItem({
       itemType: "material",
       name: `Fast Aged Claim Component ${conflictTs}`,
+      sellable: true,
       unitDefinitionId: unitId,
       sku: `FAST-AGED-CLAIM-COMP-${conflictTs}`,
       category: `Fast Sales ${conflictTs}`,

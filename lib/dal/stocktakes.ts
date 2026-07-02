@@ -47,6 +47,7 @@ import {
   buildStocktakeCategoryScope,
   parseStocktakeScope,
 } from "@/lib/schemas/stocktakes";
+import { defaultStocktakeCopyName } from "@/lib/stocktake-names";
 import type {
   StocktakeDetail,
   StocktakeDetailLine,
@@ -1702,10 +1703,8 @@ export async function cloneStocktake(
     const skippedItems = sourceLines
       .filter((line) => !activeIds.has(line.itemId))
       .map((line) => ({ itemName: line.itemName, itemSku: line.itemSku }));
-    const dateToken = new Date().toISOString().slice(0, 10);
-
     const created = await createStocktake({
-      name: `Copy of ${source.name} - ${dateToken}`,
+      name: data.name?.trim() ?? defaultStocktakeCopyName(source.name),
       locationId: source.locationId,
       scope: (itemIds.length === 0 ? "empty" : "all") as StocktakeScope,
       notes: null,

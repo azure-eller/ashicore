@@ -202,6 +202,12 @@ function SupplyVariantsGrid({
             if (!isNonNegativeNumberString(trimmed)) return null;
             return { defaultPurchasePrice: trimmed };
           }
+          case "defaultSellingPrice": {
+            if (blank) return { defaultSellingPrice: null };
+            const trimmed = String(raw).trim();
+            if (!isNonNegativeNumberString(trimmed)) return null;
+            return { defaultSellingPrice: trimmed };
+          }
           default:
             return null;
         }
@@ -312,6 +318,31 @@ function SupplyVariantsGrid({
         },
         cellRenderer: (params: ICellRendererParams<ItemCardVariantDto>) => (
           <NumericMoneyCell value={params.data?.defaultPurchasePrice} scale={2} />
+        ),
+      },
+      {
+        field: "defaultSellingPrice",
+        kind: "number",
+        headerName: "Default sales price (USD)",
+        rightAligned: true,
+        editable: true,
+        flex: 0.9,
+        minWidth: 150,
+        valueSetter: (params: ValueSetterParams<ItemCardVariantDto>) => {
+          const raw = params.newValue;
+          if (raw === "" || raw == null) {
+            if (params.data.defaultSellingPrice == null) return false;
+            params.data.defaultSellingPrice = null;
+            return true;
+          }
+          const trimmed = String(raw).trim();
+          if (!isNonNegativeNumberString(trimmed)) return false;
+          if (params.data.defaultSellingPrice === trimmed) return false;
+          params.data.defaultSellingPrice = trimmed;
+          return true;
+        },
+        cellRenderer: (params: ICellRendererParams<ItemCardVariantDto>) => (
+          <NumericMoneyCell value={params.data?.defaultSellingPrice} scale={2} />
         ),
       },
     ],

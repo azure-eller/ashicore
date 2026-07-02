@@ -31,7 +31,9 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { formatQuantity, normalizeNumeric } from "@/lib/format";
 import { ApiJsonError, apiJson } from "@/lib/client/api";
 import { buildInventoryLedgerHref } from "@/lib/inventory/ledger";
+import { defaultStocktakeCopyName } from "@/lib/stocktake-names";
 import {
+  type CloneStocktake,
   updateStocktakeCountsSchema,
 } from "@/lib/schemas/stocktakes";
 import { STOCKTAKE_COUNT_QTY_TOOLTIP } from "@/lib/tooltip-copy";
@@ -333,14 +335,14 @@ export function StocktakeDetail({
   });
 
   const [cloneDialogOpen, setCloneDialogOpen] = useState(false);
-  const cloneMutation = useMutation<CloneStocktakeResult, ApiError, string>({
-    mutationFn: async (reason: string) => {
+  const cloneMutation = useMutation<CloneStocktakeResult, ApiError, CloneStocktake>({
+    mutationFn: async (input: CloneStocktake) => {
       try {
         return await apiJson<CloneStocktakeResult>(
           `/api/stocktakes/${stocktake.id}/clone`,
           {
             method: "POST",
-            body: { reason },
+            body: input,
             idempotencyKey: "stocktake-clone",
             fallbackError: "Failed to copy stocktake.",
           }
@@ -1142,10 +1144,12 @@ export function StocktakeDetail({
         </DialogContent>
       </Dialog>
       <CloneStocktakeReasonDialog
+        key={cloneDialogOpen ? defaultStocktakeCopyName(stocktake.name) : "closed"}
         open={cloneDialogOpen}
         pending={cloneMutation.isPending}
+        defaultName={defaultStocktakeCopyName(stocktake.name)}
         onOpenChange={setCloneDialogOpen}
-        onSubmit={(reason) => cloneMutation.mutate(reason)}
+        onSubmit={(input) => cloneMutation.mutate(input)}
       />
       <Sheet
         open={foundLotLineId != null}

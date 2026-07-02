@@ -20,8 +20,8 @@ Stocktakes support creation-mode snapshots plus lot-aware blind counts:
   - `all`: all non-deleted material/product variants
 - category-scoped creation is no longer exposed for new stocktakes; old category
   scopes remain readable
-- users can copy any visible stocktake into a fresh draft; copy preserves item
-  rows and order only, not counts or notes
+- users can copy any visible stocktake into a named fresh draft; copy preserves
+  item rows and order only, not counts or notes
 - count entry happens on the stocktake detail page and is blind: draft UIs do
   not show expected/current stock or variance
 - lot-tracked items with active available lots snapshot those lots and count per lot
@@ -77,6 +77,9 @@ The new-stocktake page creates a draft from a creation mode:
   being performed
 - draft users may add or remove rows after creation
 - mid-draft adds snapshot expected stock at add time
+- `POST /api/stocktakes/:id/clone` accepts a non-blank `reason` and an optional
+  non-blank `name`; the UI proposes `Copy of <source> - YYYY-MM-DD` and lets the
+  user change it before creating the draft
 - copy creates fresh snapshot rows at copy time and returns skipped deleted or
   ineligible source rows for UI warnings
 

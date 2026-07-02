@@ -725,7 +725,7 @@ export async function getOpenManufacturingIngredientItemIdsInTx(
         isNull(manufacturingOrders.deletedAt),
         isNull(manufacturingOrders.completedAt),
         isNull(manufacturingOrders.cancelledAt),
-        eq(items.itemType, "product"),
+        inArray(items.itemType, ["product", "material"]),
         eq(items.sellable, true),
         sql`${manufacturingOrderIngredients.plannedQuantity} > COALESCE(${manufacturingOrderIngredients.pickedQuantity}, 0)`
       )

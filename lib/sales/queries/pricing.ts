@@ -331,7 +331,7 @@ export async function getPricingScheduleLookupForProductsInTx(
   products: Array<
     Pick<
       SalesItemValidationRow,
-      "id" | "category" | "variantValues" | "defaultSellingPrice"
+      "id" | "itemType" | "category" | "variantValues" | "defaultSellingPrice"
     >
   >,
   customerCategoryId: string | null
@@ -343,15 +343,16 @@ export async function getPricingScheduleLookupForProductsInTx(
   if (access.locked) {
     return { schedules: [], breaksByScheduleId: new Map() };
   }
+  const sellableProducts = products.filter((product) => product.itemType === "product");
   const itemIds = [
     ...new Set(
-      products
+      sellableProducts
         .filter((product) => product.defaultSellingPrice != null)
         .map((product) => product.id)
     ),
   ];
   const variantKeys = new Set(
-    products
+    sellableProducts
       .filter((product) => product.defaultSellingPrice != null)
       .flatMap((product) =>
         product.variantValues.map(
@@ -361,7 +362,7 @@ export async function getPricingScheduleLookupForProductsInTx(
   );
   const itemCategories = [
     ...new Set(
-      products
+      sellableProducts
         .filter((product) => product.defaultSellingPrice != null && product.category != null)
         .map((product) => product.category)
         .filter((category): category is string => category != null)
@@ -370,7 +371,7 @@ export async function getPricingScheduleLookupForProductsInTx(
   const schedules: PricingScheduleRecord[] = [];
   const breaksByScheduleId = new Map<string, PricingScheduleBreakRecord[]>();
 
-  if (products.every((product) => product.defaultSellingPrice == null)) {
+  if (sellableProducts.every((product) => product.defaultSellingPrice == null)) {
     return { schedules, breaksByScheduleId };
   }
 
@@ -493,13 +494,24 @@ export function resolvePricingForProduct(
     customerCategoryName: string | null;
     product: Pick<
       SalesItemValidationRow,
-      "id" | "category" | "variantValues" | "defaultSellingPrice"
+      "id" | "itemType" | "category" | "variantValues" | "defaultSellingPrice"
     >;
     quantity: string | null;
   },
   lookup: PricingScheduleLookup
 ): Omit<SalesLinePricingResult, "estimatedUnitCost"> {
   const baseUnitPrice = values.product.defaultSellingPrice;
+
+  if (values.product.itemType !== "product") {
+    return {
+      baseUnitPrice,
+      suggestedUnitPrice: baseUnitPrice,
+      pricingSourceType: "base_price",
+      pricingScheduleName: null,
+      pricingBreakLabel: null,
+      customerCategoryName: values.customerCategoryName,
+    };
+  }
 
   if (baseUnitPrice == null) {
     return {
@@ -593,7 +605,7 @@ async function resolvePricingForProductInTx(
     customerCategoryName: string | null;
     product: Pick<
       SalesItemValidationRow,
-      "id" | "category" | "variantValues" | "defaultSellingPrice"
+      "id" | "itemType" | "category" | "variantValues" | "defaultSellingPrice"
     >;
     quantity: string | null;
   }

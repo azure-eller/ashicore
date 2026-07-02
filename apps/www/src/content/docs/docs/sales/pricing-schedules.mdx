@@ -5,7 +5,7 @@ sidebar:
   label: Overview
 ---
 
-Pricing schedules suggest a line price from the customer category, item scope, and ordered quantity. When multiple schedules match, pricing evaluates the candidates and uses the lowest resulting unit price.
+Pricing schedules suggest a product line price from the customer category, item scope, and ordered quantity. Sellable material lines can be added to sales orders, but pricing schedules do not discount them. When multiple schedules match, pricing evaluates the candidates and uses the lowest resulting unit price.
 
 <p class="po-meta">
   <span class="po-chip">category scoped</span>
@@ -19,7 +19,7 @@ Pricing schedules suggest a line price from the customer category, item scope, a
 | Part | What it controls |
 | --- | --- |
 | Customer scope | Which customer category or all customers the schedule applies to. |
-| Item scope | All items, a category, a variant option value, or selected items. |
+| Item scope | All sellable products, a product category, a variant option value, or selected products. |
 | Breaks | Minimum quantity, optional maximum quantity, and discount percent. |
 
 **Overlapping schedules? Lowest price wins.** Schedules are allowed to overlap. When more than one applies, ashicore resolves to the break that yields the lowest unit price — the narrowest or most specific schedule does not automatically win. (You can't create two schedules with the exact same customer-and-item scope.)

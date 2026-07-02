@@ -724,7 +724,7 @@ export async function getSalesOrderItemOptions(): Promise<SalesOrderItemOption[]
           inArray(items.itemType, ["product", "material"]),
           isNull(items.deletedAt),
           isNotNull(items.familyId),
-          sql`(${items.itemType} != 'product' OR ${items.sellable} = true)`,
+          eq(items.sellable, true),
         )
       )
       .orderBy(asc(items.name));

@@ -2,6 +2,10 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { stocktakes } from "@/lib/db/schema";
 import {
+  STOCKTAKE_NAME_MAX_LENGTH,
+  STOCKTAKE_NAME_MAX_LENGTH_MESSAGE,
+} from "@/lib/stocktake-names";
+import {
   isNonNegativeNumberString,
   nullableString,
   nullableStringPreserveUndefined,
@@ -106,7 +110,7 @@ export const insertStocktakeSchema = createInsertSchema(stocktakes, {
     .string()
     .trim()
     .min(1, "Name is required")
-    .max(255, "Name must be 255 characters or fewer"),
+    .max(STOCKTAKE_NAME_MAX_LENGTH, STOCKTAKE_NAME_MAX_LENGTH_MESSAGE),
   scope: stocktakeScopeSchema,
   notes: nullableString,
 }).omit({
@@ -132,6 +136,12 @@ export const createStocktakeSchema = insertStocktakeSchema.extend({
 export type CreateStocktake = z.infer<typeof createStocktakeSchema>;
 
 export const cloneStocktakeSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, "Name is required.")
+    .max(STOCKTAKE_NAME_MAX_LENGTH, STOCKTAKE_NAME_MAX_LENGTH_MESSAGE)
+    .optional(),
   reason: z.string().trim().min(1, "Reason is required."),
 });
 
@@ -186,7 +196,7 @@ export const updateStocktakeSchema = z
       .string()
       .trim()
       .min(1, "Name is required")
-      .max(255, "Name must be 255 characters or fewer")
+      .max(STOCKTAKE_NAME_MAX_LENGTH, STOCKTAKE_NAME_MAX_LENGTH_MESSAGE)
       .optional(),
     scope: stocktakeScopeSchema.optional(),
     notes: nullableStringPreserveUndefined,
