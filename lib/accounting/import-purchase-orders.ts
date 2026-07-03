@@ -396,7 +396,7 @@ async function listImportedOpenPurchaseOrdersMissingFromProviderInTx(
     .filter(
       (row) =>
         row.externalPurchaseOrderId != null &&
-        ["draft", "ordered", "partial"].includes(row.status) &&
+        ["not_received", "partial"].includes(row.status) &&
         !openExternalIds.has(row.externalPurchaseOrderId)
     )
     .map((row) => ({

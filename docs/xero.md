@@ -28,9 +28,9 @@ Store setup/support copy, read `docs/xero-support-listing.md`.
   from the order header; shipped orders can still auto-send when the org
   enables invoice automation.
 - **Purchase bill push** — `lib/xero/push-purchase-bill.ts`. Creates Xero
-  `ACCPAY` draft bills from ERP purchase orders before or after submit and
-  before or after receipt. The action is manual from the PO bill status, saves a
-  valid dirty PO draft before opening bill management and again before pushing,
+  `ACCPAY` draft bills from ERP purchase orders before or after receipt. The
+  action is manual from the PO bill status, saves a valid dirty PO card before
+  opening bill management and again before pushing,
   stores a provider-neutral `purchase_bill` sync snapshot, uses ordered
   purchase-unit line economics, includes selected additional costs in the
   resolved supplier group, uses the selected bill-dialog account for all bill

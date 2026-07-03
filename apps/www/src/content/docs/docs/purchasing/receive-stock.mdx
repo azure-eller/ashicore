@@ -20,21 +20,21 @@ Turn ordered quantities into real, costed inventory. Receiving is driven from th
 
 <p class="po-meta">
   <span class="po-chip">3 steps · ~3 min</span>
-  <span class="po-chip">Applies to: <b>Ordered / Partially received</b></span>
+  <span class="po-chip">Applies to: <b>Not received / Partially received</b></span>
   <span class="po-chip">Access: <b>Purchasing operate</b></span>
 </p>
 
 <Aside type="note" title="Receiving starts from the status menu">
-Only <Pill status="ordered" /> or <Pill status="partial" /> orders can be received. Picking **Received** or **Partially received** opens the receive dialog — it doesn't change the status until you confirm.
+Only <Pill status="not_received" /> or <Pill status="partial" /> orders can be received. Picking **Received** or **Partially received** opens the receive dialog — it doesn't change the status until you confirm.
 </Aside>
 
 <Steps>
 
-1. **Open the receive dialog from the status menu.** On an ordered or partial order, open the **status** menu and choose **Received** (prefill all remaining quantities) or **Partially received** (start blank). Both open the **Receive purchase order** dialog — "Enter the quantities received for each material."
+1. **Open the receive dialog from the status menu.** On a not received or partially received order, open the **status** menu and choose **Received** (prefill all remaining quantities) or **Partially received** (start blank). Both open the **Receive purchase order** dialog — "Enter the quantities received for each material."
 
    <Frame title="<b>PO-1045</b> · status">
      <div class="mk-drop">
-       <div class="mk-opt"><Pill status="ordered" /> <span class="sub">current</span></div>
+       <div class="mk-opt"><Pill status="not_received" /> <span class="sub">current</span></div>
        <div class="mk-opt hi"><Pill status="partial" /> <span class="sub">opens dialog →</span></div>
        <div class="mk-opt hi"><Pill status="received" /> <span class="sub">opens dialog →</span></div>
      </div>

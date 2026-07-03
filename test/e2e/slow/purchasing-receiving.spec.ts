@@ -14,7 +14,6 @@ import {
   createPurchaseOrder,
   createSupplier,
   receivePurchaseOrder,
-  submitPurchaseOrder,
   testFetch,
   updateItem,
 } from "../../helpers/api";
@@ -30,7 +29,7 @@ test.describe("purchasing receiving operating story", () => {
   let orderNumber: string;
   let lineId: string;
 
-  test("Ash stages a purchase order and approval commits the draft", async ({ db, page }) => {
+  test("Ash stages a purchase order and approval creates a booked order", async ({ db, page }) => {
     // Real LLM turns (discover → query → stage) precede the staging wait, so this
     // needs a budget beyond the 90s default — same as the sales staging test.
     test.setTimeout(180_000);
@@ -73,7 +72,7 @@ test.describe("purchasing receiving operating story", () => {
       .from(purchaseOrders)
       .where(eq(purchaseOrders.supplierId, supplierId));
     expect(orders).toHaveLength(1);
-    expect(orders[0].status).toBe("draft");
+    expect(orders[0].status).toBe("not_received");
 
     const lines = await db
       .select({
@@ -89,7 +88,7 @@ test.describe("purchasing receiving operating story", () => {
     expect(Number(lines[0].unitCost)).toBe(4.5);
   });
 
-  test("creates and submits a purchase order as expected supply", async ({ db, page }) => {
+  test("creates a purchase order as expected supply", async ({ db, page }) => {
     const material = await createMaterialFixture({
       name: "Purchasing Story Material",
       stock: "0",
@@ -114,15 +113,12 @@ test.describe("purchasing receiving operating story", () => {
     expectResponse(order);
     orderId = order.body.id as string;
 
-    const submit = await submitPurchaseOrder(orderId);
-    expect(submit.status).toBe(200);
-
     const [savedOrder] = await db
       .select({ orderNumber: purchaseOrders.orderNumber, status: purchaseOrders.status })
       .from(purchaseOrders)
       .where(eq(purchaseOrders.id, orderId));
     orderNumber = savedOrder.orderNumber;
-    expect(savedOrder.status).toBe("ordered");
+    expect(savedOrder.status).toBe("not_received");
 
     const [line] = await db
       .select({ id: purchaseOrderLines.id })
@@ -182,7 +178,7 @@ test.describe("purchasing receiving operating story", () => {
 
   test("partial receipt converts only received quantity into physical stock", async ({ db, page }) => {
     await page.goto(`/purchasing/order/${orderId}`);
-    await page.getByLabel("Change status: Ordered").click();
+    await page.getByLabel("Change status: Not received").click();
     await page.getByRole("menuitem", { name: "Partially received" }).click();
     await expect(page.getByRole("dialog", { name: "Receive purchase order" })).toBeVisible();
     await page.getByLabel(`Quantity received for ${materialName}`).fill("5");
@@ -337,7 +333,6 @@ test.describe("editable freight revaluation after receipt", () => {
     const order = await create.json();
     expect(create.status).toBe(201);
     orderId = order.id as string;
-    expect((await submitPurchaseOrder(orderId)).status).toBe(200);
 
     const [line] = await db
       .select({ id: purchaseOrderLines.id })
@@ -595,7 +590,6 @@ test.describe("editable freight revaluation after receipt", () => {
     });
     const order = await create.json();
     expect(create.status).toBe(201);
-    expect((await submitPurchaseOrder(order.id)).status).toBe(200);
 
     const [line] = await db
       .select({ id: purchaseOrderLines.id })

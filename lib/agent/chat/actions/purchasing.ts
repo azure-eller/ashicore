@@ -39,7 +39,7 @@ function previewLineTotal(quantity: string, unitCost: string): string {
 export const purchaseOrderCreateAction = defineAgentAction({
   name: "purchase_order.create",
   title: "Create purchase order",
-  summary: "Raise a draft purchase order on a supplier with one or more item lines.",
+  summary: "Raise a purchase order on a supplier with one or more item lines.",
   module: "purchasing",
   capability: "operate",
   inputSchema: purchaseOrderCreateInput,

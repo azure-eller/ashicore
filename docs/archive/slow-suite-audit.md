@@ -44,7 +44,7 @@ Final story files:
 | File | Lane | Story | Must prove | Not covered | Safety | Justification if needed |
 | --- | --- | --- | --- | --- | --- | --- |
 | `sales-fulfillment.spec.ts` | `ci:slow:sales` | A customer places an order, demand appears, stock is shipped partially/finally, and the order/inventory state remains correct. | customer snapshot/context, demand creation, partial/final shipment, order status, inventory consumption once, delete releases demand | every customer field, list rendering, stale UI copy, unrelated delete guard matrix | `serial-only` | Ordered lifecycle story. |
-| `purchasing-receiving.spec.ts` | `ci:slow:purchasing` | A buyer creates/submits a PO, receives it in parts, and expected supply becomes physical stock. | supplier/PO creation, submit, partial receive, final receive, expected supply closed, lot/balance truth | every supplier field, table behavior, status copy | `serial-only` | Ordered lifecycle story. |
+| `purchasing-receiving.spec.ts` | `ci:slow:purchasing` | A buyer creates a PO, receives it in parts, and expected supply becomes physical stock. | supplier/PO creation, create-time expected supply, partial receive, final receive, expected supply closed, lot/balance truth | every supplier field, table behavior, status copy | `serial-only` | Ordered lifecycle story. |
 | `manufacturing-execution.spec.ts` | `ci:slow:manufacturing` | An operator creates/releases/picks/completes an MO and ingredient/output stock is correct. | BOM snapshot, release demand, pick, completion, output lot and compact cost truth, delete rolls back expected output | every error code, every idempotency replay, BR/RA incident archive | `serial-only` | Ordered lifecycle story. |
 | `planning-demand-queue-story.spec.ts` | `ci:slow:planning` | A planner resolves scarce stock across ranked demand, expected PO/MO supply, and a shared component blocker. | rank priority, shortage, expected supply, shared component visibility, make/buy signal | every planning tab, drag/drop, parked planning flows, copy strings | `serial-only` | Cross-domain planning needs its own lane. |
 | `stocktake-workflow.spec.ts` | `ci:slow:stocktake` | An operator opens a stocktake, saves/reloads sparse counts, completes, and sees reconciled state. | draft persistence, sparse counts, reload/continue, commit, completed reconciliation state | re-proving basic count-to-event math already covered by fast | `serial-only` | Ordered workflow story. |
@@ -69,9 +69,9 @@ Planning slow selection decision: `test:slow:planning` and `ci:slow:planning` ar
 | Project/customer file cleanup guards | `delete` | None | Storage cleanup edge cases should not anchor the slow lane. |
 | `purchasing-order.spec.ts` overall | `keep` | `purchasing-receiving.spec.ts` | Already resembles a canonical operational story. Trim field breadth and incidental delete guard assertions. |
 | Supplier all-fields create | `fold` | `purchasing-receiving.spec.ts` setup | Keep only fields needed for PO workflow. |
-| Draft PO create/edit/submit | `keep` | `purchasing-receiving.spec.ts` | Core purchasing lifecycle. |
+| PO create/edit/receive | `keep` | `purchasing-receiving.spec.ts` | Core purchasing lifecycle. |
 | Partial/full receive | `keep` | `purchasing-receiving.spec.ts` | Core expected-to-physical transition. |
-| Active delete guard in submit test | `fold` only if natural | `purchasing-receiving.spec.ts` | Keep only if it arises inside the PO lifecycle without expanding the story. |
+| Active delete guard in purchasing story | `fold` only if natural | `purchasing-receiving.spec.ts` | Keep only if it arises inside the PO lifecycle without expanding the story. |
 | `manufacturing-order.spec.ts` overall | `rewrite` | `manufacturing-execution.spec.ts` | Contains the right MO lifecycle but should shrink to one operator story plus one or two class-level invariants. |
 | BOM-backed fixtures and sales traceability | `fold` | `manufacturing-execution.spec.ts` setup | Keep as compact setup, preferably API-first. |
 | Open MO create/link/edit/recalculate | `keep` | `manufacturing-execution.spec.ts` | Core MO setup and BOM snapshot behavior. |

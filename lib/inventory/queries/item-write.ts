@@ -166,7 +166,7 @@ export async function deleteItem(
         and(
           eq(purchaseOrderLines.itemId, id),
           isNull(purchaseOrders.deletedAt),
-          inArray(purchaseOrders.status, ["draft", "ordered", "partial"])
+          inArray(purchaseOrders.status, ["not_received", "partial"])
         )
       )
       .limit(1);
@@ -288,7 +288,7 @@ export async function deleteItems(
         and(
           inArray(purchaseOrderLines.itemId, uniqueIds),
           isNull(purchaseOrders.deletedAt),
-          inArray(purchaseOrders.status, ["draft", "ordered", "partial"])
+          inArray(purchaseOrders.status, ["not_received", "partial"])
         )
       )
       .limit(1);
@@ -297,7 +297,7 @@ export async function deleteItems(
       return {
         deletedCount: 0,
         error:
-          "Cannot delete: one or more items are used by draft, ordered, or partially received purchase orders.",
+          "Cannot delete: one or more items are used by ordered or partially received purchase orders.",
       };
     }
 

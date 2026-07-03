@@ -54,7 +54,7 @@ import type {
 } from "./types";
 
 const OPEN_SALES_ORDER_STATUSES = ["open"] as const;
-const OPEN_PURCHASE_ORDER_STATUSES = ["ordered", "partial"] as const;
+const OPEN_PURCHASE_ORDER_STATUSES = ["not_received", "partial"] as const;
 const MAX_AGENT_SOURCE_REFS = 24;
 const MAX_MARKDOWN_SALES_DEMAND = 30;
 const MAX_MARKDOWN_BUILD_TODAY = 30;

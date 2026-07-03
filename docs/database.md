@@ -150,8 +150,8 @@ Before applying that migration to production, verify `SHOW timezone;` and repres
 | Master data (items, units, customers, suppliers) | Soft delete: `deletedAt = new Date()` |
 | Line / detail tables (BOM lines) | Hard delete |
 | Sales order lines | Hard delete + replace on eligible open-order edits |
-| Purchase order lines | Hard delete + replace on draft edits; received lines are protected |
-| Purchase orders | Soft delete on `draft` or unreceived `ordered` only |
+| Purchase order lines | Replace on unreceived edits; received lines are protected |
+| Purchase orders | Soft delete on unreceived `not_received` only |
 | Manufacturing orders | Soft delete on `open` only while inventory effects can be reversed |
 | Manufacturing ingredient rows | Hard delete + replace before execution starts |
 
@@ -330,12 +330,12 @@ Purchasing uses the same header/line snapshot pattern as sales and manufacturing
 
 - `purchasing.purchase_orders` stores the order header, supplier snapshot, workflow state, and total
 - `purchasing.purchase_order_lines` stores copied material snapshots plus ordered, received, and cost fields
-- editing a draft purchase order hard-deletes existing lines, then inserts the fresh snapshot set
+- editing an unreceived purchase order reconciles expected supply through the inventory kernel
 
 Status and inventory rules:
 
-- `draft` orders are editable and do not affect inventory aggregates
-- `ordered` and `partial` orders contribute remaining quantity to the expected-supply projection
+- `not_received` orders are editable and affect expected supply immediately
+- `not_received` and `partial` orders contribute remaining quantity to the expected-supply projection
 - `received` orders have no remaining expected supply; edits that add remaining
   quantity move them back to `partial`
 - receiving creates positive lots plus `purchase_receipt` and matching `expected_release` events
@@ -343,7 +343,7 @@ Status and inventory rules:
 Expected supply is shared inbound supply:
 
 - released manufacturing orders contribute finished-product planned quantity
-- ordered and partially received purchase orders contribute material remaining quantity
+- not received and partially received purchase orders contribute material remaining quantity
 - these paths must go through the kernel expected-supply operations
 - release deltas are clamped to the open expected row so an oversized release appends only the remaining quantity instead of driving expected supply negative
 - never increment/decrement expected supply directly outside the kernel
@@ -390,7 +390,7 @@ Inventory truth now lives in:
 
 The kernel is the only write path for stock, demand, expected supply, and cost-bearing inventory events. There is no persisted soft reservation model; planning coverage is computed from open demand, current stock, expected supply, and priority order.
 
-Demand and expected summaries are reference projections, not source truth. For supported business references, non-zero summary rows must match active source state: open sales lines and released manufacturing ingredients for demand; ordered/partial purchase lines and released manufacturing output for expected supply. Repairs must append compensating kernel events, not mutate summary rows or historical events in place. Item-balance repair uses the current lot balances plus these active summaries; replaying stale planning events into item balances is diagnostic-only.
+Demand and expected summaries are reference projections, not source truth. For supported business references, non-zero summary rows must match active source state: open sales lines and released manufacturing ingredients for demand; not_received/partial purchase lines and released manufacturing output for expected supply. Repairs must append compensating kernel events, not mutate summary rows or historical events in place. Item-balance repair uses the current lot balances plus these active summaries; replaying stale planning events into item balances is diagnostic-only.
 
 Active code must not:
 

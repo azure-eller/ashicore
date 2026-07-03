@@ -139,7 +139,7 @@ The look comes from **theming Starlight, never replacing it.** Reskin via `--sl-
 
 - **Tokens, never literals.** `starlight.css` defines the brand ramp (neutrals aliased onto `--sl-color-*`, one highlighter-yellow accent, `--st-success/warn/danger/info/muted` status palette tuned per light/dark, radii `--r-sm/md/lg`, `--shadow-sm/md`, fonts). **Never hardcode a color or font.** Both themes must look right — the docs default to light and the theme toggle is preserved.
 - **Type:** Space Grotesk (headings + wordmark), Hanken Grotesk (body/UI), JetBrains Mono (eyebrows, field/enum tokens, IDs, quantities, table headers, status text). Set via `--font-display/-body/-mono`.
-- **Status pills:** the `<Pill>` widget (`.po-pill--draft/ordered/partial/received`). Map each entity status to a semantic tone and use it **identically on every page** — draft=muted, ordered=info, partial=warn, received=success for Purchasing. Define the module's mapping once in your fact sheet and never vary it. Pill text mirrors the app's badge (§2b).
+- **Status pills:** the `<Pill>` widget (`.po-pill--not_received/partial/received` for Purchasing; `draft` is shared with other modules). Map each entity status to a semantic tone and use it **identically on every page** — not received=info, partial=warn, received=success for Purchasing. Define the module's mapping once in your fact sheet and never vary it. Pill text mirrors the app's badge (§2b).
 - **Callouts:** Starlight `<Aside>`, reskinned per variant — `type="note"` (neutral info), `"tip"` (encouragement/done), `"caution"` (where this bites), `"danger"` (destructive/irreversible). Use caution/danger for guards and irreversible actions (deletes, receipts, posts), and quote the real system string in them.
 - **Sizing is scaled UP, not down.** `starlight.css` sets `html { font-size: 18px }` and `--sl-content-width: 52rem` on purpose — the narrow default column was the real cause of "too small / too much empty space." Match the handoff's *proportions*, not absolute px; **never shrink type below spec** to fit.
 
@@ -147,7 +147,7 @@ The doc UI kit (stylized inline app mocks — **not screenshots**; the wide app 
 
 | Component | Use for |
 |-----------|---------|
-| `Frame` | An app window / card sheet. `<Frame title="<b>Draft</b> · PO-1045" status="draft">`; `title` accepts inline HTML; `slot="action"` for a header affordance; `status` adds a header pill. |
+| `Frame` | An app window / card sheet. `<Frame title="<b>Not received</b> · PO-1045" status="not_received">`; `title` accepts inline HTML; `slot="action"` for a header affordance; `status` adds a header pill. |
 | `Field` | A labelled form row. `<Field label="Supplier" required focus>Cooperativa del Huila</Field>` (`muted` for placeholder text). |
 | `Grid` | An app data table. Author `<thead>`/`<tbody>` inside; `class="num"` right-aligns numerics, `mk-name`/`mk-sku` for item cells, a `<Pill>` in a status cell, `<tfoot>` for a subtotal row. |
 | `Button` | A non-interactive app button. `<Button variant="primary">Send PO email</Button>` (`ghost`/`subtle`). |
@@ -165,7 +165,7 @@ Worked step panel (from the Create how-to):
   <Grid>
     <thead><tr><th>Cost</th><th>Distribution</th><th class="num">Amount</th></tr></thead>
     <tbody>
-      <tr><td><Pill status="ordered" label="Shipping" /></td><td><span class="po-enum">By value</span></td><td class="num">$480.00</td></tr>
+      <tr><td><Pill status="not_received" label="Shipping" /></td><td><span class="po-enum">By value</span></td><td class="num">$480.00</td></tr>
     </tbody>
   </Grid>
   <div class="mk-pad mk-pad--top">

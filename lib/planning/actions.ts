@@ -66,7 +66,7 @@ function planningNotesForRecommendations(
   );
 
   return [
-    `Planning created this draft from ${recommendations.length} recommendations.`,
+    `Planning created this purchase order from ${recommendations.length} recommendations.`,
     ...explanationLines,
     ...markers,
   ].join("\n");
@@ -179,7 +179,7 @@ async function assertNoDuplicatePurchaseDraftInTx(
     )
     .where(
       and(
-        inArray(purchaseOrders.status, ["draft", "ordered", "partial"]),
+        inArray(purchaseOrders.status, ["not_received", "partial"]),
         isNull(purchaseOrders.deletedAt),
         eq(purchaseOrderLines.itemId, payload.itemId),
         sql`${purchaseOrders.notes} LIKE ${`%${marker}%`}`
@@ -308,7 +308,7 @@ async function getPurchaseQuantityForStockQuantityInTx(
 export async function createPurchaseOrderDraftFromPlanning(
   payload: CreatePlanningPurchaseOrderDraft
 ) {
-  return withAuthedOrgContext(async (tx, orgId) => {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
     await lockItemsInTx(tx, [payload.itemId]);
 
     const snapshot = await buildPlanningSnapshotInTx(tx, orgId);
@@ -325,28 +325,33 @@ export async function createPurchaseOrderDraftFromPlanning(
       payload.purchaseToStockFactor
     );
 
-    return createPurchaseOrderInTx(tx, orgId, {
-      supplierId: payload.supplierId,
-      expectedDate: payload.requiredDate,
-      notes: planningNotes(payload.recommendationId, recommendation.explanation),
-      lines: [
-        {
-          itemId: payload.itemId,
-          quantityOrdered,
-          unitCost: payload.unitCost,
-          taxRateId: null,
-          purchaseUnitDefinitionId: payload.purchaseUnitDefinitionId,
-          purchaseToStockFactor: payload.purchaseToStockFactor,
-        },
-      ],
-    });
+    return createPurchaseOrderInTx(
+      tx,
+      orgId,
+      {
+        supplierId: payload.supplierId,
+        expectedDate: payload.requiredDate,
+        notes: planningNotes(payload.recommendationId, recommendation.explanation),
+        lines: [
+          {
+            itemId: payload.itemId,
+            quantityOrdered,
+            unitCost: payload.unitCost,
+            taxRateId: null,
+            purchaseUnitDefinitionId: payload.purchaseUnitDefinitionId,
+            purchaseToStockFactor: payload.purchaseToStockFactor,
+          },
+        ],
+      },
+      { actorUserId: userId },
+    );
   });
 }
 
 export async function createPurchaseOrderDraftsFromPlanning(
   data: CreatePlanningPurchaseOrderDrafts
 ) {
-  return withAuthedOrgContext(async (tx, orgId) => {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
     const uniqueRecommendationIds = new Set(
       data.actions.map((payload) => payload.recommendationId)
     );
@@ -387,21 +392,26 @@ export async function createPurchaseOrderDraftsFromPlanning(
 
     const orders = [];
     for (const [supplierId, group] of groups) {
-      const order = await createPurchaseOrderInTx(tx, orgId, {
-        supplierId,
-        expectedDate: earliestDate(group.map((entry) => entry.payload.requiredDate)),
-        notes: planningNotesForRecommendations(
-          group.map((entry) => entry.recommendation)
-        ),
-        lines: group.map((entry) => ({
-          itemId: entry.payload.itemId,
-          quantityOrdered: entry.quantityOrdered,
-          unitCost: entry.payload.unitCost,
-          taxRateId: null,
-          purchaseUnitDefinitionId: entry.payload.purchaseUnitDefinitionId,
-          purchaseToStockFactor: entry.payload.purchaseToStockFactor,
-        })),
-      });
+      const order = await createPurchaseOrderInTx(
+        tx,
+        orgId,
+        {
+          supplierId,
+          expectedDate: earliestDate(group.map((entry) => entry.payload.requiredDate)),
+          notes: planningNotesForRecommendations(
+            group.map((entry) => entry.recommendation)
+          ),
+          lines: group.map((entry) => ({
+            itemId: entry.payload.itemId,
+            quantityOrdered: entry.quantityOrdered,
+            unitCost: entry.payload.unitCost,
+            taxRateId: null,
+            purchaseUnitDefinitionId: entry.payload.purchaseUnitDefinitionId,
+            purchaseToStockFactor: entry.payload.purchaseToStockFactor,
+          })),
+        },
+        { actorUserId: userId },
+      );
       orders.push(order);
     }
 

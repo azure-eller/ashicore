@@ -43,7 +43,7 @@ export const DELETE = apiHandler(async (_req: Request, ctx: unknown) => {
   }
   if (result.usedInActivePurchasing) {
     return jsonError(
-      "Cannot delete: this material is still used by one or more draft, ordered, or partially received purchase orders."
+      "Cannot delete: this material is still used by one or more ordered or partially received purchase orders."
     );
   }
   if (result.usedInDraftStocktakes) {

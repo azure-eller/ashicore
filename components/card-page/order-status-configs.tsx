@@ -532,11 +532,9 @@ export type PurchaseStatusContext = {
 };
 
 const PURCHASE_STATUS_OPTIONS: OrderStatusOption[] = [
-  { value: "draft", label: "Draft", tone: "neutral" },
-  { value: "ordered", label: "Ordered", tone: "info" },
+  { value: "not_received", label: "Not received", tone: "info" },
   { value: "partial", label: "Partially received", tone: "warning" },
   { value: "received", label: "Received", tone: "success" },
-  { value: "cancelled", label: "Cancelled", tone: "danger" },
 ];
 
 function purchaseStatusOptions(status: PurchaseOrderStatus) {
@@ -548,8 +546,7 @@ function purchaseStatusOptions(status: PurchaseOrderStatus) {
 }
 
 function canPurchaseOrderTransition(from: PurchaseOrderStatus, to: PurchaseOrderStatus) {
-  if (from === "draft") return to === "ordered";
-  if (from === "ordered") return to === "partial" || to === "received";
+  if (from === "not_received") return to === "partial" || to === "received";
   if (from === "partial") return to === "partial" || to === "received";
   return false;
 }

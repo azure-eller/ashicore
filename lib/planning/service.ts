@@ -1268,7 +1268,7 @@ async function getPurchaseSupplyFactsInTx(tx: Tx): Promise<SupplyFact[]> {
     .innerJoin(purchaseOrders, eq(purchaseOrderLines.purchaseOrderId, purchaseOrders.id))
     .where(
       and(
-        inArray(purchaseOrders.status, ["ordered", "partial"]),
+        inArray(purchaseOrders.status, ["not_received", "partial"]),
         isNull(purchaseOrders.deletedAt),
         sql`${purchaseOrderLines.stockQuantityOrdered} > ${purchaseOrderLines.stockQuantityReceived}`
       )
@@ -2423,10 +2423,10 @@ function buildRecommendations(args: {
           sourceRefs: row.sourceRefs,
           message:
             code === "missing_purchase_price"
-              ? `${item.name} needs a purchase price before planning can draft a purchase order.`
+              ? `${item.name} needs a purchase price before planning can create a purchase order.`
               : code === "ambiguous_supplier"
                 ? `${item.name} has no item-specific supplier history and multiple suppliers exist.`
-                : `${item.name} needs a supplier before planning can draft a purchase order.`,
+                : `${item.name} needs a supplier before planning can create a purchase order.`,
         })
       );
 

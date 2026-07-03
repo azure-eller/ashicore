@@ -16,7 +16,6 @@ import {
   getOrgId,
   getUnitId,
   receivePurchaseOrder,
-  submitPurchaseOrder,
   testFetch,
 } from "../../helpers/api";
 import { withAccountingConnectionFixtureLock } from "../../helpers/accounting-connection-fixture-lock";
@@ -228,7 +227,6 @@ async function createReceivedPurchaseOrder(ts: number) {
     lines: [{ itemId: materialId, quantityOrdered: "5", unitCost: "4.00" }],
   });
   expect(order.status).toBe(201);
-  expect((await submitPurchaseOrder(order.body.id)).status).toBe(200);
 
   return order.body.id as string;
 }
@@ -610,7 +608,7 @@ test.describe("Xero purchase bill gates", () => {
     });
   });
 
-  test("does not block submitted POs before receipt", async ({ db }) => {
+  test("does not block ordered POs before receipt", async ({ db }) => {
     await withNoAccountingConnection(db, async () => {
       const ts = Date.now();
       const { materialId, supplierId } = await createMaterialAndSupplier(ts);
@@ -620,7 +618,6 @@ test.describe("Xero purchase bill gates", () => {
         lines: [{ itemId: materialId, quantityOrdered: "5", unitCost: "4.00" }],
       });
       expect(order.status).toBe(201);
-      expect((await submitPurchaseOrder(order.body.id)).status).toBe(200);
 
       const response = await testFetch(
         `/api/purchase-orders/${order.body.id}/accounting-bill`,
@@ -637,7 +634,7 @@ test.describe("Xero purchase bill gates", () => {
     });
   });
 
-  test("does not block bill creation for draft purchase orders", async ({ db }) => {
+  test("does not block bill creation for newly created purchase orders", async ({ db }) => {
     await withOnlyXeroConnection(db, async () => {
       const ts = Date.now();
       const { materialId, supplierId } = await createMaterialAndSupplier(ts);
@@ -682,7 +679,6 @@ test.describe("Xero purchase bill gates", () => {
       });
       const order = await orderResponse.json();
       expect(orderResponse.status).toBe(201);
-      expect((await submitPurchaseOrder(order.id)).status).toBe(200);
 
       const [line] = await db
         .select({ id: purchaseOrderLines.id })
@@ -735,7 +731,6 @@ test.describe("Xero purchase bill gates", () => {
       });
       const order = await orderResponse.json();
       expect(orderResponse.status).toBe(201);
-      expect((await submitPurchaseOrder(order.id)).status).toBe(200);
 
       const response = await testFetch(
         `/api/purchase-orders/${order.id}/accounting-bill`,
@@ -795,7 +790,6 @@ test.describe("Xero purchase bill gates", () => {
       });
       const order = await orderResponse.json();
       expect(orderResponse.status).toBe(201);
-      expect((await submitPurchaseOrder(order.id)).status).toBe(200);
 
       const response = await testFetch(
         `/api/purchase-orders/${order.id}/accounting-bill`,
@@ -860,7 +854,6 @@ test.describe("Xero purchase bill gates", () => {
       });
       const order = await orderResponse.json();
       expect(orderResponse.status).toBe(201);
-      expect((await submitPurchaseOrder(order.id)).status).toBe(200);
 
       const response = await testFetch(
         `/api/purchase-orders/${order.id}/accounting-bill`,

@@ -1226,6 +1226,13 @@
       "when": 1782968879035,
       "tag": "0174_sellable_material_sales_lines",
       "breakpoints": true
+    },
+    {
+      "idx": 175,
+      "version": "7",
+      "when": 1783190400000,
+      "tag": "0175_purchase_orders_book_expected_on_create",
+      "breakpoints": true
     }
   ]
 }

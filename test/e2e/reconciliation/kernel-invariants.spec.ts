@@ -10,6 +10,7 @@ import {
   items,
   lots,
   manufacturingOrderIngredients,
+  purchaseOrderLines,
   purchaseOrders,
   salesOrderLines,
   salesOrders,
@@ -772,7 +773,7 @@ test.describe("inventory kernel invariants", () => {
     expect(orders).toHaveLength(1);
   });
 
-  test("replays purchase-order submit after the first request changes status", async ({ db }) => {
+  test("purchase-order submit compatibility shim replays without rebooking expected supply", async ({ db }) => {
     const itemId = await createMaterialFixture(
       `Recon Submit Sand ${ts}`,
       `Recon Submit ${ts}`,
@@ -793,6 +794,13 @@ test.describe("inventory kernel invariants", () => {
     });
     expect(created.status).toBe(201);
     const orderId = created.body.id as string;
+    const retiredPush = await postJsonWithKey(
+      `/api/purchase-orders/${orderId}/submit`,
+      key("submit-po-retired", ts),
+      { syncAccounting: true, sendEmail: true },
+    );
+    expect(retiredPush.status).toBe(410);
+
     const idempotencyKey = key("submit-po", ts);
 
     const first = await postJsonWithKey(
@@ -812,7 +820,23 @@ test.describe("inventory kernel invariants", () => {
       .from(purchaseOrders)
       .where(eq(purchaseOrders.id, orderId));
 
-    expect(order?.status).toBe("ordered");
+    expect(order?.status).toBe("not_received");
+
+    const [line] = await db
+      .select({ id: purchaseOrderLines.id })
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, orderId));
+    const expectedEvents = await db
+      .select({ id: inventoryEvents.id })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.referenceType, "purchase_order_line"),
+          eq(inventoryEvents.referenceId, line.id),
+          eq(inventoryEvents.eventType, "expected_increase")
+        )
+      );
+    expect(expectedEvents).toHaveLength(1);
     await expectProjectionDiffClean(orgId, [itemId]);
   });
 

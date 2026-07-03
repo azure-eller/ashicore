@@ -131,7 +131,7 @@ export const purchaseOrders = purchasingSchema
         .notNull()
         .references(() => suppliers.id),
       supplierName: varchar("supplier_name", { length: 255 }).notNull(),
-      status: varchar("status", { length: 20 }).notNull().default("draft"),
+      status: varchar("status", { length: 20 }).notNull().default("not_received"),
       purchaseBillManualStatus: varchar("purchase_bill_manual_status", {
         length: 20,
       }),
@@ -190,6 +190,10 @@ export const purchaseOrders = purchasingSchema
       check(
         "purchase_orders_type_check",
         sql`type IN ('standard', 'additional_cost')`
+      ),
+      check(
+        "purchase_orders_status_check",
+        sql`status IN ('not_received', 'partial', 'received')`
       ),
       check(
         "purchase_orders_purchase_bill_manual_status_check",

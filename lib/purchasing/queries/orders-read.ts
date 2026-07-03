@@ -611,8 +611,7 @@ export async function getEditablePurchaseOrder(
           eq(purchaseOrders.id, id),
           isNull(purchaseOrders.deletedAt),
           inArray(purchaseOrders.status, [
-            "draft",
-            "ordered",
+            "not_received",
             "partial",
             "received",
           ]),

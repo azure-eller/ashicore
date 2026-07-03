@@ -390,7 +390,7 @@ async function getOpenPurchaseSupplyForItemsInTx(
       and(
         eq(purchaseOrders.organizationId, params.organizationId),
         inArray(purchaseOrderLines.itemId, itemIds),
-        inArray(purchaseOrders.status, ["ordered", "partial"]),
+        inArray(purchaseOrders.status, ["not_received", "partial"]),
         isNull(purchaseOrders.deletedAt),
         sql`${purchaseOrderLines.stockQuantityOrdered} > ${purchaseOrderLines.stockQuantityReceived}`
       )

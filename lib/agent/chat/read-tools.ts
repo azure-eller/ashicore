@@ -19,7 +19,7 @@ const QUERY_DESCRIPTION = `Run one read-only SQL SELECT (Postgres) to answer any
 You query the real ERP tables directly across these schemas: sales, inventory, purchasing, manufacturing, settings. Most rows are soft-deleted, so add "deleted_at IS NULL" unless you want historical rows. Key tables (introspect information_schema for exact columns and any table not listed):
 - sales.sales_orders (status 'open'|'done', ship_date, requested_date, total_amount, customer_name), sales.sales_order_lines, sales.customers, sales.customer_activities (one engagement stream: type 'note'|'call'|'email'|'meeting'|'task'; tasks carry due_date + status 'open'|'done'), sales.customer_projects, sales.pricing_schedules / sales.pricing_schedule_items
 - inventory.items (name, sku, item_type 'product'|'material', category, safety_stock), inventory.bom_revisions + inventory.bom_revision_components (recipes — which materials each product uses; is_current flags the active revision), inventory.lots, inventory.inventory_events (stock movement ledger), inventory.stocktakes
-- purchasing.purchase_orders (status 'draft'|'ordered'|'partial'|'received'), purchasing.purchase_order_lines, purchasing.suppliers, purchasing.supplier_items
+- purchasing.purchase_orders (status 'not_received'|'partial'|'received'), purchasing.purchase_order_lines, purchasing.suppliers, purchasing.supplier_items
 - manufacturing.manufacturing_orders (status 'open'|'done', is_blocked), manufacturing.manufacturing_order_ingredients, manufacturing.manufacturing_order_batches
 - settings.tax_rates
 

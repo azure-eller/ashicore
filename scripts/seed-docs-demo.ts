@@ -193,7 +193,7 @@ async function main() {
   }>;
   if (existing.length > 0) {
     console.log(`purchase orders already present (${existing.length}); skipping PO creation`);
-    const ordered = existing.find((o) => o.status === "ordered");
+    const ordered = existing.find((o) => o.status === "not_received");
     if (ordered) await ensureFreightCost(url, jar, ordered.id);
     writeOut(url, orgId, jar);
     return;

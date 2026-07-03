@@ -123,7 +123,7 @@ async function main() {
   const origin = new URL(env.baseUrl).origin;
 
   const orders = (await api(env, "/api/purchase-orders")) as Array<{ id: string; status: string }>;
-  const ordered = orders.find((o) => o.status === "ordered");
+  const ordered = orders.find((o) => o.status === "not_received");
   if (!ordered) throw new Error("no ordered PO found — run seed-docs-demo first");
 
   const browser = await chromium.launch();

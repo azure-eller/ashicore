@@ -821,7 +821,7 @@ async function loadReferencedSupplierIdsInTx(tx: Tx, ids: string[]) {
     .where(
       and(
         inArray(purchaseOrders.supplierId, ids),
-        inArray(purchaseOrders.status, ["draft", "ordered", "partial"]),
+        inArray(purchaseOrders.status, ["not_received", "partial"]),
         isNull(purchaseOrders.deletedAt)
       )
     );

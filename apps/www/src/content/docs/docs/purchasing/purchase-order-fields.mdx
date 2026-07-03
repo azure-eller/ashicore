@@ -27,7 +27,7 @@ One row per order. Money fields are calculated from the lines and additional cos
 | Purchase order | You / system | Identifier such as `PO-708`, unique in your organization. Assigned automatically on the first successful save if you leave it blank. |
 | Type | System | Operator-created purchase orders are **Standard** orders that carry materials. Additional carrier costs stay on the order as additional-cost rows. |
 | Supplier | You | The vendor the order is placed with. Required. The supplier's name is copied onto the order when saved, and refreshed from the supplier record on later order edits. |
-| Status | You / system | Where the order is in its lifecycle — Draft, Ordered, Partially Received, or Received. You move Draft to Ordered by sending the PO email or using the status menu; receiving moves the later statuses. |
+| Status | System | Receiving progress — Not received, Partially Received, or Received. New saved purchase orders start Not received; receiving moves the later statuses. |
 | Expected arrival | You | When you expect delivery. Used for planning. Optional. |
 | Delivery address | You | Where goods are delivered. Optional, and separate from the stock location goods land in when you receive. |
 | Additional info | You | Supplier-facing notes shown on the purchase order. |
@@ -35,7 +35,7 @@ One row per order. Money fields are calculated from the lines and additional cos
 | Subtotal | Derived | Line amounts plus additional costs. |
 | Tax | Derived | Tax on the line amounts only — shipping and additional costs are not taxed. |
 | Total | Derived | Subtotal plus tax. |
-| Ordered date | System | Set when the order moves to Ordered. |
+| Ordered date | System | Set when the order is created. |
 | Received date | System | Set when the order becomes fully received; cleared if it later reopens. |
 
 ## Order lines
@@ -69,8 +69,7 @@ Zero or more per order, for freight and other charges.
 
 An order is always in exactly one status:
 
-- <Pill status="draft" /> — a working document; no effect on inventory yet.
-- <Pill status="ordered" /> — placed with the supplier; its remaining quantity is expected supply.
+- <Pill status="not_received" /> — placed with the supplier; its remaining quantity is expected supply.
 - <Pill status="partial" /> — some lines received into stock; a remainder is still due.
 - <Pill status="received" /> — every line received.
 

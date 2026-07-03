@@ -11,7 +11,7 @@ import { ACCOUNTING_DOCUMENT_PURCHASE_ORDER, persistAccountingDocumentPushSucces
 import { trimScale } from "@/lib/db/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
 import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
-import { addExpectedFromPurchaseInTx, editExpectedFromPurchaseInTx } from "@/lib/inventory/kernel";
+import { editExpectedFromPurchaseInTx } from "@/lib/inventory/kernel";
 import { createPurchaseOrderInTx, preparePurchaseOrderPayload } from "./order-write";
 import type { PurchaseOrderPayload } from "./order-write";
 import { getPurchaseOrderLinesInTx } from "./shared";
@@ -84,27 +84,17 @@ export async function upsertImportedAccountingPurchaseOrderInTx(
       externalPurchaseOrderNumber: data.externalPurchaseOrderNumber,
       accountingPushStatus: "pushed",
       accountingProvider: data.accountingProvider,
-    });
-    await tx
-      .update(purchaseOrders)
-      .set({
-        status: "ordered",
-        orderedAt: data.orderedAt ?? new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(purchaseOrders.id, created.id));
-    const lines = await getPurchaseOrderLinesInTx(tx, created.id);
-    await addExpectedFromPurchaseInTx(tx, {
-      organizationId: orgId,
-      purchaseOrderId: created.id,
       actorUserId: options.actorUserId ?? null,
-      idempotencyKey: null,
-      lines: lines.map((line) => ({
-        purchaseOrderLineId: line.id,
-        itemId: line.itemId,
-        quantity: parseFloat(line.stockQuantityOrdered),
-      })),
     });
+    if (data.orderedAt) {
+      await tx
+        .update(purchaseOrders)
+        .set({
+          orderedAt: data.orderedAt,
+          updatedAt: new Date(),
+        })
+        .where(eq(purchaseOrders.id, created.id));
+    }
     return { action: "created" as const, id: created.id, protected: false };
   }
 
@@ -151,9 +141,11 @@ export async function upsertImportedAccountingPurchaseOrderInTx(
       subtotalAmount: hasReceivedLines ? undefined : prepared.subtotalAmount,
       taxAmount: hasReceivedLines ? undefined : prepared.taxAmount,
       totalAmount: hasReceivedLines ? undefined : prepared.totalAmount,
-      status: locked.status === "draft" ? "ordered" : undefined,
+      status: locked.status === "draft" ? "not_received" : undefined,
       orderedAt:
-        locked.status === "draft" ? (data.orderedAt ?? new Date()) : undefined,
+        locked.status === "draft"
+          ? (data.orderedAt ?? new Date())
+          : data.orderedAt ?? undefined,
       updatedAt: new Date(),
     })
     .where(eq(purchaseOrders.id, existing.id));
@@ -187,24 +179,14 @@ export async function upsertImportedAccountingPurchaseOrderInTx(
       quantity: parseFloat(line.stockQuantityOrdered),
     }));
 
-    if (locked.status === "draft") {
-      await addExpectedFromPurchaseInTx(tx, {
-        organizationId: orgId,
-        purchaseOrderId: existing.id,
-        actorUserId: options.actorUserId ?? null,
-        idempotencyKey: null,
-        lines: nextLines,
-      });
-    } else if (["ordered", "partial", "received"].includes(locked.status)) {
-      await editExpectedFromPurchaseInTx(tx, {
-        organizationId: orgId,
-        purchaseOrderId: existing.id,
-        actorUserId: options.actorUserId ?? null,
-        idempotencyKey: null,
-        previousPurchaseOrderLineIds: existingLines.map((line) => line.id),
-        nextLines,
-      });
-    }
+    await editExpectedFromPurchaseInTx(tx, {
+      organizationId: orgId,
+      purchaseOrderId: existing.id,
+      actorUserId: options.actorUserId ?? null,
+      idempotencyKey: null,
+      previousPurchaseOrderLineIds: existingLines.map((line) => line.id),
+      nextLines,
+    });
 
     await tx
       .delete(purchaseOrderAdditionalCosts)

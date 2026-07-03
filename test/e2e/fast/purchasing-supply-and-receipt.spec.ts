@@ -24,7 +24,10 @@ import {
   findOutboxEmails,
   waitForOutboxEmail,
 } from "../../helpers/email-outbox";
-import { TEST_ACCOUNT_ORG_NAME } from "../../helpers/test-account";
+import {
+  TEST_ACCOUNT_EMAIL,
+  TEST_ACCOUNT_ORG_NAME,
+} from "../../helpers/test-account";
 import { buildStorageState } from "../../helpers/test-env";
 import {
   createItem,
@@ -35,7 +38,6 @@ import {
   getSessionCookie,
   getUnitId,
   receivePurchaseOrder,
-  submitPurchaseOrder,
   testFetch,
 } from "../../helpers/api";
 
@@ -103,12 +105,27 @@ test.describe("purchasing supply and receipt heartbeat", () => {
   const ts = Date.now();
   const unitId = getUnitId();
 
-  test("new purchase order waits for a supplier before first autosave", async ({
+  test("new purchase order waits for a supplier and complete material line before first autosave", async ({
     db,
     page,
   }) => {
     const unique = randomUUID().slice(0, 8);
     const orderNumber = `PO-DEFER-${unique}`;
+    const materialName = `Fast Deferred PO Material ${unique}`;
+    const material = await createItem({
+      itemType: "material",
+      name: materialName,
+      unitDefinitionId: unitId,
+      sku: `FAST-DEFER-${unique}`,
+      category: `Fast Purchasing ${unique}`,
+      description: null,
+      defaultPurchasePrice: "3.50",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status).toBe(201);
     const supplier = await createSupplier({
       name: `Fast Deferred PO Supplier ${unique}`,
     });
@@ -131,6 +148,28 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       .filter({ hasText: supplier.body.name })
       .first()
       .click();
+    await page.waitForTimeout(1_000);
+
+    rows = await db
+      .select({ id: purchaseOrders.id })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.orderNumber, orderNumber));
+    expect(rows).toHaveLength(0);
+    await expect(
+      page.getByText("Purchase orders must have at least one material."),
+    ).toHaveCount(0);
+
+    await selectInventoryGridItem(page, 0, materialName);
+    await page.waitForTimeout(1_000);
+
+    rows = await db
+      .select({ id: purchaseOrders.id })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.orderNumber, orderNumber));
+    expect(rows).toHaveLength(0);
+
+    await editGridCell(page, "quantityOrdered", "2");
+    await editGridCell(page, "unitCost", "3.50");
     await page.waitForURL(/\/purchasing\/order\/[0-9a-f-]+$/);
 
     rows = await db
@@ -542,12 +581,11 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       ],
     });
     expect(order.status, JSON.stringify(order.body)).toBe(201);
-    expect((await submitPurchaseOrder(order.body.id)).status).toBe(200);
 
     await page.goto(`/purchasing/order/${order.body.id}`);
     await page.locator('input[value^="PO-"]').first().fill(`PO-${"X".repeat(40)}`);
 
-    await page.getByLabel("Change status: Ordered").click();
+    await page.getByLabel("Change status: Not received").click();
     await page.getByRole("menuitem", { name: "Received", exact: true }).click();
 
     await expect(page.getByRole("dialog", { name: "Receive purchase order" })).toBeVisible();
@@ -1347,7 +1385,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     ]);
   });
 
-  test("purchase order autosave keeps a failed server-validation draft recoverable", async ({
+  test("purchase order autosave keeps failed server-validation edits recoverable", async ({
     page,
     db,
   }) => {
@@ -1381,7 +1419,6 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       ],
     });
     expect(order.status, JSON.stringify(order.body)).toBe(201);
-    expect((await submitPurchaseOrder(order.body.id)).status).toBe(200);
     const [line] = await db
       .select({ id: purchaseOrderLines.id })
       .from(purchaseOrderLines)
@@ -1419,7 +1456,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     expect(afterRecovery.quantityOrdered).toBe("6.0000");
   });
 
-  test("purchase order submit creates expected supply", async ({ db }) => {
+  test("purchase order create books expected supply", async ({ db }) => {
     const material = await createItem({
       itemType: "material",
       name: `Fast PO Expected Material ${ts}`,
@@ -1449,18 +1486,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       ],
     });
     expect(order.status).toBe(201);
-
-    const submitKey = `submit-once-${ts}`;
-    const submit = await testFetch(`/api/purchase-orders/${order.body.id}/submit`, {
-      method: "POST",
-      headers: { "Idempotency-Key": submitKey },
-    });
-    expect(submit.status).toBe(200);
-    const replay = await testFetch(`/api/purchase-orders/${order.body.id}/submit`, {
-      method: "POST",
-      headers: { "Idempotency-Key": submitKey },
-    });
-    expect(replay.status, await replay.text()).toBe(200);
+    expect(order.body.status).toBe("not_received");
 
     const [line] = await db
       .select({ id: purchaseOrderLines.id })
@@ -1477,6 +1503,51 @@ test.describe("purchasing supply and receipt heartbeat", () => {
         )
       );
     expect(expected.quantity).toBe("9.0000");
+
+    const [testUser] = await db
+      .select({ id: user.id })
+      .from(user)
+      .where(eq(user.email, TEST_ACCOUNT_EMAIL));
+    const [expectedEvent] = await db
+      .select({ actorUserId: inventoryEvents.actorUserId })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.eventType, "expected_increase"),
+          eq(inventoryEvents.eventSubtype, "purchase_submit"),
+          eq(inventoryEvents.referenceType, "purchase_order_line"),
+          eq(inventoryEvents.referenceId, line.id),
+        ),
+      );
+    expect(expectedEvent.actorUserId).toBe(testUser.id);
+
+    const [balance] = await db
+      .select({ expectedQty: inventoryItemBalances.expectedQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, material.body.id));
+    expect(balance.expectedQty).toBe("9.0000");
+  });
+
+  test("standard purchase order create requires a material line", async () => {
+    const supplier = await createSupplier({
+      name: `Fast PO Empty Standard Supplier ${ts}`,
+    });
+    expect(supplier.status).toBe(201);
+
+    const response = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId: supplier.body.id,
+        expectedDate: "2026-05-05",
+        lines: [],
+      }),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe(
+      "Purchase orders must have at least one material.",
+    );
   });
 
   test("receipt converts expected supply into physical stock", async ({ db }) => {
@@ -1526,7 +1597,6 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       ],
     });
     expect(order.status).toBe(201);
-    expect((await submitPurchaseOrder(order.body.id)).status).toBe(200);
 
     const [line] = await db
       .select({ id: purchaseOrderLines.id })
@@ -1756,7 +1826,6 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     });
     const order = await createResponse.json();
     expect(createResponse.status).toBe(201);
-    expect((await submitPurchaseOrder(order.id)).status).toBe(200);
 
     const [line] = await db
       .select({ id: purchaseOrderLines.id })
@@ -1976,7 +2045,6 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       ],
     });
     expect(order.status).toBe(201);
-    expect((await submitPurchaseOrder(order.body.id)).status).toBe(200);
 
     const [line] = await db
       .select({ id: purchaseOrderLines.id })
@@ -2175,6 +2243,27 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     expect(firstFreightResponse.status).toBe(200);
     expect(firstFreightBody.additionalCostPurchaseOrders).toHaveLength(1);
     const freightOrderId = firstFreightBody.additionalCostPurchaseOrders[0].id;
+    const [freightOrder] = await db
+      .select({ status: purchaseOrders.status })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, freightOrderId));
+    expect(freightOrder.status).toBe("not_received");
+
+    const freightLines = await db
+      .select({ id: purchaseOrderLines.id })
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, freightOrderId));
+    expect(freightLines).toHaveLength(0);
+
+    const freightExpectedRows = await db
+      .select({ referenceId: inventoryExpectedSummary.referenceId })
+      .from(inventoryExpectedSummary)
+      .innerJoin(
+        purchaseOrderLines,
+        eq(inventoryExpectedSummary.referenceId, purchaseOrderLines.id),
+      )
+      .where(eq(purchaseOrderLines.purchaseOrderId, freightOrderId));
+    expect(freightExpectedRows).toHaveLength(0);
 
     const updateResponse = await testFetch(`/api/purchase-orders/${order.id}`, {
       method: "PUT",
@@ -2313,7 +2402,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     const body = await deleteResponse.json();
     expect(deleteResponse.status).toBe(400);
     expect(body.error).toBe(
-      "Cannot delete supplier used as a supplier on active draft, ordered, or partially received purchase orders.",
+      "Cannot delete supplier used as a supplier on active not received or partially received purchase orders.",
     );
   });
 
@@ -2380,7 +2469,6 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     expect(deletedFreightResponse.status).toBe(404);
 
     const receivedOrder = await createOrderWithFreight();
-    expect((await submitPurchaseOrder(receivedOrder.id)).status).toBe(200);
     const [line] = await db
       .select({ id: purchaseOrderLines.id })
       .from(purchaseOrderLines)
@@ -2479,7 +2567,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     expect(deletedFreight.deletedAt).not.toBeNull();
   });
 
-  test("submitted additional-cost purchase orders keep ordered timestamp when reconciled", async ({ db }) => {
+  test("additional-cost purchase orders keep ordered timestamp when reconciled", async ({ db }) => {
     const material = await createItem({
       itemType: "material",
       name: `Fast PO Freight Ordered Material ${ts}`,
@@ -2524,7 +2612,6 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     });
     const order = await createResponse.json();
     expect(createResponse.status).toBe(201);
-    expect((await submitPurchaseOrder(order.id)).status).toBe(200);
     const firstFreightResponse = await testFetch(
       `/api/purchase-orders/${order.id}/additional-cost-pos`,
       { method: "POST" },
@@ -2606,7 +2693,6 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     });
     const order = await createResponse.json();
     expect(createResponse.status).toBe(201);
-    expect((await submitPurchaseOrder(order.id)).status).toBe(200);
     const supplierGroupKey = `supplier:${supplier.body.id}`;
     const carrierGroupKey = `additional-cost:${carrier.body.id}`;
     await db.insert(accountingDocumentSyncs).values({
@@ -2706,7 +2792,6 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     });
     const order = await createResponse.json();
     expect(createResponse.status).toBe(201);
-    expect((await submitPurchaseOrder(order.id)).status).toBe(200);
 
     const response = await testFetch(`/api/purchase-orders/${order.id}/email`, {
       method: "POST",
@@ -2788,7 +2873,6 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     });
     const order = await createResponse.json();
     expect(createResponse.status).toBe(201);
-    expect((await submitPurchaseOrder(order.id)).status).toBe(200);
 
     const since = Date.now();
     const response = await testFetch(`/api/purchase-orders/${order.id}/email`, {
@@ -3035,7 +3119,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
           eq(inventoryExpectedSummary.referenceId, line.id),
         ),
       );
-    expect(submittedOrder.status).toBe("ordered");
+    expect(submittedOrder.status).toBe("not_received");
     expect(expected.quantity).toBe("1.0000");
 
     const supplierEmailEntry = await waitForOutboxEmail({

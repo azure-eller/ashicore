@@ -1,6 +1,6 @@
 ---
 title: Create a purchase order
-description: Build a draft order for the materials you buy, let a valid draft autosave, then order it by sending the supplier email or choosing Ordered from the status menu.
+description: Build a purchase order for the materials you buy; the first valid save books expected supply.
 sidebar:
   order: 1
   badge:
@@ -16,11 +16,11 @@ import Grid from '../../../../widgets/Grid.astro';
 import Button from '../../../../widgets/Button.astro';
 import Totals from '../../../../widgets/Totals.astro';
 
-Build a draft order for the materials you buy from one supplier, set quantities in your purchase units, and order it so the material is expected from the supplier. This guide takes a standard order from an empty form to <Pill status="ordered" />.
+Build a purchase order for the materials you buy from one supplier and set quantities in your purchase units. The first valid save creates an <Pill status="not_received" /> order and books expected supply.
 
 <p class="po-meta">
   <span class="po-chip">6 steps · ~4 min</span>
-  <span class="po-chip">Applies to: <b>Draft → Ordered</b></span>
+  <span class="po-chip">Applies to: <b>New → Not received</b></span>
   <span class="po-chip">Access: <b>Purchasing operate</b></span>
 </p>
 
@@ -30,7 +30,7 @@ You'll need at least one **supplier** and active items to buy. Items can carry a
 
 <Steps>
 
-1. **Start a new order.** From **Purchasing > Orders**, choose **New Purchase Order**. Ashicore opens an unsaved card titled **New purchase order**. You can enter a purchase order number right away, or leave it blank so Ashicore assigns the next PO number on the first successful save. Once the draft first saves, Ashicore changes the URL to the saved order and keeps the order in <Pill status="draft" />.
+1. **Start a new order.** From **Purchasing > Orders**, choose **New Purchase Order**. Ashicore opens an unsaved card titled **New purchase order**. You can enter a purchase order number right away, or leave it blank so Ashicore assigns the next PO number on the first successful save. Once the card first saves with a supplier and line, Ashicore changes the URL to the saved order and shows it as <Pill status="not_received" />.
 
    <Frame title="Ashicore · <b>Purchasing</b>">
      <span slot="action"><Button variant="primary">New Purchase Order</Button></span>
@@ -39,7 +39,7 @@ You'll need at least one **supplier** and active items to buy. Items can carry a
        <tbody>
          <tr><td><span class="num">PO-1042</span></td><td>Cooperativa del Huila</td><td><Pill status="received" /></td></tr>
          <tr><td><span class="num">PO-1041</span></td><td>Yirgacheffe Coffee FCU</td><td><Pill status="partial" /></td></tr>
-         <tr><td><span class="num">PO-1040</span></td><td>Crown Roasting Supply</td><td><Pill status="ordered" /></td></tr>
+         <tr><td><span class="num">PO-1040</span></td><td>Crown Roasting Supply</td><td><Pill status="not_received" /></td></tr>
        </tbody>
      </Grid>
    </Frame>
@@ -47,7 +47,7 @@ You'll need at least one **supplier** and active items to buy. Items can carry a
 
 2. **Choose a supplier.** Pick who you're buying from. The supplier is required before the first save; edits you make before choosing one stay on the unsaved card. The supplier's name is copied onto the order when the order is saved. Later edits to the purchase order refresh that copied name from the current supplier record.
 
-   <Frame title="<b>New purchase order</b>" status="draft">
+   <Frame title="<b>New purchase order</b>" status="not_received">
      <div class="mk-pad">
        <Field label="Supplier" required focus>Cooperativa del Huila</Field>
        <div class="mk-drop">
@@ -60,7 +60,7 @@ You'll need at least one **supplier** and active items to buy. Items can carry a
 
 3. **Add material lines.** Choose **Add material** for each item you're ordering. Pick the item, enter **Quantity** in its **UoM** (for example, a 69 kg bag), and review **Price per unit**. The price prefills from the item's default purchase price (and its default tax rate) and stays editable. Ashicore converts to stocking units and can show the resulting **Landed cost** — the stock-unit cost your inventory is valued at.
 
-   <Frame title="<b>Draft</b> · PO-1045 · Cooperativa del Huila">
+   <Frame title="<b>Not received</b> · PO-1045 · Cooperativa del Huila">
      <span slot="action"><Button variant="subtle">+ Add material</Button></span>
      <Grid>
        <thead><tr><th>Item</th><th class="num">Quantity</th><th>UoM</th><th class="num">Price per unit</th><th class="num">Total price</th><th class="num">Landed cost</th></tr></thead>
@@ -82,8 +82,8 @@ You'll need at least one **supplier** and active items to buy. Items can carry a
      <Grid>
        <thead><tr><th>Cost</th><th>Reference</th><th>Distribution</th><th class="num">Amount</th></tr></thead>
        <tbody>
-         <tr><td><Pill status="ordered" label="Shipping" /></td><td>Ocean freight — Bill #4471</td><td><span class="po-enum">By value</span></td><td class="num">$480.00</td></tr>
-         <tr><td><Pill status="draft" label="Other" /></td><td>Pallet deposit</td><td><span class="po-enum">Not distributed</span></td><td class="num">$60.00</td></tr>
+         <tr><td><Pill status="not_received" label="Shipping" /></td><td>Ocean freight — Bill #4471</td><td><span class="po-enum">By value</span></td><td class="num">$480.00</td></tr>
+         <tr><td><Pill status="not_received" label="Other" /></td><td>Pallet deposit</td><td><span class="po-enum">Not distributed</span></td><td class="num">$60.00</td></tr>
        </tbody>
      </Grid>
      <div class="mk-pad mk-pad--top">
@@ -100,7 +100,7 @@ You'll need at least one **supplier** and active items to buy. Items can carry a
    Only **by-value** costs flow into your inventory cost and, for tracked items, the lot cost when you receive. A not-distributed cost raises the order total but never the inventory valuation. Editing a by-value cost *after* receipt revalues tracked stock still on hand from this order; untracked shared-bucket materials save the edit without rebasing in v1.
    </Aside>
 
-5. **Set delivery details.** Add the delivery address and an optional expected arrival date. There is no Save button: valid changes autosave. Until you choose a supplier, the draft remains unsaved; after the first save, it has a PO number and can be reopened. It stays editable and deletable until the first receipt.
+5. **Set delivery details.** Add the delivery address and an optional expected arrival date. There is no Save button: valid changes autosave. Until you choose a supplier, the card remains unsaved; after the first valid save, it has a PO number, is counted in expected supply, and can be reopened. It stays editable and deletable until the first receipt.
 
    <Frame title="<b>Delivery &amp; details</b>">
      <span slot="action"><span class="mk-saved">✓ Saved</span></span>
@@ -118,20 +118,17 @@ You'll need at least one **supplier** and active items to buy. Items can carry a
      </div>
    </Frame>
 
-6. **Order it.** The normal supplier-facing path is the header mail action: choose **Send PO email**, review **Send documents for PO-1045**, and send the email. If the order is still <Pill status="draft" />, Ashicore first moves it to <Pill status="ordered" />, stamps the ordered date, and registers expected supply. You can also order a saved draft without emailing by opening the status menu and choosing **Ordered**; selecting Ordered first saves pending valid changes, and drafts with no material lines are rejected.
+6. **Send it.** The normal supplier-facing path is the header mail action: choose **Send PO email**, review **Send documents for PO-1045**, and send the email. The order is already <Pill status="not_received" /> and expected supply is already live; email only sends the supplier document.
 
    <Frame title="<b>PO-1045</b> · Cooperativa del Huila">
      <span slot="action"><Button variant="primary">Send PO email</Button></span>
-     <div class="mk-drop">
-       <div class="mk-opt"><Pill status="draft" /> <span class="sub">current</span></div>
-       <div class="mk-opt hi"><Pill status="ordered" /> <span class="sub">select →</span></div>
-     </div>
+     <div class="mk-pad"><Pill status="not_received" /> <span class="sub">expected supply is live</span></div>
    </Frame>
 
 </Steps>
 
-<Aside type="tip" title="Done — the order is now Ordered">
-Expected supply is live after the email send or status change succeeds, and the order remains editable and deletable until the first receipt. Next, when stock arrives, **[receive it into inventory](/docs/purchasing/receive-stock)**.
+<Aside type="tip" title="Done — the order is Not received">
+Expected supply is live after the first valid save, and the order remains editable and deletable until the first receipt. Next, when stock arrives, **[receive it into inventory](/docs/purchasing/receive-stock)**.
 </Aside>
 
 ## What's next

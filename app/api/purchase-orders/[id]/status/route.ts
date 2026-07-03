@@ -3,7 +3,6 @@ import { z } from "zod";
 import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/handler";
 import { parseJsonBody } from "@/lib/api/request-body";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
-import { submitPurchaseOrder } from "@/lib/purchasing/queries/order-submit";
 import { getPurchaseOrder } from "@/lib/purchasing/queries/orders-read";
 import { receivePurchaseOrder } from "@/lib/purchasing/queries/receiving";
 import { PURCHASE_ORDER_STATUSES } from "@/lib/schemas/purchase-orders";
@@ -28,21 +27,6 @@ export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
 
   if (order.status === status) {
     return NextResponse.json({ id });
-  }
-
-  if (status === "ordered") {
-    const result = await submitPurchaseOrder(id, {
-      idempotencyKey: `${idempotencyKey}:submit`,
-      syncAccounting: false,
-      sendEmail: false,
-    });
-    if (!result) {
-      return NextResponse.json(
-        { error: "Purchase order not found" },
-        { status: 404 },
-      );
-    }
-    return NextResponse.json(result);
   }
 
   if (status === "received") {
@@ -73,7 +57,7 @@ export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
   }
 
   return NextResponse.json(
-    { error: "This status transition is not available from the list." },
+    { error: "Purchase order status only tracks receiving progress." },
     { status: 400 },
   );
 });

@@ -69,9 +69,9 @@ export async function receivePurchaseOrder(
       return null;
     }
 
-    if (!["ordered", "partial"].includes(order.status)) {
+    if (!["not_received", "partial"].includes(order.status)) {
       throw new PurchasingError(
-        "Only ordered or partially received purchase orders can be received.",
+        "Only not received or partially received purchase orders can be received.",
         400,
       );
     }

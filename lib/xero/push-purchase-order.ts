@@ -621,7 +621,7 @@ async function sendPurchaseOrderPdfEmail(params: {
 }
 
 /**
- * Push a submitted ERP purchase order to Xero as a Xero Purchase Order
+ * Push an ERP purchase order to Xero as a Xero Purchase Order
  * (NOT a Bill — a Bill represents a supplier invoice and is deferred to a
  * future AP workflow).
  *

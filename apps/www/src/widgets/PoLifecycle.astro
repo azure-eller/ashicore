@@ -9,11 +9,10 @@
  * Content is operator-facing and verified against the live module. Internal
  * kernel event names (purchase_receipt, expected_release,
  * landed_cost_revaluation) are intentionally absent — those live in the private
- * docs/purchasing.md. Default selection: ordered.
+ * docs/purchasing.md. Default selection: not received.
  */
 const NODES = [
-  { k: "draft", label: "Draft", short: "Editable. No inventory impact." },
-  { k: "ordered", label: "Ordered", short: "Placed. Adds expected supply." },
+  { k: "not_received", label: "Not received", short: "Open. Adds expected supply." },
   { k: "partial", label: "Partially Received", short: "Some lines received into stock." },
   { k: "received", label: "Received", short: "Fully received. Still editable." },
 ];
@@ -40,7 +39,7 @@ const NODES = [
 </starlight-po-lifecycle>
 
 <script>
-  type Status = "draft" | "ordered" | "partial" | "received";
+  type Status = "not_received" | "partial" | "received";
   interface LifeEntry {
     desc: string;
     actions: { ok: boolean; text: string }[];
@@ -48,32 +47,17 @@ const NODES = [
   }
 
   const LABELS: Record<Status, string> = {
-    draft: "Draft",
-    ordered: "Ordered",
+    not_received: "Not received",
     partial: "Partially Received",
     received: "Received",
   };
 
   // What each status means, what's allowed/blocked here, where it can go.
-  // Verified against lib/purchasing/queries/{receiving,order-write,order-submit}.ts.
+  // Verified against lib/purchasing/queries/{receiving,order-write}.ts.
   const LIFE: Record<Status, LifeEntry> = {
-    draft: {
+    not_received: {
       desc:
-        "A working document. Lines, quantities, units, costs, and the delivery address are all editable. A draft adds nothing to expected supply and never touches inventory.",
-      actions: [
-        { ok: true, text: "Edit any field, line, or cost" },
-        { ok: true, text: "Send PO email, or choose Ordered from the status menu" },
-        { ok: true, text: "Delete it — no inventory history exists yet" },
-        { ok: false, text: "Receive stock — you must order it first" },
-      ],
-      trans: [
-        { label: "order", to: "ordered" },
-        { label: "delete", to: null },
-      ],
-    },
-    ordered: {
-      desc:
-        "Placed with the supplier. The remaining quantity is now expected supply, so planning can see it before stock arrives. Still fully editable, and still deletable — until the first receipt.",
+        "Open with the supplier. The remaining quantity is expected supply as soon as the order is created, so planning can see it before stock arrives. Still fully editable, and still deletable — until the first receipt.",
       actions: [
         { ok: true, text: "Edit lines, quantities, and costs" },
         { ok: true, text: "Receive stock (full or partial)" },
@@ -183,7 +167,7 @@ const NODES = [
             if (n.dataset.k) render(n.dataset.k);
           }),
         );
-        render("ordered");
+        render("not_received");
       }
     },
   );

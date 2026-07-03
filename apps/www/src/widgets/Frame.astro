@@ -7,16 +7,16 @@
  * screenshot — recognizably Ashicore without being a pixel clone.
  *
  * Usage:
- *   <Frame title="Draft · PO-708" status="draft">…body…</Frame>
+ *   <Frame title="Not received · PO-708" status="not_received">…body…</Frame>
  * Slots: default = body; "action" = a right-aligned header affordance.
  */
 import Pill from "./Pill.astro";
 
 interface Props {
-  /** Header title; may contain inline HTML (e.g. "<b>Draft</b> · PO-708"). */
+  /** Header title; may contain inline HTML (e.g. "<b>Not received</b> · PO-708"). */
   title?: string;
   /** Optional status pill on the right of the header. */
-  status?: "draft" | "ordered" | "partial" | "received";
+  status?: "draft" | "not_received" | "ordered" | "partial" | "received";
   /** Window dots affordance. */
   dots?: boolean;
 }

@@ -221,6 +221,7 @@ a[aria-current="page"] {
   background: color-mix(in oklch, var(--st-muted) 15%, var(--surface));
   color: var(--st-muted);
 }
+.po-pill--not_received,
 .po-pill--ordered {
   background: color-mix(in oklch, var(--st-info) 20%, var(--surface));
   color: var(--st-info-ink);

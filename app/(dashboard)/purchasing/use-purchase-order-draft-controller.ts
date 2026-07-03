@@ -109,6 +109,25 @@ export function isBlankPurchaseOrderLine(
   return itemId === "" && quantityOrdered === "" && unitCost === "";
 }
 
+function hasCompletePurchaseOrderMaterialLine(
+  line: Omit<PurchaseOrderLinePayloadRow, "id"> | undefined,
+) {
+  const itemId = line?.itemId?.trim() ?? "";
+  const quantityOrdered = line?.quantityOrdered?.trim() ?? "";
+  const unitCost = line?.unitCost?.trim() ?? "";
+  const quantity = Number(quantityOrdered);
+  const cost = Number(unitCost);
+  return (
+    itemId !== "" &&
+    quantityOrdered !== "" &&
+    unitCost !== "" &&
+    Number.isFinite(quantity) &&
+    quantity > 0 &&
+    Number.isFinite(cost) &&
+    cost >= 0
+  );
+}
+
 export function createPurchaseOrderLineRow(
   values?: Partial<PurchaseOrderLineDraftRow>,
 ): PurchaseOrderLineDraftRow {
@@ -476,9 +495,17 @@ export function usePurchaseOrderDraftController({
 
   const update = kernel.update;
   const deferFirstSave = useCallback(
-    (nextSupplierId: string | null | undefined = kernel.draft.supplierId) =>
-      !kernel.isPersisted && !(nextSupplierId ?? "").trim(),
-    [kernel.draft.supplierId, kernel.isPersisted],
+    ({
+      supplierId = kernel.draft.supplierId,
+      lines = kernel.draft.lines,
+    }: {
+      supplierId?: string | null;
+      lines?: PurchaseOrderLineDraftRow[];
+    } = {}) =>
+      !kernel.isPersisted &&
+      (!(supplierId ?? "").trim() ||
+        !lines.some(hasCompletePurchaseOrderMaterialLine)),
+    [kernel.draft.lines, kernel.draft.supplierId, kernel.isPersisted],
   );
   const patchHeader = useCallback(
     (
@@ -486,7 +513,7 @@ export function usePurchaseOrderDraftController({
       delayMs = TEXT_FLUSH_DELAY_MS,
     ) => {
       update((draft) => ({ ...draft, ...patch }), {
-        debounceMs: deferFirstSave(patch.supplierId ?? undefined)
+        debounceMs: deferFirstSave({ supplierId: patch.supplierId ?? undefined })
           ? Number.POSITIVE_INFINITY
           : delayMs,
       });
@@ -497,7 +524,9 @@ export function usePurchaseOrderDraftController({
   const replaceLines = useCallback(
     (rows: PurchaseOrderLineDraftRow[], delayMs = QUICK_FLUSH_DELAY_MS) => {
       update((draft) => ({ ...draft, lines: rows }), {
-        debounceMs: deferFirstSave() ? Number.POSITIVE_INFINITY : delayMs,
+        debounceMs: deferFirstSave({ lines: rows })
+          ? Number.POSITIVE_INFINITY
+          : delayMs,
       });
     },
     [deferFirstSave, update],

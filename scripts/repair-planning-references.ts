@@ -169,7 +169,7 @@ async function loadExpectedRepairs(tx: Tx, orgId: string) {
             THEN GREATEST(mo.planned_quantity - COALESCE(mo.actual_quantity, 0), 0)
           WHEN expected.reference_type = 'purchase_order_line'
             AND line.id IS NOT NULL
-            AND po.status IN ('ordered', 'partial')
+            AND po.status IN ('not_received', 'partial')
             AND po.deleted_at IS NULL
             THEN GREATEST(line.stock_quantity_ordered - line.stock_quantity_received, 0)
           ELSE 0::numeric
@@ -181,7 +181,7 @@ async function loadExpectedRepairs(tx: Tx, orgId: string) {
           WHEN expected.reference_type = 'manufacturing_order' THEN 'active_mo'
           WHEN expected.reference_type = 'purchase_order_line' AND line.id IS NULL THEN 'orphan_po_line'
           WHEN expected.reference_type = 'purchase_order_line' AND po.deleted_at IS NOT NULL THEN 'deleted_po'
-          WHEN expected.reference_type = 'purchase_order_line' AND po.status IN ('received', 'cancelled') THEN 'closed_po'
+          WHEN expected.reference_type = 'purchase_order_line' AND po.status = 'received' THEN 'closed_po'
           WHEN expected.reference_type = 'purchase_order_line' THEN 'active_po_line'
           ELSE 'unknown_reference'
         END AS source_state

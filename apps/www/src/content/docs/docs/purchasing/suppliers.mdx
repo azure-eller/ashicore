@@ -50,10 +50,10 @@ The current purchase order grid prefills SKU, purchase unit, and unit cost from 
 
 2. **Edit safely with version checks.** Supplier edits use optimistic concurrency: each save carries the record's `version`. If someone else changed the supplier since you opened it, your save returns a **conflict** instead of silently overwriting — reload to see their changes and reapply yours.
 
-3. **Delete — guarded by active orders.** Delete a supplier from the supplier card's **⋯** actions menu (**Delete supplier**). It's a soft-delete, and it's blocked while the supplier has any active <Pill status="draft" />, <Pill status="ordered" />, or <Pill status="partial" /> orders — or is used as a carrier on one — so live purchasing never loses its vendor.
+3. **Delete — guarded by active orders.** Delete a supplier from the supplier card's **⋯** actions menu (**Delete supplier**). It's a soft-delete, and it's blocked while the supplier has any active <Pill status="not_received" /> or <Pill status="partial" /> orders — or is used as a carrier on one — so live purchasing never loses its vendor.
 
    <Aside type="caution" title="Delete supplier?">
-   The confirm explains it: *"This supplier will be soft-deleted. Suppliers with active draft, ordered, or partially received purchase orders cannot be deleted."* Fully <Pill status="received" /> orders don't block deletion — their copied `supplierName` keeps history intact even after the supplier is gone.
+   The confirm explains it: *"This supplier will be soft-deleted. Suppliers with active not received or partially received purchase orders cannot be deleted."* Fully <Pill status="received" /> orders don't block deletion — their copied `supplierName` keeps history intact even after the supplier is gone.
    </Aside>
 
 </Steps>

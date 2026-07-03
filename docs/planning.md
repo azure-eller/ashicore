@@ -1,7 +1,7 @@
 ---
 read_when:
   - Working on MRP-lite or planning snapshots
-  - Editing planning recommendations or draft buy/make actions
+  - Editing planning recommendations or buy/make actions
   - Exposing planning data to UI or future agent tools
 ---
 
@@ -25,8 +25,8 @@ The planning service returns stable structured objects:
 - `PlanningItemRow[]` for netting results
 - `DemandFact[]`, `SupplyFact[]`, `InventoryFact[]`, and `BomRequirementFact[]` for drilldown
 - `salesOrderProductionDemandPaths[]` for Production-page downstream attribution
-- `PlanningRecommendation[]` with reason codes, source refs, warnings, and safe draft action payloads
-- `inputHash` as the staleness marker for draft actions
+- `PlanningRecommendation[]` with reason codes, source refs, warnings, and safe action payloads
+- `inputHash` as the staleness marker for actions
 
 Future agent tools should consume the snapshot and action payloads directly. They should not scrape raw sales, purchasing, manufacturing, or inventory tables.
 
@@ -54,7 +54,7 @@ Demand sources:
 Supply sources:
 
 - projected on-hand inventory
-- ordered or partially received purchase-order remaining quantities
+- not received or partially received purchase-order remaining quantities
 - released manufacturing-order remaining output
 
 Demand coverage follows the same active-demand boundary: open, non-deleted sales orders are included, while done and deleted sales orders, and unreleased manufacturing orders, are ignored.
@@ -95,14 +95,14 @@ Limitations:
 - deleted component items are excluded by the current-BOM query
 - no finite scheduling, lead-time offsetting, scrap, or yield adjustment is applied
 
-## Draft Actions
+## Actions
 
-Planning actions create drafts only:
+Planning actions create reviewable supply documents:
 
-- `create_purchase_order` creates a draft PO from a current purchase recommendation
+- `create_purchase_order` creates a not received PO from a current purchase recommendation and immediately books expected supply
 - `create_manufacturing_order` creates a draft MO from a current make recommendation
 
-The server recomputes the snapshot before acting. `inputHash` is carried as a staleness marker, but unrelated org changes do not block an action when the same recommendation is still present. The current recommendation must match the submitted recommendation id, item, quantity, required date, supplier/BOM, and ingredients. If the recommendation disappeared or changed, the action returns `409`. Created drafts include a planning recommendation marker in notes so repeated clicks on the same recommendation are rejected.
+The server recomputes the snapshot before acting. `inputHash` is carried as a staleness marker, but unrelated org changes do not block an action when the same recommendation is still present. The current recommendation must match the submitted recommendation id, item, quantity, required date, supplier/BOM, and ingredients. If the recommendation disappeared or changed, the action returns `409`. Created documents include a planning recommendation marker in notes so repeated clicks on the same recommendation are rejected.
 
 Supplier suggestions are intentionally limited until item-level purchasing metadata exists:
 

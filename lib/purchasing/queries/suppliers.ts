@@ -35,14 +35,14 @@ async function ensureSuppliersDeletableInTx(tx: Tx, supplierIds: string[]) {
       and(
         inArray(purchaseOrders.supplierId, uniqueSupplierIds),
         isNull(purchaseOrders.deletedAt),
-        inArray(purchaseOrders.status, ["draft", "ordered", "partial"]),
+        inArray(purchaseOrders.status, ["not_received", "partial"]),
       ),
     )
     .limit(1);
 
   if (blockingOrder) {
     throw new PurchasingError(
-      "Cannot delete supplier with active draft, ordered, or partially received purchase orders.",
+      "Cannot delete supplier with active not received or partially received purchase orders.",
       400,
     );
   }
@@ -61,14 +61,14 @@ async function ensureSuppliersDeletableInTx(tx: Tx, supplierIds: string[]) {
           uniqueSupplierIds,
         ),
         isNull(purchaseOrders.deletedAt),
-        inArray(purchaseOrders.status, ["draft", "ordered", "partial"]),
+        inArray(purchaseOrders.status, ["not_received", "partial"]),
       ),
     )
     .limit(1);
 
   if (blockingCost) {
     throw new PurchasingError(
-      "Cannot delete supplier used as a supplier on active draft, ordered, or partially received purchase orders.",
+      "Cannot delete supplier used as a supplier on active not received or partially received purchase orders.",
       400,
     );
   }

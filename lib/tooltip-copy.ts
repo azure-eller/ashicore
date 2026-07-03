@@ -167,14 +167,13 @@ export const OUTPUT_DISPOSITION_TOOLTIP =
   "Completion lot status: available or blocked.";
 
 export const PURCHASE_ORDER_STATUS_TOOLTIP = {
-  draft: "Not yet submitted; no supplier notification.",
-  ordered: "Submitted to supplier; awaiting delivery.",
+  not_received: "No items received yet.",
   partial: "Some items received; more still due.",
   received: "All items received.",
 } as const;
 
 export const PURCHASE_ORDER_STATUS_COLUMN_TOOLTIP =
-  "Status values: draft, ordered, partial, received.";
+  "Status values: not received, partially received, received.";
 
 export const EXPECTED_DELIVERY_DATE_TOOLTIP =
   "Supplier delivery date used for inbound supply planning.";

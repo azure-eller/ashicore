@@ -15,29 +15,22 @@ import type { PurchaseOrderStatus } from "@/lib/schemas/purchase-orders";
 import { cn } from "@/lib/utils";
 
 const statusLabels: Record<PurchaseOrderStatus, string> = {
-  draft: "Draft",
-  ordered: "Ordered",
+  not_received: "Not received",
   partial: "Partially Received",
   received: "Received",
 };
 
 const statusOrder: PurchaseOrderStatus[] = [
-  "draft",
-  "ordered",
+  "not_received",
   "partial",
   "received",
 ];
 
 const purchaseOrderStatusConfig = {
-  draft: {
-    label: statusLabels.draft,
-    tone: "neutral",
-    tooltip: PURCHASE_ORDER_STATUS_TOOLTIP.draft,
-  },
-  ordered: {
-    label: statusLabels.ordered,
+  not_received: {
+    label: statusLabels.not_received,
     tone: "info",
-    tooltip: PURCHASE_ORDER_STATUS_TOOLTIP.ordered,
+    tooltip: PURCHASE_ORDER_STATUS_TOOLTIP.not_received,
   },
   partial: {
     label: statusLabels.partial,
@@ -56,8 +49,7 @@ function canTransitionStatus(
   next: PurchaseOrderStatus,
 ) {
   if (current === next) return true;
-  if (current === "draft") return next === "ordered";
-  if (current === "ordered") return next === "received";
+  if (current === "not_received") return next === "received";
   if (current === "partial") return next === "received";
   return false;
 }

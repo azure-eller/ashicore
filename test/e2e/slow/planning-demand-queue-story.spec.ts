@@ -12,7 +12,6 @@ import {
   createPurchaseOrder,
   createSupplier,
   getPlanningSnapshot,
-  submitPurchaseOrder,
   testFetch,
 } from "../../helpers/api";
 import {
@@ -186,7 +185,6 @@ test.describe("planning demand queue operating story", () => {
       lines: [{ itemId: componentId, quantityOrdered: "12", unitCost: "1.25" }],
     });
     expectResponse(po);
-    expect((await submitPurchaseOrder(po.body.id)).status).toBe(200);
 
     const [poLine] = await db
       .select({ id: purchaseOrderLines.id })

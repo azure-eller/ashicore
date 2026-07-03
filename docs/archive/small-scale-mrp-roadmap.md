@@ -84,10 +84,10 @@ Keep this query layer focused on actionability, not trend reporting.
 
 From the dashboard, allow users to start the next action immediately:
 
-- create draft purchase order from a shortage row
+- create a not received purchase order from a shortage row
 - create draft manufacturing order from a shortage row
 
-Keep this manual and draft-first:
+Keep this manual and reviewable:
 
 - no auto-generated orders
 - no persisted soft planning claims

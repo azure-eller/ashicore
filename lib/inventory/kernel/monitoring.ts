@@ -257,7 +257,7 @@ export async function checkInventoryPlanningIntegrityForOrg(
             WHEN expected.reference_type = 'manufacturing_order'
               THEN mo.status = 'done' OR mo.completed_at IS NOT NULL OR mo.deleted_at IS NOT NULL
             WHEN expected.reference_type = 'purchase_order_line'
-              THEN po.status IN ('received', 'cancelled') OR po.deleted_at IS NOT NULL
+              THEN po.status = 'received' OR po.deleted_at IS NOT NULL
             ELSE false
           END AS inactive
         FROM inventory.inventory_expected_summary expected
@@ -286,7 +286,7 @@ export async function checkInventoryPlanningIntegrityForOrg(
             WHEN expected.reference_type = 'manufacturing_order'
               THEN mo.status = 'done' OR mo.completed_at IS NOT NULL OR mo.deleted_at IS NOT NULL
             WHEN expected.reference_type = 'purchase_order_line'
-              THEN po.status IN ('received', 'cancelled') OR po.deleted_at IS NOT NULL
+              THEN po.status = 'received' OR po.deleted_at IS NOT NULL
             ELSE false
           END AS inactive
         FROM inventory.inventory_expected_summary expected
@@ -424,7 +424,7 @@ export async function checkInventoryPlanningIntegrityForOrg(
               AND mo.deleted_at IS NULL)
             OR (expected.reference_type = 'purchase_order_line'
               AND line.id IS NOT NULL
-              AND po.status IN ('ordered', 'partial')
+              AND po.status IN ('not_received', 'partial')
               AND po.deleted_at IS NULL)
           )
       )
@@ -464,7 +464,7 @@ export async function checkInventoryPlanningIntegrityForOrg(
               AND mo.deleted_at IS NULL)
             OR (expected.reference_type = 'purchase_order_line'
               AND line.id IS NOT NULL
-              AND po.status IN ('ordered', 'partial')
+              AND po.status IN ('not_received', 'partial')
               AND po.deleted_at IS NULL)
           )
       )

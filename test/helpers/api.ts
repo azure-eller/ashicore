@@ -861,17 +861,6 @@ export async function createPurchaseOrder(data: {
 }
 
 /**
- * POST /api/purchase-orders/:id/submit
- */
-export async function submitPurchaseOrder(id: string) {
-  const res = await testFetch(`/api/purchase-orders/${id}/submit`, {
-    method: "POST",
-  });
-  const body = await res.json().catch(() => null);
-  return { status: res.status, body };
-}
-
-/**
  * POST /api/purchase-orders/:id/receive
  */
 export async function receivePurchaseOrder(

@@ -4,7 +4,7 @@ import { apiHandler, requireIdempotencyKey, type RouteContext } from "@/lib/api/
 import { parseOptionalJsonBody } from "@/lib/api/request-body";
 import { jsonNotFound } from "@/lib/api/responses";
 import { assertModuleWriteAccess } from "@/lib/dal/auth";
-import { submitPurchaseOrder } from "@/lib/purchasing/queries/order-submit";
+import { compatSubmitPurchaseOrder } from "@/lib/purchasing/queries/order-submit";
 
 const submitOptionsSchema = z
   .object({
@@ -19,7 +19,7 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
   const { id } = await (ctx as RouteContext).params;
   const options = (await parseOptionalJsonBody(request, submitOptionsSchema)) ?? {};
 
-  const order = await submitPurchaseOrder(id, { idempotencyKey, ...options });
+  const order = await compatSubmitPurchaseOrder(id, { idempotencyKey, ...options });
 
   if (!order) {
     return jsonNotFound("Purchase order not found");

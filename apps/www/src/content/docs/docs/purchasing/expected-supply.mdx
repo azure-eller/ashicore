@@ -1,6 +1,6 @@
 ---
 title: Expected supply
-description: Expected supply is the stock you've ordered but not yet received, made visible to planning. Ordering a purchase order projects its quantities forward; receiving draws them down.
+description: Expected supply is the stock you've ordered but not yet received, made visible to planning. Creating a purchase order projects its quantities forward; receiving draws them down.
 sidebar:
   order: 10
   label: Expected supply
@@ -12,11 +12,11 @@ sidebar:
 import { Aside } from '@astrojs/starlight/components';
 import Pill from '../../../../widgets/Pill.astro';
 
-Expected supply is the stock you've ordered but not yet received, made visible to planning. Ordering a purchase order projects its quantities forward so availability reflects what's coming — and that projection is drawn down precisely as goods arrive.
+Expected supply is the stock you've ordered but not yet received, made visible to planning. Creating a purchase order projects its quantities forward so availability reflects what's coming — and that projection is drawn down precisely as goods arrive.
 
 ## What it is
 
-When an order moves to <Pill status="ordered" />, each line's stocking quantity becomes an **expected supply** record — a per-line projection of incoming stock. Planning and availability views read it so you can act on inbound goods before they physically land. It's bookkeeping for "on the way," kept separate from real on-hand inventory.
+When an order is created as <Pill status="not_received" />, each line's stocking quantity becomes an **expected supply** record — a per-line projection of incoming stock. Planning and availability views read it so you can act on inbound goods before they physically land. It's bookkeeping for "on the way," kept separate from real on-hand inventory.
 
 | One record per | Holds |
 |----------------|-------|
@@ -27,10 +27,10 @@ When an order moves to <Pill status="ordered" />, each line's stocking quantity 
 Expected supply tracks the order through its whole life — it's added, adjusted, and released by the same actions that move the order's status.
 
 <div class="po-annot">
-  <div class="arow"><span class="aidx">+</span><div><div class="at">Added when ordered</div><div class="ad">Draft → Ordered writes one expected record per line. The order now contributes to incoming supply.</div></div></div>
-  <div class="arow"><span class="aidx">±</span><div><div class="at">Adjusted on edit</div><div class="ad">Editing an ordered order diffs the projection: raising a quantity adds, lowering removes, deleting a line zeroes it.</div></div></div>
+  <div class="arow"><span class="aidx">+</span><div><div class="at">Added when created</div><div class="ad">The first valid save writes one expected record per line. The order now contributes to incoming supply.</div></div></div>
+  <div class="arow"><span class="aidx">±</span><div><div class="at">Adjusted on edit</div><div class="ad">Editing a not received order diffs the projection: raising a quantity adds, lowering removes, deleting a line zeroes it.</div></div></div>
   <div class="arow"><span class="aidx">−</span><div><div class="at">Released on receipt</div><div class="ad">Receiving draws the projection down by exactly the received quantity — so the moment stock becomes on-hand, it stops being "expected."</div></div></div>
-  <div class="arow"><span class="aidx">×</span><div><div class="at">Released on delete</div><div class="ad">Deleting an ordered order before any receipt releases its remaining expected supply in the same step.</div></div></div>
+  <div class="arow"><span class="aidx">×</span><div><div class="at">Released on delete</div><div class="ad">Deleting a not received order before any receipt releases its remaining expected supply in the same step.</div></div></div>
 </div>
 
 ## Pinned to the default location

@@ -26,11 +26,11 @@ Items, lots, balances, stocktakes, transfers, and the inventory ledger.
 
 ## Purchasing
 
-Suppliers, draft-to-received purchase orders, receiving, landed cost, and supplier bill sync.
+Suppliers, not received to received purchase orders, receiving, landed cost, and supplier bill sync.
 
 - [Purchasing overview](/docs/purchasing/) — the module entry point for purchase orders and suppliers.
 - [Purchase orders](/docs/purchasing/purchase-orders) — statuses, how-tos, concepts, and reference, all in one place.
-- [Create a purchase order](/docs/purchasing/create-a-purchase-order) — pick a supplier, add materials, and order it.
+- [Create a purchase order](/docs/purchasing/create-a-purchase-order) — pick a supplier, add materials, and save it.
 - [Receive stock](/docs/purchasing/receive-stock) — turn ordered quantities into inventory.
 - [The purchase order lifecycle](/docs/purchasing/the-po-lifecycle) — what you can edit, receive, or delete at each status.
 

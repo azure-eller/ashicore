@@ -11,8 +11,8 @@ export async function getPurchaseOrderDetail(
 }
 
 /**
- * Transition a purchase order's status. The backend handles the side effects of each
- * transition (submit on `ordered`, auto-receive remaining lines on `received`, etc.).
+ * Transition a purchase order's receiving progress. Creation already books expected
+ * supply; status transitions only receive remaining lines.
  */
 export async function updatePurchaseOrderStatus(
   orderId: string,

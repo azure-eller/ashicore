@@ -2168,7 +2168,7 @@ async function getBlockingReferenceMessageInTx(tx: Tx, variantIds: string[]) {
       and(
         inArray(purchaseOrderLines.itemId, variantIds),
         isNull(purchaseOrders.deletedAt),
-        inArray(purchaseOrders.status, ["draft", "ordered", "partial"]),
+        inArray(purchaseOrders.status, ["not_received", "partial"]),
       ),
     )
     .limit(1);

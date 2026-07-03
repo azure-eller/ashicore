@@ -1,6 +1,6 @@
 ---
 title: Purchase orders
-description: Draft-to-received purchase orders, receiving, landed cost, and manual supplier bill sync.
+description: Not received to received purchase orders, receiving, landed cost, and manual supplier bill sync.
 sidebar:
   order: 1
   label: Overview
@@ -12,10 +12,10 @@ sidebar:
 import Pill from '../../../../widgets/Pill.astro';
 import HubCard from '../../../../widgets/HubCard.astro';
 
-Purchase orders are the operational source of truth for purchasing. They move from draft to ordered to received, create expected supply before stock arrives, and feed payable bills to your accounting provider.
+Purchase orders are the operational source of truth for purchasing. A saved PO starts not received, immediately creates expected supply before stock arrives, and feeds payable bills to your accounting provider.
 
 <p class="po-meta">
-  <span class="po-chip"><b>4</b> statuses</span>
+  <span class="po-chip"><b>3</b> statuses</span>
   <span class="po-chip"><b>5</b> how-tos</span>
   <span class="po-chip"><b>6</b> concepts</span>
   <span class="po-chip"><b>4</b> reference tables</span>
@@ -27,8 +27,7 @@ An order has one status at a time. The status decides what you can edit, receive
 
 | Status | What it means | Edit | Receive | Delete |
 |--------|---------------|------|---------|--------|
-| <Pill status="draft" /> | Being built. Not counted toward expected supply. | <span class="tbl-can good">yes</span> | <span class="tbl-can">—</span> | <span class="tbl-can good">yes</span> |
-| <Pill status="ordered" /> | Ordered from the supplier. Adds expected supply. | <span class="tbl-can good">yes</span> | <span class="tbl-can good">yes</span> | <span class="tbl-can good">before receipt</span> |
+| <Pill status="not_received" /> | Not received yet. Already counted as expected supply. | <span class="tbl-can good">yes</span> | <span class="tbl-can good">yes</span> | <span class="tbl-can good">before receipt</span> |
 | <Pill status="partial" /> | Some lines received into inventory. | <span class="tbl-can good">yes</span> | <span class="tbl-can good">yes</span> | <span class="tbl-can no">blocked</span> |
 | <Pill status="received" /> | Every line received. Editing up reverts to Partial. | <span class="tbl-can good">yes</span> | <span class="tbl-can">—</span> | <span class="tbl-can no">blocked</span> |
 
@@ -36,10 +35,10 @@ An order has one status at a time. The status decides what you can edit, receive
 
 <div class="po-cardgrid">
   <HubCard href="/docs/purchasing/create-a-purchase-order" n="01" icon="plus" title="Create a purchase order" desc="Pick a supplier, add purchasable materials, set quantities & purchase units." />
-  <HubCard href="/docs/purchasing/submit-to-your-supplier" n="02" icon="arrow" title="Order from your supplier" desc="Send the PO email or move draft to ordered." />
+  <HubCard href="/docs/purchasing/submit-to-your-supplier" n="02" icon="arrow" title="Send to your supplier" desc="Email the already saved PO to the supplier." />
   <HubCard href="/docs/purchasing/receive-stock" n="03" icon="box" title="Receive stock" desc="Full or partial — receipt history for every received line." />
   <HubCard href="/docs/purchasing/add-shipping-and-customs" n="04" icon="coin" title="Add shipping & customs" desc="By-value lands on inventory; not-distributed bumps the total only." />
-  <HubCard href="/docs/purchasing/sync-a-bill-to-xero" n="05" icon="doc" title="Sync a supplier bill" desc="A manual action — before or after ordering or receipt." />
+  <HubCard href="/docs/purchasing/sync-a-bill-to-xero" n="05" icon="doc" title="Sync a supplier bill" desc="A manual action — before or after receipt." />
 </div>
 
 ## Concepts

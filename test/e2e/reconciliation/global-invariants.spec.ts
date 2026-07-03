@@ -123,7 +123,7 @@ test.describe("global inventory and manufacturing invariants", () => {
     // projected expectedQty must be 0. A non-zero expectedQty with no
     // supplier is a sign that the expected projection missed a status
     // transition somewhere. MO contribution = non-deleted +
-    // non-completed. PO contribution = active ordered/partial lines with
+    // non-completed. PO contribution = active not_received/partial lines with
     // remaining stock quantity.
     const orphans = await db.execute(sql`
       WITH balance_expected AS (
@@ -146,7 +146,7 @@ test.describe("global inventory and manufacturing invariants", () => {
         JOIN purchasing.purchase_orders po ON po.id = pol.purchase_order_id
         WHERE po.organization_id = ${orgId}
           AND po.deleted_at IS NULL
-          AND po.status IN ('ordered', 'partial')
+          AND po.status IN ('not_received', 'partial')
           AND ROUND(
             (pol.stock_quantity_ordered - pol.stock_quantity_received)::numeric,
             4

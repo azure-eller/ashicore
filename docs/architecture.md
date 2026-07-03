@@ -20,7 +20,7 @@ The ERP is built module by module. Current and planned domains:
 | Manufacturing Orders | Active | Draft/release/complete workflow with BOM snapshots, expected-qty recompute, FIFO consumption, and produced lots |
 | Sales Orders | Active | Multi-line customer orders with snapshots, soft delete, and committed-qty updates on confirmation |
 | Customers | Active | Sales customer master data |
-| Purchase Orders | Active | Draft/order/receive workflow for material purchasing with lot-backed receiving |
+| Purchase Orders | Active | Not received to received workflow for material purchasing with expected supply and lot-backed receiving |
 | Suppliers | Active | Purchasing supplier master data |
 | Stocktakes | Active | Inventory-native snapshot/reconciliation workflow with count entry and stocktake adjustment movements |
 

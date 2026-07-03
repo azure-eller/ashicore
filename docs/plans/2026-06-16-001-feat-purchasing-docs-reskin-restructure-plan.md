@@ -144,7 +144,7 @@ PRIVATE docs/purchasing.md              schema column names, kernel event names
 **Dependencies:** none.
 **Files:**
 - `apps/www/src/styles/starlight.css` (modify) — reconcile any `--sl-*` token deltas vs. the handoff `doc-tokens.css`; add author CSS for `.pill` (4 tones), page-type badge, `.mchip` meta chips, reference-table styling on markdown tables, callout reskin (map `Aside` note/tip/caution → handoff note/tip/warn), `Steps` numbered-rail reskin, card-grid/row-card reskin.
-- `apps/www/src/widgets/Pill.astro` (new) — presentational; prop `status: draft|ordered|partial|received` → on-screen label (`"Partially Received"` for partial) + tone class.
+- `apps/www/src/widgets/Pill.astro` (new) — presentational; prop `status: draft|not_received|ordered|partial|received` → on-screen label (`"Not received"` for not_received, `"Partially Received"` for partial) + tone class.
 - `apps/www/src/styles/global.css` (only if a shared brand token value changes — keep marketing in sync).
 **Approach:** All selectors scoped under `.sl-markdown-content` or plain author selectors; no Starlight internal-class targeting; keep `a[aria-current="page"]` (public ARIA attr) as the only attribute hook. Tones mirror `app/(dashboard)/purchasing/status-badge.tsx` so docs match the app.
 **Patterns to follow:** existing `.doc-shot` / `.doc-legend` blocks in `starlight.css`; native `Badge` usage already in the hub.
@@ -156,9 +156,9 @@ PRIVATE docs/purchasing.md              schema column names, kernel event names
 **Goal:** Self-contained interactive status diagram for the Concept page.
 **Dependencies:** U1 (pill tones/CSS).
 **Files:** `apps/www/src/widgets/PoLifecycle.astro` (new) — `<starlight-po-lifecycle>` custom element + inline `<script>`; lifecycle styles in `starlight.css`.
-**Approach:** Vanilla custom-element + `<script>` (KTD-2). A `LIFE` map drives four nodes (Draft / Ordered / Partially Received / Received); clicking a node renders a detail panel: description, "Allowed here" (check/cross), and "Transitions out" (status pills). Default selection `ordered`. **Corrected content, no internal event names:** Draft → submit or delete; Ordered → receive (part/all) or delete (releases expected); Partially Received → receive rest, received lines/order locked; Received → still editable, increasing qty/adding a line reopens to Partially Received, price/by-value cost change revalues eligible on-hand stock, can't delete or reduce below received. Respect `prefers-reduced-motion`.
+**Approach:** Vanilla custom-element + `<script>` (KTD-2). A `LIFE` map drives three nodes (Not received / Partially Received / Received); clicking a node renders a detail panel: description, "Allowed here" (check/cross), and "Transitions out" (status pills). Default selection `not_received`. **Corrected content, no internal event names:** Not received → receive (part/all) or delete (releases expected); Partially Received → receive rest, received lines/order locked; Received → still editable, increasing qty/adding a line reopens to Partially Received, price/by-value cost change revalues eligible on-hand stock, can't delete or reduce below received. Respect `prefers-reduced-motion`.
 **Patterns to follow:** `node_modules/@astrojs/starlight/.../TableOfContents.astro` and `Tabs.astro` custom-element + script pattern.
-**Test scenarios:** Test expectation: none — presentational island. Manual interaction check: each node click swaps the panel; default `ordered` renders on load; keyboard focusable; reduced-motion honored.
+**Test scenarios:** Test expectation: none — presentational island. Manual interaction check: each node click swaps the panel; default `not_received` renders on load; keyboard focusable; reduced-motion honored.
 **Verification:** `pnpm build` clean; browser click-through of all four nodes correct.
 
 ### U3. Doc UI kit — `Frame` + kit CSS + anatomy prototype (build first)
@@ -209,7 +209,7 @@ PRIVATE docs/purchasing.md              schema column names, kernel event names
 **Goal:** Procedural walkthrough in the handoff step style, inline kit mocks, corrected facts.
 **Dependencies:** U1, U3, U12 (kit).
 **Files:** `apps/www/src/content/docs/docs/purchasing/create-a-purchase-order.mdx`.
-**Approach:** Native `Steps`: start order (auto order number) → choose supplier (snapshotted) → add lines (purchase vs stock unit, landed cost per stock unit) → additional costs (by-value lands on inventory; not-distributed only on total) → set delivery + tax + save draft → submit (Draft→Ordered, registers expected supply). Illustrate steps with the doc UI kit (`Frame`/`Field`/`Grid`/`Button`/`Totals`) where a panel genuinely helps; no screenshots. Accounting mention (if any) = "create a supplier bill" generic, not Xero push. Include tax per correction #11. "Who can do this" = `purchasing:operate` (correction #6), not a role name.
+**Approach:** Native `Steps`: start order (auto order number) → choose supplier (snapshotted) → add lines (purchase vs stock unit, landed cost per stock unit) → additional costs (by-value lands on inventory; not-distributed only on total) → set delivery + tax; the first valid save creates a Not received order and registers expected supply. Illustrate steps with the doc UI kit (`Frame`/`Field`/`Grid`/`Button`/`Totals`) where a panel genuinely helps; no screenshots. Accounting mention (if any) = "create a supplier bill" generic, not Xero push. Include tax per correction #11. "Who can do this" = `purchasing:operate` (correction #6), not a role name.
 **Patterns to follow:** native `Steps`, `Aside` tip/caution; the doc UI kit (U3/U12).
 **Test scenarios:** Test expectation: none — content. Build clean; no `astro:assets` import remains; link-check clean.
 **Verification:** `pnpm build` clean; rendered steps show inline mocks; corrections applied.

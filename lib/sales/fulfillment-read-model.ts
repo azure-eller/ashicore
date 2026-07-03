@@ -225,7 +225,7 @@ async function getSalesItemAvailabilityByOrderIdInTx(
     .where(
       and(
         eq(purchaseOrders.organizationId, orgId),
-        inArray(purchaseOrders.status, ["ordered", "partial"]),
+        inArray(purchaseOrders.status, ["not_received", "partial"]),
         isNull(purchaseOrders.deletedAt),
         inArray(purchaseOrderLines.itemId, itemIds)
       )
@@ -776,7 +776,7 @@ async function getIngredientSupplyByItemIdInTx(
     .where(
       and(
         eq(purchaseOrders.organizationId, orgId),
-        inArray(purchaseOrders.status, ["ordered", "partial"]),
+        inArray(purchaseOrders.status, ["not_received", "partial"]),
         isNull(purchaseOrders.deletedAt),
         inArray(purchaseOrderLines.itemId, uniqueItemIds)
       )

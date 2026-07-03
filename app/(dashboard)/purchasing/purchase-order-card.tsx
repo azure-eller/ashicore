@@ -185,7 +185,7 @@ export function PurchaseOrderCard({
     orderTitle ?? initialData?.orderNumber ?? null,
   );
   const [displayStatus, setDisplayStatus] = useState<PurchaseOrderStatus>(
-    initialData?.status ?? "draft",
+    initialData?.status ?? "not_received",
   );
   const [attachments, setAttachments] = useState<PurchaseOrderFormAttachment[]>(
     initialData?.attachments ?? [],
@@ -281,7 +281,7 @@ export function PurchaseOrderCard({
   );
   const readOnly = !canWrite;
   const canDeletePurchaseOrder =
-    canWrite && (displayStatus === "draft" || displayStatus === "ordered");
+    canWrite && displayStatus === "not_received";
   const materialLinesReadOnly = readOnly;
   const linePricesReadOnly = !canWrite;
   const additionalCostsReadOnly = !canWrite;

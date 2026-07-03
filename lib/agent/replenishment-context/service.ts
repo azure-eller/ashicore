@@ -458,7 +458,7 @@ async function loadIncomingPurchasesInTx(
     .where(
       and(
         inArray(purchaseOrderLines.itemId, itemIds),
-        inArray(purchaseOrders.status, ["ordered", "partial"]),
+        inArray(purchaseOrders.status, ["not_received", "partial"]),
         isNull(purchaseOrders.deletedAt),
         sql`${purchaseOrderLines.stockQuantityOrdered} > ${purchaseOrderLines.stockQuantityReceived}`
       )

@@ -27,7 +27,6 @@ import {
   getOrgId,
   getUnitId,
   recordManufacturingOutput,
-  submitPurchaseOrder,
   testFetch,
 } from "../../helpers/api";
 import { computeDemandQueueCoverage } from "../../../lib/inventory/allocation/coverage-engine";
@@ -884,7 +883,6 @@ test("batched demand queue coverage matches batch-of-one coverage", async ({
     ],
   });
   expect(trackedPo.status).toBe(201);
-  expect((await submitPurchaseOrder(trackedPo.body.id)).status).toBe(200);
 
   const untrackedPo = await createPurchaseOrder({
     supplierId: supplier.body.id,
@@ -894,7 +892,6 @@ test("batched demand queue coverage matches batch-of-one coverage", async ({
     ],
   });
   expect(untrackedPo.status).toBe(201);
-  expect((await submitPurchaseOrder(untrackedPo.body.id)).status).toBe(200);
 
   const lines = await db
     .select({ id: purchaseOrderLines.id })

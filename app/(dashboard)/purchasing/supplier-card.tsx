@@ -111,8 +111,8 @@ export function SupplierCard({
         title: "Delete supplier?",
         description: (
           <>
-            This supplier will be soft-deleted. Suppliers with active draft,
-            ordered, or partially received purchase orders cannot be deleted.
+            This supplier will be soft-deleted. Suppliers with active not received
+            or partially received purchase orders cannot be deleted.
           </>
         ),
       },

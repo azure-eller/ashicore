@@ -73,7 +73,7 @@ export async function createLinkedAdditionalCostPurchaseOrders(parentOrderId: st
           eq(purchaseOrders.id, parentOrderId),
           eq(purchaseOrders.type, "standard"),
           isNull(purchaseOrders.deletedAt),
-          inArray(purchaseOrders.status, ["draft", "ordered"]),
+          inArray(purchaseOrders.status, ["not_received"]),
         ),
       )
       .for("update");
@@ -181,7 +181,7 @@ export async function createLinkedAdditionalCostPurchaseOrders(parentOrderId: st
             subtotalAmount: amount,
             taxAmount: "0",
             totalAmount: amount,
-            orderedAt: order.status === "ordered"
+            orderedAt: order.status === "not_received"
               ? existing.orderedAt ?? new Date()
               : null,
             updatedAt: new Date(),
@@ -224,7 +224,7 @@ export async function createLinkedAdditionalCostPurchaseOrders(parentOrderId: st
           subtotalAmount: amount,
           taxAmount: "0",
           totalAmount: amount,
-          orderedAt: ["ordered", "partial", "received"].includes(order.status)
+          orderedAt: ["not_received", "partial", "received"].includes(order.status)
             ? new Date()
             : null,
         })

@@ -12,8 +12,7 @@ import {
 } from "./shared";
 
 export const PURCHASE_ORDER_STATUSES = [
-  "draft",
-  "ordered",
+  "not_received",
   "partial",
   "received",
 ] as const;

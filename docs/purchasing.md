@@ -13,13 +13,13 @@ read_when:
 Purchasing v1 includes:
 
 - supplier CRUD
-- draft purchase orders for purchasable materials and products
+- purchase orders for purchasable materials and products
 - unsaved new purchase-order cards that keep local edits and wait for a supplier before the first create
 - supplier and material snapshots on saved orders
-- `draft`, `ordered`, `partial`, and `received` statuses
+- `not_received`, `partial`, and `received` statuses
 - partial receiving into tracked lots or untracked internal inventory buckets
-- projection-backed expected supply from active ordered and partially received purchase orders
-- manual supplier bill creation to a connected accounting provider, before or after ordering and before or after receipt
+- projection-backed expected supply from active not received and partially received purchase orders, booked as soon as a PO is created
+- manual supplier bill creation to a connected accounting provider, before or after receipt
 - per-line purchase tax (defaults to the org purchase tax rate)
 
 Purchasing v1 does not include:
@@ -47,7 +47,7 @@ be handled manually.
   `pushed`, `failed`)
 - creating a bill (`POST /api/purchase-orders/[id]/accounting-bill`) is a manual action,
   not an automatic receipt side effect
-- bills can be created before or after ordering and before or after receipt. There is **no
+- bills can be created before or after receipt. There is **no
   cancelled-order guard** in the bill path — do not claim one (POs have no cancelled status)
 - Xero bill creation groups lines by resolved vendor: PO-supplier material lines bill to
   the PO supplier; vendor-overridden additional costs bill to their carrier/supplier.
@@ -59,7 +59,7 @@ be handled manually.
   the stock-unit conversion when purchase and stocking units differ; lines use the account
   selected in the bill dialog
 - opening provider bill management and creating a provider bill require the latest valid
-  PO draft to save first, then rebuild the bill payload from the saved materials and
+  PO card edits to save first, then rebuild the bill payload from the saved materials and
   additional costs
 - bill-affecting edits remain allowed after sync; users reconcile the accounting bill
   separately when needed
@@ -158,8 +158,8 @@ Update rules:
 - A new purchase-order card is local-only until a supplier is selected. Header,
   line, and additional-cost edits remain on the card, but the first autosave is
   deferred so the server only creates valid supplier-backed orders.
-- `draft` orders are editable
-- `ordered` orders may be edited, received, or deleted before any receipt
+- creation persists a `not_received` PO and immediately books expected supply for stock lines
+- `not_received` orders may be edited, received, or deleted before any receipt
 - `partial` orders may be edited or received; already received lines cannot be removed
 - `received` orders may be edited; increasing quantity or adding lines moves the
   order back to `partial`, while landed-cost changes revalue eligible received
@@ -168,18 +168,15 @@ Update rules:
 
 Valid transitions:
 
-- create `draft`
-- edit `draft`
-- edit `ordered`
+- create `not_received`
+- edit `not_received`
 - edit `partial`
 - edit `received`
-- order `draft` -> `ordered` through the status menu or the PO email flow
-- receive `ordered` -> `partial`
-- receive `ordered` -> `received`
+- receive `not_received` -> `partial`
+- receive `not_received` -> `received`
 - receive `partial` -> `partial`
 - receive `partial` -> `received`
-- soft-delete `draft`
-- soft-delete `ordered`
+- soft-delete `not_received`
 
 Invalid transitions:
 
@@ -188,17 +185,18 @@ Invalid transitions:
 - delete `partial`
 - delete `received`
 
-Deleting an ordered purchase order releases expected inventory in the same
-transaction. Partially received and received orders block deletion because
+Deleting a `not_received` purchase order releases expected inventory in the same
+transaction. `partial` and `received` orders block deletion because
 `purchase_receipt` inventory history must be preserved.
 
 Setting status to `received` through `PATCH /api/purchase-orders/[id]/status` is not a
 flag flip — it runs the real `receivePurchaseOrder` path, receiving every remaining line at
-the default location into `available`; setting `ordered` runs the real submit workflow. The
+the default location into `available`. Setting `not_received` is a no-op when the PO is already
+not received and is not a submit gate. The
 operator UI does not call that direct status-receive shortcut: choosing `partial` or
 `received` in the status control opens the receive dialog, where the selected `Receive
-into` location is posted to the receive endpoint. The `/email` route also runs the submit
-workflow first when sending a draft PO email. The `cancelledAt` column on
+into` location is posted to the receive endpoint. The `/email` route sends the existing
+created PO. The `cancelledAt` column on
 `purchase_orders` is vestigial: no purchasing code writes or reads it, and removal is
 soft-delete (`deletedAt`) only.
 
@@ -208,8 +206,8 @@ soft-delete (`deletedAt`) only.
 - lines store `itemName`, `itemSku`, purchase/stock unit names and factor, and tax rate details
 - copied supplier/line details are stable while an order is untouched, but editing and
   saving the order refreshes them from current supplier/item/tax records
-- materials used by active draft, ordered, or partial purchase orders cannot be soft-deleted from inventory
-- suppliers used by active draft, ordered, or partial purchase orders cannot be soft-deleted
+- materials used by active not received or partially received purchase orders cannot be soft-deleted from inventory
+- suppliers used by active not received or partially received purchase orders cannot be soft-deleted
 
 ## Receiving
 
@@ -244,12 +242,12 @@ Expected supply is now modeled through the inventory kernel:
 - the ledger writes `expected_increase` and `expected_release` events
 - `inventory_expected_summary` tracks the open per-document expected rows
 - `inventory_item_balances.expectedQty` is the hot-path item projection
-- ordered and partially received purchase orders contribute the material remaining quantity
+- not received and partially received purchase orders contribute the material remaining quantity
 - released manufacturing orders contribute the unfinished product output side
 
 Implementation rule:
 
-- purchasing DAL code must call kernel expected-supply operations for order/submit, edit, receive, and delete/cancel
+- purchasing DAL code must call kernel expected-supply operations for create, edit, receive, and delete
 - purchasing must never mutate expected quantity directly or bypass the kernel projections
 
 ## Purchase order invariants — coverage map
@@ -258,12 +256,12 @@ Every consequence of acting on a purchase order, the invariant it protects, and 
 
 | Invariant | Spec | Covered? |
 |-----------|------|----------|
-| Ordering (draft→ordered) adds the full ordered quantity to expected supply in stocking units; no stock created | `purchasing-receiving.spec.ts` | Yes |
+| Creation adds the full ordered quantity to expected supply in stocking units; no stock created | `purchasing-receiving.spec.ts` | Yes |
 | Editing an ordered quantity re-derives expected supply; cannot drop below received quantity | `purchasing-receiving.spec.ts` | Yes |
 | Receive writes tracked lots or untracked bucket entries, releases matching expected supply, in one transaction (both-or-neither) | `purchasing-receiving.spec.ts` | Yes |
 | Partial receipt: only received part becomes stock; remainder stays expected | `purchasing-receiving.spec.ts` | Yes |
 | Full receipt: last remainder becomes stock; status Received; expected fully released | `purchasing-receiving.spec.ts` | Yes |
 | Received-line cost / by-value additional-cost edit revalues eligible on-hand tracked stock via append-only event; consumed and untracked-v1 stock unchanged | `purchasing-receiving.spec.ts` | Yes |
 | Over-receipt: confirmed receipt raises ordered quantity to match what was received | `purchasing-receiving.spec.ts` | No — not covered by that story |
-| Delete an ordered order releases its expected supply in the same transaction | `purchasing-receiving.spec.ts` | No — delete guards excluded by that story |
+| Delete a not received order releases its expected supply in the same transaction | `purchasing-receiving.spec.ts` | No — delete guards excluded by that story |
 | Delete blocked after any receipt to preserve `purchase_receipt` inventory and lot-cost history | `purchasing-receiving.spec.ts` | No — delete guards excluded by that story |
