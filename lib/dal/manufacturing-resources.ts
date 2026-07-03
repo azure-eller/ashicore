@@ -2,7 +2,6 @@ import "server-only";
 
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import {
-  bomRevisionOperationCosts,
   manufacturingOrderOperationCosts,
   manufacturingResources,
 } from "@/lib/db/schema";
@@ -122,10 +121,6 @@ export async function deleteManufacturingResources(ids: string[]) {
 
 async function detachManufacturingResourceReferencesInTx(tx: AuthedTx, ids: string[]) {
   if (ids.length === 0) return;
-
-  await tx
-    .delete(bomRevisionOperationCosts)
-    .where(inArray(bomRevisionOperationCosts.resourceId, ids));
 
   await tx
     .update(manufacturingOrderOperationCosts)

@@ -450,6 +450,8 @@ export async function updateItem(
       const nextOperationCosts = operationCosts ?? currentOperationCosts.map((row) => ({
         operationName: row.operationName,
         resourceId: row.resourceId,
+        resourceName: row.resourceName,
+        resourceType: row.resourceType,
         costScalingMode: "per_output_unit" as const,
         crewSize: row.crewSize,
         plannedMinutes: row.plannedMinutes,
@@ -472,6 +474,8 @@ export async function updateItem(
             currentOperationCosts.map((row) => ({
               operationName: row.operationName,
               resourceId: row.resourceId,
+              resourceName: row.resourceName,
+              resourceType: row.resourceType,
               costScalingMode: "per_output_unit" as const,
               crewSize: row.crewSize,
               plannedMinutes: row.plannedMinutes,

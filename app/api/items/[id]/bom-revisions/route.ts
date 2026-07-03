@@ -52,5 +52,8 @@ export const POST = apiHandler(async (request: Request, ctx: unknown) => {
 
   const data = await parseJsonBody(request, createBomRevisionSchema);
   const result = await createBomRevision(id, data);
+  if (!result.created) {
+    return NextResponse.json(result);
+  }
   return jsonCreated(result);
 });

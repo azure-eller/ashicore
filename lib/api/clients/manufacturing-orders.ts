@@ -38,8 +38,8 @@ export type OutputDisposition = "available" | "blocked";
 
 /**
  * Finalize an MO: backflush ingredients and produce the good output, moving the order
- * to `done`. On a 409 stock shortage the thrown error carries `.shortage`; retry with
- * `confirmNegativeStock: true` after the user confirms.
+ * to `done`. On a 409 stock or readiness warning the thrown error carries
+ * `.shortage`; retry with `confirmNegativeStock: true` after the user confirms.
  */
 export async function completeManufacturingOrder(
   orderId: string,

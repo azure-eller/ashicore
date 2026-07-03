@@ -17,8 +17,8 @@ Bills of materials are managed from product cards, not from a separate Manufactu
 
 | Part | Purpose |
 | --- | --- |
-| Components | Required item variants and quantities per recipe basis. Manufacturing orders can swap a component only to another active variant in the same item family. |
-| Constraints | Lot strategy and minimum lot-age requirements. |
+| Components | Required item variants and positive quantities per recipe basis. A product cannot include itself as a component, and manufacturing orders can swap a component only to another active variant in the same item family. |
+| Constraints | Lot strategy and minimum lot-age requirements in positive whole days. |
 | Operation costs | Resources, crew, minutes, and rate inputs for cost rollup. |
 
 ## Work with recipes

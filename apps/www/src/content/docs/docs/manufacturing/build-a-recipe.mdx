@@ -39,7 +39,7 @@ Manufacturing orders use BOM revisions, but the UI does not expose a separate Ma
      </div>
    </Frame>
 
-2. **Add components.** Add each material component and the quantity needed for the recipe basis. Components are stored on the current BOM revision and later copied to manufacturing order ingredients.
+2. **Add components.** Add each material component and the positive quantity needed for the recipe basis. A product cannot include itself as a component. Components are stored on the current BOM revision and later copied to manufacturing order ingredients.
 
    <Frame title="<b>Components</b>">
      <span slot="action"><Button variant="subtle">+ Add component</Button></span>
@@ -52,7 +52,7 @@ Manufacturing orders use BOM revisions, but the UI does not expose a separate Ma
      </Grid>
    </Frame>
 
-3. **Add constraints.** Add a minimum lot-age rule when an ingredient must use lots old enough based on received date. If a component belongs to an item family, manufacturing orders can swap it to another active variant in that same family while planning; that swap is not configured on the recipe.
+3. **Add constraints.** Add a minimum lot-age rule in positive whole days when an ingredient must use lots old enough based on received date. If a component belongs to an item family, manufacturing orders can swap it to another active variant in that same family while planning; that swap is not configured on the recipe.
 
    <Frame title="<b>Coir Pith</b> · constraints">
      <Grid>
@@ -63,7 +63,7 @@ Manufacturing orders use BOM revisions, but the UI does not expose a separate Ma
      </Grid>
    </Frame>
 
-4. **Add operations and save.** Move to the product **Production** tab to add operation cost rows. Choose the resource, crew size, planned minutes, and loaded rate. Saving creates a new current BOM revision; older revisions remain available for history.
+4. **Add operations and save.** Move to the product **Production** tab to add operation cost rows. Choose the resource, crew size, planned minutes, and loaded rate. Saving a changed recipe creates a new current BOM revision; saving the same payload again leaves the current revision in place. Older revisions remain available for history.
 
    <Frame title="<b>Production</b> · operation costs">
      <Grid>

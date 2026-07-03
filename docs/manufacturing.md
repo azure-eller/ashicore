@@ -135,6 +135,10 @@ MO creation snapshots concrete ingredient quantities on `manufacturing_order_ing
 
 Estimated unit cost uses average per-output consumption. For batch recipes this is `line.quantity / bom.output_quantity`.
 
+A product BOM cannot include the product itself as a component. Component
+quantities must be positive, and minimum lot-age constraints must be blank or a
+positive whole number of days.
+
 ## Standard Operation Costs
 
 Standard operation costs are internal margin-costing rows attached to BOM revisions. They are not a shop-floor workflow engine.
@@ -145,6 +149,11 @@ Resources live in `manufacturing.resources` and store a loaded hourly rate. BOM 
 - `fixed_per_mo`: crew size × minutes × rate once for the manufacturing order
 
 Operation cost rows snapshot `resourceName`, `resourceType`, `loadedCostPerHour`, planned crew size, planned minutes, and planned total cost. If a resource rate changes later, existing BOM revisions and manufacturing orders keep their saved rate snapshots.
+
+Deleting a manufacturing resource archives it for future selection. Existing
+BOM revision operation-cost snapshots keep their resource name, type, and rate;
+manufacturing order operation-cost snapshots keep their copied operation cost
+details with the live resource link detached.
 
 Manufacturing notification resource filters use active `manufacturing.resources` rows as the configurable source of truth. Manufacturing order operation-cost snapshots provide event context for a created MO, but deleted resources and historical snapshot-only names are not independently configurable notification identities.
 
@@ -175,7 +184,8 @@ Release validates that:
 Release does not warn on current ingredient shortages. It records planned
 ingredient demand and expected finished-good supply immediately.
 Picking remains the stock-consuming step and may warn/require confirmation for
-negative stock or lot eligibility.
+negative stock, higher-priority demand conflicts, or lot eligibility/readiness
+requirements.
 
 Release behavior differs by manufacturing mode:
 

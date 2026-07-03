@@ -33,6 +33,8 @@ Legacy fake master rows are not returned.
 - `POST /api/item-cards/:itemId/variants/generate-preview`
 - `POST /api/item-cards/:itemId/variants/generate`
 - `POST /api/item-cards/:itemId/bom-copy`
+- `GET /api/items/:itemId/bom-revisions`
+- `POST /api/items/:itemId/bom-revisions`
 - `DELETE /api/item-cards/:itemId`
 
 Card reads return `focusedVariantId`, `family`, `options`, and `variants`.
@@ -70,3 +72,12 @@ soft-deleted.
 product variant to sibling product variants. It creates new BOM revisions for
 targets and copies components, lot-age constraints, and operation costs. It does
 not create shared family-level BOM inheritance.
+
+## BOM Revisions
+
+`POST /api/items/:itemId/bom-revisions` saves the product's recipe payload as an
+append-only BOM revision. If the submitted recipe basis, output quantity,
+components, constraints, and explicitly submitted operation costs match the
+current revision, the route is an idempotent no-op: it returns the current
+`revisionId` and `revisionNumber` with `created: false` instead of appending a
+duplicate revision.

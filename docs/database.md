@@ -453,8 +453,9 @@ row. New organizations are initialized with common stocking units (`Each`,
 `Piece`, `Pound`, `Ounce`, `Kilogram`, `Gram`, `Gallon`, `Liter`), and the
 default-unit migration backfills the same set only for orgs that had no active
 units. Unit management requires `inventory:admin`; deleting the final active
-unit is blocked, and item creation defers the first save until a unit is
-selected or created inline.
+unit is blocked. Product and material draft pages load an existing unit or
+create a default `Each` unit before first save, so a new item always has a stock
+unit baseline.
 
 Use the shared `Each` unit for:
 

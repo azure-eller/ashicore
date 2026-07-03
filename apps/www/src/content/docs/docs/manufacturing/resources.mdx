@@ -65,8 +65,8 @@ Recipe operation costs multiply the loaded hourly rate by crew size and planned 
 
 ## Archiving
 
-Deleting a resource archives it for future selection and detaches active BOM operation references. Manufacturing order snapshots keep their copied operation costs for history.
+Deleting a resource archives it for future selection. Existing BOM revision operation rows keep their snapshotted resource name, type, and rate, while manufacturing order snapshots keep their copied operation costs with the live resource link detached.
 
-<Aside type="caution" title="Archiving changes live recipes">
-The delete action removes BOM operation cost lines that still reference the resource. Existing manufacturing orders keep their copied operation cost details, with the resource link detached.
+<Aside type="caution" title="Archiving preserves recipe history">
+The delete action removes the resource from future selection but does not erase operation-cost rows already snapshotted onto BOM revisions. Existing manufacturing orders keep their copied operation cost details, with the resource link detached.
 </Aside>

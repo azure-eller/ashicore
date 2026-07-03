@@ -908,6 +908,8 @@ export async function cloneItemCard(
           (row) => ({
             operationName: row.operationName,
             resourceId: row.resourceId,
+            resourceName: row.resourceName,
+            resourceType: row.resourceType,
             costScalingMode: "per_output_unit",
             crewSize: row.crewSize,
             plannedMinutes: row.plannedMinutes,

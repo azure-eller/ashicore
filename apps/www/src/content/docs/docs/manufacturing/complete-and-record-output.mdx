@@ -25,7 +25,7 @@ Record finished output from a manufacturing order. On the web card, completion p
 </p>
 
 <Aside type="caution" title="Completion can consume stock">
-For a discrete order with no prior output, **Done** says it will pick all materials and produce the output. If stock would go negative, Ashicore shows the shortage and requires an explicit **Complete anyway** or **Record anyway** confirmation.
+For a discrete order with no prior output, **Done** says it will pick all materials and produce the output. If stock would go negative or the action needs to override a material readiness requirement, Ashicore shows the warning and requires an explicit **Complete anyway** or **Record anyway** confirmation.
 </Aside>
 
 <Steps>
@@ -54,7 +54,7 @@ For a discrete order with no prior output, **Done** says it will pick all materi
      </div>
    </Frame>
 
-3. **Confirm and clear any warnings.** Choose **Complete**. Ashicore consumes the selected ingredient lots, creates the finished output lot, links output consumption to the picked inputs, calculates actual cost, sets the stored order status to `done`, clears priority rank, and reranks the remaining open queue.
+3. **Confirm and clear any warnings.** Choose **Complete**. Ashicore consumes the selected ingredient lots, records any confirmed readiness overrides, creates the finished output lot, links output consumption to the picked inputs, calculates actual cost, sets the stored order status to `done`, clears priority rank, and reranks the remaining open queue.
 
    <Frame title="<b>Actual cost rollup</b>">
      <div class="mk-pad">

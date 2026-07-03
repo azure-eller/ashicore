@@ -367,8 +367,9 @@ export async function copyBomFromVariant(
 }
 
 /**
- * Persist a new BOM revision for the given variant (product). Called from the
- * Recipe tab when the user clicks Save.
+ * Persist a BOM revision for the given variant (product). Changed payloads
+ * create a new revision; unchanged payloads return the current revision.
+ * Called from the Recipe tab when the user clicks Save.
  */
 export type SaveBomRevisionInput = {
   recipeBasis?: "unit" | "batch";

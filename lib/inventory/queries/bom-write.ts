@@ -66,6 +66,8 @@ export type BomInputRow = {
 export type BomOperationCostInputRow = {
   operationName: string;
   resourceId: string;
+  resourceName?: string;
+  resourceType?: string;
   costScalingMode: "per_output_unit";
   crewSize: string;
   plannedMinutes: string;
@@ -75,7 +77,7 @@ export type BomOperationCostInputRow = {
 function normalizeBomRows(bom: BomInputRow[]) {
   return bom.map((row, index) => ({
     componentId: row.componentId,
-    quantity: row.quantity,
+    quantity: normalizeComparableNumber(row.quantity),
     minimumLotAgeDays: row.minimumLotAgeDays ?? null,
     alternates: (row.alternates ?? []).map((alternate) => alternate.itemId).sort(),
     sortOrder: index,
@@ -107,9 +109,12 @@ function normalizeOperationCostRows(operationCosts: BomOperationCostInputRow[]) 
     operationName: row.operationName.trim(),
     resourceId: row.resourceId,
     costScalingMode: row.costScalingMode,
-    crewSize: row.crewSize,
-    plannedMinutes: row.plannedMinutes,
-    loadedCostPerHour: row.loadedCostPerHour ?? null,
+    crewSize: normalizeComparableNumber(row.crewSize),
+    plannedMinutes: normalizeComparableNumber(row.plannedMinutes),
+    loadedCostPerHour:
+      row.loadedCostPerHour == null
+        ? null
+        : normalizeComparableNumber(row.loadedCostPerHour),
     sortOrder: index,
   }));
 }
@@ -136,6 +141,10 @@ export function hasBomOperationCostsChanged(
       row.sortOrder !== nextRow.sortOrder
     );
   });
+}
+
+function normalizeComparableNumber(value: string) {
+  return Number(value).toString();
 }
 
 export async function createBomRevisionInTx(
@@ -184,6 +193,10 @@ export async function createBomRevisionInTx(
 
   if (params.bom.length > 0) {
     const componentIds = [...new Set(params.bom.map((row) => row.componentId))];
+    if (componentIds.includes(params.productId)) {
+      throw new InventoryError("A BOM cannot include its own product", 400);
+    }
+
     const componentRows = await tx
       .select({
         id: items.id,
@@ -204,7 +217,7 @@ export async function createBomRevisionInTx(
       const component = componentById.get(row.componentId);
 
       if (!component) {
-        throw new Error("BOM component not found");
+        throw new InventoryError("BOM component not found", 400);
       }
 
       return {
@@ -350,7 +363,17 @@ export async function createBomRevisionInTx(
     await tx.insert(bomRevisionOperationCosts).values(
       params.operationCosts.map((row, index) => {
         const resource = resourceById.get(row.resourceId);
-        if (!resource) {
+        const snapshot =
+          resource ??
+          (row.resourceName && row.resourceType && row.loadedCostPerHour != null
+            ? {
+                id: row.resourceId,
+                name: row.resourceName,
+                resourceType: row.resourceType,
+                loadedCostPerHour: row.loadedCostPerHour,
+              }
+            : null);
+        if (!snapshot) {
           throw new InventoryError("Operation resource not found", 400);
         }
 
@@ -358,17 +381,17 @@ export async function createBomRevisionInTx(
           bomRevisionId: revision.id,
           resourceId: row.resourceId,
           operationName: row.operationName.trim(),
-          resourceName: resource.name,
-          resourceType: resource.resourceType,
+          resourceName: snapshot.name,
+          resourceType: snapshot.resourceType,
           costScalingMode: row.costScalingMode,
           crewSize: row.crewSize,
           plannedMinutes: row.plannedMinutes,
-          loadedCostPerHour: row.loadedCostPerHour ?? resource.loadedCostPerHour,
+          loadedCostPerHour: row.loadedCostPerHour ?? snapshot.loadedCostPerHour,
           plannedCostTotal: calculatePlannedOperationCost({
             costScalingMode: row.costScalingMode,
             crewSize: row.crewSize,
             plannedMinutes: row.plannedMinutes,
-            loadedCostPerHour: row.loadedCostPerHour ?? resource.loadedCostPerHour,
+            loadedCostPerHour: row.loadedCostPerHour ?? snapshot.loadedCostPerHour,
             outputQuantity: Number(params.outputQuantity ?? "1"),
           }),
           sortOrder: index,
@@ -530,6 +553,8 @@ export async function copyCurrentBomToVariants(
     const operationCosts: BomOperationCostInputRow[] = sourceOperationCosts.map((row) => ({
       operationName: row.operationName,
       resourceId: row.resourceId,
+      resourceName: row.resourceName,
+      resourceType: row.resourceType,
       costScalingMode: "per_output_unit" as const,
       crewSize: row.crewSize,
       plannedMinutes: row.plannedMinutes,
@@ -621,6 +646,8 @@ export async function copyCurrentOperationsToVariants(
     const operationCosts: BomOperationCostInputRow[] = sourceOperationCosts.map((row) => ({
       operationName: row.operationName,
       resourceId: row.resourceId,
+      resourceName: row.resourceName,
+      resourceType: row.resourceType,
       costScalingMode: "per_output_unit" as const,
       crewSize: row.crewSize,
       plannedMinutes: row.plannedMinutes,

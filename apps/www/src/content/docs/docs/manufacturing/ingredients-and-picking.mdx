@@ -48,11 +48,11 @@ Each ingredient carries a lot strategy: `fifo`, `lifo`, or `custom`. A recipe co
 | FIFO | Consume oldest eligible lots first. |
 | LIFO | Consume newest eligible lots first. |
 | Custom | Use a submitted allocation plan. |
-| Minimum lot age | Blocks or warns when no eligible old-enough stock is available. |
+| Minimum lot age | Warns first when no eligible old-enough stock is available; confirming records the override. |
 
 ## Picking And Shortages
 
-In the web order card, there is no manual per-ingredient pick button. The completion dialog picks all required materials as part of **Done** or record-output actions. If there is not enough available stock, Ashicore shows a shortage warning with need, have, and short quantities; confirming again allows the operation to drive stock negative.
+In the web order card, there is no manual per-ingredient pick button. The completion dialog picks all required materials as part of **Done** or record-output actions. If there is not enough available stock, or not enough old-enough stock for a minimum lot-age requirement, Ashicore shows a warning with need, have, and short quantities; confirming again allows the operation and records the override when a readiness requirement was bypassed.
 
 <Aside type="note" title="Pick progress is still visible">
 The orders list and card use pick progress to derive readiness and production state. Explicit per-ingredient picking is an execution-surface action outside the current web card flow.

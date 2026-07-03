@@ -67,6 +67,57 @@ export async function getUnitDefinitions() {
   });
 }
 
+export async function getUnitDefinitionsForItemDraft() {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const units = await tx
+      .select({
+        id: unitDefinitions.id,
+        name: unitDefinitions.name,
+        size: trimScale(unitDefinitions.size).as("size"),
+        uom: unitDefinitions.uom,
+        isInUse: sql<boolean>`exists (
+          select 1
+          from ${itemFamilies}
+          where ${itemFamilies.deletedAt} is null
+            and (
+              ${itemFamilies.unitDefinitionId} = ${unitDefinitions.id}
+              or ${itemFamilies.purchaseUnitDefinitionId} = ${unitDefinitions.id}
+            )
+        ) or exists (
+          select 1
+          from ${items}
+          where ${items.deletedAt} is null
+            and (
+              ${items.unitDefinitionId} = ${unitDefinitions.id}
+              or ${items.purchaseUnitDefinitionId} = ${unitDefinitions.id}
+            )
+        )`.as("isInUse"),
+      })
+      .from(unitDefinitions)
+      .where(isNull(unitDefinitions.deletedAt));
+
+    if (units.length > 0) return units;
+
+    const [created] = await tx
+      .insert(unitDefinitions)
+      .values({
+        organizationId: orgId,
+        name: "Each",
+        size: "1",
+        uom: "ea",
+      })
+      .returning({
+        id: unitDefinitions.id,
+        name: unitDefinitions.name,
+        size: trimScale(unitDefinitions.size).as("size"),
+        uom: unitDefinitions.uom,
+        isInUse: sql<boolean>`false`.as("isInUse"),
+      });
+
+    return [created];
+  });
+}
+
 export async function getCategories(): Promise<string[]> {
   return withAuthedOrgContext(async (tx) => {
     const rows = await tx

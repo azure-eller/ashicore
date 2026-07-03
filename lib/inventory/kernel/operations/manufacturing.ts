@@ -801,6 +801,8 @@ export async function reconcileIngredientActualsInTx(
     locationId?: string | null;
     actorUserId?: string | null;
     idempotencyKey?: string | null;
+    minimumReceivedDate?: string | null;
+    allowIneligibleLots?: boolean;
     allowNegativeStock?: boolean;
     trackedLotDefault?: "unbatched";
   }
@@ -820,6 +822,8 @@ export async function reconcileIngredientActualsInTx(
       locationId: params.locationId ?? null,
       referenceType: params.referenceType,
       referenceId: params.referenceId,
+      minimumReceivedDate: params.minimumReceivedDate ?? null,
+      allowIneligibleLots: params.allowIneligibleLots ?? false,
       trackedLotDefault: params.trackedLotDefault ?? null,
     },
   });
@@ -849,6 +853,8 @@ export async function reconcileIngredientActualsInTx(
       actorUserId: params.actorUserId ?? null,
       idempotencyKey: params.idempotencyKey ?? null,
       metadata: { manufacturingOrderIngredientId: params.ingredient.id },
+      minimumReceivedDate: params.minimumReceivedDate ?? null,
+      allowIneligibleLots: params.allowIneligibleLots ?? false,
       allowNegativeStock: params.allowNegativeStock ?? false,
       trackedLotDefault: params.trackedLotDefault,
     });
@@ -856,14 +862,24 @@ export async function reconcileIngredientActualsInTx(
 
     if (consumed.allocations.length > 0) {
       await tx.insert(manufacturingPickAllocations).values(
-        consumed.allocations.map((allocation) => ({
-          manufacturingOrderIngredientId: params.ingredient.id,
-          lotId: allocation.lotId,
-          locationId: location.id,
-          quantityUsed: normalizeNumericScale(allocation.quantity, 4),
-          costPerUnit: normalizeNumericScale(allocation.unitCost, 4),
-          createdBy: params.actorUserId ?? "system",
-        }))
+        consumed.allocations.map((allocation) => {
+          const requirementViolated =
+            "requirementViolated" in allocation && allocation.requirementViolated;
+
+          return {
+            manufacturingOrderIngredientId: params.ingredient.id,
+            lotId: allocation.lotId,
+            locationId: location.id,
+            quantityUsed: normalizeNumericScale(allocation.quantity, 4),
+            costPerUnit: normalizeNumericScale(allocation.unitCost, 4),
+            requirementOverrideConfirmed: Boolean(requirementViolated),
+            requirementOverrideConfirmedBy: requirementViolated
+              ? params.actorUserId ?? "system"
+              : null,
+            requirementOverrideConfirmedAt: requirementViolated ? new Date() : null,
+            createdBy: params.actorUserId ?? "system",
+          };
+        })
       );
     }
   } else if (delta < -VARIANCE_EPSILON) {

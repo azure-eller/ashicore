@@ -1,21 +1,46 @@
 import "server-only";
 
 import { and, eq, inArray } from "drizzle-orm";
-import { inventoryExpectedSummary, manufacturingOrderBatches, manufacturingOrderIngredients, manufacturingOrders, manufacturingPickAllocations } from "@/lib/db/schema";
+import { inventoryExpectedSummary, manufacturingOrderBatches, manufacturingOrderIngredients, manufacturingOrders, manufacturingPickAllocations, organization } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
-import { normalizeNumeric, normalizeNumericScale, normalizeQuantityNumber } from "@/lib/format";
+import { normalizeNumeric, normalizeNumericScale, normalizeQuantityNumber, todayInTimeZone } from "@/lib/format";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
 import type { Tx } from "@/lib/db/with-org-context";
 import { lockManufacturingPriorityQueueInTx } from "@/lib/manufacturing-priority-lock";
 import { applyExpectedReferenceDeltasInTx, beginInventoryOperationInTx, deriveInventoryIdempotencyKey, finishInventoryOperationInTx, getDefaultInventoryLocationInTx, getManufacturingIngredientDemandRowsInTx, produceManufacturedStockInTx, reconcileIngredientActualsInTx, releaseIngredientDemandForManufacturingInTx } from "@/lib/inventory/kernel";
 import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
+import { getMinimumLotAgeDays } from "@/lib/bom/constraints";
 import { notifyManufacturingOrderCompleted } from "@/lib/notifications/manufacturing";
 import type { CompleteManufacturingBatch, CompleteManufacturingOrder } from "@/lib/schemas/manufacturing-orders";
 import { ManufacturingError } from "./errors";
 import { assertCurrentExecutionBatch, ensureBatchExecutionRowsInTx, getBatchIngredientsInTx, getBatchRowsInTx, getCurrentExecutionBatch, getLockedBatchStateRowsInTx, getOutputQuantityInTx, getPickAllocationsByIngredientInTx, getProducedLotIdInTx, resolveProducedLotForUnitInTx } from "./execution-state";
 import { assertLinkedMtoOutputWithinSalesDemandInTx, buildOutputConsumptionsFromPickedAllocations, getAbsorbedOperationCostForQuantityInTx, getIncrementalAbsorbedOperationCostForQuantityInTx, getTotalOutputQuantityForOrderInTx, insertManufacturingOrderOutputInTx } from "./output";
 import { getLockedManufacturingOrderInTx, getRemainingQuantityNumber, isOpenManufacturingOrder, rerankOpenManufacturingOrdersInTx, sumNumericStrings, validateActiveIngredientItemsInTx } from "./shared";
+
+function isoDate(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
+function addDays(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return isoDate(date);
+}
+
+function subtractDays(value: string, days: number) {
+  return addDays(value, -days);
+}
+
+async function getOrganizationTodayInTx(tx: Tx, organizationId: string) {
+  const [row] = await tx
+    .select({ timeZone: organization.timeZone })
+    .from(organization)
+    .where(eq(organization.id, organizationId))
+    .limit(1);
+
+  return todayInTimeZone(row?.timeZone ?? "America/Denver");
+}
 
 export function buildIngredientActualsMap(
   submitted: CompleteManufacturingOrder["ingredientActuals"] | undefined,
@@ -434,6 +459,16 @@ export async function completeManufacturingBatch(
       let effectiveCost: number;
 
       if (suppliedActual != null) {
+        const additionalUnpickedQuantity = Math.max(0, suppliedActual - pickedQty);
+        const minimumLotAgeDays = getMinimumLotAgeDays(ingredient.constraints);
+        const requiredDate =
+          additionalUnpickedQuantity > 0 && minimumLotAgeDays != null
+            ? await getOrganizationTodayInTx(tx, orgId)
+            : null;
+        const minimumReceivedDate =
+          requiredDate != null && minimumLotAgeDays != null
+            ? subtractDays(requiredDate, minimumLotAgeDays)
+            : null;
         let reconciled: Awaited<ReturnType<typeof reconcileIngredientActualsInTx>>;
         try {
           reconciled = await reconcileIngredientActualsInTx(tx, {
@@ -452,6 +487,8 @@ export async function completeManufacturingBatch(
               options?.idempotencyKey,
               `batch-variance:${batchId}:${ingredient.id}`
             ),
+            minimumReceivedDate,
+            allowIneligibleLots: payload.confirmNegativeStock === true,
             allowNegativeStock: payload.confirmNegativeStock === true,
           });
         } catch (error) {

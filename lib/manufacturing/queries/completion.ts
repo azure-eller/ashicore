@@ -1,13 +1,15 @@
 import "server-only";
 
-import { and, eq, isNull } from "drizzle-orm";
-import { manufacturingOrderIngredients, manufacturingOrders } from "@/lib/db/schema";
-import { normalizeNumeric, normalizeNumericScale, normalizeQuantityNumber } from "@/lib/format";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { inventoryLotBalances, manufacturingOrderIngredients, manufacturingOrders, organization } from "@/lib/db/schema";
+import { normalizeNumeric, normalizeNumericScale, normalizeQuantityNumber, todayInTimeZone } from "@/lib/format";
+import { trimScale } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
 import { lockManufacturingPriorityQueueInTx } from "@/lib/manufacturing-priority-lock";
-import { beginInventoryOperationInTx, deriveInventoryIdempotencyKey, finishInventoryOperationInTx, getManufacturingIngredientDemandRowsInTx, produceManufacturedStockInTx, reconcileIngredientActualsInTx, releaseIngredientDemandForManufacturingInTx } from "@/lib/inventory/kernel";
+import { beginInventoryOperationInTx, deriveInventoryIdempotencyKey, finishInventoryOperationInTx, getManufacturingIngredientDemandRowsInTx, produceManufacturedStockInTx, reconcileIngredientActualsInTx, releaseIngredientDemandForManufacturingInTx, resolveInventoryLocationInTx } from "@/lib/inventory/kernel";
 import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
+import { evaluateLotAgeMinDaysRequirement, formatMinimumLotAgeRequirementViolation, getMinimumLotAgeDays, LOT_AGE_MIN_DAYS_CONSTRAINT } from "@/lib/bom/constraints";
 import { notifyManufacturingOrderCompleted } from "@/lib/notifications/manufacturing";
 import type { CompleteManufacturingOrder } from "@/lib/schemas/manufacturing-orders";
 import { buildIngredientActualsMap, completeManufacturingBatch, getPickAllocationTotalsInTx, releaseRemainingExpectedOutputInTx } from "./batches";
@@ -16,6 +18,81 @@ import { getManufacturingExecutionDetail } from "./execution-read";
 import { getOutputQuantityInTx, getPickAllocationsByIngredientInTx, getTemplateIngredientsInTx, resolveProducedLotForUnitInTx } from "./execution-state";
 import { assertLinkedMtoOutputWithinSalesDemandInTx, buildOutputConsumptionsFromPickedAllocations, getAbsorbedOperationCostForQuantityInTx, insertManufacturingOrderOutputInTx, recordManufacturingOutput } from "./output";
 import { getLockedManufacturingOrderInTx, isOpenManufacturingOrder, rerankOpenManufacturingOrdersInTx, validateActiveIngredientItemsInTx } from "./shared";
+
+function isoDate(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
+function addDays(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return isoDate(date);
+}
+
+function subtractDays(value: string, days: number) {
+  return addDays(value, -days);
+}
+
+async function getOrganizationTodayInTx(tx: Parameters<typeof resolveInventoryLocationInTx>[0], organizationId: string) {
+  const [row] = await tx
+    .select({ timeZone: organization.timeZone })
+    .from(organization)
+    .where(eq(organization.id, organizationId))
+    .limit(1);
+
+  return todayInTimeZone(row?.timeZone ?? "America/Denver");
+}
+
+async function getLotAgeAvailabilityInTx(
+  tx: Parameters<typeof resolveInventoryLocationInTx>[0],
+  params: {
+    organizationId: string;
+    locationId: string;
+    itemId: string;
+    minimumLotAgeDays: number;
+    requiredDate: string;
+  }
+) {
+  const cutoffReceivedDate = subtractDays(
+    params.requiredDate,
+    params.minimumLotAgeDays
+  );
+  const rows = await tx
+    .select({
+      quantity: trimScale(inventoryLotBalances.quantity).as("quantity"),
+      receivedAt: inventoryLotBalances.receivedAt,
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, params.organizationId),
+        eq(inventoryLotBalances.locationId, params.locationId),
+        eq(inventoryLotBalances.itemId, params.itemId),
+        eq(inventoryLotBalances.disposition, "available"),
+        sql`${inventoryLotBalances.quantity} > 0`
+      )
+    )
+    .orderBy(asc(inventoryLotBalances.receivedAt), asc(inventoryLotBalances.lotId));
+
+  let eligible = 0;
+  let nextEligibleDate: string | null = null;
+
+  for (const row of rows) {
+    const quantity = parseFloat(row.quantity);
+    const receivedDate = isoDate(row.receivedAt);
+    const eligibleDate = addDays(receivedDate, params.minimumLotAgeDays);
+    if (receivedDate <= cutoffReceivedDate) {
+      eligible += quantity;
+      continue;
+    }
+
+    if (nextEligibleDate == null || eligibleDate < nextEligibleDate) {
+      nextEligibleDate = eligibleDate;
+    }
+  }
+
+  return { eligible, nextEligibleDate };
+}
 
 async function getManufacturingOrderCompletionTarget(id: string) {
   return withAuthedOrgContext(async (tx) => {
@@ -296,6 +373,75 @@ async function completeDiscreteManufacturingOrder(
       let effectiveCost: number;
 
       if (suppliedActual != null) {
+        const additionalUnpickedQuantity = Math.max(0, suppliedActual - pickedQty);
+        const minimumLotAgeDays = getMinimumLotAgeDays(ingredient.constraints);
+        const requiredDate =
+          additionalUnpickedQuantity > 0 && minimumLotAgeDays != null
+            ? await getOrganizationTodayInTx(tx, orgId)
+            : null;
+        const minimumReceivedDate =
+          requiredDate != null && minimumLotAgeDays != null
+            ? subtractDays(requiredDate, minimumLotAgeDays)
+            : null;
+        if (
+          additionalUnpickedQuantity > 0 &&
+          minimumLotAgeDays != null &&
+          payload.confirmNegativeStock !== true &&
+          requiredDate != null
+        ) {
+          const location = await resolveInventoryLocationInTx(tx, orgId, payload.locationId);
+          const ageAvailability = await getLotAgeAvailabilityInTx(tx, {
+            organizationId: orgId,
+            locationId: location.id,
+            itemId: ingredient.itemId,
+            minimumLotAgeDays,
+            requiredDate,
+          });
+
+          if (ageAvailability.eligible < additionalUnpickedQuantity) {
+            const lotAgeConstraint = ingredient.constraints.find(
+              (constraint) => constraint.constraintType === LOT_AGE_MIN_DAYS_CONSTRAINT
+            );
+            const requirementViolation = lotAgeConstraint
+              ? evaluateLotAgeMinDaysRequirement({
+                  constraint: lotAgeConstraint,
+                  requiredQuantity: additionalUnpickedQuantity,
+                  eligibleQuantity: ageAvailability.eligible,
+                  nextEligibleDate: ageAvailability.nextEligibleDate,
+                })
+              : null;
+
+            throw new ManufacturingError(
+              `Not enough eligible ${ingredient.itemName}.`,
+              409,
+              {
+                shortage: {
+                  ingredients: [
+                    {
+                      itemId: ingredient.itemId,
+                      itemName: ingredient.itemName,
+                      unitName: ingredient.unitName,
+                      needed: additionalUnpickedQuantity,
+                      available: ageAvailability.eligible,
+                      shortage: normalizeQuantityNumber(
+                        additionalUnpickedQuantity - ageAvailability.eligible
+                      ),
+                      warningType: "requirement_violation",
+                      requirement: formatMinimumLotAgeRequirementViolation(
+                        minimumLotAgeDays
+                      ),
+                      requirementViolations: requirementViolation
+                        ? [requirementViolation]
+                        : [],
+                      nextEligibleDate: ageAvailability.nextEligibleDate,
+                    },
+                  ],
+                },
+              }
+            );
+          }
+        }
+
         let reconciled: Awaited<ReturnType<typeof reconcileIngredientActualsInTx>>;
         try {
           reconciled = await reconcileIngredientActualsInTx(tx, {
@@ -314,6 +460,8 @@ async function completeDiscreteManufacturingOrder(
               options?.idempotencyKey,
               `variance:${ingredient.id}`
             ),
+            minimumReceivedDate,
+            allowIneligibleLots: payload.confirmNegativeStock === true,
             allowNegativeStock: payload.confirmNegativeStock === true,
             trackedLotDefault: options?.ingredientTrackedLotDefault,
           });

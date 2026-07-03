@@ -1,6 +1,6 @@
 import { requireModuleAccess } from "@/lib/dal/auth";
 import { hasModuleAccess } from "@/lib/authz";
-import { getUnitDefinitions } from "@/lib/inventory/queries/units";
+import { getUnitDefinitionsForItemDraft } from "@/lib/inventory/queries/units";
 import { getSuppliers } from "@/lib/purchasing/queries/suppliers";
 import type { ItemCardDto } from "@/lib/api/clients/item-cards";
 import { MaterialCard } from "../materials/[id]/material-card";
@@ -33,11 +33,12 @@ function emptyCard(itemType: "material", unitDefinitionId: string): ItemCardDto 
 export default async function MaterialDraftPage() {
   const context = await requireModuleAccess("inventory", "operate");
   const [units, suppliers] = await Promise.all([
-    getUnitDefinitions(),
+    getUnitDefinitionsForItemDraft(),
     getSuppliers(),
   ]);
   const defaultUnit =
     units.find((unit) => unit.name.toLowerCase() === "each") ?? units[0];
+  if (!defaultUnit) throw new Error("Unable to prepare a default inventory unit.");
 
   return (
     <MaterialCard

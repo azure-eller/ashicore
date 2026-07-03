@@ -13,7 +13,7 @@ import Pill from '../../../../widgets/Pill.astro';
 import Frame from '../../../../widgets/Frame.astro';
 import Grid from '../../../../widgets/Grid.astro';
 
-Every saved product recipe is a BOM revision. A product has one current revision, and manufacturing orders copy that current revision when they are created.
+Every saved product recipe change is a BOM revision. A product has one current revision, and manufacturing orders copy that current revision when they are created.
 
 <p class="po-meta">
   <span class="po-chip">append-only history</span>
@@ -23,7 +23,7 @@ Every saved product recipe is a BOM revision. A product has one current revision
 
 ## How Revisions Work
 
-Recipe edits append a new revision instead of rewriting the old one. Each revision records its components, constraints, operation costs, output quantity, recipe basis, creator, timestamp, and note.
+Recipe edits append a new revision instead of rewriting the old one. Each revision records its components, constraints, operation costs, output quantity, recipe basis, creator, timestamp, and note. Saving the same recipe payload again is a no-op, so revision history only grows when the business recipe changes.
 
 <Frame title="<b>Premium Potting Mix</b> · recipe history">
   <Grid>
@@ -47,7 +47,7 @@ Recipe edits append a new revision instead of rewriting the old one. Each revisi
 A product recipe can be locked to prevent normal edits. The product records whether it is locked, when it was locked, and who locked it. Unlocking is required before making a recipe change, and the change still creates a new revision.
 
 <Aside type="caution" title="Locking controls edits, not history">
-A locked formula stops quiet changes to a validated recipe. It does not replace revision history; every saved recipe change is still a new revision.
+A locked formula stops quiet changes to a validated recipe. It does not replace revision history; every saved recipe change is still a new revision, while repeated saves of an unchanged payload are ignored.
 </Aside>
 
 ## Recipe Basis: Unit Vs Batch

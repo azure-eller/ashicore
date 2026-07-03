@@ -190,6 +190,7 @@ function CompletionDialogForm({
   });
 
   const title = mode === "complete" ? "Complete order" : "Partially complete";
+  const shortageTitle = shortageTitleFor(shortage);
   const confirmLabel = shortage
     ? mode === "complete"
       ? "Complete anyway"
@@ -300,7 +301,7 @@ function CompletionDialogForm({
           {shortage ? (
             <Panel tone="warning" className="space-y-2">
               <p className="text-sm font-medium text-[var(--color-warning)]">
-                This will drive stock negative:
+                {shortageTitle}
               </p>
               <ul className="space-y-1 text-xs text-muted-foreground">
                 {shortage.ingredients.map((ingredient) => (
@@ -308,6 +309,7 @@ function CompletionDialogForm({
                     {ingredient.itemName}: short {formatQuantity(String(ingredient.shortage))}{" "}
                     {ingredient.unitName} (need {formatQuantity(String(ingredient.needed))}, have{" "}
                     {formatQuantity(String(ingredient.available))})
+                    {ingredient.requirement ? ` — ${ingredient.requirement}` : ""}
                   </li>
                 ))}
               </ul>
@@ -337,4 +339,21 @@ function CompletionDialogForm({
       </DialogContent>
     </Dialog>
   );
+}
+
+function shortageTitleFor(shortage: ManufacturingReleaseWarningPayload | null) {
+  if (!shortage) return null;
+  if (
+    shortage.ingredients.some(
+      (ingredient) => ingredient.warningType === "requirement_violation"
+    )
+  ) {
+    return "This overrides material readiness requirements:";
+  }
+  if (
+    shortage.ingredients.some((ingredient) => ingredient.warningType === "queue_conflict")
+  ) {
+    return "This overrides higher-priority demand:";
+  }
+  return "This will drive stock negative:";
 }

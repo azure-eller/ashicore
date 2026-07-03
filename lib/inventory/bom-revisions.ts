@@ -6,8 +6,21 @@ import { items } from "@/lib/db/schema";
 import { withAuthedOrgContext, getAuthedMemberContext } from "@/lib/dal/auth";
 import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
 import { isPositiveNumberString } from "@/lib/schemas/shared";
-import { createBomRevisionInTx, type BomInputRow } from "@/lib/inventory/queries/bom-write";
+import {
+  createBomRevisionInTx,
+  hasBomChanged,
+  hasBomOperationCostsChanged,
+  type BomInputRow,
+} from "@/lib/inventory/queries/bom-write";
 import { getCurrentBomOperationCostsInTx } from "@/lib/bom/operation-costs";
+import {
+  getCurrentBomComponentsInTx,
+  getCurrentBomRevisionInTx,
+} from "@/lib/bom/revisions";
+import {
+  getMinimumLotAgeDays,
+  normalizeMinimumLotAgeDays,
+} from "@/lib/bom/constraints";
 
 const bomRowSchema = z.object({
   componentId: z.string().uuid("Component is required"),
@@ -19,11 +32,11 @@ const bomRowSchema = z.object({
     .union([z.string(), z.number()])
     .nullable()
     .optional()
-    .transform((value) => {
-      if (value == null) return null;
-      const parsed = typeof value === "string" ? Number(value) : value;
-      return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : null;
-    }),
+    .refine((value) => {
+      const normalized = normalizeMinimumLotAgeDays(value);
+      return !Number.isNaN(normalized);
+    }, "Minimum lot age must be a positive whole number of days")
+    .transform((value) => normalizeMinimumLotAgeDays(value)),
   alternates: z
     .array(z.object({ itemId: z.string().uuid() }))
     .optional()
@@ -73,8 +86,9 @@ export const createBomRevisionSchema = z.object({
 export type CreateBomRevisionInput = z.infer<typeof createBomRevisionSchema>;
 
 /**
- * Persist a new BOM revision for `productId`. Marks the previous current
- * revision as superseded and inserts a new one with the provided rows.
+ * Persist a BOM revision for `productId`. Changed payloads supersede the
+ * current revision and insert a new one; unchanged payloads return the current
+ * revision as an idempotent no-op.
  * The card UI's Recipe tab calls this via `POST /api/items/:id/bom-revisions`
  * instead of going through the heavy `PUT /api/items/:id`.
  */
@@ -85,14 +99,15 @@ export async function createBomRevision(
   const { userId } = await getAuthedMemberContext();
   return withAuthedOrgContext(async (tx, orgId) => {
     const recipeBasis = data.recipeBasis ?? "unit";
+    const [currentItem] = await tx
+      .select({ manufacturingMode: items.manufacturingMode })
+      .from(items)
+      .where(eq(items.id, productId));
+
     // Switching a recipe onto batch basis enters the batch_production
     // workflow; editing an already-batch recipe or reverting to unit is free.
     if (recipeBasis === "batch") {
-      const [current] = await tx
-        .select({ manufacturingMode: items.manufacturingMode })
-        .from(items)
-        .where(eq(items.id, productId));
-      if (current?.manufacturingMode !== "batch") {
+      if (currentItem?.manufacturingMode !== "batch") {
         await assertFeatureAccessInTx(tx, orgId, "batch_production", {
           route: "POST /api/items/[id]/bom-revisions",
         });
@@ -104,6 +119,57 @@ export async function createBomRevision(
         : null;
     const outputQuantity = recipeBasis === "batch" ? expectedBatchYield : "1";
 
+    const operationCosts =
+      data.operationCosts ??
+      (await getCurrentBomOperationCostsInTx(tx, productId)).map((row) => ({
+        operationName: row.operationName,
+        resourceId: row.resourceId,
+        resourceName: row.resourceName,
+        resourceType: row.resourceType,
+        costScalingMode: "per_output_unit" as const,
+        crewSize: row.crewSize,
+        plannedMinutes: row.plannedMinutes,
+        loadedCostPerHour: row.loadedCostPerHour,
+      }));
+    const currentRevision = await getCurrentBomRevisionInTx(tx, productId);
+    const currentBom = await getCurrentBomComponentsInTx(tx, productId);
+    const currentOperationCosts = await getCurrentBomOperationCostsInTx(tx, productId);
+    const currentBomInput = currentBom.map((row) => ({
+      componentId: row.componentId,
+      quantity: row.quantity,
+      minimumLotAgeDays: getMinimumLotAgeDays(row.constraints),
+      alternates: row.alternates.map((alternate) => ({
+        itemId: alternate.alternateItemId,
+      })),
+    }));
+    const currentOperationCostInput = currentOperationCosts.map((row) => ({
+      operationName: row.operationName,
+      resourceId: row.resourceId,
+      resourceName: row.resourceName,
+      resourceType: row.resourceType,
+      costScalingMode: "per_output_unit" as const,
+      crewSize: row.crewSize,
+      plannedMinutes: row.plannedMinutes,
+      loadedCostPerHour: row.loadedCostPerHour,
+    }));
+    const recipeChanged =
+      !currentRevision ||
+      currentRevision.recipeBasis !== recipeBasis ||
+      !sameNumeric(currentRevision.outputQuantity, outputQuantity ?? "1");
+    const bomChanged = !currentRevision || hasBomChanged(currentBomInput, data.bom);
+    const operationCostsChanged =
+      !currentRevision ||
+      (data.operationCosts !== undefined &&
+        hasBomOperationCostsChanged(currentOperationCostInput, operationCosts));
+
+    if (!recipeChanged && !bomChanged && !operationCostsChanged) {
+      return {
+        created: false as const,
+        revisionId: currentRevision.id,
+        revisionNumber: currentRevision.revisionNumber,
+      };
+    }
+
     await tx
       .update(items)
       .set({
@@ -112,17 +178,6 @@ export async function createBomRevision(
         updatedAt: new Date(),
       })
       .where(eq(items.id, productId));
-
-    const operationCosts =
-      data.operationCosts ??
-      (await getCurrentBomOperationCostsInTx(tx, productId)).map((row) => ({
-        operationName: row.operationName,
-        resourceId: row.resourceId,
-        costScalingMode: "per_output_unit" as const,
-        crewSize: row.crewSize,
-        plannedMinutes: row.plannedMinutes,
-        loadedCostPerHour: row.loadedCostPerHour,
-      }));
 
     const result = await createBomRevisionInTx(tx, {
       orgId,
@@ -134,6 +189,17 @@ export async function createBomRevision(
       bom: data.bom as BomInputRow[],
       operationCosts,
     });
-    return { revisionId: result.id, revisionNumber: result.revisionNumber };
+    return {
+      created: true as const,
+      revisionId: result.id,
+      revisionNumber: result.revisionNumber,
+    };
   });
+}
+
+function sameNumeric(left: string | null | undefined, right: string | null | undefined) {
+  if (left == null || right == null) {
+    return left == null && right == null;
+  }
+  return Number(left) === Number(right);
 }
