@@ -1,15 +1,16 @@
 ---
 title: Deliver and invoice
-description: Ship order quantities, consume inventory, and send the invoice to the connected accounting provider.
+description: Ship order quantities, preview BOLs, close accepted partials, and send eligible invoices.
 sidebar:
   label: Deliver and invoice
 ---
 
-Delivering changes an order from a quoteable commitment into shipped history. It consumes inventory, records shipped quantities, and can be followed by an invoice push to the connected accounting provider.
+Delivering changes an order from a quoteable commitment into shipped history. It consumes inventory, records shipped quantities, and can be followed by a bill of lading preview or an invoice push to the connected accounting provider.
 
 <p class="po-meta">
   <span class="po-chip">consumes stock</span>
   <span class="po-chip">supports partial delivery</span>
+  <span class="po-chip">bill of lading</span>
   <span class="po-chip">invoice push is provider-based</span>
 </p>
 
@@ -43,11 +44,21 @@ Delivering some, but not all, quantities moves the order to `Partially shipped`.
 
 Once shipped quantities exist, the card separates remaining lines from read-only shipped lines.
 
-## 4. Send the invoice
+If the customer accepts the partial delivery as final, open the order menu and choose `Cancel remaining items`. Shipped lines stay in history, the unshipped remainder is cancelled, demand is released, the order closes as shipped history, and `shippedAt` is not changed. The action is blocked if the order has already been pushed to accounting or still has linked open manufacturing work.
+
+## 4. Preview the bill of lading
+
+Open the order menu and choose `Bill of lading`. Choose the quantities for the load, then select `View BOL` to open the PDF in a browser tab.
+
+The BOL is a preview document. It does not deliver stock, create a shipment record, save a BOL template, or change accounting. On open orders, quantities are capped at what remains to deliver. On shipped orders, quantities are capped at what actually shipped, with older shipped records falling back to the remaining non-cancelled quantity when no shipped quantities were recorded.
+
+The PDF uses a straight bill of lading short-form layout. It fills the shipper, consignee, order and invoice reference, contact, notes, and selected load quantities from the order, and leaves carrier, trailer, seal, SCAC/PRO, package, weight, HM, NMFC, class, declared-value, COD, freight terms, and signature fields ready for the carrier and shipper to complete.
+
+## 5. Send the invoice
 
 When an accounting provider is connected and ready, open the order menu and choose `Send invoice to {provider}`. The app can send to the active connected provider, including Xero or QuickBooks depending on the organization's setup.
 
-The invoice push is tracked through provider sync state, including pending, pushed, and failed outcomes. Failed pushes can be retried. Delivery and manual invoice push are separate actions, although a completed shipment can also trigger provider sync when automation is enabled.
+The invoice push is tracked through provider sync state, including pending, pushed, and failed outcomes. Failed pushes can be retried. Delivery and manual invoice push are separate actions, although a completed shipment can also trigger provider sync when automation is enabled. Orders closed with `Cancel remaining items` cannot be pushed until shipped-only invoicing is supported.
 
 ## Margin after delivery
 

@@ -17,6 +17,10 @@ import {
   persistAccountingDocumentPushFailure,
   persistAccountingDocumentPushSuccess,
 } from "@/lib/accounting/sync-state";
+import {
+  SHORT_CLOSED_ACCOUNTING_INVOICE_MESSAGE,
+  salesOrderHasCancelledAccountingLinesInTx,
+} from "@/lib/sales/accounting-policy";
 import { QuickBooksError, quickBooksQueryEndpoint, quickBooksRequest, quickBooksSqlString } from "./client";
 import { upsertQuickBooksCustomer } from "./contacts";
 import { ensureQuickBooksSalesServiceItem } from "./items";
@@ -138,6 +142,9 @@ async function loadSalesOrderForInvoiceInTx(
     .where(and(eq(salesOrders.id, orderId), isNull(salesOrders.deletedAt)))
     .for("update");
   if (!order) return null;
+  if (await salesOrderHasCancelledAccountingLinesInTx(tx, orderId)) {
+    throw new QuickBooksError(SHORT_CLOSED_ACCOUNTING_INVOICE_MESSAGE, 409);
+  }
 
   const [sync] = await tx
     .select({

@@ -20,7 +20,7 @@ import {
 import type { NegativeStockWarningPayload } from "../types";
 import { demandQueueCoverageKey, getDemandQueueInventoryLotClaimConflicts, getDemandQueueCoverageForItemsInTx } from "@/lib/inventory/allocation/demand-queue";
 import { SalesError } from "./errors";
-import { withSalesTransactionRetry, rerankOpenSalesOrdersInTx, getOrderLinesInTx, getLockedSalesOrderInTx, type SalesOrderLineShipState, normalizeShipQuantity, getSalesOrderLineShipStatesInTx } from "./shared";
+import { withSalesTransactionRetry, rerankOpenSalesOrdersInTx, getOrderLinesInTx, getLockedSalesOrderInTx, normalizeShipQuantity, getSalesOrderLineShipStatesInTx, remainingToShip } from "./shared";
 
 function schedulePendingBucketAdjustments(orgId: string) {
   const deliver = () => processPendingBucketAdjustments(orgId);
@@ -29,12 +29,6 @@ function schedulePendingBucketAdjustments(orgId: string) {
   } catch {
     void deliver();
   }
-}
-
-function remainingToShip(line: SalesOrderLineShipState) {
-  return normalizeShipQuantity(
-    line.quantity - line.shippedQuantity - line.cancelledQuantity
-  );
 }
 
 async function buildStockWarningPayloadInTx(

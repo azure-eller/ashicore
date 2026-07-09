@@ -1,7 +1,7 @@
 import http from "node:http";
 import { randomUUID } from "node:crypto";
 import type { Page } from "@playwright/test";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { test, expect } from "../fixtures";
 import { createIdempotencyHeaders } from "@/lib/api/idempotency-client";
 import {
@@ -13,6 +13,8 @@ import {
   accountingDocumentSyncs,
   customers,
   customerContacts,
+  billingUsageEvents,
+  manufacturingOrders,
   salesOrderLines,
   salesOrders,
 } from "../../../lib/db/schema";
@@ -315,6 +317,76 @@ test.describe("sales demand and shipping heartbeat", () => {
       onHandQty: "10.0000",
       demandQty: "6.0000",
       availableToPromise: "4.0000",
+    });
+  });
+
+  test("sales order reads use one default invoice sync row", async ({ db }) => {
+    const productId = await createStockedProduct("DefaultInvoiceSync", "10");
+    const customer = await createCustomer({
+      name: `Fast Default Invoice Sync Customer ${ts}`,
+    });
+    expect(customer.status).toBe(201);
+
+    const order = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: "2026-05-01",
+      shipDate: "2026-05-02",
+      lines: [{ itemId: productId, quantity: "2", unitPrice: "12.00" }],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+
+    await db.insert(accountingDocumentSyncs).values([
+      {
+        organizationId: getOrgId(),
+        provider: ACCOUNTING_PROVIDER_XERO,
+        documentType: ACCOUNTING_DOCUMENT_SALES_ORDER,
+        documentId: order.body.id,
+        externalDocumentId: `xero-invoice-default-${ts}`,
+        externalDocumentNumber: `INV-DEFAULT-${ts}`,
+        pushStatus: "pushed",
+        pushedAt: new Date(),
+      },
+      {
+        organizationId: getOrgId(),
+        provider: ACCOUNTING_PROVIDER_XERO,
+        documentType: ACCOUNTING_DOCUMENT_SALES_ORDER,
+        documentId: order.body.id,
+        groupKey: `bol:${ts}`,
+        externalDocumentId: `xero-invoice-bol-${ts}`,
+        externalDocumentNumber: `INV-BOL-${ts}`,
+        pushStatus: "pushed",
+        pushedAt: new Date(),
+      },
+    ]);
+
+    const salesOrdersResponse = await testFetch("/api/sales-orders");
+    expect(salesOrdersResponse.status).toBe(200);
+    const salesOrderRows = (await salesOrdersResponse.json()) as Array<{
+      id: string;
+      xeroInvoiceNumber: string | null;
+    }>;
+    const matchingRows = salesOrderRows
+      .filter((row) => row.id === order.body.id)
+      .map((row) => ({
+        id: row.id,
+        xeroInvoiceNumber: row.xeroInvoiceNumber,
+      }));
+    expect(matchingRows).toEqual([
+      {
+        id: order.body.id,
+        xeroInvoiceNumber: `INV-DEFAULT-${ts}`,
+      },
+    ]);
+
+    const detailResponse = await testFetch(`/api/sales-orders/${order.body.id}`);
+    expect(detailResponse.status).toBe(200);
+    const detail = (await detailResponse.json()) as {
+      id: string;
+      xeroInvoiceNumber: string | null;
+    };
+    expect(detail).toMatchObject({
+      id: order.body.id,
+      xeroInvoiceNumber: `INV-DEFAULT-${ts}`,
     });
   });
 
@@ -1738,6 +1810,388 @@ test.describe("sales demand and shipping heartbeat", () => {
       onHandQty: "5.0000",
       demandQty: "5.0000",
     });
+  });
+
+  test("BOL selected quantities render for an open order without changing the order", async ({
+    db,
+  }) => {
+    const productId = await createStockedProduct("Bol", "10");
+    const secondProductId = await createStockedProduct("BolSecond", "10");
+
+    const customer = await createCustomer({ name: `Fast BOL Customer ${ts}` });
+    expect(customer.status).toBe(201);
+    const order = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: "2026-05-03",
+      shipDate: "2026-05-04",
+      notes: "Load from the north bay.",
+      lines: [
+        { itemId: productId, quantity: "10", unitPrice: "15.00" },
+        { itemId: secondProductId, quantity: "5", unitPrice: "9.00" },
+      ],
+    });
+    expect(order.status).toBe(201);
+
+    const [line, secondLine] = await db
+      .select({
+        id: salesOrderLines.id,
+        quantity: salesOrderLines.quantity,
+        shippedQuantity: salesOrderLines.shippedQuantity,
+        cancelledQuantity: salesOrderLines.cancelledQuantity,
+      })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, order.body.id))
+      .orderBy(asc(salesOrderLines.sortOrder));
+    expect(line).toBeTruthy();
+    expect(secondLine).toBeTruthy();
+
+    const selectedResponse = await testFetch(
+      `/api/sales-orders/${order.body.id}/bol?line=${line.id}:6`
+    );
+    expect(selectedResponse.status, await selectedResponse.text()).toBe(200);
+    expect(selectedResponse.headers.get("content-type")).toContain("application/pdf");
+    const selectedPdf = await selectedResponse.text();
+
+    const explicitBothResponse = await testFetch(
+      `/api/sales-orders/${order.body.id}/bol?line=${line.id}:6&line=${secondLine.id}:5`
+    );
+    expect(explicitBothResponse.status, await explicitBothResponse.text()).toBe(200);
+    const explicitBothPdf = await explicitBothResponse.text();
+    expect(selectedPdf).not.toEqual(explicitBothPdf);
+
+    const fallbackResponse = await testFetch(`/api/sales-orders/${order.body.id}/bol`);
+    expect(fallbackResponse.status, await fallbackResponse.text()).toBe(200);
+    expect(fallbackResponse.headers.get("content-type")).toContain("application/pdf");
+    const fallbackPdf = await fallbackResponse.text();
+    expect(selectedPdf).not.toEqual(fallbackPdf);
+
+    const overRemaining = await testFetch(
+      `/api/sales-orders/${order.body.id}/bol?line=${line.id}:11`
+    );
+    expect(overRemaining.status).toBe(400);
+    expect(await overRemaining.json()).toMatchObject({
+      error: "BOL quantity cannot exceed remaining quantity.",
+    });
+
+    const [after] = await db
+      .select({
+        quantity: salesOrderLines.quantity,
+        shippedQuantity: salesOrderLines.shippedQuantity,
+        cancelledQuantity: salesOrderLines.cancelledQuantity,
+      })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.id, line.id));
+    expect(after).toEqual({
+      quantity: line.quantity,
+      shippedQuantity: line.shippedQuantity,
+      cancelledQuantity: line.cancelledQuantity,
+    });
+  });
+
+  test("cancel remaining closes a partially shipped order and releases demand", async ({
+    db,
+  }) => {
+    const productId = await createStockedProduct("ShortClose", "8");
+
+    const customer = await createCustomer({
+      name: `Fast Short Close Customer ${ts}`,
+    });
+    expect(customer.status).toBe(201);
+    const order = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: "2026-05-03",
+      shipDate: "2026-05-04",
+      lines: [{ itemId: productId, quantity: "8", unitPrice: "15.00" }],
+    });
+    expect(order.status).toBe(201);
+
+    const [line] = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, order.body.id));
+
+    const ship = await testFetch(`/api/sales-orders/${order.body.id}/ship`, {
+      method: "POST",
+      headers: Object.fromEntries(createIdempotencyHeaders("shipSalesOrder").entries()),
+      body: JSON.stringify({
+        syncAccounting: false,
+        lines: [{ salesOrderLineId: line.id, quantity: "3" }],
+      }),
+    });
+    expect(ship.status).toBe(200);
+
+    const close = await testFetch(
+      `/api/sales-orders/${order.body.id}/cancel-remaining`,
+      {
+        method: "POST",
+        headers: Object.fromEntries(
+          createIdempotencyHeaders("cancelRemainingSalesOrder").entries()
+        ),
+        body: JSON.stringify({}),
+      }
+    );
+    expect(close.status, await close.text()).toBe(200);
+
+    const [savedOrder] = await db
+      .select({
+        status: salesOrders.status,
+        priorityRank: salesOrders.priorityRank,
+        shippedAt: salesOrders.shippedAt,
+      })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, order.body.id));
+    expect(savedOrder.status).toBe("done");
+    expect(savedOrder.priorityRank).toBeNull();
+    expect(savedOrder.shippedAt).toBeNull();
+
+    const [lineState] = await db
+      .select({
+        shippedQuantity: salesOrderLines.shippedQuantity,
+        cancelledQuantity: salesOrderLines.cancelledQuantity,
+      })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.id, line.id));
+    expect(lineState).toMatchObject({
+      shippedQuantity: "3.0000",
+      cancelledQuantity: "5.0000",
+    });
+
+    const [balance] = await db
+      .select({ demandQty: inventoryItemBalances.demandQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, productId));
+    expect(balance.demandQty).toBe("0.0000");
+
+    const oversizedDoneBol = await testFetch(
+      `/api/sales-orders/${order.body.id}/bol?line=${line.id}:999999`
+    );
+    expect(oversizedDoneBol.status).toBe(400);
+    expect(await oversizedDoneBol.json()).toMatchObject({
+      error: "BOL quantity cannot exceed shipped quantity.",
+    });
+
+    const accountingPush = await testFetch(
+      `/api/sales-orders/${order.body.id}/accounting-push`,
+      {
+        method: "POST",
+        headers: Object.fromEntries(
+          createIdempotencyHeaders("retryXeroPushForSalesOrder").entries()
+        ),
+        body: JSON.stringify({}),
+      }
+    );
+    expect(accountingPush.status).toBe(409);
+    expect(await accountingPush.json()).toMatchObject({
+      error:
+        "This order has cancelled remaining items. Review the shipped quantities before sending an accounting invoice.",
+    });
+
+    const legacyXeroPush = await testFetch(
+      `/api/sales-orders/${order.body.id}/xero-push`,
+      {
+        method: "POST",
+        headers: Object.fromEntries(
+          createIdempotencyHeaders("retryXeroPushForSalesOrderLegacy").entries()
+        ),
+        body: JSON.stringify({}),
+      }
+    );
+    expect(legacyXeroPush.status).toBe(409);
+    expect(await legacyXeroPush.json()).toMatchObject({
+      error:
+        "This order has cancelled remaining items. Review the shipped quantities before sending an accounting invoice.",
+    });
+
+    const usageRows = await db
+      .select({ id: billingUsageEvents.id })
+      .from(billingUsageEvents)
+      .where(
+        and(
+          eq(billingUsageEvents.organizationId, getOrgId()),
+          eq(billingUsageEvents.salesOrderId, order.body.id),
+          eq(billingUsageEvents.eventType, "sales_order_shipped")
+        )
+      );
+    expect(usageRows).toHaveLength(1);
+  });
+
+  test("cancel remaining rejects orders already pushed to accounting", async ({
+    db,
+  }) => {
+    const productId = await createStockedProduct("ShortClosePushed", "8");
+    const customer = await createCustomer({
+      name: `Fast Short Close Pushed Customer ${ts}`,
+    });
+    expect(customer.status).toBe(201);
+    const order = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: "2026-05-03",
+      shipDate: "2026-05-04",
+      lines: [{ itemId: productId, quantity: "8", unitPrice: "15.00" }],
+    });
+    expect(order.status).toBe(201);
+
+    const [line] = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, order.body.id));
+    const ship = await testFetch(`/api/sales-orders/${order.body.id}/ship`, {
+      method: "POST",
+      headers: Object.fromEntries(createIdempotencyHeaders("shipSalesOrder").entries()),
+      body: JSON.stringify({
+        syncAccounting: false,
+        lines: [{ salesOrderLineId: line.id, quantity: "3" }],
+      }),
+    });
+    expect(ship.status).toBe(200);
+
+    await db.insert(accountingDocumentSyncs).values({
+      organizationId: getOrgId(),
+      provider: ACCOUNTING_PROVIDER_QUICKBOOKS,
+      documentType: ACCOUNTING_DOCUMENT_SALES_ORDER,
+      documentId: order.body.id,
+      externalDocumentId: `qb-invoice-${ts}`,
+      pushStatus: "pushed",
+      pushedAt: new Date(),
+    });
+
+    const close = await testFetch(
+      `/api/sales-orders/${order.body.id}/cancel-remaining`,
+      {
+        method: "POST",
+        headers: Object.fromEntries(
+          createIdempotencyHeaders("cancelRemainingPushedSalesOrder").entries()
+        ),
+        body: JSON.stringify({}),
+      }
+    );
+    expect(close.status).toBe(409);
+    expect(await close.json()).toMatchObject({
+      error:
+        "This order has already been pushed to accounting. Accounting history must be preserved.",
+    });
+
+    const [savedOrder] = await db
+      .select({ status: salesOrders.status })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, order.body.id));
+    const [lineState] = await db
+      .select({ cancelledQuantity: salesOrderLines.cancelledQuantity })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.id, line.id));
+    expect(savedOrder.status).toBe("open");
+    expect(lineState.cancelledQuantity).toBe("0.0000");
+  });
+
+  test("cancel remaining rejects orders with linked open manufacturing orders", async ({
+    db,
+  }) => {
+    const component = await createItem({
+      itemType: "material",
+      name: `Fast Sales ShortCloseMto Component ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-SALES-SHORT-CLOSE-MTO-COMP-${ts}`,
+      category: `Fast Sales ${ts}`,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "100",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(component.status, JSON.stringify(component.body)).toBe(201);
+    const product = await createItem({
+      itemType: "product",
+      name: `Fast Sales ShortCloseMto Product ${ts}`,
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-SALES-SHORT-CLOSE-MTO-${ts}`,
+      category: `Fast Sales ${ts}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "12.00",
+      stock: "8",
+      safetyStock: "0",
+      bom: [{ componentId: component.body.id, quantity: "1" }],
+    });
+    expect(product.status, JSON.stringify(product.body)).toBe(201);
+    const productId = product.body.id as string;
+    const customer = await createCustomer({
+      name: `Fast Short Close MTO Customer ${ts}`,
+    });
+    expect(customer.status).toBe(201);
+    const order = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: "2026-05-03",
+      shipDate: "2026-05-04",
+      lines: [{ itemId: productId, quantity: "8", unitPrice: "15.00" }],
+    });
+    expect(order.status).toBe(201);
+
+    const [line] = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, order.body.id));
+    const ship = await testFetch(`/api/sales-orders/${order.body.id}/ship`, {
+      method: "POST",
+      headers: Object.fromEntries(createIdempotencyHeaders("shipLinkedMtoSalesOrder").entries()),
+      body: JSON.stringify({
+        syncAccounting: false,
+        lines: [{ salesOrderLineId: line.id, quantity: "3" }],
+      }),
+    });
+    expect(ship.status).toBe(200);
+
+    const manufacturingOrder = await createManufacturingOrder({
+      productId,
+      salesOrderId: order.body.id,
+      salesOrderLineId: line.id,
+      plannedQuantity: "8",
+      plannedDate: "2026-05-03",
+      ingredients: [
+        {
+          itemId: component.body.id,
+          defaultItemId: component.body.id,
+          quantityPerUnit: "1",
+        },
+      ],
+      confirmShortage: false,
+    });
+    expect(manufacturingOrder.status, JSON.stringify(manufacturingOrder.body)).toBe(
+      201
+    );
+
+    const close = await testFetch(
+      `/api/sales-orders/${order.body.id}/cancel-remaining`,
+      {
+        method: "POST",
+        headers: Object.fromEntries(
+          createIdempotencyHeaders("cancelRemainingLinkedMtoSalesOrder").entries()
+        ),
+        body: JSON.stringify({}),
+      }
+    );
+    expect(close.status).toBe(400);
+    expect(await close.json()).toMatchObject({
+      error:
+        "Cancel the linked manufacturing order before closing remaining sales demand.",
+    });
+
+    const [savedOrder] = await db
+      .select({ status: salesOrders.status })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, order.body.id));
+    const [lineState] = await db
+      .select({ cancelledQuantity: salesOrderLines.cancelledQuantity })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.id, line.id));
+    const [linkedOrder] = await db
+      .select({ status: manufacturingOrders.status })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, manufacturingOrder.body.id));
+    expect(savedOrder.status).toBe("open");
+    expect(lineState.cancelledQuantity).toBe("0.0000");
+    expect(linkedOrder.status).toBe("open");
   });
 
   test("shipping warns before taking demand-queue stock from another order", async ({

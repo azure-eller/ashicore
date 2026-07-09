@@ -33,6 +33,10 @@ import {
   accountingAuditErrorMetadata,
   tryRecordAccountingAuditEvent,
 } from "@/lib/accounting/audit-events";
+import {
+  SHORT_CLOSED_ACCOUNTING_INVOICE_MESSAGE,
+  salesOrderHasCancelledAccountingLinesInTx,
+} from "@/lib/sales/accounting-policy";
 
 const ACCOUNTING_DOCUMENT_SALES_ORDER = "sales_order";
 
@@ -195,6 +199,9 @@ async function loadOrderForPushInTx(
     );
 
   if (!order) return null;
+  if (await salesOrderHasCancelledAccountingLinesInTx(tx, orderId)) {
+    throw new XeroError(SHORT_CLOSED_ACCOUNTING_INVOICE_MESSAGE, 409);
+  }
 
   const [customer] = await tx
     .select({

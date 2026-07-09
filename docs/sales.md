@@ -117,12 +117,16 @@ Valid transitions:
 - edit `open`
 - ship an open order after pending valid edits save
 - ship final remaining quantity to reach `done`
+- cancel remaining unshipped quantity on a partially shipped order to reach `done`
 - soft-delete `open`
 
 Invalid transitions:
 
 - edit `done`
 - ship `done`
+- cancel remaining items before any quantity has shipped
+- cancel remaining items after an accounting invoice has been pushed
+- cancel remaining items while linked open manufacturing orders still exist
 - soft-delete `done`
 
 ## Soft Delete Rules
@@ -191,17 +195,35 @@ controls which open orders claim stock first; exact lots are chosen when shippin
 - a sales order is both the commercial object and the fulfillment target
 - separate planned ship dates require separate sales orders
 - users set `shipDate` on the sales order; no shipment rows are created for new orders
-- each successful order-level ship action creates a shipped shipment history row
-  for the quantities shipped in that action
 - active shipment mutation routes return `410 Gone`
 - `remaining_to_ship = ordered_qty - shipped_qty - cancelled_qty`
+- BOLs are stateless PDF projections over selected sales order line quantities.
+  Operators can render a BOL before shipping; the route must not mutate orders,
+  shipments, inventory, accounting, or saved BOL records.
+- BOL PDFs include the order, invoice number when present, shipping address,
+  primary shipping/contact person, notes, selected load quantities, standard
+  short-form BOL legal/payment language, and hand-fill
+  carrier/trailer/seal/SCAC/PRO/package/weight/HM/NMFC/class/declared-value/COD/freight/signature
+  fields
+- open-order BOL fallback quantities are remaining-to-ship. Done-order fallback
+  quantities are shipped quantities when present, otherwise ordered minus
+  cancelled quantity for legacy done rows that did not record shipped quantities.
 - shipping consumes live lot-backed stock FIFO for the order quantities
 - shipping may warn before recording negative stock; retrying with
   `confirmNegativeStock` continues
 - successful order shipping writes `sales_consumption` inventory events against
-  `referenceType = sales_shipment`, with the parent sales order and line IDs
+  `referenceType = sales_order`, with the parent sales order and line IDs
   preserved in event metadata
 - successful final shipping sets order `status = done` and `shippedAt = now()`
+- partially shipped orders may be short-closed by cancelling the remaining
+  unshipped quantities. This writes `cancelledQuantity`, releases remaining
+  demand through the inventory kernel, clears `priorityRank`, and leaves
+  `shippedAt` unchanged. Partials currently have `shippedAt = null` until a true
+  final ship records the terminal shipment timestamp.
+- short-close is blocked when the order already has pushed accounting invoice
+  history or linked open manufacturing orders
+- accounting invoice pushes are blocked for orders with cancelled remaining
+  quantities until shipped-only invoicing is designed
 - legacy shipment tables may still exist for historical reads/BOLs, but they are
   not an active planning or allocation surface
 

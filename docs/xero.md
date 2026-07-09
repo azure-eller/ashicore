@@ -26,7 +26,8 @@ Store setup/support copy, read `docs/xero-support-listing.md`.
 - **Sales push** — `lib/xero/push-invoice.ts`. Reconciles by
   `InvoiceNumber` before issuing a create. Sales orders can be sent manually
   from the order header; shipped orders can still auto-send when the org
-  enables invoice automation.
+  enables invoice automation. Orders with cancelled remaining sales quantities
+  are blocked before provider push until shipped-only invoicing is designed.
 - **Purchase bill push** — `lib/xero/push-purchase-bill.ts`. Creates Xero
   `ACCPAY` draft bills from ERP purchase orders before or after receipt. The
   action is manual from the PO bill status, saves a valid dirty PO card before

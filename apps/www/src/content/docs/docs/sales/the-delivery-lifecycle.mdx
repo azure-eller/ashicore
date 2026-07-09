@@ -1,13 +1,13 @@
 ---
 title: The delivery lifecycle
-description: How sales orders move from not shipped to partially shipped to shipped.
+description: How sales orders move from not shipped to partially shipped to shipped history.
 sidebar:
   label: Delivery lifecycle
 ---
 
 import SalesLifecycle from '../../../../widgets/SalesLifecycle.astro';
 
-A sales order stores only `open` or `done`. The UI derives delivery state from shipped quantity versus ordered quantity.
+A sales order stores only `open` or `done`. The UI derives delivery state from shipped and cancelled quantities.
 
 <p class="po-meta">
   <span class="po-chip">stored status: open or done</span>
@@ -25,7 +25,7 @@ Select a state to see what it allows and where the order can move next.
 | --- | --- | --- |
 | Not shipped | No ordered quantity has shipped. | The order is open and editable. |
 | Partially shipped | Some, but not all, quantity has shipped. | Stock has been consumed and shipped rows are protected. |
-| Shipped | Status is `done` or all ordered quantity has shipped. | The order is closed and read-only. |
+| Shipped | Status is `done` or all ordered quantity has shipped or been cancelled. | The order is closed and read-only. |
 
 `Partially shipped` is not stored as a database status. It is recalculated from line quantities.
 
@@ -39,6 +39,7 @@ Delivery runs through the inventory kernel and updates the order:
 | Record shipped quantities | Each delivered line increments `shippedQuantity`. |
 | Protect shipped history | Quantity cannot be reduced below shipped plus cancelled quantity, and shipped lines cannot be removed. |
 | Advance delivery state | Partial delivery shows `Partially shipped`; final delivery sets the order to `done`. |
+| Cancel a remainder | A partially shipped order can cancel undelivered quantities, release demand, and close without setting `shippedAt`. |
 | Preserve the record | Once shipped, the card becomes read-only for shipped history. |
 
 If delivery would oversell, the app blocks first and requires explicit confirmation before allowing negative stock.
@@ -50,6 +51,7 @@ If delivery would oversell, the app blocks first and requires explicit confirmat
 | Deliver some | Not shipped | Partially shipped | Consumes stock and records shipped quantity. |
 | Deliver all | Not shipped | Shipped | Closes the order and sets `shippedAt`. |
 | Deliver rest | Partially shipped | Shipped | Completes remaining quantity. |
+| Cancel remaining items | Partially shipped | Shipped | Keeps shipped history, cancels the undelivered balance, releases demand, and leaves `shippedAt` unchanged. |
 | Reduce shipped quantity | Any shipped state | Blocked | Quantity cannot drop below shipped plus cancelled. |
 | Reopen shipped order | Shipped | Blocked | Shipped is terminal in the order UI. |
 | Delete after shipping | Any shipped state | Blocked | Inventory and invoice history must be preserved. |

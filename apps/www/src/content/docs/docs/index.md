@@ -57,6 +57,6 @@ Production orders, product recipes, ingredient demand, output lots, and resource
 Connect Ashicore to the systems you already run your business on.
 
 - [Integrations overview](/docs/integrations/) — accounting, storefront, and planning connections at a glance.
-- [Accounting sync](/docs/integrations/accounting-sync) — push invoices and bills to Xero or QuickBooks; pull POs and contacts in.
+- [Accounting sync](/docs/integrations/accounting-sync) — push eligible invoices and bills to Xero or QuickBooks; pull POs and contacts in.
 - [Shopify orders](/docs/integrations/shopify) — import paid storefront orders as sales orders.
 - [Agent API](/docs/integrations/agent-api) — read-only production-planning access over MCP or a bearer-token API.

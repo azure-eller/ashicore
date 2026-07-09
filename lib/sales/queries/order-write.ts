@@ -6,6 +6,7 @@ import { manufacturingOrderBatches, manufacturingOrderOutputs, manufacturingOrde
 import { trimScale } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import { assertSalesOrderCapacityInTx } from "@/lib/billing/entitlements";
+import { recordSalesOrderShippedUsageInTx } from "@/lib/billing/buckets";
 import { getTaxSettingsInTx, getTaxRatesByIdInTx } from "@/lib/dal/tax-settings";
 import type { Tx } from "@/lib/db/with-org-context";
 import { lockSalesPriorityQueueInTx } from "@/lib/manufacturing-priority-lock";
@@ -15,10 +16,14 @@ import { calculateDiscountPercentString, calculateSalesLineAmounts } from "@/lib
 import type { BulkConfirmSalesOrders, InsertSalesOrder, PatchSalesOrderHeader, PatchSalesOrderLine, UpdateSalesOrder } from "@/lib/schemas/sales-orders";
 import type { PricingSourceType, SalesOrderDetail } from "../types";
 import { SalesError } from "./errors";
-import { withSalesTransactionRetry, isEditableOpenSalesOrderStatus, isOpenSalesOrderStatus, rerankOpenSalesOrdersInTx, getOrderLinesInTx, getLockedSalesOrderInTx, normalizeShipQuantity, getSalesOrderLineShipStatesInTx } from "./shared";
+import { withSalesTransactionRetry, isEditableOpenSalesOrderStatus, isOpenSalesOrderStatus, rerankOpenSalesOrdersInTx, getOrderLinesInTx, getLockedSalesOrderInTx, normalizeShipQuantity, getSalesOrderLineShipStatesInTx, remainingToShip } from "./shared";
 import { type SalesItemValidationRow, getValidatedCustomerInTx, getValidatedCustomerProjectInTx, getValidatedSalesItemsInTx } from "./validation";
 import { getPricingScheduleLookupForProductsInTx, resolvePricingForProduct } from "./pricing";
 import { getSalesOrder, getSalesOrderInTx } from "./orders-read";
+import {
+  PUSHED_ACCOUNTING_INVOICE_SHORT_CLOSE_MESSAGE,
+  salesOrderHasPushedAccountingInvoiceInTx,
+} from "../accounting-policy";
 
 type PreparedOrderLineBase = {
   id?: string;
@@ -362,6 +367,23 @@ async function assertSalesOrderLineQuantityEditableInTx(
         ],
       },
     }
+  );
+}
+
+async function assertSalesOrderCanCancelRemainingInTx(tx: Tx, orderId: string) {
+  if (await salesOrderHasPushedAccountingInvoiceInTx(tx, orderId)) {
+    throw new SalesError(PUSHED_ACCOUNTING_INVOICE_SHORT_CLOSE_MESSAGE, 409);
+  }
+
+  const linkedRows = await getOpenLinkedManufacturingOrdersForSalesEditInTx(
+    tx,
+    orderId
+  );
+  if (linkedRows.length === 0) return;
+
+  throw new SalesError(
+    "Cancel the linked manufacturing order before closing remaining sales demand.",
+    400
   );
 }
 
@@ -1426,4 +1448,123 @@ export async function patchSalesOrderLine(
     return { ok: true };
   });
   return result === null ? null : await getSalesOrder(orderId);
+}
+
+export async function cancelRemainingSalesOrder(
+  id: string,
+  options?: { idempotencyKey?: string }
+) {
+  const result = await withSalesTransactionRetry(() =>
+    withAuthedOrgContext(async (tx, orgId, userId) => {
+      const replay = await beginInventoryOperationInTx<{
+        id: string;
+        status: string;
+      } | null>(tx, {
+        organizationId: orgId,
+        operationName: "cancelRemainingSalesOrder",
+        idempotencyKey: options?.idempotencyKey ?? null,
+        payload: { id },
+      });
+
+      if (replay.replayed) {
+        return replay.result;
+      }
+
+      await lockSalesPriorityQueueInTx(tx, orgId);
+      const order = await getLockedSalesOrderInTx(tx, id);
+      if (!order) {
+        await finishInventoryOperationInTx(tx, {
+          organizationId: orgId,
+          idempotencyKey: options?.idempotencyKey ?? null,
+          result: null,
+        });
+        return null;
+      }
+
+      if (order.status === "done") {
+        throw new SalesError("Order is already closed.", 400);
+      }
+      if (order.status !== "open") {
+        throw new SalesError("Only open orders can be closed.", 400);
+      }
+
+      await assertSalesOrderCanCancelRemainingInTx(tx, id);
+
+      const states = await getSalesOrderLineShipStatesInTx(tx, id);
+      const hasShippedQuantity = [...states.values()].some(
+        (line) => line.shippedQuantity > 0
+      );
+      if (!hasShippedQuantity) {
+        throw new SalesError(
+          "Only partially shipped orders can cancel remaining items.",
+          400
+        );
+      }
+
+      const linesToCancel = [...states.values()].flatMap((line) => {
+        const quantity = remainingToShip(line);
+        if (quantity <= 0) return [];
+        return [{ ...line, quantityToCancel: quantity }];
+      });
+      if (linesToCancel.length === 0) {
+        throw new SalesError("No remaining quantity to cancel.", 400);
+      }
+
+      await lockItemsInTx(tx, linesToCancel.map((line) => line.itemId));
+      const now = new Date();
+      await releaseSalesDemandForQuantitiesInTx(tx, {
+        organizationId: orgId,
+        salesOrderId: id,
+        actorUserId: userId,
+        idempotencyKey: deriveInventoryIdempotencyKey(
+          options?.idempotencyKey,
+          "cancel-remaining-demand"
+        ),
+        reason: "cancelled",
+        lines: linesToCancel.map((line) => ({
+          salesOrderLineId: line.id,
+          itemId: line.itemId,
+          quantity: line.quantityToCancel,
+        })),
+      });
+
+      for (const line of linesToCancel) {
+        await tx
+          .update(salesOrderLines)
+          .set({
+            cancelledQuantity: sql`${salesOrderLines.cancelledQuantity} + ${normalizeNumeric(line.quantityToCancel)}`,
+            updatedAt: now,
+          })
+          .where(eq(salesOrderLines.id, line.id));
+      }
+
+      const [closed] = await tx
+        .update(salesOrders)
+        .set({
+          status: "done",
+          priorityRank: null,
+          version: sql`${salesOrders.version} + 1`,
+          updatedAt: now,
+        })
+        .where(eq(salesOrders.id, id))
+        .returning({ id: salesOrders.id, status: salesOrders.status });
+
+      await recordSalesOrderShippedUsageInTx(tx, {
+        orgId,
+        salesOrderId: id,
+        occurredAt: now,
+      });
+      await rerankOpenSalesOrdersInTx(tx, orgId);
+
+      await finishInventoryOperationInTx(tx, {
+        organizationId: orgId,
+        idempotencyKey: options?.idempotencyKey ?? null,
+        result: closed,
+      });
+
+      return closed;
+    })
+  );
+
+  return result === null ? null : await getSalesOrder(id);
 }

@@ -73,8 +73,9 @@ Trial is the default public signup path; `free` remains only for
 legacy/internal compatibility.
 
 Sales-order volume is app-owned usage, not a hard operational cap. When a sales
-order first ships/delivers, the app records an idempotent
-`billingUsageEvents` row in the calendar-month usage window. If monthly usage
+order first ships/delivers or a partially shipped order is short-closed, the app
+records an idempotent `billingUsageEvents` row in the calendar-month usage
+window. If monthly usage
 crosses a bucket threshold, `billingPeriodAdjustments` records the full-period
 bucket delta and the worker creates an idempotent Stripe invoice item plus an
 immediate automatic invoice. The invoice is created as a subscription-scoped
@@ -227,6 +228,6 @@ with the enforcement vars set on the dev server (see step 3). Without them
 
 | Capacity | Source | Gate |
 | --- | --- | --- |
-| Sales-order bucket usage | `billingUsageEvents` shipped/delivered count for the current calendar-month usage period vs `organization.salesOrderBand` plus period adjustments | `recordSalesOrderShippedUsageInTx` during shipment records usage and queues bucket adjustment charges; Core sales workflows are not blocked by volume |
+| Sales-order bucket usage | `billingUsageEvents` shipped/delivered count for the current calendar-month usage period vs `organization.salesOrderBand` plus period adjustments | `recordSalesOrderShippedUsageInTx` during final shipment or short-close records usage and queues bucket adjustment charges; Core sales workflows are not blocked by volume |
 | Trial sales-order creation | `organization.plan`, effective `trialEndsAt`, and `BILLING_ENFORCEMENT_LAUNCH_AT` | `assertSalesOrderCapacityInTx` inside `createSalesOrder`; active trials and Core orgs continue, expired non-grandfathered trials receive 402 before new order creation |
 | Locations | `inventory.locations` active count vs `organization.locationCapacity` | `assertLocationCapacityInTx` inside `createInventoryLocation`; the `multi_location` entitlement unlocks the workflow surface, but paid `locationCapacity` controls the active-location count |

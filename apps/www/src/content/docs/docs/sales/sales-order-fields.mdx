@@ -26,7 +26,7 @@ Sales orders combine a header, one or more item lines, computed money fields, fu
 | `orderDate` | date | today | Date the order was taken. |
 | `shipDate` | date | null | Delivery deadline used by planning and allocation. |
 | `requestedDate` | date | null | Date the customer asked for — stored/API only (used as the Xero invoice due date); not shown on the order detail grid. |
-| `shippedAt` | timestamptz | null | Set when the order becomes fully shipped. |
+| `shippedAt` | timestamptz | null | Set when delivery ships the final remaining quantity. Closing a partial by cancelling the remaining items does not change it. |
 | `ship*` fields | varchar | customer default | Ship-to address lines, city, region, postcode, country. |
 | `billing*` fields | varchar | customer default | Bill-to address lines, city, region, postcode, country. |
 | `shippingFeeDescription` | varchar(255) | null | Label for the shipping charge. |
@@ -48,7 +48,7 @@ Sales orders combine a header, one or more item lines, computed money fields, fu
 | `unitName` | varchar | snapshot | Unit copied onto the line. |
 | `quantity` | numeric(12,4) | required | Ordered quantity. Must be greater than 0. |
 | `shippedQuantity` | numeric(12,4) | 0 | Quantity delivered so far. |
-| `cancelledQuantity` | numeric(12,4) | 0 | Cancelled quantity. Shipped plus cancelled cannot exceed ordered quantity. |
+| `cancelledQuantity` | numeric(12,4) | 0 | Quantity cancelled from a partially shipped order. Shipped plus cancelled cannot exceed ordered quantity. |
 | `listUnitPrice` | numeric(10,2) | base price | List price used for discount comparison. |
 | `unitPrice` | numeric(10,2) | required | Unit price charged. |
 | `discountPercent` | numeric(5,2) | 0 | Discount from list price to unit price. |
@@ -84,3 +84,5 @@ Each saved order line is unique by item within the order.
 The sales order read model exposes provider invoice sync fields with legacy `xero*` names, including invoice id, invoice number, push status, push error, pushed time, retry count, email status, and emailed time.
 
 Use the UI wording `connected accounting provider` when describing the action. The active provider can be Xero or QuickBooks depending on setup.
+
+Orders with cancelled remaining quantities cannot be pushed to accounting until shipped-only invoicing is supported.

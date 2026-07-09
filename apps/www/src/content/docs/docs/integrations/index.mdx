@@ -25,7 +25,7 @@ Ashicore runs alongside the systems you already use — it doesn't replace them.
     <span class="po-objicon po-objicon--pricing" aria-hidden="true"></span>
     <span class="po-objarrow" aria-hidden="true">→</span>
     <span class="po-objtitle">Accounting sync</span>
-    <span class="po-objdesc">Connect Xero or QuickBooks — one accounting provider at a time. Push sales invoices and supplier bills out, import open purchase orders for receiving, and pull customer and supplier contacts in from Xero.</span>
+    <span class="po-objdesc">Connect Xero or QuickBooks — one accounting provider at a time. Push eligible sales invoices and supplier bills out, import open purchase orders for receiving, and pull customer and supplier contacts in from Xero.</span>
     <span class="po-objlinks">
       <span>Sales invoice push <small>out</small></span>
       <span>Supplier bill creation <small>out</small></span>
@@ -59,7 +59,7 @@ A quick map of where data travels once a connection is live. Accounting is bidir
 
 | Connection | Direction | What moves |
 |------------|-----------|------------|
-| Xero / QuickBooks | <span class="po-tok po-tok--muted">out</span> | Sales invoices on shipment; supplier bills created from purchase orders. |
+| Xero / QuickBooks | <span class="po-tok po-tok--muted">out</span> | Eligible sales invoices on shipment; supplier bills created from purchase orders. |
 | Xero / QuickBooks | <span class="po-tok po-tok--muted">in</span> | Open purchase orders for receiving (both providers); customer and supplier contacts (Xero only). |
 | Shopify | <span class="po-tok po-tok--muted">in</span> | Paid, unshipped storefront orders become sales orders. |
 | Agent API | <span class="po-tok po-tok--muted">read-only</span> | Open sales orders, open manufacturing orders, product counts, lot counts, and BOM requirements (unit costs excluded). |

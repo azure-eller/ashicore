@@ -401,6 +401,10 @@ export type SalesOrderListRow = {
   customerId: string;
   customerName: string;
   customerEmail: string | null;
+  xeroInvoiceNumber: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
+  contactEmail: string | null;
   customerProjectId: string | null;
   customerProjectName: string | null;
   notes: string | null;
@@ -410,6 +414,12 @@ export type SalesOrderListRow = {
   shipDate: string | null;
   requestedDate: string | null;
   shippedAt: Date | null;
+  shipLine1: string | null;
+  shipLine2: string | null;
+  shipCity: string | null;
+  shipRegion: string | null;
+  shipPostcode: string | null;
+  shipCountry: string | null;
   totalAmount: string;
   itemSummary: string;
   lines: SalesOrderListLine[];
@@ -501,6 +511,9 @@ export type SalesOrderDetail = {
   customerId: string;
   customerName: string;
   customerEmail: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
+  contactEmail: string | null;
   customerProjectId: string | null;
   customerProjectName: string | null;
   orderNumber: string;
@@ -564,12 +577,16 @@ export type SalesOrderTaxRateOption = {
 export type SalesShippingQueueRow = {
   salesOrderId: string;
   orderNumber: string;
+  xeroInvoiceNumber: string | null;
   customerName: string;
   status: Extract<SalesOrderStatus, "open">;
   shipDate: string | null;
   deliveryDate: string | null;
   requestedDate: string | null;
   notes: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
+  contactEmail: string | null;
   shipLine1: string | null;
   shipLine2: string | null;
   shipCity: string | null;

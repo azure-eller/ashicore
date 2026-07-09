@@ -1,6 +1,21 @@
 import "server-only";
 
+import {
+  SHORT_CLOSED_ACCOUNTING_INVOICE_MESSAGE,
+  salesOrderHasCancelledAccountingLinesInTx,
+} from "@/lib/sales/accounting-policy";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
+import type { Tx } from "@/lib/db/with-org-context";
+import { DomainError } from "@/lib/errors/domain-error";
+
+async function assertSalesOrderCanPushAccountingInvoiceInTx(
+  tx: Tx,
+  id: string
+) {
+  if (await salesOrderHasCancelledAccountingLinesInTx(tx, id)) {
+    throw new DomainError(SHORT_CLOSED_ACCOUNTING_INVOICE_MESSAGE, 409);
+  }
+}
 
 export async function getXeroOnlineInvoiceUrlForSalesOrder(id: string) {
   return withAuthedOrgContext(async (_tx, orgId) => {
@@ -10,7 +25,8 @@ export async function getXeroOnlineInvoiceUrlForSalesOrder(id: string) {
 }
 
 export async function retryXeroPushForSalesOrder(id: string) {
-  return withAuthedOrgContext(async (_tx, orgId) => {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    await assertSalesOrderCanPushAccountingInvoiceInTx(tx, id);
     const { pushSalesOrderToXero, markXeroPushFailed } = await import(
       "@/lib/xero/push-invoice"
     );
@@ -34,7 +50,8 @@ export async function retryXeroPushForSalesOrder(id: string) {
 }
 
 export async function retryAccountingPushForSalesOrder(id: string) {
-  return withAuthedOrgContext(async (_tx, orgId) => {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    await assertSalesOrderCanPushAccountingInvoiceInTx(tx, id);
     const { getActiveAccountingProviderForOrg } = await import(
       "@/lib/dal/accounting"
     );

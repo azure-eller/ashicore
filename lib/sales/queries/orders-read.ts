@@ -2,8 +2,8 @@ import "server-only";
 
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { formatQuantity, normalizeNumericScale, normalizeNumeric, normalizeMoney, roundQuantity, summarizeItems } from "@/lib/format";
-import { customerContacts, customerProjects, accountingDocumentSyncs, customers, inventoryEvents, itemFamilies, items, lots, manufacturingOrderBatches, manufacturingOrderOutputs, manufacturingOrderIngredients, manufacturingOrders, salesOrderLines, salesOrders, unitDefinitions } from "@/lib/db/schema";
-import { ACCOUNTING_DOCUMENT_SALES_ORDER, ACCOUNTING_PROVIDER_XERO } from "@/lib/accounting/sync-state";
+import { customerContacts, customerProjects, accountingDocumentSyncs, customers, inventoryEvents, itemFamilies, items, lots, manufacturingOrderBatches, manufacturingOrderOutputs, manufacturingOrderIngredients, manufacturingOrders, organization, salesOrderLines, salesOrders, unitDefinitions } from "@/lib/db/schema";
+import { ACCOUNTING_DOCUMENT_SALES_ORDER, ACCOUNTING_PROVIDER_QUICKBOOKS, ACCOUNTING_PROVIDER_XERO } from "@/lib/accounting/sync-state";
 import type { AccountingProvider } from "@/lib/accounting/constants";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
@@ -23,6 +23,7 @@ import { getDemandQueueCoverageByDemandKeyForItemsInTx, type DemandQueueCoverage
 import { getEstimatedUnitCostsByItemIdInTx } from "@/lib/inventory/estimated-cost";
 import { parseMoneyValue, getOrderLinesInTx, normalizeShipQuantity } from "./shared";
 import { stockSubquery, demandQtySubquery, availableQtySubquery, expectedQtySubquery, getSalesOptionLabelsByItemIdInTx, getSalesVariantValuesByItemIdInTx, formatSalesItemDisplayName } from "./validation";
+import { SalesError } from "./errors";
 
 /**
  * `availableQty` is derived here in the data layer so components never do
@@ -340,7 +341,7 @@ function buildShippingReadiness({
   };
 }
 
-async function resolveBolContactInTx(tx: Tx, customerId: string) {
+export async function resolveBolContactInTx(tx: Tx, customerId: string) {
   const [customer] = await tx
     .select({
       email: customers.email,
@@ -378,6 +379,79 @@ async function resolveBolContactInTx(tx: Tx, customerId: string) {
     contactEmail: contact?.email ?? customer?.email ?? null,
     contactPhone: contact?.phone ?? customer?.phone ?? null,
   };
+}
+
+async function resolveBolContactsByCustomerIdInTx(tx: Tx, customerIds: string[]) {
+  const uniqueCustomerIds = [...new Set(customerIds)];
+  const contacts = new Map<
+    string,
+    {
+      contactName: string | null;
+      contactTitle: string | null;
+      contactEmail: string | null;
+      contactPhone: string | null;
+    }
+  >();
+
+  if (uniqueCustomerIds.length === 0) {
+    return contacts;
+  }
+
+  const customerRows = await tx
+    .select({
+      id: customers.id,
+      email: customers.email,
+      phone: customers.phone,
+    })
+    .from(customers)
+    .where(inArray(customers.id, uniqueCustomerIds));
+
+  customerRows.forEach((customer) => {
+    contacts.set(customer.id, {
+      contactName: null,
+      contactTitle: null,
+      contactEmail: customer.email,
+      contactPhone: customer.phone,
+    });
+  });
+
+  const contactRows = await tx
+    .select({
+      customerId: customerContacts.customerId,
+      name: customerContacts.name,
+      title: customerContacts.title,
+      email: customerContacts.email,
+      phone: customerContacts.phone,
+    })
+    .from(customerContacts)
+    .where(
+      and(
+        inArray(customerContacts.customerId, uniqueCustomerIds),
+        isNull(customerContacts.deletedAt)
+      )
+    )
+    .orderBy(
+      asc(customerContacts.customerId),
+      desc(customerContacts.receivesShipping),
+      desc(customerContacts.isOnSite),
+      desc(customerContacts.isPrimary),
+      asc(customerContacts.name)
+    );
+
+  const seen = new Set<string>();
+  contactRows.forEach((contact) => {
+    if (seen.has(contact.customerId)) return;
+    seen.add(contact.customerId);
+    const fallback = contacts.get(contact.customerId);
+    contacts.set(contact.customerId, {
+      contactName: contact.name,
+      contactTitle: contact.title,
+      contactEmail: contact.email ?? fallback?.contactEmail ?? null,
+      contactPhone: contact.phone ?? fallback?.contactPhone ?? null,
+    });
+  });
+
+  return contacts;
 }
 
 async function getSalesLotPickPlansByLineInTx(
@@ -777,6 +851,7 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             customerId: salesOrders.customerId,
             customerName: salesOrders.customerName,
             customerEmail: customers.email,
+            xeroInvoiceNumber: accountingDocumentSyncs.externalDocumentNumber,
             customerProjectId: salesOrders.customerProjectId,
             customerProjectName: customerProjects.name,
             notes: salesOrders.notes,
@@ -786,6 +861,12 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             shipDate: salesOrders.shipDate,
             requestedDate: salesOrders.requestedDate,
             shippedAt: salesOrders.shippedAt,
+            shipLine1: salesOrders.shipLine1,
+            shipLine2: salesOrders.shipLine2,
+            shipCity: salesOrders.shipCity,
+            shipRegion: salesOrders.shipRegion,
+            shipPostcode: salesOrders.shipPostcode,
+            shipCountry: salesOrders.shipCountry,
             totalAmount: trimScale(salesOrders.totalAmount).as("totalAmount"),
             deletedAt: salesOrders.deletedAt,
             createdAt: salesOrders.createdAt,
@@ -793,6 +874,15 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           })
           .from(salesOrders)
           .leftJoin(customers, eq(salesOrders.customerId, customers.id))
+          .leftJoin(
+            accountingDocumentSyncs,
+            and(
+              eq(accountingDocumentSyncs.provider, ACCOUNTING_PROVIDER_XERO),
+              eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_SALES_ORDER),
+              eq(accountingDocumentSyncs.documentId, salesOrders.id),
+              eq(accountingDocumentSyncs.groupKey, "default")
+            )
+          )
           .leftJoin(
             customerProjects,
             and(
@@ -816,6 +906,10 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
         }
 
         const orderIds = orderRows.map((order) => order.id);
+        const contactByCustomerId = await resolveBolContactsByCustomerIdInTx(
+          tx,
+          orderRows.map((order) => order.customerId)
+        );
         const manufacturingSummaries = await getSalesOrderManufacturingSummariesInTx(
           tx,
           orderIds
@@ -1036,6 +1130,11 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
 
           return {
             ...order,
+            ...(contactByCustomerId.get(order.customerId) ?? {
+              contactName: null,
+              contactPhone: null,
+              contactEmail: null,
+            }),
             status: order.status as SalesOrderListRow["status"],
             itemSummary: summarizeItems(salesLines),
             lines: salesLines.map((line) => {
@@ -1197,12 +1296,16 @@ export async function getSalesShippingQueue(): Promise<SalesShippingQueueRow[]> 
       {
         salesOrderId: order.id,
         orderNumber: order.orderNumber,
+        xeroInvoiceNumber: order.xeroInvoiceNumber,
         customerName: order.customerName,
         status: order.status,
         deliveryDate: order.shipDate,
         requestedDate: order.shipDate,
         shipDate: order.shipDate,
         notes: order.notes,
+        contactName: order.contactName,
+        contactPhone: order.contactPhone,
+        contactEmail: order.contactEmail,
         shipLine1: order.shipLine1,
         shipLine2: order.shipLine2,
         shipCity: order.shipCity,
@@ -1295,7 +1398,8 @@ export async function getSalesOrderInTx(
             options?.accountingProvider ?? ACCOUNTING_PROVIDER_XERO
           ),
           eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_SALES_ORDER),
-          eq(accountingDocumentSyncs.documentId, salesOrders.id)
+          eq(accountingDocumentSyncs.documentId, salesOrders.id),
+          eq(accountingDocumentSyncs.groupKey, "default")
         )
       )
       .where(and(...orderConditions));
@@ -1580,6 +1684,7 @@ export async function getSalesOrderInTx(
     const linkedManufacturingOrderRows = linkedManufacturingOrders.map(
       serializeLinkedManufacturingOrder
     );
+    const contact = await resolveBolContactInTx(tx, order.customerId);
     const fulfillmentReadModel = (
       await getSalesFulfillmentReadModelsInTx(
         tx,
@@ -1784,6 +1889,7 @@ export async function getSalesOrderInTx(
 
     return {
       ...order,
+      ...contact,
       status: order.status as SalesOrderDetail["status"],
       xeroPushStatus: order.xeroPushStatus as SalesOrderDetail["xeroPushStatus"],
       xeroEmailStatus:
@@ -1885,12 +1991,14 @@ export async function getEditableSalesOrder(id: string): Promise<SalesOrderEditD
 
 export type BolSalesOrderData = {
   orderNumber: string;
+  xeroInvoiceNumber: string | null;
   customerName: string;
   contactName: string | null;
   contactTitle: string | null;
   contactEmail: string | null;
   contactPhone: string | null;
   requestedDate: string | null;
+  timeZone: string;
   shippedAt: Date | null;
   notes: string | null;
   status: string;
@@ -1901,6 +2009,7 @@ export type BolSalesOrderData = {
   shipPostcode: string | null;
   shipCountry: string | null;
   lines: Array<{
+    id: string;
     itemName: string;
     itemSku: string | null;
     quantity: string;
@@ -1909,9 +2018,15 @@ export type BolSalesOrderData = {
 };
 
 export async function getSalesOrderForBol(
-  id: string
+  id: string,
+  options?: { selectedQuantities?: Map<string, number> }
 ): Promise<BolSalesOrderData | null> {
-  return withAuthedOrgContext(async (tx) => {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const [org] = await tx
+      .select({ timeZone: organization.timeZone })
+      .from(organization)
+      .where(eq(organization.id, orgId))
+      .limit(1);
     const [order] = await tx
       .select({
         orderNumber: salesOrders.orderNumber,
@@ -1933,18 +2048,113 @@ export async function getSalesOrderForBol(
       .where(and(eq(salesOrders.id, id), isNull(salesOrders.deletedAt)));
 
     if (!order) return null;
-    if (order.status !== "done") return null;
+    if (order.status !== "open" && order.status !== "done") return null;
 
-    const lines = await tx
+    const [invoiceSync] = await tx
       .select({
+        invoiceNumber: accountingDocumentSyncs.externalDocumentNumber,
+      })
+      .from(accountingDocumentSyncs)
+      .where(
+        and(
+          inArray(accountingDocumentSyncs.provider, [
+            ACCOUNTING_PROVIDER_XERO,
+            ACCOUNTING_PROVIDER_QUICKBOOKS,
+          ]),
+          eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_SALES_ORDER),
+          eq(accountingDocumentSyncs.documentId, id),
+          isNotNull(accountingDocumentSyncs.externalDocumentNumber)
+        )
+      )
+      .orderBy(
+        sql`${accountingDocumentSyncs.pushedAt} DESC NULLS LAST`,
+        sql`${accountingDocumentSyncs.updatedAt} DESC NULLS LAST`
+      )
+      .limit(1);
+
+    const lineRows = await tx
+      .select({
+        id: salesOrderLines.id,
         itemName: salesOrderLines.itemName,
         itemSku: salesOrderLines.itemSku,
         quantity: trimScale(salesOrderLines.quantity).as("quantity"),
+        shippedQuantity: trimScale(salesOrderLines.shippedQuantity).as(
+          "shippedQuantity"
+        ),
+        cancelledQuantity: trimScale(salesOrderLines.cancelledQuantity).as(
+          "cancelledQuantity"
+        ),
         unitName: salesOrderLines.unitName,
       })
       .from(salesOrderLines)
       .where(eq(salesOrderLines.salesOrderId, id))
       .orderBy(asc(salesOrderLines.sortOrder));
+
+    const selectedQuantities = options?.selectedQuantities;
+    const hasExplicitSelection = selectedQuantities != null && selectedQuantities.size > 0;
+    const hasAnyShippedQuantity = lineRows.some(
+      (line) => Number(line.shippedQuantity) > 0
+    );
+    if (selectedQuantities && selectedQuantities.size > 0) {
+      const lineIds = new Set(lineRows.map((line) => line.id));
+      for (const [lineId, quantity] of selectedQuantities) {
+        if (!lineIds.has(lineId)) {
+          throw new SalesError("Selected BOL line does not belong to this order.", 400);
+        }
+        if (!Number.isFinite(quantity) || quantity <= 0) {
+          throw new SalesError("Selected BOL quantities must be greater than 0.", 400);
+        }
+      }
+    }
+
+    const lines = lineRows.flatMap((line) => {
+      const orderedQuantity = Number(line.quantity);
+      const shippedQuantity = Number(line.shippedQuantity);
+      const cancelledQuantity = Number(line.cancelledQuantity);
+      const remainingQuantity = normalizeShipQuantity(
+        orderedQuantity - shippedQuantity - cancelledQuantity
+      );
+      const selectedQuantity = selectedQuantities?.get(line.id);
+      const legacyDoneQuantity = normalizeShipQuantity(
+        orderedQuantity - cancelledQuantity
+      );
+      const maxQuantity =
+        order.status === "done"
+          ? hasAnyShippedQuantity
+            ? normalizeShipQuantity(shippedQuantity)
+            : legacyDoneQuantity
+          : remainingQuantity;
+      const quantity =
+        selectedQuantity != null
+          ? normalizeShipQuantity(selectedQuantity)
+          : hasExplicitSelection
+            ? 0
+            : maxQuantity;
+
+      if (quantity <= 0) return [];
+      if (quantity > maxQuantity) {
+        throw new SalesError(
+          order.status === "done"
+            ? "BOL quantity cannot exceed shipped quantity."
+            : "BOL quantity cannot exceed remaining quantity.",
+          400
+        );
+      }
+
+      return [
+        {
+          id: line.id,
+          itemName: line.itemName,
+          itemSku: line.itemSku,
+          quantity: normalizeNumeric(quantity),
+          unitName: line.unitName,
+        },
+      ];
+    });
+
+    if (lines.length === 0) {
+      throw new SalesError("No quantities are available for this BOL.", 400);
+    }
 
     const shipAddress = {
       shipLine1: order.shipLine1,
@@ -1958,9 +2168,11 @@ export async function getSalesOrderForBol(
 
     return {
       orderNumber: order.orderNumber,
+      xeroInvoiceNumber: invoiceSync?.invoiceNumber ?? null,
       customerName: order.customerName,
       ...contact,
-      requestedDate: null,
+      requestedDate: order.requestedDate ?? order.shipDate,
+      timeZone: org?.timeZone ?? "America/Denver",
       shippedAt: order.shippedAt,
       notes: order.notes,
       status: order.status,

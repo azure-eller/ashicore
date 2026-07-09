@@ -230,6 +230,12 @@ export function normalizeShipQuantity(value: number) {
   return normalizeQuantityNumber(roundQuantity(value));
 }
 
+export function remainingToShip(line: SalesOrderLineShipState) {
+  return normalizeShipQuantity(
+    line.quantity - line.shippedQuantity - line.cancelledQuantity
+  );
+}
+
 export async function getSalesOrderLineShipStatesInTx(
   tx: Tx,
   orderId: string

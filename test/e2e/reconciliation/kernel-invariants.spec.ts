@@ -62,7 +62,12 @@ async function expectProjectionDiffClean(orgId: string, itemIds?: string[]) {
   expect(diff.legacyLotDeltas).toHaveLength(0);
 }
 
-async function createMaterialFixture(name: string, category: string, stock: string) {
+async function createMaterialFixture(
+  name: string,
+  category: string,
+  stock: string,
+  options?: { sellable?: boolean }
+) {
   const result = await createItem({
     name,
     itemType: "material",
@@ -72,6 +77,7 @@ async function createMaterialFixture(name: string, category: string, stock: stri
     description: `${name} fixture`,
     defaultPurchasePrice: "2.00",
     defaultSellingPrice: null,
+    sellable: options?.sellable ?? false,
     stock,
     safetyStock: "0",
     bom: [],
@@ -728,7 +734,8 @@ test.describe("inventory kernel invariants", () => {
     const itemId = await createMaterialFixture(
       `Recon Create Order Sand ${ts}`,
       `Recon Create Order ${ts}`,
-      "8"
+      "8",
+      { sellable: true }
     );
     const customerId = await createCustomerFixture(`Recon Create Order Customer ${ts}`);
     const idempotencyKey = key("create-sales-order", ts);
@@ -844,7 +851,8 @@ test.describe("inventory kernel invariants", () => {
     const itemId = await createMaterialFixture(
       `Recon Replay Ship Sand ${ts}`,
       `Recon Replay Ship ${ts}`,
-      "5"
+      "5",
+      { sellable: true }
     );
     const customerId = await createCustomerFixture(`Recon Replay Ship Customer ${ts}`);
     const order = await createConfirmedSalesOrderFixture({
@@ -946,7 +954,8 @@ test.describe("inventory kernel invariants", () => {
     const itemId = await createMaterialFixture(
       `Recon Delete Sand ${ts}`,
       `Recon Delete ${ts}`,
-      "4"
+      "4",
+      { sellable: true }
     );
     const customerId = await createCustomerFixture(`Recon Delete Customer ${ts}`);
     const order = await createConfirmedSalesOrderFixture({
@@ -983,7 +992,8 @@ test.describe("inventory kernel invariants", () => {
     const itemId = await createMaterialFixture(
       `Recon Ship Sand ${ts}`,
       `Recon Ship ${ts}`,
-      "5"
+      "5",
+      { sellable: true }
     );
     const customerId = await createCustomerFixture(`Recon Ship Customer ${ts}`);
 
@@ -1023,7 +1033,8 @@ test.describe("inventory kernel invariants", () => {
     const itemId = await createMaterialFixture(
       `Recon Shared Sand ${ts}`,
       `Recon Shared ${ts}`,
-      "6"
+      "6",
+      { sellable: true }
     );
     const customerId = await createCustomerFixture(`Recon Shared Customer ${ts}`);
 
@@ -1073,7 +1084,8 @@ test.describe("inventory kernel invariants", () => {
     const itemId = await createMaterialFixture(
       `Recon Stocktake Sand ${ts}`,
       category,
-      "5"
+      "5",
+      { sellable: true }
     );
     const customerId = await createCustomerFixture(`Recon Stocktake Customer ${ts}`);
     const salesOrder = await createConfirmedSalesOrderFixture({

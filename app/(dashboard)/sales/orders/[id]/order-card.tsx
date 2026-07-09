@@ -3,6 +3,26 @@
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiJson } from "@/lib/client/api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
 import { useOrganizationTimeZone } from "@/components/time-zone-provider";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
@@ -127,11 +147,24 @@ export function OrderCard({
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [makeToOrderOpen, setMakeToOrderOpen] = useState(false);
+  const [bolDialogOpen, setBolDialogOpen] = useState(false);
+  const [bolQuantities, setBolQuantities] = useState<Record<string, string>>({});
+  const [cancelRemainingOpen, setCancelRemainingOpen] = useState(false);
+  const [cancelRemainingError, setCancelRemainingError] = useState<string | null>(null);
   const shippedLines = order.lines.filter((line) => Number(line.shippedQuantity) > 0);
+  const hasAnyShippedQuantity = shippedLines.length > 0;
   const hasShippedItems = shippedLines.length > 0;
   const remainingLines = order.lines.filter(
     (line) => Number(line.remainingQuantity) > 0
   );
+  const bolLines =
+    order.status === "done"
+      ? order.lines.filter(
+          (line) =>
+            getBolMaxQuantity(line, order.status, hasAnyShippedQuantity) > 0
+        )
+      : remainingLines;
+  const canViewBol = !isDraft && bolLines.length > 0;
 
   const isEditable =
     isDraft ||
@@ -156,7 +189,10 @@ export function OrderCard({
     getId: () => controller.currentOrderId,
     flush: controller.flush,
     invalidateQueryKeys: [queryKeys.salesOrders.root],
-    onMutate: () => setActionError(null),
+    onMutate: () => {
+      setActionError(null);
+      setCancelRemainingError(null);
+    },
     onError: (error) => setActionError(error.message),
     duplicate: {
       run: (id) =>
@@ -203,8 +239,75 @@ export function OrderCard({
       await controller.refreshFromServer();
       await queryClient.invalidateQueries({ queryKey: queryKeys.salesOrders.root });
     },
-    onError: (error) => setActionError((error as Error).message),
+    onError: (error) => {
+      const message = (error as Error).message;
+      setActionError(message);
+    },
   });
+
+  const cancelRemainingMutation = useMutation({
+    mutationKey: ["sales-order-action", currentOrderId ?? "draft", "cancel-remaining"],
+    mutationFn: async () => {
+      await flushSavedCardOrThrow({
+        flush: controller.flush,
+        blockedMessage: "Fix the highlighted fields.",
+      });
+      const orderId = controller.currentOrderId;
+      if (!orderId) throw new Error("Save the order first.");
+      await apiJson<void>(`/api/sales-orders/${orderId}/cancel-remaining`, {
+        method: "POST",
+        body: {},
+        idempotencyKey: "cancelRemainingSalesOrder",
+        fallbackError: "Failed to cancel remaining items.",
+      });
+    },
+    onMutate: () => {
+      setActionError(null);
+      setCancelRemainingError(null);
+    },
+    onSuccess: async () => {
+      setCancelRemainingOpen(false);
+      await controller.refreshFromServer();
+      await queryClient.invalidateQueries({ queryKey: queryKeys.salesOrders.root });
+    },
+    onError: (error) => setCancelRemainingError((error as Error).message),
+  });
+
+  const openBolDialog = useCallback(() => {
+    void flushSavedCardOrThrow({
+      flush: controller.flush,
+      blockedMessage: "Save changes before creating a BOL.",
+      fallbackError: "Save changes before creating a BOL.",
+    })
+      .then(() => {
+        setBolQuantities(
+          Object.fromEntries(
+            bolLines.map((line) => [
+              line.id,
+              String(getBolMaxQuantity(line, order.status, hasAnyShippedQuantity)),
+            ])
+          )
+        );
+        setBolDialogOpen(true);
+      })
+      .catch((error) => setActionError((error as Error).message));
+  }, [bolLines, controller.flush, hasAnyShippedQuantity, order.status]);
+
+  const viewBol = useCallback(() => {
+    if (!currentOrderId) return;
+    const params = new URLSearchParams();
+    for (const line of bolLines) {
+      const quantity = Number(bolQuantities[line.id] ?? 0);
+      if (!Number.isFinite(quantity) || quantity <= 0) continue;
+      params.append("line", `${line.id}:${quantity}`);
+    }
+    const query = params.toString();
+    window.open(
+      `/api/sales-orders/${currentOrderId}/bol${query ? `?${query}` : ""}`,
+      "_blank",
+      "noopener,noreferrer"
+    );
+  }, [bolLines, bolQuantities, currentOrderId]);
 
   const handleCloseAfterFlush = useCallback(() => {
     void flushClosableCardOrThrow({ flush: controller.flush })
@@ -259,6 +362,14 @@ export function OrderCard({
         showPrint={false}
         menuActions={[
           ...(!isDraft && actions.duplicateAction ? [actions.duplicateAction] : []),
+          ...(canViewBol
+            ? [
+                {
+                  label: "Bill of lading",
+                  onClick: openBolDialog,
+                },
+              ]
+            : []),
           ...(!isDraft ? [{ label: "Print", onClick: () => window.print() }] : []),
           ...(!isDraft && xeroInvoiceSetupStatus === "ready"
             ? [
@@ -293,6 +404,21 @@ export function OrderCard({
                       .then(() => setMakeToOrderOpen(true))
                       .catch((error) => setActionError((error as Error).message));
                   },
+                },
+              ]
+            : []),
+          ...(!isDraft && hasShippedItems && remainingLines.length > 0
+            ? [
+                {
+                  label: cancelRemainingMutation.isPending
+                    ? "Cancelling remaining..."
+                    : "Cancel remaining items",
+                  onClick: () => {
+                    setCancelRemainingError(null);
+                    setCancelRemainingOpen(true);
+                  },
+                  disabled: cancelRemainingMutation.isPending,
+                  destructive: true,
                 },
               ]
             : []),
@@ -352,6 +478,61 @@ export function OrderCard({
             onOpenChange={setMakeToOrderOpen}
             showTrigger={false}
           />
+          <BillOfLadingDialog
+            open={bolDialogOpen}
+            lines={bolLines}
+            quantities={bolQuantities}
+            orderStatus={order.status}
+            hasAnyShippedQuantity={hasAnyShippedQuantity}
+            onOpenChange={setBolDialogOpen}
+            onQuantityChange={(lineId, quantity) =>
+              setBolQuantities((current) => ({ ...current, [lineId]: quantity }))
+            }
+            onView={viewBol}
+          />
+          <AlertDialog
+            open={cancelRemainingOpen}
+            onOpenChange={(open) => {
+              if (!open && !cancelRemainingMutation.isPending) {
+                setCancelRemainingOpen(false);
+              }
+            }}
+          >
+            <AlertDialogContent size="sm">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Cancel remaining items?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This order will stay in history. Shipped items stay on record, and
+                  the remaining unshipped items will be cancelled.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              {cancelRemainingError ? (
+                <div
+                  role="alert"
+                  className="rounded-md border border-[var(--status-danger-line)] bg-[var(--status-danger-bg)] px-(--space-3) py-(--space-2) text-[length:var(--text-sm)] text-[var(--status-danger-ink)]"
+                >
+                  {cancelRemainingError}
+                </div>
+              ) : null}
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={cancelRemainingMutation.isPending}>
+                  Back
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  variant="danger"
+                  disabled={cancelRemainingMutation.isPending}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    cancelRemainingMutation.mutate();
+                  }}
+                >
+                  {cancelRemainingMutation.isPending
+                    ? "Cancelling..."
+                    : "Cancel remaining"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </>
       )}
 
@@ -482,6 +663,118 @@ function SalesFulfillmentTable({ children }: { children: React.ReactNode }) {
       <FramedTable>{children}</FramedTable>
     </TableFrame>
   );
+}
+
+function BillOfLadingDialog({
+  open,
+  lines,
+  quantities,
+  orderStatus,
+  hasAnyShippedQuantity,
+  onOpenChange,
+  onQuantityChange,
+  onView,
+}: {
+  open: boolean;
+  lines: SalesOrderDetailLine[];
+  quantities: Record<string, string>;
+  orderStatus: SalesOrderDetail["status"];
+  hasAnyShippedQuantity: boolean;
+  onOpenChange: (open: boolean) => void;
+  onQuantityChange: (lineId: string, quantity: string) => void;
+  onView: () => void;
+}) {
+  const lineStates = lines.map((line) => {
+    const quantity = Number(quantities[line.id] ?? 0);
+    const maxQuantity = getBolMaxQuantity(
+      line,
+      orderStatus,
+      hasAnyShippedQuantity
+    );
+    return {
+      line,
+      quantity,
+      maxQuantity,
+      isPositive: Number.isFinite(quantity) && quantity > 0,
+      isOverMax: Number.isFinite(quantity) && quantity > maxQuantity,
+    };
+  });
+  const hasValidQuantity = lineStates.some((state) => state.isPositive);
+  const invalidLine = lineStates.find((state) => state.isOverMax);
+  const validationMessage = invalidLine
+    ? `Quantity cannot exceed ${formatQuantity(String(invalidLine.maxQuantity))} ${invalidLine.line.unitName}.`
+    : null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent size="lg">
+        <DialogHeader>
+          <DialogTitle>Bill of lading</DialogTitle>
+          <DialogDescription>Choose the quantities for this load.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-(--space-3)">
+          {lineStates.map(({ line, maxQuantity, isOverMax }) => (
+            <div
+              key={line.id}
+              className="grid grid-cols-[minmax(0,1fr)_8rem] items-end gap-(--space-4) rounded-md border border-[var(--color-line)] bg-[var(--color-surface-alt)] p-(--space-4)"
+            >
+              <div className="min-w-0">
+                <div className="truncate font-medium">{line.itemName}</div>
+                <div className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                  {line.unitName}
+                </div>
+              </div>
+              <label className="grid gap-(--space-2)">
+                <span className="text-[length:var(--text-xs)] font-semibold text-[var(--color-ink-faint)]">
+                  Quantity
+                </span>
+                <Input
+                  type="number"
+                  min="0"
+                  max={maxQuantity}
+                  step="0.0001"
+                  inputMode="decimal"
+                  aria-invalid={isOverMax}
+                  value={quantities[line.id] ?? ""}
+                  onChange={(event) => onQuantityChange(line.id, event.target.value)}
+                  className="text-right font-mono"
+                />
+              </label>
+            </div>
+          ))}
+        </div>
+        {validationMessage ? (
+          <div
+            role="alert"
+            className="rounded-md border border-[var(--status-danger-line)] bg-[var(--status-danger-bg)] px-(--space-3) py-(--space-2) text-[length:var(--text-sm)] text-[var(--status-danger-ink)]"
+          >
+            {validationMessage}
+          </div>
+        ) : null}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button disabled={!hasValidQuantity || Boolean(validationMessage)} onClick={onView}>
+            View BOL
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function getBolMaxQuantity(
+  line: SalesOrderDetailLine,
+  orderStatus: SalesOrderDetail["status"],
+  hasAnyShippedQuantity: boolean
+) {
+  if (orderStatus === "done") {
+    if (hasAnyShippedQuantity) return Number(line.shippedQuantity);
+    return Math.max(0, Number(line.quantity) - Number(line.cancelledQuantity));
+  }
+
+  return Number(line.remainingQuantity);
 }
 
 function makeInitialDraftOrder(
