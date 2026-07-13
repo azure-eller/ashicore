@@ -66,7 +66,10 @@ Store setup/support copy, read `docs/xero-support-listing.md`.
   would create materials, duplicate an ERP material across provider lines, or
   use a material without an explicit purchase-to-stock conversion.
   Existing received ERP PO lines are protected from re-import changes that would
-  rewrite receipt history.
+  rewrite receipt history. Re-import also preserves locally assigned
+  additional-cost suppliers when the old and incoming cost rows match
+  unambiguously; duplicate or otherwise ambiguous costs are left unassigned
+  instead of guessing a vendor.
 - **Provider adapters** — `lib/accounting/providers/*`. Keep provider-specific
   OAuth/API/payload mapping here. Shared workflows must depend on the
   `AccountingConnector` interface, not `lib/xero/*` or QuickBooks files.

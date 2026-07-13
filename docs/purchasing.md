@@ -82,6 +82,12 @@ provider. It is not the target purchasing workflow.
 - unmatched provider suppliers/materials may be created during manual import
 - imported POs update while unreceived; received rows still cannot be reduced
   below received quantity
+- re-import preserves a locally assigned additional-cost supplier when one old
+  and one incoming cost match exactly on type, trimmed reference, and numeric
+  amount; after exact matches are consumed, it also carries the supplier across
+  an amount edit when exactly one unmatched old and incoming cost share a type
+- ambiguous duplicate or same-type costs are never guessed; unmatched imported
+  costs keep the provider payload's blank supplier assignment
 - delivery address is stored on the purchase order header, not per line
 
 ## Supplier Items

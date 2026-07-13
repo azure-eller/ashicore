@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -1866,6 +1867,177 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       .from(purchaseOrderAdditionalCosts)
       .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, created.id));
     expect(costs).toEqual([{ supplierId: freightSupplier.body.id }]);
+  });
+
+  test("accounting re-import preserves additional-cost supplier assignments", async ({
+    db,
+  }) => {
+    const mainName = `Fast Import Main ${ts}-${randomUUID().slice(0, 6)}`;
+    const freightName = `Fast Import Freight ${ts}-${randomUUID().slice(0, 6)}`;
+    const materialName = `Fast Import Material ${ts}-${randomUUID().slice(0, 6)}`;
+    const mainSupplier = await createSupplier({ name: mainName });
+    expect(mainSupplier.status).toBe(201);
+    const freightSupplier = await createSupplier({ name: freightName });
+    expect(freightSupplier.status).toBe(201);
+    const material = await createItem({
+      itemType: "material",
+      name: materialName,
+      unitDefinitionId: unitId,
+      sku: `FAST-PO-IMPORT-${ts}-${randomUUID().slice(0, 6)}`,
+      category: `Fast Purchasing ${ts}`,
+      description: null,
+      defaultPurchasePrice: "10.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status).toBe(201);
+
+    const createResponse = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId: mainSupplier.body.id,
+        expectedDate: "2026-07-20",
+        notes: null,
+        lines: [
+          { itemId: material.body.id, quantityOrdered: "2", unitCost: "10.00" },
+        ],
+        additionalCosts: [
+          {
+            costType: "shipping",
+            reference: "Freight",
+            distributionMethod: "by_value",
+            accountingPurchaseAccountCode: null,
+            amount: "50.00",
+            supplierId: freightSupplier.body.id,
+          },
+        ],
+      }),
+    });
+    const order = await createResponse.json();
+    expect(createResponse.status, JSON.stringify(order)).toBe(201);
+
+    const document = {
+      id: `fast-ext-${order.id}`,
+      number: order.orderNumber,
+      status: "AUTHORISED",
+      supplierContactId: null,
+      supplierName: mainName,
+      date: "2026-07-01",
+      deliveryDate: null,
+      deliveryAddress: null,
+      total: null,
+      updatedAt: null,
+      lines: [
+        {
+          lineItemID: "line-1",
+          itemCode: null,
+          description: materialName,
+          quantity: 2,
+          unitAmount: 10,
+          accountCode: null,
+          taxType: null,
+        },
+        {
+          lineItemID: "line-2",
+          itemCode: null,
+          description: "Freight",
+          quantity: 1,
+          unitAmount: 50,
+          accountCode: null,
+          taxType: null,
+        },
+      ],
+    };
+    const runImport = (importDocument: unknown) =>
+      execFileSync(
+        "npx",
+        [
+          "tsx",
+          "--tsconfig",
+          "test/helpers/tsconfig.accounting-import.json",
+          "test/helpers/accounting-import-harness.ts",
+          JSON.stringify({ orgId: getOrgId(), document: importDocument }),
+        ],
+        {
+          encoding: "utf8",
+          timeout: 60_000,
+          // The fast lane runs under --conditions react-server; the harness
+          // needs full React and stubs server-only via its tsconfig instead.
+          env: { ...process.env, NODE_OPTIONS: "" },
+        },
+      );
+
+    // Re-import with the same charge line: the assignment survives.
+    const firstRun = runImport(document);
+    expect(firstRun, firstRun).toContain('"updated":1');
+    const costRows = () =>
+      db
+        .select({
+          supplierId: purchaseOrderAdditionalCosts.supplierId,
+          amount: purchaseOrderAdditionalCosts.amount,
+        })
+        .from(purchaseOrderAdditionalCosts)
+        .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, order.id));
+    expect(await costRows()).toEqual([
+      expect.objectContaining({
+        supplierId: freightSupplier.body.id,
+        amount: "50.0000",
+      }),
+    ]);
+
+    // Amount edited in the provider: the lone same-type pair still carries.
+    const editedDocument = {
+      ...document,
+      lines: [document.lines[0], { ...document.lines[1], unitAmount: 60 }],
+    };
+    const secondRun = runImport(editedDocument);
+    expect(secondRun, secondRun).toContain('"updated":1');
+    expect(await costRows()).toEqual([
+      expect.objectContaining({
+        supplierId: freightSupplier.body.id,
+        amount: "60.0000",
+      }),
+    ]);
+
+    await db.insert(purchaseOrderAdditionalCosts).values({
+      organizationId: getOrgId(),
+      purchaseOrderId: order.id,
+      supplierId: mainSupplier.body.id,
+      costType: "shipping",
+      reference: "Freight",
+      distributionMethod: "by_value",
+      amount: "60.00",
+    });
+    const ambiguousExactRun = runImport(editedDocument);
+    expect(ambiguousExactRun, ambiguousExactRun).toContain('"updated":1');
+    expect(await costRows()).toEqual([
+      expect.objectContaining({ supplierId: null, amount: "60.0000" }),
+    ]);
+
+    await db
+      .update(purchaseOrderAdditionalCosts)
+      .set({ supplierId: freightSupplier.body.id })
+      .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, order.id));
+    await db.insert(purchaseOrderAdditionalCosts).values({
+      organizationId: getOrgId(),
+      purchaseOrderId: order.id,
+      supplierId: null,
+      costType: "shipping",
+      reference: "Handling",
+      distributionMethod: "by_value",
+      amount: "75.00",
+    });
+    const ambiguousFallbackDocument = {
+      ...document,
+      lines: [document.lines[0], { ...document.lines[1], unitAmount: 70 }],
+    };
+    const ambiguousFallbackRun = runImport(ambiguousFallbackDocument);
+    expect(ambiguousFallbackRun, ambiguousFallbackRun).toContain('"updated":1');
+    expect(await costRows()).toEqual([
+      expect.objectContaining({ supplierId: null, amount: "70.0000" }),
+    ]);
   });
 
   test("freight edit after receipt revalues landed cost via append-only event", async ({ db }) => {
