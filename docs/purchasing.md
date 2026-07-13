@@ -61,6 +61,8 @@ be handled manually.
 - opening provider bill management and creating a provider bill require the latest valid
   PO card edits to save first, then rebuild the bill payload from the saved materials and
   additional costs
+- opening the supplier email dialog also requires the latest valid PO card edits to save;
+  validation failures stay on the card and the dialog does not open
 - bill-affecting edits remain allowed after sync; users reconcile the accounting bill
   separately when needed
 - the legacy export routes (`accounting-push`/`xero-push`, `accounting-email`/`xero-email`)
@@ -155,9 +157,13 @@ Update rules:
 
 ## Status Rules
 
-- A new purchase-order card is local-only until a supplier is selected. Header,
-  line, and additional-cost edits remain on the card, but the first autosave is
-  deferred so the server only creates valid supplier-backed orders.
+- A new purchase-order card is local-only until both a supplier and one complete
+  material line exist. Header, line, and additional-cost edits remain on the
+  card while the first autosave is deferred. The save indicator names whichever
+  requirement is still missing.
+- an additional-cost row is blank only when its type/distribution are the defaults and
+  its reference, amount, and supplier are all blank; choosing a supplier makes the row
+  validate and persist, so its amount is required
 - creation persists a `not_received` PO and immediately books expected supply for stock lines
 - `not_received` orders may be edited, received, or deleted before any receipt
 - `partial` orders may be edited or received; already received lines cannot be removed

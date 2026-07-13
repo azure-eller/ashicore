@@ -67,7 +67,6 @@ const rawAdditionalCostSchema = z.object({
 });
 
 type RawLine = z.input<typeof rawLineSchema>;
-type RawAdditionalCost = z.input<typeof rawAdditionalCostSchema>;
 
 function isBlankLine(line: RawLine) {
   const itemId = typeof line.itemId === "string" ? line.itemId.trim() : "";
@@ -76,10 +75,28 @@ function isBlankLine(line: RawLine) {
   return itemId === "" && quantityOrdered === "" && unitCost === "";
 }
 
-function isBlankAdditionalCost(cost: RawAdditionalCost) {
-  const reference = cost.reference?.trim() ?? "";
-  const amount = cost.amount?.trim() ?? "";
-  return reference === "" && amount === "";
+export function isBlankAdditionalCost(
+  cost:
+    | {
+        costType?: string | null;
+        distributionMethod?: string | null;
+        reference?: string | null;
+        amount?: string | null;
+        supplierId?: string | null;
+      }
+    | undefined,
+) {
+  const reference = cost?.reference?.trim() ?? "";
+  const amount = cost?.amount?.trim() ?? "";
+  const supplierId = cost?.supplierId?.trim() ?? "";
+  return (
+    (cost?.costType == null || cost.costType === "shipping") &&
+    (cost?.distributionMethod == null ||
+      cost.distributionMethod === "by_value") &&
+    reference === "" &&
+    amount === "" &&
+    supplierId === ""
+  );
 }
 
 const cleanedLinesSchema = z

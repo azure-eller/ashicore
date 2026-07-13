@@ -15,7 +15,9 @@ export async function flushSavedCardOrThrow({
   const outcome = await flush?.();
   if (!outcome || outcome.outcome === "saved") return;
   if (outcome.outcome === "blocked") {
-    throw new Error(firstFieldErrorMessage(outcome.fieldErrors, blockedMessage));
+    throw new Error(
+      firstFieldErrorMessage(outcome.fieldErrors, outcome.error || blockedMessage),
+    );
   }
   throw new Error(outcome.error || fallbackError);
 }

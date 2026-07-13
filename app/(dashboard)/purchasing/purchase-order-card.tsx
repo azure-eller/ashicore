@@ -481,7 +481,6 @@ export function PurchaseOrderCard({
   const additionalCostCount = additionalCostRows.filter(
     (cost) => !isBlankPurchaseOrderAdditionalCost(cost),
   ).length;
-  const canAutosaveDraft = Boolean(watchedSupplierId?.trim());
   const rememberSupplierForCurrentMaterials = useCallback(
     (supplierId: string | null) => {
       if (!supplierId) return;
@@ -1359,27 +1358,12 @@ export function PurchaseOrderCard({
     shipCountry: draftValues.shipCountry,
     shipDeliveryInstructions: null,
   };
-  const autosaveState = canAutosaveDraft ? purchaseOrderController.status : "idle";
-  const autosaveMessage = canAutosaveDraft
-    ? purchaseOrderController.status === "saved" || purchaseOrderController.status === "idle"
-      ? "All changes saved"
-      : purchaseOrderController.error
-    : "All changes saved";
-  const cardSaveState: CardSaveState = (() => {
-    if (readOnly && additionalCostsReadOnly) return "readonly";
-    if (autosaveState === "saving") return "saving";
-    if (autosaveState === "error") return "failed";
-    if (!savedOrderId || autosaveState === "dirty") {
-      return "not_saved";
-    }
-    return "saved";
-  })();
+  const cardSaveState: CardSaveState =
+    readOnly && additionalCostsReadOnly
+      ? "readonly"
+      : purchaseOrderController.saveState;
   const cardSaveMessage =
-    cardSaveState === "saved"
-      ? "Saved"
-      : cardSaveState === "failed"
-        ? autosaveMessage
-        : null;
+    cardSaveState === "readonly" ? null : purchaseOrderController.saveMessage;
   const displayTitle = savedOrderId ? (
     <DetailHeaderTitle
       recordNumber={draftValues.orderNumber ?? savedOrderNumber ?? ""}
@@ -1392,8 +1376,16 @@ export function PurchaseOrderCard({
     const quantity = parsePositive(line.quantityOrdered);
     return sum + (quantity ?? 0);
   }, 0);
-  const openPurchaseOrderEmailDialog = () => {
+  const openPurchaseOrderEmailDialog = async () => {
     setPoEmailError(null);
+    try {
+      await flushPurchaseOrderOrThrow("Save changes before sending.");
+    } catch (error) {
+      setPoEmailError(
+        error instanceof Error ? error.message : "Save changes before sending.",
+      );
+      return;
+    }
     const groups = emailDialogGroups();
     const first = groups[0];
     setPoEmailDialogValues({
@@ -1601,12 +1593,10 @@ export function PurchaseOrderCard({
                       commitPurchaseOrderDraft({ supplierId: nextValue ?? "" });
                     }}
                     errorMessage={supplierIdError ?? undefined}
-                    inputClassName={underlineControlClass(
-                      !savedOrderId && !draftValues.supplierId,
-                    )}
+                    inputClassName={underlineControlClass(supplierIdError != null)}
                     labelClassName={styles.formLabel}
                     required
-                    invalid={!savedOrderId && !draftValues.supplierId}
+                    invalid={supplierIdError != null}
                   />
                 </div>
                 <div className={styles.formField}>
@@ -1637,7 +1627,6 @@ export function PurchaseOrderCard({
                   <CardField
                     label="Expected arrival"
                     htmlFor="expectedDate"
-                    required
                     invalid={expectedDateError != null}
                     error={expectedDateError}
                   >

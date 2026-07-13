@@ -195,33 +195,17 @@ export function MaterialCard({
   );
 
   const avgIngredientsCost = getAverageIngredientsCost(renderedCard);
-  const effectiveSaveStatus =
-    controller.status === "saving" ||
-    actionSaveStatus.status === "saving" ||
-    cloneCardMutation.isPending
+  const saveState: CardSaveState =
+    actionSaveStatus.status === "saving" || cloneCardMutation.isPending
       ? "saving"
-      : controller.status === "error" ||
-          actionSaveStatus.status === "error" ||
-          cloneCardMutation.isError
-        ? "error"
-        : controller.status;
-  const saveState: CardSaveState = isDraft
-    ? effectiveSaveStatus === "saving"
-      ? "saving"
-      : effectiveSaveStatus === "error"
+      : actionSaveStatus.status === "error" || cloneCardMutation.isError
         ? "failed"
-        : "not_saved"
-    : effectiveSaveStatus === "saving"
-      ? "saving"
-      : effectiveSaveStatus === "error"
-        ? "failed"
-        : effectiveSaveStatus === "dirty"
-          ? "not_saved"
-          : "saved";
+        : controller.saveState;
   const saveMessage =
     controller.error ??
     actionSaveStatus.errorMessage ??
-    (cloneCardMutation.error instanceof Error ? cloneCardMutation.error.message : null);
+    (cloneCardMutation.error instanceof Error ? cloneCardMutation.error.message : null) ??
+    controller.saveMessage;
 
   return (
     <CardPage>

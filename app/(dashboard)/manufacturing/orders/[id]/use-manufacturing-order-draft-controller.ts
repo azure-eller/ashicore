@@ -5,6 +5,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { apiJson } from "@/lib/client/api";
 import { useCardKernel } from "@/lib/card-kernel/use-card-kernel";
 import type { FlushOutcome } from "@/lib/card-kernel/kernel";
+import type { CardSaveState } from "@/components/card-page/card-save-status";
 import { updateManufacturingOrderSchema } from "@/lib/schemas/manufacturing-orders";
 import type { PatchManufacturingOrder } from "@/lib/schemas/manufacturing-orders";
 import type {
@@ -25,6 +26,8 @@ export type ManufacturingOrderDraftController = {
   hasPersistedOrder: boolean;
   status: "idle" | "dirty" | "saving" | "saved" | "error";
   error: string | null;
+  saveState: CardSaveState;
+  saveMessage: string | null;
   patchHeader: (patch: ManufacturingOrderDraftHeaderPatch) => void;
   selectProduct: (product: ManufacturingProductOption) => void;
   updatePlannedInput: (inputQuantity: string) => void;
@@ -377,6 +380,8 @@ export function useManufacturingOrderDraftController({
               : "idle"
             : kernel.status,
       error: kernel.error,
+      saveState: kernel.saveState,
+      saveMessage: kernel.saveMessage,
       patchHeader,
       selectProduct,
       updatePlannedInput,

@@ -111,16 +111,10 @@ export function ManufacturingOrderCard({
     },
   });
   const editState = getManufacturingOrderEditState(order);
-  const headerSaveState: CardSaveState =
-    controller.status === "saving" || controller.status === "dirty"
-      ? "saving"
-      : controller.status === "error" || actionError
-        ? "failed"
-        : isDraft
-          ? "not_saved"
-          : "saved";
-  const headerSaveMessage =
-    controller.status === "error" ? controller.error : actionError;
+  const headerSaveState: CardSaveState = actionError
+    ? "failed"
+    : controller.saveState;
+  const headerSaveMessage = actionError ?? controller.saveMessage;
   const ingredientOptions = useMemo(
     () => buildIngredientOptions(productOptions, order.ingredients),
     [order.ingredients, productOptions],

@@ -26,6 +26,7 @@ import {
   underlineControlClass,
 } from "@/components/card-page/form-cell";
 import { CommitInput } from "@/components/card-page/commit-input";
+import { fieldErrorAt } from "@/lib/api/field-errors";
 import { ListFrameItem } from "@/components/list-frame";
 import { useCardEntityActions } from "@/components/card-page/use-card-entity-actions";
 import {
@@ -313,6 +314,7 @@ export function CustomerCard({
 
   const cardSaveState: CardSaveState = readOnly ? "readonly" : kernel.saveState;
   const cardSaveMessage = readOnly ? null : kernel.saveMessage;
+  const nameError = fieldErrorAt(kernel.fieldErrors, "name");
 
   return (
     <CardPage>
@@ -374,7 +376,8 @@ export function CustomerCard({
               label="Customer name"
               htmlFor="customer-name"
               required
-              invalid={isDraft && !display.name.trim()}
+              invalid={nameError != null}
+              error={nameError}
             >
               <CommitInput
                 id="customer-name"
@@ -383,7 +386,7 @@ export function CustomerCard({
                 disabled={readOnly}
                 autoFocus={isDraft}
                 required
-                className={underlineControlClass(isDraft && !display.name.trim())}
+                className={underlineControlClass(nameError != null)}
                 onCommit={(name) => {
                   if (name) commitCustomerPatch({ name });
                 }}

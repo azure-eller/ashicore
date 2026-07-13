@@ -61,13 +61,18 @@ delete-and-reinsert reconciliations and the rebase matches rows exactly.
 and callers must branch on it (`useCardEntityActions` does; status
 transitions do). It never throws and never silently no-ops.
 
-Never-persisted cards may deliberately defer their first save until required
-foreign keys exist. Item cards keep local edits until a unit is selected, sales
-orders until a customer is selected, and purchase orders until a supplier is
-selected. The controller should keep using `update()` so the card stays editable,
-but pass an infinite debounce or skip `flush()` until the first create payload is
-valid. Once the server row exists, later invalid edits should flow through the
-normal `blocked` outcome rather than becoming silent local-only state.
+Never-persisted cards defer their first save through the kernel's
+`createGate` config: a function of the draft that returns the human reason the
+doc can't create yet (e.g. "Add a material to save") or `null` once it can.
+While the gate returns a reason, `update()` keeps the card editable but never
+schedules a flush, explicit `flush()` resolves `blocked` with that reason, and
+the pagehide save skips the doc — one gate, no per-callsite debounce plumbing.
+Requirements the create *schema* already expresses (a supplier, a customer)
+need no gate: the kernel validates an unpersisted draft eagerly on every
+snapshot, so the save pill and `fieldErrors` state the blocker from the moment
+a new card mounts — no flush required. Once the server row exists, invalid
+edits flow through the normal `blocked` outcome rather than becoming silent
+local-only state.
 
 Kernels live **outside React** in a module registry keyed by entity id:
 unmount can't drop a debounced edit, and payload-dirty kernels flush on
@@ -84,6 +89,7 @@ mirror clears on the next clean save.
 |---|---|
 | `serialize` | Draft → the route's payload shape + the index↔rowId alias map (built in the same loop that emits each row) |
 | `schema` | The route's own Zod schema (imported from `lib/schemas/*`) |
+| `createGate` | Optional draft-level reason a schema-valid new document still cannot create; ignored after the first save |
 | `derive` | Pure, idempotent cascade math (SO totals, MO quantity scaling). Runs on both diff sides and after every rebase |
 | `collections` | Which doc arrays diff by row id, and the id key |
 | `create` / `update` | Thin `apiJson` adapters (the thrown `ApiJsonError` carries the body the kernel reads for 409s) |

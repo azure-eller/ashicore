@@ -64,8 +64,14 @@ export function useCardKernel<TDoc, TPayload>(
 function saveStateFor(snapshot: KernelSnapshot<unknown>): CardSaveState {
   switch (snapshot.status) {
     case "saving":
-    case "dirty":
       return "saving";
+    case "dirty":
+      // An unpersisted dirty draft that can't create yet (schema error or
+      // create gate — snapshot.error carries the reason) is not en route to
+      // being saved; say so instead of "Saving...".
+      return snapshot.isPersisted || snapshot.error == null
+        ? "saving"
+        : "not_saved";
     case "blocked":
       return snapshot.isPersisted ? "failed" : "not_saved";
     case "error":
@@ -76,8 +82,10 @@ function saveStateFor(snapshot: KernelSnapshot<unknown>): CardSaveState {
 }
 
 function saveMessageFor(snapshot: KernelSnapshot<unknown>): string | null {
+  if (snapshot.status === "saving") return null;
   if (snapshot.status === "blocked" || snapshot.status === "error") {
     return snapshot.error;
   }
-  return snapshot.isPersisted && snapshot.status === "idle" ? "Saved" : null;
+  if (!snapshot.isPersisted) return snapshot.error;
+  return snapshot.status === "idle" ? "Saved" : null;
 }

@@ -17,6 +17,7 @@ import {
 import { itemCardDocUpdateSchema } from "@/lib/schemas/item-cards";
 import type { FlushOutcome } from "@/lib/card-kernel/kernel";
 import { useCardKernel } from "@/lib/card-kernel/use-card-kernel";
+import type { CardSaveState } from "./card-save-status";
 import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
 import type { ItemType } from "@/lib/inventory/types";
 import { queryKeys } from "@/lib/client/query-keys";
@@ -28,6 +29,8 @@ export type ItemCardDraftController = {
   hasPersistedEntity: boolean;
   status: "idle" | "dirty" | "saving" | "saved" | "error";
   error: string | null;
+  saveState: CardSaveState;
+  saveMessage: string | null;
   patchFamily: (patch: UpdateItemCardInput, delayMs?: number) => void;
   commitFamily: (patch?: UpdateItemCardInput) => void;
   setSellable: (sellable: boolean) => void;
@@ -144,6 +147,14 @@ export function useItemCardDraftController({
     makeNewDoc: () => initialCard,
     collections: { variants: { idKey: "id" } },
     schema: itemCardDocUpdateSchema,
+    // The doc-update schema is all-optional; the create endpoint is what
+    // requires name + unit, so the gate carries those reasons pre-persist.
+    createGate: (draft) =>
+      !(draft.family.name ?? "").trim()
+        ? "Name is required"
+        : draft.family.unitDefinitionId
+          ? null
+          : "Choose a unit to save",
     serialize: serializeItemCard,
     readVersion: (card) => card.family.version ?? null,
     readId: (card) => card.focusedVariantId,
@@ -216,18 +227,6 @@ export function useItemCardDraftController({
     },
     [unitNameById, update],
   );
-  const canCreateDraft = useCallback(
-    (patch?: UpdateItemCardInput) => {
-      if (getPersistedId()) return true;
-      const nextUnitDefinitionId =
-        patch && "unitDefinitionId" in patch
-          ? patch.unitDefinitionId
-          : kernel.draft.family.unitDefinitionId;
-      return Boolean(nextUnitDefinitionId);
-    },
-    [getPersistedId, kernel],
-  );
-
   return {
     card: kernel.draft,
     currentItemId: kernel.persistedId,
@@ -241,14 +240,17 @@ export function useItemCardDraftController({
             : "idle"
           : kernel.status,
     error: kernel.error,
+    saveState: kernel.saveState,
+    saveMessage: kernel.saveMessage,
     patchFamily,
     commitFamily: useCallback(
       (patch?: UpdateItemCardInput) => {
+        // The kernel's createGate blocks the flush while the draft can't
+        // create yet, so committing is safe at any completeness.
         if (patch) patchFamily(patch, Number.POSITIVE_INFINITY);
-        if (!canCreateDraft(patch)) return;
         void flush();
       },
-      [canCreateDraft, flush, patchFamily],
+      [flush, patchFamily],
     ),
     setSellable: useCallback(
       (sellable: boolean) => {

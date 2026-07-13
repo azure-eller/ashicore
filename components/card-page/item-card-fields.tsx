@@ -3,6 +3,7 @@
 import { CommitInput } from "@/components/card-page/commit-input";
 import { CardField } from "@/components/card-page/card-field";
 import { NotesField } from "@/components/card-page/notes-field";
+import { underlineControlClass } from "@/components/card-page/form-cell";
 import { type UpdateItemCardInput } from "@/lib/api/clients/item-cards";
 
 type DraftItemCardPatch = Partial<UpdateItemCardInput>;
@@ -13,6 +14,7 @@ type ItemCardFieldProps = {
   value: string | null;
   placeholder?: string;
   required?: boolean;
+  invalid?: boolean;
   disabled?: boolean;
   autoFocus?: boolean;
   onFamilyChange: (patch: DraftItemCardPatch, delayMs?: number) => void;
@@ -25,6 +27,7 @@ export function ItemCardCommitField({
   value,
   placeholder,
   required,
+  invalid,
   disabled,
   autoFocus,
   onFamilyChange,
@@ -33,7 +36,7 @@ export function ItemCardCommitField({
   const inputId = `item-card-${String(field)}`;
 
   return (
-    <CardField label={label} htmlFor={inputId} required={required}>
+    <CardField label={label} htmlFor={inputId} required={required} invalid={invalid}>
       <CommitInput
         id={inputId}
         label={label}
@@ -42,6 +45,7 @@ export function ItemCardCommitField({
         required={required}
         placeholder={placeholder}
         disabled={disabled}
+        className={underlineControlClass(invalid)}
         commitUnchangedValue
         onDraftChange={(next) => {
           onFamilyChange({ [field]: next } as DraftItemCardPatch, Number.POSITIVE_INFINITY);

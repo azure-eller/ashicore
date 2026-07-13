@@ -87,6 +87,7 @@ export function MaterialGeneralInfoTab({
                 label="Material name"
                 value={card.family.name}
                 required
+                invalid={!(card.family.name ?? "").trim()}
                 autoFocus={isDraft}
                 onFamilyChange={onFamilyChange}
                 onFamilyCommit={onFamilyCommit}

@@ -45,7 +45,7 @@ You'll need at least one **supplier** and active items to buy. Items can carry a
    </Frame>
    <p class="mk-cap">The purchase orders list. New orders open unsaved; after a valid autosave, you can leave and return to them at any time.</p>
 
-2. **Choose a supplier.** Pick who you're buying from. The supplier is required before the first save; edits you make before choosing one stay on the unsaved card. The supplier's name is copied onto the order when the order is saved. Later edits to the purchase order refresh that copied name from the current supplier record.
+2. **Choose a supplier.** Pick who you're buying from. Both a supplier and one complete material line are required before the first save; until then, the save indicator says **Supplier is required** or **Add a material to save**. Your edits stay on the unsaved card. The supplier's name is copied onto the order when the order is saved. Later edits to the purchase order refresh that copied name from the current supplier record.
 
    <Frame title="<b>New purchase order</b>" status="not_received">
      <div class="mk-pad">
@@ -76,7 +76,7 @@ You'll need at least one **supplier** and active items to buy. Items can carry a
    A "Bag (×69 kg)" line ordered twelve times becomes 828 kg of inventory. The **landed cost per stock unit** climbs above the raw `$310 ÷ 69 = $4.49` once by-value additional costs are allocated in the next step.
    </Aside>
 
-4. **Add additional costs (optional).** Choose **Add cost** to capture freight, customs, or other charges. In the **Cost** column, pick **Shipping**, **Customs**, or **Other**. For each row, choose how it's distributed: **By value** spreads it across the lines and raises your landed inventory cost, while **Not distributed** raises the order total only and leaves inventory valuation untouched.
+4. **Add additional costs (optional).** Choose **Add cost** to capture freight, customs, or other charges. In the **Cost** column, pick **Shipping**, **Customs**, or **Other**. Amount is required for any cost row you begin, including one where you only choose a separate supplier. For each row, choose how it's distributed: **By value** spreads it across the lines and raises your landed inventory cost, while **Not distributed** raises the order total only and leaves inventory valuation untouched.
 
    <Frame title="<b>Additional costs</b>">
      <Grid>
@@ -100,7 +100,7 @@ You'll need at least one **supplier** and active items to buy. Items can carry a
    Only **by-value** costs flow into your inventory cost and, for tracked items, the lot cost when you receive. A not-distributed cost raises the order total but never the inventory valuation. Editing a by-value cost *after* receipt revalues tracked stock still on hand from this order; untracked shared-bucket materials save the edit without rebasing in v1.
    </Aside>
 
-5. **Set delivery details.** Add the delivery address and an optional expected arrival date. There is no Save button: valid changes autosave. Until you choose a supplier, the card remains unsaved; after the first valid save, it has a PO number, is counted in expected supply, and can be reopened. It stays editable and deletable until the first receipt.
+5. **Set delivery details.** Add the delivery address and an optional expected arrival date. There is no Save button: valid changes autosave. Until you choose a supplier and add one complete material line, the card remains unsaved; the save indicator names the missing requirement. After the first valid save, it has a PO number, is counted in expected supply, and can be reopened. It stays editable and deletable until the first receipt.
 
    <Frame title="<b>Delivery &amp; details</b>">
      <span slot="action"><span class="mk-saved">✓ Saved</span></span>

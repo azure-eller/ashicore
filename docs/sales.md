@@ -106,7 +106,8 @@ The redesign moves a few entry points out of the deprecated tabs:
 
 - A new sales-order card is local-only until a customer is selected. Header and
   line edits remain on the card, but the first autosave is deferred so the
-  server only creates valid customer-backed orders.
+  server only creates valid customer-backed orders. The save indicator says
+  that the customer is required from the moment the blank card opens.
 - `open` orders are editable operational work
 - `done` orders are terminal fulfillment history
 - delete is allowed only before shipped fulfillment, finalized invoice, or accounting-push history exists

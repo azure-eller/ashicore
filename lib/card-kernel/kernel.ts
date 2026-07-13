@@ -24,7 +24,7 @@ export type KernelStatus = "idle" | "dirty" | "saving" | "blocked" | "error";
 
 export type FlushOutcome =
   | { outcome: "saved" }
-  | { outcome: "blocked"; fieldErrors: FieldErrorRecord }
+  | { outcome: "blocked"; fieldErrors: FieldErrorRecord; error: string }
   | { outcome: "conflict"; error: string; conflictPaths: string[] }
   | { outcome: "failed"; error: string; fieldErrors: FieldErrorRecord | null };
 
@@ -53,6 +53,13 @@ export type CardKernelConfig<TDoc, TPayload> = {
   derive?: (draft: TDoc) => TDoc;
   /** The SAME Zod schema module the API route parses the payload with. */
   schema: { safeParse: (value: unknown) => SafeParseResult };
+  /**
+   * Reason the first save of a new doc is deferred beyond schema validity
+   * (e.g. "Add a material to save"). While it returns non-null on an
+   * unpersisted doc, flushes are suppressed and the reason shows on the
+   * save pill. Never consulted once persisted.
+   */
+  createGate?: (draft: TDoc) => string | null;
   serialize: (draft: TDoc) => SerializedDoc<TPayload>;
   create: (
     payload: TPayload,
@@ -287,6 +294,12 @@ export class CardKernel<TDoc, TPayload> {
     this.syncReloadDraft(dirty);
     this.notify();
 
+    if (this.createGateReason() != null) {
+      // Also cancels a flush scheduled before the gate re-engaged (e.g. the
+      // only complete row was just deleted) — that timer must not create.
+      this.cancelScheduledFlush();
+      return;
+    }
     const delay =
       opts?.debounceMs ?? this.config.debounceMs ?? DEFAULT_DEBOUNCE_MS;
     if (Number.isFinite(delay)) this.scheduleFlush(delay);
@@ -348,9 +361,10 @@ export class CardKernel<TDoc, TPayload> {
     this.notify();
   };
 
-  /** Fire-and-forget save for pagehide; skips invalid or clean drafts. */
+  /** Fire-and-forget save for pagehide; skips invalid, gated, or clean drafts. */
   flushForPagehide() {
     if (!this.isPayloadDirty()) return;
+    if (this.createGateReason() != null) return;
     const { payload } = this.config.serialize(this.draft);
     if (!this.config.schema.safeParse(payload).success) return;
     if (this.inFlight) {
@@ -452,7 +466,16 @@ export class CardKernel<TDoc, TPayload> {
       this.error = firstFieldErrorMessage(errors, "Fix the highlighted fields.");
       this.status = "blocked";
       this.notify();
-      return { outcome: "blocked", fieldErrors: errors };
+      return { outcome: "blocked", fieldErrors: errors, error: this.error };
+    }
+
+    const gateReason = this.createGateReason();
+    if (gateReason != null) {
+      this.fieldErrors = null;
+      this.error = gateReason;
+      this.status = "blocked";
+      this.notify();
+      return { outcome: "blocked", fieldErrors: {}, error: gateReason };
     }
 
     if (!this.isPayloadDirty()) {
@@ -725,14 +748,50 @@ export class CardKernel<TDoc, TPayload> {
     }
   }
 
+  private createGateReason(): string | null {
+    if (this.serverDoc != null) return null;
+    return this.config.createGate?.(this.draft) ?? null;
+  }
+
+  /**
+   * What blocks the unpersisted draft right now: schema errors first, then
+   * the create gate. Validating eagerly (not just on flush) is what lets a
+   * pristine new card show why it can't save; persisted docs keep the
+   * flush-derived errors instead.
+   */
+  private validateNewDraft(): {
+    error: string | null;
+    fieldErrors: FieldErrorRecord | null;
+  } {
+    const { payload, pathAliases } = this.config.serialize(this.draft);
+    const parsed = this.config.schema.safeParse(payload);
+    if (!parsed.success) {
+      const errors = translateErrorPaths(
+        fieldErrorsFromIssues(parsed.error.issues),
+        pathAliases,
+      );
+      return {
+        error: firstFieldErrorMessage(errors, "Fix the highlighted fields."),
+        fieldErrors: errors,
+      };
+    }
+    return { error: this.createGateReason(), fieldErrors: null };
+  }
+
   private buildSnapshot(): KernelSnapshot<TDoc> {
+    // "error" keeps the server's message (e.g. a 400's fieldErrors on a
+    // failed create) — fresher than re-running the local schema.
+    const eager =
+      this.serverDoc == null && this.status !== "error"
+        ? this.validateNewDraft()
+        : null;
     return {
       draft: this.draft,
       serverDoc: this.serverDoc,
       isPersisted: this.serverDoc != null,
       status: this.status,
-      error: this.error,
-      fieldErrors: this.fieldErrors,
+      error: eager ? eager.error : this.error,
+      fieldErrors: eager ? eager.fieldErrors : this.fieldErrors,
     };
   }
 

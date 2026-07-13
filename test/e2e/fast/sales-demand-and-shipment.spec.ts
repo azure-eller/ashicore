@@ -202,8 +202,11 @@ test.describe("sales demand and shipping heartbeat", () => {
 
     await page.goto("/sales/order");
     await expect(page.getByText("New sales order")).toBeVisible();
+    // The save pill states the blocker, before and after dirty edits.
+    await expect(page.getByText("Customer is required").first()).toBeVisible();
     await page.getByLabel("Sales order").fill(orderNumber);
     await page.waitForTimeout(1_000);
+    await expect(page.getByText("Customer is required").first()).toBeVisible();
 
     let rows = await db
       .select({ id: salesOrders.id })
@@ -651,9 +654,20 @@ test.describe("sales demand and shipping heartbeat", () => {
 
     await selectInventoryGridItem(page, 1, newProductName);
     await editGridCell(page, "quantity", "3", 1);
-    await expect(page.getByText("Saved", { exact: true })).toBeVisible({
-      timeout: 15_000,
-    });
+    // The pill still reads "Saved" from the header save during the line
+    // edit's debounce window, so wait for the persisted row instead.
+    await expect
+      .poll(
+        async () =>
+          (
+            await db
+              .select({ id: salesOrderLines.id })
+              .from(salesOrderLines)
+              .where(eq(salesOrderLines.salesOrderId, orderId))
+          ).length,
+        { timeout: 15_000 },
+      )
+      .toBe(2);
     await page.reload();
     await expectRows(page, 2);
 

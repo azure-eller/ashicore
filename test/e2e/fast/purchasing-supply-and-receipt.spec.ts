@@ -133,6 +133,8 @@ test.describe("purchasing supply and receipt heartbeat", () => {
 
     await page.goto("/purchasing/order");
     await expect(page.getByText("New purchase order")).toBeVisible();
+    // The save pill states the blocker at each stage of the create gate.
+    await expect(page.getByText("Supplier is required").first()).toBeVisible();
     await page.getByLabel("Purchase order").fill(orderNumber);
     await page.waitForTimeout(1_000);
 
@@ -148,6 +150,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       .filter({ hasText: supplier.body.name })
       .first()
       .click();
+    await expect(page.getByText("Add a material to save")).toBeVisible();
     await page.waitForTimeout(1_000);
 
     rows = await db
@@ -869,12 +872,11 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       .fill(`PO-${"X".repeat(40)}-${unique}`);
 
     await page.getByRole("button", { name: "Send PO email" }).click();
-    await expect(page.getByRole("dialog", { name: /Send documents for/ })).toBeVisible();
-    await page.getByRole("button", { name: "Send 1 email" }).click();
 
-    await expect(page.getByRole("alert")).toHaveText(
-      "Purchase order number must be 32 characters or fewer",
-    );
+    await expect(
+      page.getByText("Purchase order number must be 32 characters or fewer").first(),
+    ).toBeVisible();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     expect(emailCalls).toBe(0);
   });
 
@@ -1357,9 +1359,20 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     expect(savedBlankCostRows).toHaveLength(0);
 
     await editGridCell(page, "amount", "12.50", 0, 1);
-    await expect(page.getByText("Saved", { exact: true })).toBeVisible({
-      timeout: 15_000,
-    });
+    // The pill still reads "Saved" from the notes save during the debounce
+    // window, so wait for the persisted row instead of the pill.
+    await expect
+      .poll(
+        async () =>
+          (
+            await db
+              .select({ id: purchaseOrderAdditionalCosts.id })
+              .from(purchaseOrderAdditionalCosts)
+              .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, orderId))
+          ).length,
+        { timeout: 15_000 },
+      )
+      .toBe(1);
     await page.reload();
 
     await expect(notesInput).toHaveValue(notes);
@@ -1784,6 +1797,75 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       shippingCost: "0.0000",
       totalAmount: "10.0000",
     });
+  });
+
+  test("additional cost with a supplier is validated, not silently dropped", async ({ db }) => {
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast PO Cost Supplier Material ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-PO-COST-SUP-${ts}`,
+      category: `Fast Purchasing ${ts}`,
+      description: null,
+      defaultPurchasePrice: "10.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status).toBe(201);
+
+    const supplier = await createSupplier({ name: `Fast Cost Sup Main ${ts}` });
+    expect(supplier.status).toBe(201);
+    const freightSupplier = await createSupplier({
+      name: `Fast Cost Sup Freight ${ts}`,
+    });
+    expect(freightSupplier.status).toBe(201);
+
+    const lines = [
+      { itemId: material.body.id, quantityOrdered: "1", unitCost: "10.00" },
+    ];
+    const supplierOnlyCost = {
+      costType: "shipping",
+      reference: null,
+      distributionMethod: "by_value",
+      accountingPurchaseAccountCode: null,
+      amount: "",
+      supplierId: freightSupplier.body.id,
+    };
+
+    const rejectedResponse = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId: supplier.body.id,
+        expectedDate: "2026-05-07",
+        notes: null,
+        lines,
+        additionalCosts: [supplierOnlyCost],
+      }),
+    });
+    const rejectedText = await rejectedResponse.text();
+    expect(rejectedResponse.status, rejectedText).toBe(400);
+    expect(rejectedText).toContain("Amount is required");
+
+    const createdResponse = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId: supplier.body.id,
+        expectedDate: "2026-05-07",
+        notes: null,
+        lines,
+        additionalCosts: [{ ...supplierOnlyCost, amount: "25.00" }],
+      }),
+    });
+    const created = await createdResponse.json();
+    expect(createdResponse.status).toBe(201);
+
+    const costs = await db
+      .select({ supplierId: purchaseOrderAdditionalCosts.supplierId })
+      .from(purchaseOrderAdditionalCosts)
+      .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, created.id));
+    expect(costs).toEqual([{ supplierId: freightSupplier.body.id }]);
   });
 
   test("freight edit after receipt revalues landed cost via append-only event", async ({ db }) => {

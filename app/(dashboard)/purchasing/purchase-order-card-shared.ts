@@ -1,4 +1,5 @@
 import {
+  isBlankAdditionalCost,
   type PurchaseOrderAdditionalCostDistributionMethod,
   type PurchaseOrderAdditionalCostType,
 } from "@/lib/schemas/purchase-orders";
@@ -143,23 +144,7 @@ export function isBlankPurchaseOrderAdditionalCost(
     | Omit<NonNullable<PurchaseOrderFormValues["additionalCosts"]>[number], "id">
     | undefined,
 ) {
-  const reference = cost?.reference?.trim() ?? "";
-  const amount = cost?.amount?.trim() ?? "";
-  return (
-    (cost?.costType == null || cost.costType === "shipping") &&
-    (cost?.distributionMethod == null ||
-      cost.distributionMethod === "by_value") &&
-    reference === "" &&
-    amount === ""
-  );
-}
-
-// Mirrors the payload filter in toPurchaseOrderAdditionalCostPayloadRows, so
-// error paths (additionalCosts.N.*) index the same rows the validator saw.
-export function hasPurchaseOrderAdditionalCostAmount(
-  cost: { amount?: string | null } | null | undefined,
-) {
-  return Boolean(cost?.amount?.trim());
+  return isBlankAdditionalCost(cost);
 }
 
 export function createPurchaseOrderAdditionalCostRow(

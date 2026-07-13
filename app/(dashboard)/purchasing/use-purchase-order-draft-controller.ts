@@ -13,11 +13,15 @@ import {
 } from "@/lib/schemas/purchase-orders";
 import type { FlushOutcome } from "@/lib/card-kernel/kernel";
 import { useCardKernel } from "@/lib/card-kernel/use-card-kernel";
+import type { CardSaveState } from "@/components/card-page/card-save-status";
 import type {
   PurchaseOrderDetail,
   PurchaseOrderEditData,
 } from "@/lib/purchasing/types";
-import { hasPurchaseOrderAdditionalCostAmount } from "./purchase-order-card-shared";
+import {
+  isBlankPurchaseOrderAdditionalCost,
+  isBlankPurchaseOrderLine,
+} from "./purchase-order-card-shared";
 
 export type PurchaseOrderFormValues = z.input<typeof insertPurchaseOrderSchema>;
 
@@ -57,6 +61,8 @@ export type PurchaseOrderDraftController = {
   status: "idle" | "dirty" | "saving" | "saved" | "error";
   error: string | null;
   fieldErrors: FieldErrorRecord | null;
+  saveState: CardSaveState;
+  saveMessage: string | null;
   patchHeader: (
     patch: Partial<Omit<PurchaseOrderDraft, "lines" | "additionalCosts">>,
     delayMs?: number,
@@ -100,16 +106,7 @@ const blankPurchaseOrderAdditionalCost = {
   amount: null,
 };
 
-export function isBlankPurchaseOrderLine(
-  line: Omit<PurchaseOrderLinePayloadRow, "id"> | undefined,
-) {
-  const itemId = line?.itemId?.trim() ?? "";
-  const quantityOrdered = line?.quantityOrdered?.trim() ?? "";
-  const unitCost = line?.unitCost?.trim() ?? "";
-  return itemId === "" && quantityOrdered === "" && unitCost === "";
-}
-
-function hasCompletePurchaseOrderMaterialLine(
+export function hasCompletePurchaseOrderMaterialLine(
   line: Omit<PurchaseOrderLinePayloadRow, "id"> | undefined,
 ) {
   const itemId = line?.itemId?.trim() ?? "";
@@ -192,20 +189,6 @@ export function toPurchaseOrderLinePayloadRows(
     }));
 }
 
-export function isBlankPurchaseOrderAdditionalCost(
-  cost: Omit<PurchaseOrderAdditionalCostPayloadRow, "id"> | undefined,
-) {
-  const reference = cost?.reference?.trim() ?? "";
-  const amount = cost?.amount?.trim() ?? "";
-  return (
-    (cost?.costType == null || cost.costType === "shipping") &&
-    (cost?.distributionMethod == null ||
-      cost.distributionMethod === "by_value") &&
-    reference === "" &&
-    amount === ""
-  );
-}
-
 export function createPurchaseOrderAdditionalCostRow(
   values?: Partial<PurchaseOrderAdditionalCostDraftRow>,
 ): PurchaseOrderAdditionalCostDraftRow {
@@ -231,7 +214,7 @@ export function toPurchaseOrderAdditionalCostPayloadRows(
   rows: PurchaseOrderAdditionalCostDraftRow[],
 ): PurchaseOrderAdditionalCostPayloadRow[] {
   return rows
-    .filter(hasPurchaseOrderAdditionalCostAmount)
+    .filter((row) => !isBlankPurchaseOrderAdditionalCost(row))
     .map((row) => ({
       id: row.clientRowId,
       costType: row.costType ?? "shipping",
@@ -464,6 +447,10 @@ export function usePurchaseOrderDraftController({
       additionalCosts: { idKey: "clientRowId" },
     },
     schema: updatePurchaseOrderSchema,
+    createGate: (draft) =>
+      draft.lines.some(hasCompletePurchaseOrderMaterialLine)
+        ? null
+        : "Add a material to save",
     serialize: serializePurchaseOrder,
     readVersion: (doc) => (doc.version > 0 ? doc.version : null),
     readConflictDoc: (current) =>
@@ -494,42 +481,21 @@ export function usePurchaseOrderDraftController({
   });
 
   const update = kernel.update;
-  const deferFirstSave = useCallback(
-    ({
-      supplierId = kernel.draft.supplierId,
-      lines = kernel.draft.lines,
-    }: {
-      supplierId?: string | null;
-      lines?: PurchaseOrderLineDraftRow[];
-    } = {}) =>
-      !kernel.isPersisted &&
-      (!(supplierId ?? "").trim() ||
-        !lines.some(hasCompletePurchaseOrderMaterialLine)),
-    [kernel.draft.lines, kernel.draft.supplierId, kernel.isPersisted],
-  );
   const patchHeader = useCallback(
     (
       patch: Partial<Omit<PurchaseOrderDraft, "lines" | "additionalCosts">>,
       delayMs = TEXT_FLUSH_DELAY_MS,
     ) => {
-      update((draft) => ({ ...draft, ...patch }), {
-        debounceMs: deferFirstSave({ supplierId: patch.supplierId ?? undefined })
-          ? Number.POSITIVE_INFINITY
-          : delayMs,
-      });
+      update((draft) => ({ ...draft, ...patch }), { debounceMs: delayMs });
     },
-    [deferFirstSave, update],
+    [update],
   );
 
   const replaceLines = useCallback(
     (rows: PurchaseOrderLineDraftRow[], delayMs = QUICK_FLUSH_DELAY_MS) => {
-      update((draft) => ({ ...draft, lines: rows }), {
-        debounceMs: deferFirstSave({ lines: rows })
-          ? Number.POSITIVE_INFINITY
-          : delayMs,
-      });
+      update((draft) => ({ ...draft, lines: rows }), { debounceMs: delayMs });
     },
-    [deferFirstSave, update],
+    [update],
   );
 
   const replaceAdditionalCosts = useCallback(
@@ -538,10 +504,10 @@ export function usePurchaseOrderDraftController({
       delayMs = QUICK_FLUSH_DELAY_MS,
     ) => {
       update((draft) => ({ ...draft, additionalCosts: rows }), {
-        debounceMs: deferFirstSave() ? Number.POSITIVE_INFINITY : delayMs,
+        debounceMs: delayMs,
       });
     },
-    [deferFirstSave, update],
+    [update],
   );
 
   return useMemo(
@@ -559,6 +525,8 @@ export function usePurchaseOrderDraftController({
             : kernel.status,
       error: kernel.error,
       fieldErrors: kernel.fieldErrors,
+      saveState: kernel.saveState,
+      saveMessage: kernel.saveMessage,
       patchHeader,
       replaceLines,
       replaceAdditionalCosts,

@@ -190,7 +190,6 @@ export function SupplierCard({
                 label="Name"
                 required
                 autoFocus={isDraft}
-                invalid={isDraft && !(display.name ?? "").trim()}
               />
               <SupplierFields.Text name="code" label="Code" tooltip={SUPPLIER_CODE_TOOLTIP} />
               <SupplierFields.Text name="contactName" label="Contact name" />

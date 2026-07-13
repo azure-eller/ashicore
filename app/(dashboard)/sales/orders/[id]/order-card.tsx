@@ -170,18 +170,11 @@ export function OrderCard({
     isDraft ||
     (order.status !== "done" && order.shippingReadiness.state !== "shipped");
 
-  const saveState: CardSaveState =
-    controller.status === "saving" || controller.status === "dirty"
-      ? "saving"
-      : controller.status === "error"
-        ? "failed"
-        : isDraft
-          ? "not_saved"
-          : "saved";
+  const saveState: CardSaveState = controller.saveState;
   const saveMessage =
     saveState === "failed"
-      ? controller.error ?? actionError ?? "Save failed"
-      : null;
+      ? controller.saveMessage ?? actionError ?? "Save failed"
+      : controller.saveMessage;
 
   // ---- Live mutations ----------------------------------------------------
   const actions = useCardEntityActions({
