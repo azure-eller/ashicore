@@ -93,6 +93,7 @@ import styles from "@/components/card-page/card-page.module.css";
 import { ApiJsonError, apiJson } from "@/lib/client/api";
 import { useApiMutation } from "@/lib/client/use-api-mutation";
 import { queryKeys } from "@/lib/client/query-keys";
+import { PurchaseOrderDeleteImpactSummary } from "./purchase-order-delete-impact";
 
 import {
   buildPurchaseOrderAdditionalCostColumns,
@@ -280,8 +281,7 @@ export function PurchaseOrderCard({
     [initialData?.lines],
   );
   const readOnly = !canWrite;
-  const canDeletePurchaseOrder =
-    canWrite && displayStatus === "not_received";
+  const canDeletePurchaseOrder = canWrite;
   const materialLinesReadOnly = readOnly;
   const linePricesReadOnly = !canWrite;
   const additionalCostsReadOnly = !canWrite;
@@ -657,10 +657,10 @@ export function PurchaseOrderCard({
       confirm: {
         title: "Delete purchase order?",
         description: (
-          <>
-            Purchase order {savedOrderNumber ?? "this order"} will be removed. This
-            cannot be undone.
-          </>
+          <PurchaseOrderDeleteImpactSummary
+            orderId={savedOrderId}
+            orderNumber={savedOrderNumber}
+          />
         ),
       },
     },

@@ -12,7 +12,7 @@ sidebar:
 import { Aside } from '@astrojs/starlight/components';
 import Pill from '../../../../widgets/Pill.astro';
 
-Receiving is where a purchase order becomes real inventory. Each received line writes a permanent receipt. For lot-tracked items, that receipt creates a costed lot; for untracked items, it appends to the item's internal shared lot. Understanding that history explains the order's costing, traceability, and why it can't be deleted afterward.
+Receiving is where a purchase order becomes real inventory. Each received line writes a permanent receipt. For lot-tracked items, that receipt creates a costed lot; for untracked items, it appends to the item's internal shared lot. Understanding that history explains the order's costing and traceability — and what happens to its stock if the order is later deleted.
 
 ## A lot is a received batch
 
@@ -39,8 +39,8 @@ When you receive a tracked item, Ashicore creates **one lot** holding the receiv
 
 ## Why receipts are permanent
 
-A receipt is real inventory history. That's the reason a partially- or fully-received order can no longer be deleted and received lines can't be removed — the events that put stock on your shelves must stay intact. To reverse received stock, adjust it through inventory; the order remains the record of what was received and at what cost.
+A receipt is real inventory history — the events that put stock on your shelves stay intact, which is why received lines can't be removed. Deleting a received order doesn't erase them either: it removes the order's received stock that is still on hand and keeps used quantities and their cost history, so the record of what was received, and at what cost, survives the delete.
 
 <Aside type="caution" title="Receiving is positive-only">
-You can receive another partial batch while an order is <Pill status="partial" />, but you cannot receive directly against a fully <Pill status="received" /> order. Add a line or increase a quantity first to reopen a remainder, then receive the new quantity. There is no negative receipt; see [the lifecycle](/docs/purchasing/the-po-lifecycle#why-cant-i-delete-this-order).
+You can receive another partial batch while an order is <Pill status="partial" />, but you cannot receive directly against a fully <Pill status="received" /> order. Add a line or increase a quantity first to reopen a remainder, then receive the new quantity. There is no negative receipt; to back out received stock, delete the order — see [the lifecycle](/docs/purchasing/the-po-lifecycle#what-happens-when-you-delete-an-order).
 </Aside>

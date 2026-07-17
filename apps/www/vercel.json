@@ -29,7 +29,11 @@
       "permanent": false,
       "has": [{ "type": "cookie", "key": "__Secure-better-auth-session_token" }]
     },
-    { "source": "/login", "destination": "/sign-in", "permanent": false },
+    {
+      "source": "/login",
+      "destination": "/sign-in",
+      "permanent": false
+    },
     { "source": "/documents", "destination": "/resources", "permanent": false }
   ],
   "rewrites": [

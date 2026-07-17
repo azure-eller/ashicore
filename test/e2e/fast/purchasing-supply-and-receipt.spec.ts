@@ -3522,4 +3522,140 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       );
     expect(currentOrgFreightRows).toHaveLength(0);
   });
+
+  test("deleting a received PO caps reversal at its receipt and preserves consumed history", async ({
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const orgId = getOrgId();
+    const supplier = await createSupplier({ name: `Fast Delete Supplier ${unique}` });
+    expect(supplier.status).toBe(201);
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast Delete Material ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-DEL-${unique}`,
+      category: `Fast Delete ${ts}`,
+      description: null,
+      defaultPurchasePrice: "5.00",
+      defaultSellingPrice: null,
+      lotTrackingMode: "tracked",
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status).toBe(201);
+    const order = await createPurchaseOrder({
+      supplierId: supplier.body.id,
+      lines: [{ itemId: material.body.id, quantityOrdered: "10", unitCost: "5" }],
+    });
+    expect(order.status).toBe(201);
+    const received = await receivePurchaseOrder(order.body.id, {
+      lines: [{ lineId: order.body.lines[0].id, quantityReceived: "10" }],
+    });
+    expect(received.status).toBe(200);
+
+    // Consume part of the receipt lot, then delete the order.
+    const lotsRes = await testFetch(`/api/items/${material.body.id}/lots`);
+    const lots = (await lotsRes.json()) as Array<{ id: string; quantity: string }>;
+    expect(lots).toHaveLength(1);
+    const adjusted = await testFetch(`/api/items/${material.body.id}/stock-adjustments`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "data_correction",
+        lots: [{ lotId: lots[0].id, newQuantity: "6" }],
+      }),
+    });
+    expect(adjusted.ok).toBeTruthy();
+
+    const preview = await testFetch(
+      `/api/purchase-orders/${order.body.id}/delete-preview`,
+    );
+    expect(preview.status).toBe(200);
+    const previewBody = await preview.json();
+    expect(Number(previewBody.items[0].removeQty)).toBe(6);
+    expect(Number(previewBody.items[0].keptQty)).toBe(4);
+
+    const increased = await testFetch(
+      `/api/items/${material.body.id}/stock-adjustments`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          reason: "data_correction",
+          lots: [{ lotId: lots[0].id, newQuantity: "11" }],
+        }),
+      },
+    );
+    expect(increased.ok).toBeTruthy();
+
+    const cappedPreview = await testFetch(
+      `/api/purchase-orders/${order.body.id}/delete-preview`,
+    );
+    expect(cappedPreview.status).toBe(200);
+    const cappedPreviewBody = await cappedPreview.json();
+    expect(Number(cappedPreviewBody.items[0].removeQty)).toBe(10);
+    expect(Number(cappedPreviewBody.items[0].keptQty)).toBe(0);
+
+    const deleted = await testFetch(`/api/purchase-orders/${order.body.id}`, {
+      method: "DELETE",
+    });
+    expect(deleted.status).toBe(200);
+
+    // Exactly one compensating reversal event for the on-hand remainder.
+    const reversalRows = await db
+      .select({ quantity: inventoryEvents.quantity })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.organizationId, orgId),
+          eq(inventoryEvents.eventType, "manual_adjustment_decrease"),
+          eq(inventoryEvents.eventSubtype, "purchase_receipt_reversal"),
+          eq(inventoryEvents.referenceType, "purchase_order"),
+          eq(inventoryEvents.referenceId, order.body.id),
+        ),
+      );
+    expect(reversalRows).toHaveLength(1);
+    expect(Number(reversalRows[0].quantity)).toBe(10);
+
+    // The receipt and the consumption events are preserved.
+    const receiptRows = await db
+      .select({ id: inventoryEvents.id })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.organizationId, orgId),
+          eq(inventoryEvents.eventType, "purchase_receipt"),
+          eq(inventoryEvents.referenceId, order.body.id),
+        ),
+      );
+    expect(receiptRows).toHaveLength(1);
+
+    const [balance] = await db
+      .select({ onHandQty: inventoryItemBalances.onHandQty })
+      .from(inventoryItemBalances)
+      .where(
+        and(
+          eq(inventoryItemBalances.organizationId, orgId),
+          eq(inventoryItemBalances.itemId, material.body.id),
+        ),
+      );
+    expect(Number(balance?.onHandQty ?? "0")).toBe(1);
+
+    const expectedRows = await db
+      .select({ quantity: inventoryExpectedSummary.quantity })
+      .from(inventoryExpectedSummary)
+      .where(
+        and(
+          eq(inventoryExpectedSummary.referenceType, "purchase_order_line"),
+          eq(inventoryExpectedSummary.referenceId, order.body.lines[0].id),
+        ),
+      );
+    for (const row of expectedRows) expect(Number(row.quantity)).toBe(0);
+
+    const [po] = await db
+      .select({ deletedAt: purchaseOrders.deletedAt })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, order.body.id));
+    expect(po?.deletedAt).not.toBeNull();
+  });
 });

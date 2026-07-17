@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   type InventoryDisposition,
   inventoryExpectedSummary,
@@ -14,6 +14,7 @@ import { trimScaleNullable } from "@/lib/db/numeric";
 import { calculateNextCurrentStockUnitCost } from "@/lib/inventory/cost";
 import { LotTrackingError, type LotTrackingMode } from "@/lib/inventory/lot-tracking";
 import { insertInventoryEventsInTx } from "@/lib/inventory/kernel/events";
+import { deriveInventoryIdempotencyKey } from "@/lib/inventory/kernel/idempotency";
 import {
   lockItemsInTx,
   lockSourceDocumentInTx,
@@ -32,6 +33,7 @@ import type { InventoryEventInput } from "@/lib/inventory/kernel/types";
 import {
   calculateExtendedCostDelta,
   createPositiveStockEventInTx,
+  decrementExistingLotStockInTx,
   DEFAULT_DISPOSITION,
   getCurrentOnHandQtyInTx,
   recomputeMaterialCurrentStockUnitCostFromLotsInTx,
@@ -733,5 +735,261 @@ export async function revaluePurchaseLandedCostInTx(
     result,
   });
 
+  return result;
+}
+
+type PurchaseReceiptRemainder = {
+  itemIds: string[];
+  tracked: Array<{
+    itemId: string;
+    lotId: string;
+    locationId: string;
+    disposition: InventoryDisposition;
+    quantity: number;
+  }>;
+  untracked: Array<{
+    itemId: string;
+    lotId: string;
+    locationId: string;
+    receivedQty: number;
+    onHandQty: number;
+  }>;
+};
+
+// The current on-hand remainder of a purchase order's receipts. Tracked
+// receipts create one lot per receive line, so a receipt lot's live balance is
+// exactly the un-consumed remainder. Untracked receipts share the internal
+// bucket with every other source, so the removable remainder is capped at
+// min(received by this order, bucket on hand) per location.
+export async function collectPurchaseReceiptRemainderInTx(
+  tx: Tx,
+  params: { organizationId: string; purchaseOrderId: string },
+  options: { forUpdate?: boolean } = {}
+): Promise<PurchaseReceiptRemainder> {
+  const receiptRows = await tx
+    .select({
+      itemId: inventoryEvents.itemId,
+      lotId: inventoryEvents.lotId,
+      locationId: inventoryEvents.locationId,
+      quantity: inventoryEvents.quantity,
+    })
+    .from(inventoryEvents)
+    .where(
+      and(
+        eq(inventoryEvents.organizationId, params.organizationId),
+        eq(inventoryEvents.eventType, "purchase_receipt"),
+        eq(inventoryEvents.referenceType, "purchase_order"),
+        eq(inventoryEvents.referenceId, params.purchaseOrderId)
+      )
+    );
+
+  const receipts = receiptRows.flatMap((row) =>
+    row.lotId == null || row.itemId == null || row.locationId == null
+      ? []
+      : [
+          {
+            itemId: row.itemId,
+            lotId: row.lotId,
+            locationId: row.locationId,
+            quantity: row.quantity,
+          },
+        ]
+  );
+  if (receipts.length === 0) {
+    return { itemIds: [], tracked: [], untracked: [] };
+  }
+
+  const itemIds = [...new Set(receipts.map((row) => row.itemId))];
+  if (options.forUpdate) {
+    await lockItemsInTx(tx, itemIds);
+  }
+  const itemModeRows = await tx
+    .select({ id: items.id, lotTrackingMode: itemFamilies.lotTrackingMode })
+    .from(items)
+    .innerJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
+    .where(inArray(items.id, itemIds));
+  const untrackedItemIds = new Set(
+    itemModeRows
+      .filter((row) => (row.lotTrackingMode as LotTrackingMode) === "untracked")
+      .map((row) => row.id)
+  );
+
+  const lotIds = [...new Set(receipts.map((row) => row.lotId))];
+  const balanceQuery = tx
+    .select({
+      itemId: inventoryLotBalances.itemId,
+      lotId: inventoryLotBalances.lotId,
+      locationId: inventoryLotBalances.locationId,
+      disposition: inventoryLotBalances.disposition,
+      quantity: inventoryLotBalances.quantity,
+    })
+    .from(inventoryLotBalances)
+    .where(
+      and(
+        eq(inventoryLotBalances.organizationId, params.organizationId),
+        inArray(inventoryLotBalances.lotId, lotIds),
+        sql`${inventoryLotBalances.quantity} > 0`
+      )
+    );
+  const balanceRows = options.forUpdate
+    ? await balanceQuery.for("update")
+    : await balanceQuery;
+
+  const trackedReceivedByLot = new Map<string, number>();
+  for (const receipt of receipts) {
+    if (untrackedItemIds.has(receipt.itemId)) continue;
+    trackedReceivedByLot.set(
+      receipt.lotId,
+      roundQuantity(
+        (trackedReceivedByLot.get(receipt.lotId) ?? 0) +
+          parseFloat(receipt.quantity)
+      )
+    );
+  }
+
+  const tracked: PurchaseReceiptRemainder["tracked"] = [];
+  for (const row of balanceRows.sort((left, right) =>
+    `${left.lotId}:${left.locationId}:${left.disposition}`.localeCompare(
+      `${right.lotId}:${right.locationId}:${right.disposition}`
+    )
+  )) {
+    if (untrackedItemIds.has(row.itemId)) continue;
+    const remainingReceived = trackedReceivedByLot.get(row.lotId) ?? 0;
+    if (remainingReceived <= 0) continue;
+    const quantity = Math.min(
+      remainingReceived,
+      roundQuantity(parseFloat(row.quantity))
+    );
+    tracked.push({
+      itemId: row.itemId,
+      lotId: row.lotId,
+      locationId: row.locationId,
+      disposition: row.disposition as InventoryDisposition,
+      quantity,
+    });
+    trackedReceivedByLot.set(
+      row.lotId,
+      roundQuantity(remainingReceived - quantity)
+    );
+  }
+
+  const untrackedReceived = new Map<
+    string,
+    { itemId: string; lotId: string; locationId: string; receivedQty: number }
+  >();
+  for (const receipt of receipts) {
+    if (!untrackedItemIds.has(receipt.itemId)) continue;
+    const key = `${receipt.itemId}:${receipt.locationId}`;
+    const current = untrackedReceived.get(key) ?? {
+      itemId: receipt.itemId,
+      lotId: receipt.lotId,
+      locationId: receipt.locationId,
+      receivedQty: 0,
+    };
+    current.receivedQty = roundQuantity(
+      current.receivedQty + parseFloat(receipt.quantity)
+    );
+    untrackedReceived.set(key, current);
+  }
+  const untracked: PurchaseReceiptRemainder["untracked"] = [];
+  for (const entry of untrackedReceived.values()) {
+    const onHand = balanceRows
+      .filter(
+        (row) =>
+          row.itemId === entry.itemId &&
+          row.locationId === entry.locationId &&
+          row.disposition === DEFAULT_DISPOSITION
+      )
+      .reduce((sum, row) => roundQuantity(sum + parseFloat(row.quantity)), 0);
+    untracked.push({ ...entry, onHandQty: Math.min(entry.receivedQty, onHand) });
+  }
+
+  return { itemIds, tracked, untracked };
+}
+
+// Compensating removal of a purchase order's un-consumed receipt remainder,
+// used by PO delete. Appends manual_adjustment_decrease events (subtype
+// purchase_receipt_reversal); receipt history and consumed quantities are
+// untouched, and item MAC is not rewritten (negative flows never are).
+export async function reversePurchaseReceiptsInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    purchaseOrderId: string;
+    actorUserId?: string | null;
+    idempotencyKey?: string | null;
+  }
+) {
+  const replay = await beginInventoryOperationInTx<{ eventIds: string[] }>(tx, {
+    organizationId: params.organizationId,
+    operationName: "reversePurchaseReceipts",
+    idempotencyKey: params.idempotencyKey ?? null,
+    payload: { purchaseOrderId: params.purchaseOrderId },
+  });
+  if (replay.replayed) {
+    return replay.result;
+  }
+
+  await lockSourceDocumentInTx(
+    tx,
+    "reversePurchaseReceipts",
+    params.purchaseOrderId
+  );
+  const remainder = await collectPurchaseReceiptRemainderInTx(tx, params, {
+    forUpdate: true,
+  });
+
+  const eventIds: string[] = [];
+
+  for (const row of remainder.tracked) {
+    if (row.quantity <= 0) continue;
+    const { eventId } = await decrementExistingLotStockInTx(tx, {
+      organizationId: params.organizationId,
+      locationId: row.locationId,
+      itemId: row.itemId,
+      lotId: row.lotId,
+      quantity: row.quantity,
+      eventType: "manual_adjustment_decrease",
+      eventSubtype: "purchase_receipt_reversal",
+      referenceType: "purchase_order",
+      referenceId: params.purchaseOrderId,
+      actorUserId: params.actorUserId ?? null,
+      idempotencyKey: deriveInventoryIdempotencyKey(
+        params.idempotencyKey,
+        `reverse-receipt:${row.lotId}:${row.locationId}:${row.disposition}`
+      ),
+      disposition: row.disposition,
+    });
+    eventIds.push(eventId);
+  }
+
+  for (const row of remainder.untracked) {
+    if (row.onHandQty <= 0) continue;
+    const { eventId } = await decrementExistingLotStockInTx(tx, {
+      organizationId: params.organizationId,
+      locationId: row.locationId,
+      itemId: row.itemId,
+      lotId: row.lotId,
+      quantity: row.onHandQty,
+      eventType: "manual_adjustment_decrease",
+      eventSubtype: "purchase_receipt_reversal",
+      referenceType: "purchase_order",
+      referenceId: params.purchaseOrderId,
+      actorUserId: params.actorUserId ?? null,
+      idempotencyKey: deriveInventoryIdempotencyKey(
+        params.idempotencyKey,
+        `reverse-receipt:${row.itemId}:${row.locationId}:untracked`
+      ),
+    });
+    eventIds.push(eventId);
+  }
+
+  const result = { eventIds };
+  await finishInventoryOperationInTx(tx, {
+    organizationId: params.organizationId,
+    idempotencyKey: params.idempotencyKey ?? null,
+    firstEventId: eventIds[0] ?? null,
+    result,
+  });
   return result;
 }

@@ -50,7 +50,7 @@ type DeleteAction<TData extends { id: string }> = {
   invalidateQueryKeys: readonly (readonly unknown[])[];
   defaultErrorMessage: string;
   confirmTitle: (count: number) => string;
-  confirmDescription: (count: number) => string;
+  confirmDescription: (count: number, rows: TData[]) => ReactNode;
   idempotencyKey?: string;
   isRowSelectable?: (row: TData) => boolean;
 };
@@ -321,7 +321,7 @@ function ERPDataGridListInner<TData extends { id: string }>({
                 {deleteAction.confirmTitle(deleteCount)}
               </AlertDialogTitle>
               <AlertDialogDescription>
-                {deleteAction.confirmDescription(deleteCount)}
+                {deleteAction.confirmDescription(deleteCount, deleteRows)}
               </AlertDialogDescription>
               {deleteError ? (
                 <Panel

@@ -3,7 +3,7 @@ read_when:
   - Working on the purchasing module
   - Editing suppliers, purchase orders, or receiving
   - Wiring purchase-order UI, API routes, or DAL queries
-  - Debugging expected quantities, delete guards, or received lots
+  - Debugging expected quantities, delete behaviour, or received lots
 ---
 
 # Purchasing Module
@@ -171,12 +171,13 @@ Update rules:
   its reference, amount, and supplier are all blank; choosing a supplier makes the row
   validate and persist, so its amount is required
 - creation persists a `not_received` PO and immediately books expected supply for stock lines
-- `not_received` orders may be edited, received, or deleted before any receipt
-- `partial` orders may be edited or received; already received lines cannot be removed
-- `received` orders may be edited; increasing quantity or adding lines moves the
+- `not_received` orders may be edited, received, or deleted
+- `partial` orders may be edited, received, or deleted; already received lines cannot be removed
+- `received` orders may be edited or deleted; increasing quantity or adding lines moves the
   order back to `partial`, while landed-cost changes revalue eligible received
   stock
-- delete is allowed only before inventory receipt history exists
+- delete is allowed at any status; deleting a `partial`/`received` order first
+  reverses the on-hand remainder of its receipts (see Deleting below)
 
 Valid transitions:
 
@@ -188,18 +189,33 @@ Valid transitions:
 - receive `not_received` -> `received`
 - receive `partial` -> `partial`
 - receive `partial` -> `received`
-- soft-delete `not_received`
+- soft-delete any status
 
 Invalid transitions:
 
 - reduce ordered quantity below already received quantity
 - remove received purchase order lines
-- delete `partial`
-- delete `received`
 
-Deleting a `not_received` purchase order releases expected inventory in the same
-transaction. `partial` and `received` orders block deletion because
-`purchase_receipt` inventory history must be preserved.
+## Deleting
+
+Delete is always available and runs in one transaction:
+
+- `partial`/`received` orders first run `reversePurchaseReceiptsInTx` (kernel):
+  each receipt lot's live balance — the un-consumed remainder — is removed via
+  compensating `manual_adjustment_decrease` events with subtype
+  `purchase_receipt_reversal` referencing the PO. Original `purchase_receipt`
+  events and consumed quantities are never touched.
+- untracked materials share the internal bucket, so the reversal is capped at
+  `min(received by this PO, bucket on hand)` per location
+- item `currentStockUnitCost` is not rewritten (negative flows never rewrite
+  it); FIFO valuation continues to come from the remaining lots
+- expected supply is released (`releaseExpectedFromPurchaseInTx`), linked
+  additional-cost POs are soft-deleted, then the PO is soft-deleted
+- accounting `document_syncs` rows are left intact; a pushed bill is never
+  auto-deleted in the provider
+- `GET /api/purchase-orders/[id]/delete-preview` returns the per-item
+  remove/kept quantities and a `billSynced` flag; the delete dialog renders it
+  so the operator sees exactly what will happen (including the bill warning)
 
 Setting status to `received` through `PATCH /api/purchase-orders/[id]/status` is not a
 flag flip — it runs the real `receivePurchaseOrder` path, receiving every remaining line at
@@ -264,7 +280,7 @@ Implementation rule:
 
 ## Purchase order invariants — coverage map
 
-Every consequence of acting on a purchase order, the invariant it protects, and whether a slow story protects it. The only slow story for purchasing is `purchasing-receiving.spec.ts`; its `SLOW_TEST_STORIES.md` entry lists *delete guards* and *untracked MAC revaluation (phase 2)* under what it does **not** cover, and its covered list does not include the over-receipt path. The public docs hub carries the operator-facing version of this table without any test/coverage column — keep that mapping here, not there.
+Every consequence of acting on a purchase order, the invariant it protects, and whether a slow story protects it. The only slow story for purchasing is `purchasing-receiving.spec.ts`; it checks that received-order delete remains available and previews the reversal, but the fast lane owns the receipt-reversal database effects. Its covered list does not include the over-receipt path or untracked MAC revaluation (phase 2). The public docs hub carries the operator-facing version of this table without any test/coverage column — keep that mapping here, not there.
 
 | Invariant | Spec | Covered? |
 |-----------|------|----------|
@@ -275,5 +291,5 @@ Every consequence of acting on a purchase order, the invariant it protects, and 
 | Full receipt: last remainder becomes stock; status Received; expected fully released | `purchasing-receiving.spec.ts` | Yes |
 | Received-line cost / by-value additional-cost edit revalues eligible on-hand tracked stock via append-only event; consumed and untracked-v1 stock unchanged | `purchasing-receiving.spec.ts` | Yes |
 | Over-receipt: confirmed receipt raises ordered quantity to match what was received | `purchasing-receiving.spec.ts` | No — not covered by that story |
-| Delete a not received order releases its expected supply in the same transaction | `purchasing-receiving.spec.ts` | No — delete guards excluded by that story |
-| Delete blocked after any receipt to preserve `purchase_receipt` inventory and lot-cost history | `purchasing-receiving.spec.ts` | No — delete guards excluded by that story |
+| Delete releases the order's remaining expected supply in the same transaction | `purchasing-supply-and-receipt.spec.ts` (fast) | Yes |
+| Delete after receipt reverses only the on-hand remainder via `purchase_receipt_reversal` events; `purchase_receipt` events and consumed quantities are preserved | `purchasing-supply-and-receipt.spec.ts` (fast) | Yes |

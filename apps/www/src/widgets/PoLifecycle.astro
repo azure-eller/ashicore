@@ -57,11 +57,11 @@ const NODES = [
   const LIFE: Record<Status, LifeEntry> = {
     not_received: {
       desc:
-        "Open with the supplier. The remaining quantity is expected supply as soon as the order is created, so planning can see it before stock arrives. Still fully editable, and still deletable — until the first receipt.",
+        "Open with the supplier. The remaining quantity is expected supply as soon as the order is created, so planning can see it before stock arrives. Fully editable and deletable.",
       actions: [
         { ok: true, text: "Edit lines, quantities, and costs" },
         { ok: true, text: "Receive stock (full or partial)" },
-        { ok: true, text: "Delete before any receipt — releases the expected supply" },
+        { ok: true, text: "Delete — releases the expected supply" },
         { ok: false, text: "Reduce a quantity below what's already received" },
       ],
       trans: [
@@ -72,16 +72,17 @@ const NODES = [
     },
     partial: {
       desc:
-        "Some lines have been received into stock; a remainder is still expected. Received lines are permanent receipt history now, so they can't be removed and the order can't be deleted.",
+        "Some lines have been received into stock; a remainder is still expected. Received lines are permanent receipt history now, so they can't be removed. Deleting the order removes its received stock still on hand and keeps used quantities in history.",
       actions: [
         { ok: true, text: "Edit and receive the remaining lines" },
         { ok: true, text: "Edit a cost — revalues the stock still on hand" },
+        { ok: true, text: "Delete — removes on-hand received stock, keeps used history" },
         { ok: false, text: "Remove an already-received line" },
-        { ok: false, text: "Delete the order" },
       ],
       trans: [
         { label: "receive another partial", to: "partial" },
         { label: "receive the rest", to: "received" },
+        { label: "delete", to: null },
       ],
     },
     received: {
@@ -90,10 +91,13 @@ const NODES = [
       actions: [
         { ok: true, text: "Edit a line price or by-value cost (revalues on-hand stock)" },
         { ok: true, text: "Add a line or increase a quantity → reopens to Partially Received" },
-        { ok: false, text: "Delete the order" },
+        { ok: true, text: "Delete — removes on-hand received stock, keeps used history" },
         { ok: false, text: "Reduce a quantity below what's received" },
       ],
-      trans: [{ label: "add line / increase qty", to: "partial" }],
+      trans: [
+        { label: "add line / increase qty", to: "partial" },
+        { label: "delete", to: null },
+      ],
     },
   };
 

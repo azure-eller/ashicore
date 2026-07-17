@@ -21,7 +21,7 @@ Select a status to see what it means, what's allowed, and where it can go next.
 <PoLifecycle />
 
 <Aside type="note" title="There is no “cancelled” status">
-An order is removed by **deleting** it, which is only possible while it's <Pill status="not_received" /> — before any receipt. Deleting a not received order releases its expected supply in the same step.
+An order is removed by **deleting** it, which is possible at any status. Deleting releases the order's remaining expected supply, and if stock was already received, the part still on hand is removed from stock — see [what happens when you delete](#what-happens-when-you-delete-an-order).
 </Aside>
 
 ## What happens when you receive
@@ -34,7 +34,7 @@ Receiving is the most consequential action in purchasing — it's where a promis
 
 2. **The lot is costed at the line's landed cost per stocking unit.** Any by-value additional costs you entered before receiving are already baked into that value.
 
-3. **The receipt becomes permanent history.** This is why a partially or fully received order can no longer be deleted, and why received lines can't be removed.
+3. **The receipt becomes permanent history.** Received lines can't be removed, and even deleting the order later keeps every receipt event in item history — only stock still on hand is backed out.
 
 4. **Expected supply for what you received is released.** Planning instantly reflects what actually landed instead of what was still due.
 
@@ -62,13 +62,20 @@ These are the only moves the system allows. Anything not listed is blocked to pr
 | Receive another partial batch | <Pill status="partial" /> | <Pill status="partial" /> | More stock arrives, but a remainder still exists. |
 | Receive the rest | <Pill status="partial" /> | <Pill status="received" /> | Completes the remaining lines. |
 | Add a line / increase a quantity | <Pill status="received" /> | <Pill status="partial" /> | Reopens the remainder. |
-| Delete | <Pill status="not_received" /> | <span class="po-tok po-tok--muted">Removed</span> | Deleting a not received order releases its expected supply. |
+| Delete | <span class="po-tok po-tok--muted">Any status</span> | <span class="po-tok po-tok--muted">Removed</span> | Releases expected supply; received stock still on hand is removed from stock. |
 | Reduce below received | <span class="po-tok po-tok--muted">—</span> | <span class="po-tok po-tok--no">Blocked</span> | A quantity can't drop under what's already received. |
 | Remove a received line | <span class="po-tok po-tok--muted">—</span> | <span class="po-tok po-tok--no">Blocked</span> | Receipt history must be preserved. |
-| Delete after any receipt | <span class="po-tok po-tok--muted">—</span> | <span class="po-tok po-tok--no">Blocked</span> | The order keeps its inventory and costing history. |
 
-## Why can't I delete this order?
+## What happens when you delete an order?
 
-Delete is allowed **only before any receipt exists** — that means an <Pill status="not_received" /> order with zero receipts. The moment a single line is received, the order is <Pill status="partial" /> or <Pill status="received" />, and its receipt history must be preserved, so deletion is blocked.
+Delete is always available from the order card's **⋯** actions menu, and the confirmation dialog states exactly what the delete will do before you commit:
 
-If you need to back out a received order, reverse the stock through inventory rather than deleting the order — the order stays the audit trail for what was actually received, and at what cost.
+- A <Pill status="not_received" /> order is simply removed, and its expected supply is released.
+- A <Pill status="partial" /> or <Pill status="received" /> order also has its received stock **that is still on hand** removed from stock.
+- Quantities already used in manufacturing, sales, or adjustments are **kept, with their history and received cost intact** — the dialog lists them separately.
+
+The receipt events themselves are never erased: item history keeps the original receipts alongside the compensating removal, so traceability and costing stay auditable.
+
+<Aside type="caution" title="Bills in your accounting provider">
+Deleting an order here never deletes a bill that was already sent to your accounting provider. The dialog warns you when one exists — delete the bill in the provider too if it shouldn't be paid.
+</Aside>

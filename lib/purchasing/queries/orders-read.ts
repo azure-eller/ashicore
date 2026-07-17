@@ -25,6 +25,7 @@ import { ACCOUNTING_DOCUMENT_PURCHASE_ORDER, ACCOUNTING_DOCUMENT_PURCHASE_BILL, 
 import type { AccountingProvider } from "@/lib/accounting/constants";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
+import { collectPurchaseReceiptRemainderInTx } from "@/lib/inventory/kernel";
 import { getTaxSettingsInTx } from "@/lib/dal/tax-settings";
 import type { Tx } from "@/lib/db/with-org-context";
 import { calculatePurchaseOrderLandedCosts, normalizeLandedMoney, normalizeLandedStockUnitCost } from "@/lib/purchasing/landed-cost";
@@ -32,6 +33,7 @@ import { documentNumberSortSql } from "@/lib/document-numbers";
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import type { PurchaseOrderStatus } from "@/lib/schemas/purchase-orders";
 import type {
+  PurchaseOrderDeleteImpact,
   PurchaseOrderDetail,
   PurchaseOrderDetailLine,
   PurchaseOrderEditData,
@@ -680,6 +682,115 @@ export async function getEditablePurchaseOrder(
       })),
       accountingGroupStates,
       attachments,
+    };
+  });
+}
+
+export async function getPurchaseOrderDeleteImpact(
+  id: string,
+): Promise<PurchaseOrderDeleteImpact | null> {
+  return withAuthedOrgContext(async (tx, orgId) => {
+    const [order] = await tx
+      .select({
+        id: purchaseOrders.id,
+        orderNumber: purchaseOrders.orderNumber,
+        status: purchaseOrders.status,
+      })
+      .from(purchaseOrders)
+      .where(
+        and(
+          eq(purchaseOrders.id, id),
+          eq(purchaseOrders.type, "standard"),
+          isNull(purchaseOrders.deletedAt),
+        ),
+      );
+    if (!order) return null;
+
+    const lineRows = await tx
+      .select({
+        itemId: purchaseOrderLines.itemId,
+        itemName: purchaseOrderLines.itemName,
+        stockingUnitName: purchaseOrderLines.stockingUnitName,
+        stockQuantityReceived: purchaseOrderLines.stockQuantityReceived,
+      })
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, id));
+
+    const remainder = await collectPurchaseReceiptRemainderInTx(tx, {
+      organizationId: orgId,
+      purchaseOrderId: id,
+    });
+    const removeByItemId = new Map<string, number>();
+    for (const row of remainder.tracked) {
+      removeByItemId.set(
+        row.itemId,
+        (removeByItemId.get(row.itemId) ?? 0) + row.quantity,
+      );
+    }
+    for (const row of remainder.untracked) {
+      removeByItemId.set(
+        row.itemId,
+        (removeByItemId.get(row.itemId) ?? 0) + row.onHandQty,
+      );
+    }
+
+    const byItem = new Map<
+      string,
+      {
+        itemId: string;
+        itemName: string;
+        stockingUnitName: string;
+        receivedQty: number;
+      }
+    >();
+    for (const line of lineRows) {
+      if (line.itemId == null) continue;
+      const receivedQty = parseFloat(line.stockQuantityReceived ?? "0");
+      if (receivedQty <= 0) continue;
+      const current = byItem.get(line.itemId) ?? {
+        itemId: line.itemId,
+        itemName: line.itemName,
+        stockingUnitName: line.stockingUnitName,
+        receivedQty: 0,
+      };
+      current.receivedQty += receivedQty;
+      byItem.set(line.itemId, current);
+    }
+
+    const impactItems = [...byItem.values()].map((entry) => {
+      const removeQty = Math.min(
+        removeByItemId.get(entry.itemId) ?? 0,
+        entry.receivedQty,
+      );
+      return {
+        ...entry,
+        removeQty,
+        keptQty: Math.max(0, entry.receivedQty - removeQty),
+      };
+    });
+
+    const billRows = await tx
+      .select({
+        pushStatus: accountingDocumentSyncs.pushStatus,
+        externalDocumentId: accountingDocumentSyncs.externalDocumentId,
+      })
+      .from(accountingDocumentSyncs)
+      .where(
+        and(
+          eq(accountingDocumentSyncs.documentId, id),
+          eq(accountingDocumentSyncs.documentType, ACCOUNTING_DOCUMENT_PURCHASE_BILL),
+        ),
+      );
+    const billSynced = billRows.some(
+      (row) => row.pushStatus === "pushed" || row.externalDocumentId != null,
+    );
+
+    return {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      items: impactItems,
+      billSynced,
     };
   });
 }

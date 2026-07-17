@@ -44,6 +44,7 @@ import {
   finishInventoryOperationInTx,
   releaseExpectedFromPurchaseInTx,
   revaluePurchaseLandedCostInTx,
+  reversePurchaseReceiptsInTx,
   runIdempotentInventoryOperationInTx,
 } from "@/lib/inventory/kernel";
 import { generateShortDocumentNumberInTx } from "@/lib/document-numbers";
@@ -1096,11 +1097,12 @@ export async function deletePurchaseOrder(
     }
 
     if (["partial", "received"].includes(order.status)) {
-      return {
-        deleted: false,
-        error:
-          "Cannot delete this purchase order because inventory has already been received. Received inventory history must be preserved.",
-      };
+      await reversePurchaseReceiptsInTx(tx, {
+        organizationId: orgId,
+        purchaseOrderId: id,
+        actorUserId: userId,
+        idempotencyKey: `delete-purchase-order:${id}:reverse`,
+      });
     }
 
     await releaseExpectedFromPurchaseInTx(tx, {
@@ -1146,18 +1148,6 @@ export async function deletePurchaseOrders(
       )
       .for("update");
 
-    const receivedOrder = orders.find((o) =>
-      ["partial", "received"].includes(o.status),
-    );
-
-    if (receivedOrder) {
-      return {
-        deletedCount: 0,
-        error:
-          "Cannot delete the selected purchase orders because inventory has already been received for at least one order. Received inventory history must be preserved.",
-      };
-    }
-
     if (orders.length === 0) {
       return { deletedCount: 0 };
     }
@@ -1166,6 +1156,14 @@ export async function deletePurchaseOrders(
     const deletedAt = new Date();
 
     for (const order of orders) {
+      if (["partial", "received"].includes(order.status)) {
+        await reversePurchaseReceiptsInTx(tx, {
+          organizationId: orgId,
+          purchaseOrderId: order.id,
+          actorUserId: userId,
+          idempotencyKey: `delete-purchase-order:${order.id}:reverse`,
+        });
+      }
       await releaseExpectedFromPurchaseInTx(tx, {
         organizationId: orgId,
         purchaseOrderId: order.id,

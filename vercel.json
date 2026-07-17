@@ -2,8 +2,8 @@
   "buildCommand": "pnpm drizzle-kit migrate && pnpm verify:production-schema && next build",
   "crons": [
     {
-      "path": "/api/internal/inventory-reconciliation",
-      "schedule": "0 0 * * *"
+      "schedule": "0 0 * * *",
+      "path": "/api/internal/inventory-reconciliation"
     },
     {
       "path": "/api/internal/xero-retry",

@@ -100,7 +100,7 @@ You'll need at least one **supplier** and active items to buy. Items can carry a
    Only **by-value** costs flow into your inventory cost and, for tracked items, the lot cost when you receive. A not-distributed cost raises the order total but never the inventory valuation. Editing a by-value cost *after* receipt revalues tracked stock still on hand from this order; untracked shared-bucket materials save the edit without rebasing in v1.
    </Aside>
 
-5. **Set delivery details.** Add the delivery address and an optional expected arrival date. There is no Save button: valid changes autosave. Until you choose a supplier and add one complete material line, the card remains unsaved; the save indicator names the missing requirement. After the first valid save, it has a PO number, is counted in expected supply, and can be reopened. It stays editable and deletable until the first receipt.
+5. **Set delivery details.** Add the delivery address and an optional expected arrival date. There is no Save button: valid changes autosave. Until you choose a supplier and add one complete material line, the card remains unsaved; the save indicator names the missing requirement. After the first valid save, it has a PO number, is counted in expected supply, and can be reopened. It stays editable and deletable after receipt; deleting received orders removes stock still on hand and keeps used quantities in history.
 
    <Frame title="<b>Delivery &amp; details</b>">
      <span slot="action"><span class="mk-saved">✓ Saved</span></span>
@@ -128,7 +128,7 @@ You'll need at least one **supplier** and active items to buy. Items can carry a
 </Steps>
 
 <Aside type="tip" title="Done — the order is Not received">
-Expected supply is live after the first valid save, and the order remains editable and deletable until the first receipt. Next, when stock arrives, **[receive it into inventory](/docs/purchasing/receive-stock)**.
+Expected supply is live after the first valid save, and the order remains editable and deletable throughout its lifecycle. Next, when stock arrives, **[receive it into inventory](/docs/purchasing/receive-stock)**.
 </Aside>
 
 ## What's next

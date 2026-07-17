@@ -70,6 +70,8 @@ export const queryKeys = {
     root: ["purchase-orders"] as const,
     detail: (orderId: string) => ["purchase-orders", orderId] as const,
     receive: (orderId: string) => ["purchase-orders", orderId, "receive"] as const,
+    deletePreview: (orderId: string) =>
+      ["purchase-orders", orderId, "delete-preview"] as const,
   },
   manufacturingOrders: {
     root: ["manufacturing-orders"] as const,

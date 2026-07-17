@@ -154,6 +154,21 @@ export type PurchaseOrderAttachment = {
   syncedAt: Date | null;
 };
 
+export type PurchaseOrderDeleteImpact = {
+  id: string;
+  orderNumber: string;
+  status: string;
+  items: Array<{
+    itemId: string;
+    itemName: string;
+    stockingUnitName: string;
+    receivedQty: number;
+    removeQty: number;
+    keptQty: number;
+  }>;
+  billSynced: boolean;
+};
+
 export type PurchaseOrderDetail = {
   id: string;
   supplierId: string;

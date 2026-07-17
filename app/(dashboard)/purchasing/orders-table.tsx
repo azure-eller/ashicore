@@ -343,8 +343,26 @@ export function OrdersTable({
         invalidateQueryKeys: [queryKeys.purchaseOrders.root],
         defaultErrorMessage: "Failed to delete purchase orders.",
         confirmTitle: (count) => `Delete ${count} order${count !== 1 ? "s" : ""}?`,
-        confirmDescription: (count) =>
-          `Unreceived purchase order${count !== 1 ? "s" : ""} will be removed from normal views and expected inventory will be released. Received orders cannot be deleted.`,
+        confirmDescription: (count, rows) => (
+          <>
+            Deleted order{count !== 1 ? "s" : ""} release expected supply, and
+            received stock still on hand is removed from stock. Used quantities
+            keep their history.
+            {rows.some(
+              (row) =>
+                row.purchaseBillStatus === "pushed" ||
+                row.purchaseBillExternalId != null,
+            ) ? (
+              <span className="mt-(--space-2) block">
+                {count === 1 ? "A bill" : "One or more bills"} for the selected
+                {count === 1 ? " order was" : " orders were"} sent to your
+                accounting provider and will not be removed there. Delete
+                {count === 1 ? " it" : " them"} in the provider if needed.
+              </span>
+            ) : null}
+            <span className="mt-(--space-2) block">This cannot be undone.</span>
+          </>
+        ),
       }}
     />
   );

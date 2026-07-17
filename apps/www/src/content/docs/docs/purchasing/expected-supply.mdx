@@ -30,7 +30,7 @@ Expected supply tracks the order through its whole life — it's added, adjusted
   <div class="arow"><span class="aidx">+</span><div><div class="at">Added when created</div><div class="ad">The first valid save writes one expected record per line. The order now contributes to incoming supply.</div></div></div>
   <div class="arow"><span class="aidx">±</span><div><div class="at">Adjusted on edit</div><div class="ad">Editing a not received order diffs the projection: raising a quantity adds, lowering removes, deleting a line zeroes it.</div></div></div>
   <div class="arow"><span class="aidx">−</span><div><div class="at">Released on receipt</div><div class="ad">Receiving draws the projection down by exactly the received quantity — so the moment stock becomes on-hand, it stops being "expected."</div></div></div>
-  <div class="arow"><span class="aidx">×</span><div><div class="at">Released on delete</div><div class="ad">Deleting a not received order before any receipt releases its remaining expected supply in the same step.</div></div></div>
+  <div class="arow"><span class="aidx">×</span><div><div class="at">Released on delete</div><div class="ad">Deleting an order releases its remaining expected supply in the same step, whatever its status.</div></div></div>
 </div>
 
 ## Pinned to the default location

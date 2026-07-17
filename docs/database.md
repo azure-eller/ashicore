@@ -151,7 +151,7 @@ Before applying that migration to production, verify `SHOW timezone;` and repres
 | Line / detail tables (BOM lines) | Hard delete |
 | Sales order lines | Hard delete + replace on eligible open-order edits |
 | Purchase order lines | Replace on unreceived edits; received lines are protected |
-| Purchase orders | Soft delete on unreceived `not_received` only |
+| Purchase orders | Soft delete at any status; received on-hand remainder is reversed through the kernel first (`docs/purchasing.md` Deleting) |
 | Manufacturing orders | Soft delete on `open` only while inventory effects can be reversed |
 | Manufacturing ingredient rows | Hard delete + replace before execution starts |
 

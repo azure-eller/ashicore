@@ -7,6 +7,7 @@ export const INVENTORY_OPERATION_NAMES = [
   "releaseExpectedFromPurchase",
   "receivePurchaseStock",
   "revaluePurchaseLandedCost",
+  "reversePurchaseReceipts",
   "recordSalesDemand",
   "releaseSalesDemand",
   "consumeForShipment",

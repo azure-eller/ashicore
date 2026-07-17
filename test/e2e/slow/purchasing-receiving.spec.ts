@@ -210,11 +210,15 @@ test.describe("purchasing receiving operating story", () => {
 
     await expect(page.locator("main")).toContainText(materialName);
     await page.keyboard.press("Escape");
+    // Delete stays available after a receipt; its dialog states the reversal.
     await page.getByRole("button", { name: "More actions" }).click();
-    await expect(
-      page.getByRole("menuitem", { name: "Delete purchase order" }),
-    ).toHaveCount(0);
-    await page.keyboard.press("Escape");
+    await page
+      .getByRole("menuitem", { name: "Delete purchase order" })
+      .click();
+    await expect(page.getByRole("alertdialog")).toContainText(
+      "still on hand will be removed",
+    );
+    await page.getByRole("button", { name: "Cancel" }).click();
   });
 
   test("final receipt closes expected supply and leaves lot-backed stock truth", async ({
