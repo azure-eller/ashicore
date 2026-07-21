@@ -10,6 +10,7 @@ import {
   asBillingPlugins,
   asBillingAddonLookupKeys,
   asSalesOrderBand,
+  BILLING_BETA_PLUGINS,
   DEFAULT_TRIAL_DAYS,
   featureUpgradeMessage,
   BILLING_PLUGIN_LABELS,
@@ -146,6 +147,9 @@ export async function getFeatureAccessInTx(
   }
 
   const entitled = asBillingPlugins(org.entitlements).includes(plugin);
+  if (BILLING_BETA_PLUGINS.includes(plugin)) {
+    return { entitled, locked: !entitled, grandfathered: false, orgName: org.name };
+  }
   if (entitled || !billingEnforcementEnabled()) {
     return { entitled, locked: false, grandfathered: false, orgName: org.name };
   }

@@ -4,6 +4,7 @@ import {
   date,
   index,
   integer,
+  jsonb,
   numeric,
   pgPolicy,
   pgSchema,
@@ -17,8 +18,76 @@ import { sql } from "drizzle-orm";
 import { addressEntries } from "./addresses";
 import { items } from "./items";
 import { taxRates } from "./tax-settings";
+import type {
+  PricingScenarioDoc,
+  PricingScenarioRevisionSnapshot,
+} from "@/lib/schemas/pricing-scenarios";
 
 export const salesSchema = pgSchema("sales");
+
+export const pricingScenarios = salesSchema
+  .table(
+    "pricing_scenarios",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      organizationId: text("organization_id").notNull(),
+      name: varchar("name", { length: 120 }).notNull(),
+      doc: jsonb("doc").$type<PricingScenarioDoc>().notNull(),
+      version: integer("version").notNull().default(1),
+      createdByUserId: text("created_by_user_id").notNull(),
+      updatedByUserId: text("updated_by_user_id").notNull(),
+      deletedByUserId: text("deleted_by_user_id"),
+      deletedAt: timestamp("deleted_at", { withTimezone: true }),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+      updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+      index("sales_pricing_scenarios_active_idx")
+        .on(table.organizationId, table.updatedAt)
+        .where(sql`deleted_at IS NULL`),
+      pgPolicy("sales_pricing_scenarios_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`organization_id = current_setting('app.current_org_id', true)`,
+        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
+      }),
+    ]
+  )
+  .enableRLS();
+
+export const pricingScenarioRevisions = salesSchema
+  .table(
+    "pricing_scenario_revisions",
+    {
+      id: uuid("id").primaryKey().defaultRandom(),
+      organizationId: text("organization_id").notNull(),
+      scenarioId: uuid("scenario_id")
+        .notNull()
+        .references(() => pricingScenarios.id),
+      revisionNumber: integer("revision_number").notNull(),
+      note: text("note"),
+      snapshot: jsonb("snapshot").$type<PricingScenarioRevisionSnapshot>().notNull(),
+      createdByUserId: text("created_by_user_id").notNull(),
+      createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+      uniqueIndex("sales_pricing_scenario_revisions_number_uidx").on(
+        table.scenarioId,
+        table.revisionNumber
+      ),
+      index("sales_pricing_scenario_revisions_org_idx").on(
+        table.organizationId,
+        table.scenarioId
+      ),
+      pgPolicy("sales_pricing_scenario_revisions_org_isolation", {
+        for: "all",
+        to: "public",
+        using: sql`organization_id = current_setting('app.current_org_id', true)`,
+        withCheck: sql`organization_id = current_setting('app.current_org_id', true)`,
+      }),
+    ]
+  )
+  .enableRLS();
 
 export const customerCategories = salesSchema
   .table(

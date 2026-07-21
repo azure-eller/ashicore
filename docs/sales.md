@@ -167,6 +167,69 @@ Invalid transitions:
 - schedule changes do not retroactively reprice existing sales-order lines
 - manual price or discount edits update the line snapshot, not the source schedule
 
+## Pricing Scenarios (beta)
+
+`/sales/pricing-scenarios` is a costing workspace gated by the
+`pricing_scenarios` beta plugin (see `docs/billing.md` → Beta plugins). A
+scenario is a card-kernel document (autosave, versioned saves, standard
+duplicate/soft-delete) holding a product selection plus **sparse overrides**:
+per-leaf-item material price / inbound freight / handling, per-resource labor
+rates, global overhead % and target profit %, and per-product current price /
+outbound freight.
+
+The worksheet labels every result in the selected product's stock unit. Material
+price, inbound freight, and handling remain rates per material stock unit; the
+worksheet multiplies their landed rate by recipe usage to show the derived
+material cost per product unit. Labour similarly shows hours and derived cost
+per product unit. Product and material unit names come from the live baseline,
+so the sticky results rail can keep cost to recover, sell-at, its breakdown, and
+current margin in one explicit unit context.
+
+- The baseline is always **live ERP data**, resolved per request:
+  `getProductUsageTermsByItemIdInTx` (`lib/inventory/estimated-cost.ts`)
+  flattens each product's current recipe tree into per-unit leaf quantities
+  and operation hours on the same graph the estimated-cost roll-ups use; leaf
+  prices resolve exactly like estimated cost, labor rates come from
+  manufacturing resources, current price from `items.defaultSellingPrice`.
+- The pure isomorphic engine (`lib/pricing-scenarios/calculations.ts`)
+  implements the sales-share model:
+  `sellAt = (directCost + outboundFreight) / (1 − overhead − targetProfit)`,
+  with results withheld (never zero/NaN) on recipe issues, missing prices, or
+  combined rates ≥ 100%.
+- **Revisions are the history model** (like BOM revisions): committing one
+  resolves live baseline + overrides server-side and inserts an immutable
+  numbered snapshot carrying inputs *and* results into
+  `sales.pricing_scenario_revisions` (insert-only; app role has no
+  UPDATE/DELETE). Later ERP changes move the working scenario, never a
+  committed revision. A revision can be viewed in the card and restored as
+  sparse overrides in the current draft; restoring does not alter the revision.
+  Soft-deleting a scenario keeps its revisions. Material and labour snapshot
+  rows include their derived `costPerUnit`; the reader defaults that field to
+  `null` so revisions written before the worksheet added it remain readable.
+- Scenario writes touch only the two scenario tables plus the idempotency
+  ledger — never items, recipes, prices, inventory, orders, or accounting.
+
+The scenario document accepts at most 200 products. Names are 1–120 characters,
+revision notes are at most 500 characters, override values are non-negative,
+and overhead plus target profit must remain below 100%.
+
+### Pricing scenario API
+
+All routes require Sales module access and the `pricing_scenarios` beta
+entitlement. Create, duplicate, and revision-commit requests also require an
+`Idempotency-Key` header.
+
+| Route | Behaviour |
+| --- | --- |
+| `GET /api/pricing-scenarios` | Lists active scenarios with their latest revision number. |
+| `POST /api/pricing-scenarios` | Creates a scenario from `{ id?, name, doc }` and returns its live detail. |
+| `GET /api/pricing-scenarios/:id` | Returns the saved document, live baseline (including product/material unit names) and usage terms, and revision summaries. |
+| `PATCH /api/pricing-scenarios/:id` | Replaces `name` and `doc`; `expectedVersion` enables optimistic-concurrency conflict responses. |
+| `DELETE /api/pricing-scenarios/:id` | Soft-deletes the scenario. |
+| `POST /api/pricing-scenarios/:id/duplicate` | Copies the name and document, but not revisions; accepts an optional `name`. |
+| `POST /api/pricing-scenarios/:id/revisions` | Computes and stores the next immutable snapshot; accepts an optional `note`. |
+| `GET /api/pricing-scenarios/:id/revisions/:revisionId` | Returns one immutable revision snapshot; material and labour rows expose nullable derived `costPerUnit`. |
+
 ## Oversell Behavior
 
 - overselling is allowed

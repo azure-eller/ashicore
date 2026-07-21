@@ -1,6 +1,7 @@
 import {
   Add01Icon,
   AddCircleIcon,
+  Calculator01Icon,
   ChartIcon,
   FactoryIcon,
   GridTableIcon,
@@ -76,6 +77,7 @@ const dashboardNavModules: DashboardNavModule[] = [
       { title: "Allocation", href: "/sales/allocation", icon: GridTableIcon },
       { title: "Customers", href: "/sales/customers", icon: Store01Icon },
       { title: "Pricing", href: "/sales/pricing", icon: ChartIcon },
+      { title: "Scenarios", href: "/sales/pricing-scenarios", icon: Calculator01Icon },
     ],
   },
   {
@@ -217,6 +219,13 @@ export function getDashboardSearchActions(
         description: "View pricing schedules",
         href: "/sales/pricing",
         icon: ChartIcon,
+        group: "Sales",
+      },
+      {
+        title: "Scenarios",
+        description: "View pricing scenarios",
+        href: "/sales/pricing-scenarios",
+        icon: Calculator01Icon,
         group: "Sales",
       }
     );

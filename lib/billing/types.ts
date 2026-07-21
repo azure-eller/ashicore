@@ -68,6 +68,7 @@ export const BILLING_PLUGINS = [
   "crm",
   "wholesale_pricing",
   "multi_location",
+  "pricing_scenarios",
 ] as const;
 
 export type BillingPlugin = (typeof BILLING_PLUGINS)[number];
@@ -78,7 +79,17 @@ export const BILLING_PLUGIN_LABELS: Record<BillingPlugin, string> = {
   crm: "CRM",
   wholesale_pricing: "Wholesale pricing",
   multi_location: "Multi-location",
+  pricing_scenarios: "Pricing scenarios",
 };
+
+// Beta plugins are visible only to orgs holding the entitlement: locked for
+// everyone else regardless of shadow mode or grandfathering. They are not
+// sellable — no lookup key or catalog offer until they graduate.
+export const BILLING_BETA_PLUGINS: readonly BillingPlugin[] = ["pricing_scenarios"];
+
+export const BILLING_COMMERCIAL_PLUGINS = BILLING_PLUGINS.filter(
+  (plugin) => !BILLING_BETA_PLUGINS.includes(plugin)
+);
 
 export function featureUpgradeMessage(plugin: BillingPlugin) {
   return `${BILLING_PLUGIN_LABELS[plugin]} requires a plugin upgrade. Add it in Settings → Billing.`;
@@ -101,7 +112,7 @@ export const BILLING_PRICE_LOOKUP_PLUGINS: Record<string, readonly BillingPlugin
   package_food_bev: BILLING_PACKAGE_PLUGINS.food_bev,
   package_soil_landscape: BILLING_PACKAGE_PLUGINS.soil_landscape,
   package_wholesale_b2b: BILLING_PACKAGE_PLUGINS.wholesale_b2b,
-  everything: BILLING_PLUGINS,
+  everything: BILLING_COMMERCIAL_PLUGINS,
 };
 
 export const CORE_PLAN_LOOKUP_KEYS = [
@@ -449,9 +460,9 @@ const RECURRING_ADDON_CATALOG: readonly BillingOffer[] = [
     lookupKey: "everything",
     kind: "everything",
     name: "Everything",
-    blurb: "Every plugin, current and future.",
+    blurb: "Every generally available plugin.",
     monthlyUsd: 399,
-    plugins: BILLING_PLUGINS,
+    plugins: BILLING_COMMERCIAL_PLUGINS,
   },
 ];
 

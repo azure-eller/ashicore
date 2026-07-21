@@ -15,6 +15,9 @@ import {
   customerContacts,
   billingUsageEvents,
   manufacturingOrders,
+  organization,
+  pricingScenarioRevisions,
+  pricingScenarios,
   salesOrderLines,
   salesOrders,
 } from "../../../lib/db/schema";
@@ -30,8 +33,11 @@ import {
   getSessionCookie,
   getUnitId,
   testFetch,
+  updateItem,
 } from "../../helpers/api";
 import { buildStorageState } from "../../helpers/test-env";
+import { emptyPricingScenarioDoc } from "../../../lib/schemas/pricing-scenarios";
+import { calculatePricingScenario } from "../../../lib/pricing-scenarios/calculations";
 import { withAccountingConnectionFixtureLock } from "../../helpers/accounting-connection-fixture-lock";
 
 const ACCOUNTING_PROVIDER_XERO = "xero";
@@ -2534,4 +2540,201 @@ test.describe("sales demand and shipping heartbeat", () => {
     });
   });
 
+});
+
+const pricingSeamTs = Date.now();
+
+async function pricingSeamFetch(path: string, options: RequestInit = {}) {
+  const res = await testFetch(path, options);
+  const body = await res.json().catch(() => null);
+  return { status: res.status, body };
+}
+
+async function setPricingSeamEntitlements(
+  db: Parameters<Parameters<typeof test>[2]>[0]["db"],
+  plugins: string[]
+) {
+  await db
+    .update(organization)
+    .set({ entitlements: plugins })
+    .where(eq(organization.id, getOrgId()));
+}
+
+test.describe("pricing scenario document seam", () => {
+  test.describe.configure({ mode: "serial" });
+
+  test("prices unassigned operations at their individual fallback rates", () => {
+    const productId = randomUUID();
+    const calculation = calculatePricingScenario({
+      baseline: {
+        leafItems: [],
+        resources: [],
+        products: [{
+          itemId: productId,
+          name: "Fallback Labor Product",
+          sku: null,
+          unitName: null,
+          baselineCurrentPrice: "50.00",
+        }],
+      },
+      usageTerms: [{
+        productId,
+        materialTerms: [],
+        laborTerms: [
+          { resourceId: null, hoursPerUnit: "1", fallbackRatePerHour: "10" },
+          { resourceId: null, hoursPerUnit: "1", fallbackRatePerHour: "20" },
+        ],
+        issues: [],
+      }],
+      doc: {
+        ...emptyPricingScenarioDoc(),
+        productIds: [productId],
+      },
+    });
+
+    expect(calculation.products[0].labor).toHaveLength(2);
+    expect(calculation.products[0].result).toEqual(expect.objectContaining({
+      withheld: false,
+      sellAt: "30.00",
+    }));
+  });
+
+  test("saves are version-guarded and revisions are insert-only frozen snapshots", async ({
+    db,
+  }) => {
+    await setPricingSeamEntitlements(db, ["pricing_scenarios"]);
+
+    const material = await createItem({
+      itemType: "material",
+      name: `Seam Material ${pricingSeamTs}`,
+      unitDefinitionId: getUnitId(),
+      sku: `SEAM-MAT-${pricingSeamTs}`,
+      category: `Seam ${pricingSeamTs}`,
+      description: null,
+      defaultPurchasePrice: "30.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status).toBe(201);
+    const product = await createItem({
+      itemType: "product",
+      name: `Seam Product ${pricingSeamTs}`,
+      unitDefinitionId: getUnitId(),
+      sku: `SEAM-PROD-${pricingSeamTs}`,
+      category: `Seam ${pricingSeamTs}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "100.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: material.body.id, quantity: "2" }],
+    });
+    expect(product.status).toBe(201);
+    const productId = product.body.id as string;
+
+    // Create is the first save: client id, version 1.
+    const scenarioId = randomUUID();
+    const created = await pricingSeamFetch("/api/pricing-scenarios", {
+      method: "POST",
+      body: JSON.stringify({
+        id: scenarioId,
+        name: "Seam scenario",
+        doc: {
+          ...emptyPricingScenarioDoc(),
+          productIds: [productId],
+          overheadPercent: "20",
+          targetProfitPercent: "30",
+        },
+      }),
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.scenario.version).toBe(1);
+
+    // Version-guarded save bumps; a stale save gets the canonical envelope
+    // and mutates nothing.
+    const saved = await pricingSeamFetch(`/api/pricing-scenarios/${scenarioId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: "Seam scenario",
+        doc: created.body.scenario.doc,
+        expectedVersion: 1,
+      }),
+    });
+    expect(saved.status).toBe(200);
+    expect(saved.body.scenario.version).toBe(2);
+
+    const stale = await pricingSeamFetch(`/api/pricing-scenarios/${scenarioId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: "Stale write",
+        doc: created.body.scenario.doc,
+        expectedVersion: 1,
+      }),
+    });
+    expect(stale.status).toBe(409);
+    expect(stale.body.conflict).toBe(true);
+    expect(stale.body.current.scenario.version).toBe(2);
+    expect(stale.body.current.scenario.name).toBe("Seam scenario");
+
+    // Commit freezes live baseline + doc: 2 x 30 = 60 direct,
+    // 60 / (1 - 0.2 - 0.3) = 120.
+    const rev1 = await pricingSeamFetch(`/api/pricing-scenarios/${scenarioId}/revisions`, {
+      method: "POST",
+      body: JSON.stringify({ note: "baseline" }),
+    });
+    expect(rev1.status).toBe(201);
+    expect(rev1.body.revision.revisionNumber).toBe(1);
+    expect(rev1.body.revision.snapshot.products[0].result.sellAt).toBe("120.00");
+    expect(rev1.body.revision.snapshot.products[0].currentPriceSource).toBe(
+      "baseline"
+    );
+
+    // ERP drift moves the live baseline but never a committed snapshot.
+    const drift = await updateItem(material.body.id as string, {
+      defaultPurchasePrice: "45.00",
+    });
+    expect([200, 201]).toContain(drift.status);
+
+    const detail = await pricingSeamFetch(`/api/pricing-scenarios/${scenarioId}`);
+    const leaf = detail.body.baseline.leafItems.find(
+      (row: { itemId: string }) => row.itemId === material.body.id
+    );
+    expect(Number(leaf.baselinePrice)).toBeCloseTo(45, 6);
+
+    const rev1After = await pricingSeamFetch(
+      `/api/pricing-scenarios/${scenarioId}/revisions/${rev1.body.revision.id}`
+    );
+    expect(rev1After.body.revision.snapshot.products[0].result.sellAt).toBe("120.00");
+
+    const rev2 = await pricingSeamFetch(`/api/pricing-scenarios/${scenarioId}/revisions`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    expect(rev2.body.revision.revisionNumber).toBe(2);
+    expect(rev2.body.revision.snapshot.products[0].result.sellAt).toBe("180.00");
+
+    // Soft delete hides the scenario but keeps its revision history.
+    const removed = await pricingSeamFetch(`/api/pricing-scenarios/${scenarioId}`, {
+      method: "DELETE",
+    });
+    expect(removed.status).toBe(200);
+    const [scenarioRow] = await db
+      .select({ deletedAt: pricingScenarios.deletedAt })
+      .from(pricingScenarios)
+      .where(eq(pricingScenarios.id, scenarioId));
+    expect(scenarioRow.deletedAt).not.toBeNull();
+    const revisionRows = await db
+      .select({ id: pricingScenarioRevisions.id })
+      .from(pricingScenarioRevisions)
+      .where(eq(pricingScenarioRevisions.scenarioId, scenarioId));
+    expect(revisionRows).toHaveLength(2);
+
+    // The beta gate answers 402 for unentitled orgs on every route.
+    await setPricingSeamEntitlements(db, []);
+    const lockedList = await pricingSeamFetch("/api/pricing-scenarios");
+    expect(lockedList.status).toBe(402);
+    await setPricingSeamEntitlements(db, ["pricing_scenarios"]);
+  });
 });

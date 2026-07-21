@@ -46,6 +46,7 @@ type ComponentRow = {
 
 type OperationRow = {
   bomRevisionId: string;
+  resourceId: string | null;
   costScalingMode: "per_output_unit" | "fixed_per_mo";
   crewSize: string;
   plannedMinutes: string;
@@ -205,6 +206,7 @@ async function loadEstimatedCostGraphInTx(
     const operationRows = await tx
       .select({
         bomRevisionId: bomRevisionOperationCosts.bomRevisionId,
+        resourceId: bomRevisionOperationCosts.resourceId,
         costScalingMode: bomRevisionOperationCosts.costScalingMode,
         crewSize: bomRevisionOperationCosts.crewSize,
         plannedMinutes: bomRevisionOperationCosts.plannedMinutes,
@@ -337,6 +339,194 @@ export async function getEstimatedUnitCostsByItemIdInTx(tx: Tx, itemIds: string[
 
   uniqueIds.forEach((itemId) => resolve(itemId));
   return cache;
+}
+
+export type UsageTermIssue =
+  | "cycle"
+  | "invalid_quantity"
+  | "invalid_batch_denominator"
+  | "missing_component";
+
+export type UsageMaterialTerm = { itemId: string; quantityPerUnit: string };
+export type UsageLaborTerm = {
+  resourceId: string | null;
+  hoursPerUnit: string;
+  /** Snapshot rate from the operation row; prices null-resource operations. */
+  fallbackRatePerHour: string | null;
+};
+export type ProductUsageTerms = {
+  materialTerms: UsageMaterialTerm[];
+  laborTerms: UsageLaborTerm[];
+  issues: UsageTermIssue[];
+};
+
+type ResolvedUsage = {
+  materials: Map<string, number>;
+  labor: Map<string, { resourceId: string | null; hours: number; fallbackRate: string | null }>;
+  issues: Set<UsageTermIssue>;
+};
+
+/**
+ * Flattens each product's current recipe tree into per-output-unit usage
+ * vectors: leaf-item quantities and operation hours by resource. A leaf is
+ * any component without a current BOM revision (materials and BOM-less
+ * products). Same graph and quantity discipline as the cost roll-ups above —
+ * this is the pricing seam: callers price the vectors, the tree walks once.
+ */
+export async function getProductUsageTermsByItemIdInTx(
+  tx: Tx,
+  itemIds: string[]
+): Promise<Map<string, ProductUsageTerms>> {
+  const uniqueIds = [...new Set(itemIds)];
+  const result = new Map<string, ProductUsageTerms>();
+  if (uniqueIds.length === 0) {
+    return result;
+  }
+
+  const graph = await loadEstimatedCostGraphInTx(tx, uniqueIds, {
+    includeLotCosts: false,
+  });
+  const cache = new Map<string, ResolvedUsage>();
+
+  function leafUsage(itemId: string): ResolvedUsage {
+    return {
+      materials: new Map([[itemId, 1]]),
+      labor: new Map(),
+      issues: new Set(),
+    };
+  }
+
+  function issueOnly(issue: UsageTermIssue): ResolvedUsage {
+    return { materials: new Map(), labor: new Map(), issues: new Set([issue]) };
+  }
+
+  function resolve(itemId: string, visited: Set<string>): ResolvedUsage {
+    const cached = cache.get(itemId);
+    if (cached) {
+      return cached;
+    }
+    if (visited.has(itemId)) {
+      return issueOnly("cycle");
+    }
+
+    const item = graph.itemsById.get(itemId);
+    if (!item || item.deletedAt != null) {
+      return issueOnly("missing_component");
+    }
+
+    const currentRevision =
+      item.itemType === "product"
+        ? graph.currentRevisionByProductId.get(itemId)
+        : undefined;
+    if (!currentRevision) {
+      const usage = leafUsage(itemId);
+      cache.set(itemId, usage);
+      return usage;
+    }
+
+    const usage: ResolvedUsage = {
+      materials: new Map(),
+      labor: new Map(),
+      issues: new Set(),
+    };
+    const nextVisited = new Set(visited);
+    nextVisited.add(itemId);
+
+    const components = graph.componentsByRevisionId.get(currentRevision.id) ?? [];
+    for (const component of components) {
+      const quantityPerUnit = Number.parseFloat(
+        calculateAverageUnitConsumptionQuantity({
+          quantity: component.quantity,
+          recipeBasis: currentRevision.recipeBasis,
+          outputQuantity: currentRevision.outputQuantity,
+        })
+      );
+      if (!Number.isFinite(quantityPerUnit) || quantityPerUnit < 0) {
+        usage.issues.add("invalid_quantity");
+        continue;
+      }
+
+      const child = resolve(component.componentId, nextVisited);
+      child.issues.forEach((issue) => usage.issues.add(issue));
+      for (const [leafItemId, leafQuantity] of child.materials) {
+        usage.materials.set(
+          leafItemId,
+          (usage.materials.get(leafItemId) ?? 0) + leafQuantity * quantityPerUnit
+        );
+      }
+      for (const [laborKey, laborTerm] of child.labor) {
+        const bucket = usage.labor.get(laborKey);
+        if (bucket) {
+          bucket.hours += laborTerm.hours * quantityPerUnit;
+        } else {
+          usage.labor.set(laborKey, {
+            ...laborTerm,
+            hours: laborTerm.hours * quantityPerUnit,
+          });
+        }
+      }
+    }
+
+    const operationRows = graph.operationsByRevisionId.get(currentRevision.id) ?? [];
+    const standardCostQuantity =
+      item.expectedBatchYield ?? item.typicalBatchSize ?? item.standardCostQuantity;
+    for (const operation of operationRows) {
+      const baseHours =
+        (Number(operation.crewSize) * Number(operation.plannedMinutes)) / 60;
+      if (!Number.isFinite(baseHours) || baseHours < 0) {
+        usage.issues.add("invalid_quantity");
+        continue;
+      }
+
+      let hoursPerUnit = baseHours;
+      if (operation.costScalingMode === "fixed_per_mo") {
+        const denominator =
+          standardCostQuantity == null ? null : Number(standardCostQuantity);
+        if (denominator == null || !Number.isFinite(denominator) || denominator <= 0) {
+          usage.issues.add("invalid_batch_denominator");
+          continue;
+        }
+        hoursPerUnit = baseHours / denominator;
+      }
+
+      const laborKey =
+        operation.resourceId ??
+        `__unassigned__:${operation.loadedCostPerHour ?? "null"}`;
+      const bucket = usage.labor.get(laborKey);
+      if (bucket) {
+        bucket.hours += hoursPerUnit;
+      } else {
+        usage.labor.set(laborKey, {
+          resourceId: operation.resourceId,
+          hours: hoursPerUnit,
+          fallbackRate: operation.loadedCostPerHour,
+        });
+      }
+    }
+
+    cache.set(itemId, usage);
+    return usage;
+  }
+
+  for (const itemId of uniqueIds) {
+    const usage = resolve(itemId, new Set());
+    result.set(itemId, {
+      materialTerms: [...usage.materials.entries()].map(
+        ([leafItemId, quantity]) => ({
+          itemId: leafItemId,
+          quantityPerUnit: normalizeNumericScale(quantity, 6),
+        })
+      ),
+      laborTerms: [...usage.labor.values()].map((laborTerm) => ({
+        resourceId: laborTerm.resourceId,
+        hoursPerUnit: normalizeNumericScale(laborTerm.hours, 6),
+        fallbackRatePerHour: laborTerm.fallbackRate,
+      })),
+      issues: [...usage.issues],
+    });
+  }
+
+  return result;
 }
 
 export async function getEstimatedRecipeCostSummariesByItemIdInTx(

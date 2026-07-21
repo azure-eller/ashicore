@@ -25,9 +25,10 @@ export default async function DashboardLayout({
   });
 
   const context = await getAuthedMemberContext();
-  const [organizations, wholesaleAccess] = await Promise.all([
+  const [organizations, wholesaleAccess, pricingScenariosAccess] = await Promise.all([
     getAuthedOrganizations(),
     getFeatureAccessForCurrentOrg("wholesale_pricing"),
+    getFeatureAccessForCurrentOrg("pricing_scenarios"),
   ]);
   const user = {
     name: context.name,
@@ -48,7 +49,10 @@ export default async function DashboardLayout({
             name: organization.name,
             slug: organization.slug,
           }))}
-          hiddenNavHrefs={wholesaleAccess.locked ? ["/sales/pricing"] : []}
+          hiddenNavHrefs={[
+            ...(wholesaleAccess.locked ? ["/sales/pricing"] : []),
+            ...(pricingScenariosAccess.locked ? ["/sales/pricing-scenarios"] : []),
+          ]}
         />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
           <DashboardNavigationContent>{children}</DashboardNavigationContent>

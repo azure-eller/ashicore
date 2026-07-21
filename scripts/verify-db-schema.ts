@@ -322,6 +322,62 @@ const expectedColumns: ExpectedColumn[] = [
     dataType: "timestamp with time zone",
     isNullable: "NO",
   },
+  {
+    schema: "sales",
+    table: "pricing_scenarios",
+    column: "organization_id",
+    dataType: "text",
+    isNullable: "NO",
+  },
+  {
+    schema: "sales",
+    table: "pricing_scenarios",
+    column: "doc",
+    dataType: "jsonb",
+    isNullable: "NO",
+  },
+  {
+    schema: "sales",
+    table: "pricing_scenarios",
+    column: "version",
+    dataType: "integer",
+    isNullable: "NO",
+  },
+  {
+    schema: "sales",
+    table: "pricing_scenarios",
+    column: "deleted_at",
+    dataType: "timestamp with time zone",
+    isNullable: "YES",
+  },
+  {
+    schema: "sales",
+    table: "pricing_scenario_revisions",
+    column: "organization_id",
+    dataType: "text",
+    isNullable: "NO",
+  },
+  {
+    schema: "sales",
+    table: "pricing_scenario_revisions",
+    column: "scenario_id",
+    dataType: "uuid",
+    isNullable: "NO",
+  },
+  {
+    schema: "sales",
+    table: "pricing_scenario_revisions",
+    column: "revision_number",
+    dataType: "integer",
+    isNullable: "NO",
+  },
+  {
+    schema: "sales",
+    table: "pricing_scenario_revisions",
+    column: "snapshot",
+    dataType: "jsonb",
+    isNullable: "NO",
+  },
 ];
 
 function latestMigration() {

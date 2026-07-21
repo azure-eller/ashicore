@@ -5,8 +5,9 @@ org. The architecture is deliberately minimal — four pieces, each of which
 breaks something nameable if removed, and nothing more:
 
 1. **One entitlement state.** `organization.entitlements` (jsonb plugin list).
-   The Stripe subscription webhook is its only writer. Nothing else in the
-   system may answer "does this org have X."
+   The Stripe subscription webhook writes commercial entitlements; beta
+   entitlements are granted manually. Nothing else in the system may answer
+   "does this org have X."
 2. **One decision.** `getFeatureAccessInTx` — a fresh in-transaction read of
    that column folded with the rollout env (below). The UI wrapper
    `getFeatureAccessForCurrentOrg` is the same decision. Never cache it,
@@ -103,8 +104,22 @@ declaration registry and CI gate-coverage guard (trigger: the inventory table
 below outgrows grep), page-level UI forks (trigger: a plugin that genuinely
 restructures a surface — so far section composition has sufficed), entitlement
 caching (trigger: measured latency, which one PK read in an existing
-transaction will not produce), org-level feature preferences (trigger: a real
-customer ask; the decision function gains one AND-clause).
+transaction will not produce).
+
+## Beta plugins
+
+`BILLING_BETA_PLUGINS` in `lib/billing/types.ts` is the per-org allowlist the
+paragraph above used to defer. A plugin listed there is **locked unless the
+org holds the entitlement** — the decision ignores shadow mode, the
+enforcement kill-switch, and grandfathering, because an unreleased feature
+must never fail open to every org. Beta plugins have a registry id and label
+but no lookup key, catalog offer, or package membership: they are not
+sellable, and the entitlement is granted manually (a data change on
+`organization.entitlements`), not by the Stripe webhook. UI surfaces hide via
+the same `locked` flag as any plugin (nav `hiddenNavHrefs` + layout redirect).
+Graduation = remove the id from `BILLING_BETA_PLUGINS` and give it a lookup
+key + catalog offer (or fold it into an existing plugin's gate call). Current
+beta plugins: `pricing_scenarios` (Paonia Soil Co. beta).
 
 ## The trial-default rule
 
@@ -223,6 +238,7 @@ with the enforcement vars set on the dev server (see step 3). Without them
 | `crm` | shipped (ERP-195) | new contacts/activities/projects (`lib/sales/queries/crm.ts` creates); edits/deletes of existing records free; UI hides the Contacts and Activity sections and the customers-list Next action column/filter |
 | `wholesale_pricing` | shipped (ERP-189/195) | `createPricingSchedule` + `updatePricingSchedule`; resolution computation gate in `getPricingScheduleLookupForProductsInTx`; UI hides the Pricing nav item and redirects `/sales/pricing` |
 | `multi_location` | shipped (ERP-190/195) | location create/transfers (server, ERP-190); UI hides the add-location row |
+| `pricing_scenarios` | beta (Paonia Soil Co.) | every scenario read and mutation in `lib/dal/pricing-scenarios.ts`; UI hides the Scenarios nav item and redirects `/sales/pricing-scenarios` |
 
 ## Capacity inventory
 

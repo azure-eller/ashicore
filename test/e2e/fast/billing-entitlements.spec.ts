@@ -17,8 +17,10 @@ import {
   recordSalesOrderShippedUsageInTx,
 } from "../../../lib/billing/buckets";
 import {
+  BILLING_PRICE_LOOKUP_PLUGINS,
   asBillingAddonLookupKeys,
   billingLineItemsForCoreSelection,
+  pluginsFromLookupKeys,
   salesOrderBandDeltaCents,
 } from "../../../lib/billing/types";
 import {
@@ -126,6 +128,15 @@ test("annual bucket deltas charge the annual period difference", () => {
       interval: "annual",
     })
   ).toBe(100800);
+});
+
+test("commercial everything offer excludes entitlement-only beta plugins", () => {
+  expect(BILLING_PRICE_LOOKUP_PLUGINS.everything).not.toContain(
+    "pricing_scenarios"
+  );
+  expect(pluginsFromLookupKeys(["everything"])).not.toContain(
+    "pricing_scenarios"
+  );
 });
 
 test("calculator billing intent preserves band interval locations and add-ons", () => {
@@ -1015,6 +1026,44 @@ test("feature gates shadow-log unentitled orgs and recognize entitled ones", asy
     const entitled = await assertFeatureAccessInTx(tx, orgId, "wholesale_pricing");
     expect(entitled.entitled).toBe(true);
     expect(entitled.shadowDenial).toBe(false);
+  });
+});
+
+test("beta plugins lock by entitlement only, ignoring shadow mode and grandfathering", async ({
+  db,
+}) => {
+  const id = randomUUID();
+  const orgId = `beta-gate-${id}`;
+
+  // Created long before any enforcement launch date: grandfathering must not
+  // unlock a beta plugin the way it does for commercial plugins.
+  await db.insert(organization).values({
+    id: orgId,
+    name: `Beta Gate ${id}`,
+    slug: `beta-gate-${id}`,
+    createdAt: new Date("2020-01-01T00:00:00Z"),
+    plan: "free",
+    status: "active",
+  });
+
+  await withOrgContext(orgId, async (tx) => {
+    const denied = await getFeatureAccessInTx(tx, orgId, "pricing_scenarios");
+    expect(denied.entitled).toBe(false);
+    expect(denied.locked).toBe(true);
+    await expect(
+      assertFeatureAccessInTx(tx, orgId, "pricing_scenarios")
+    ).rejects.toThrow(/plugin upgrade/);
+  });
+
+  await db
+    .update(organization)
+    .set({ entitlements: ["pricing_scenarios"] })
+    .where(eq(organization.id, orgId));
+
+  await withOrgContext(orgId, async (tx) => {
+    const granted = await getFeatureAccessInTx(tx, orgId, "pricing_scenarios");
+    expect(granted.entitled).toBe(true);
+    expect(granted.locked).toBe(false);
   });
 });
 

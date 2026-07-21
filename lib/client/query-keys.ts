@@ -53,6 +53,12 @@ export const queryKeys = {
     list: (view: string) => ["customers", view] as const,
     card: (customerId: string) => ["customer-card", customerId] as const,
   },
+  pricingScenarios: {
+    root: ["pricing-scenarios"] as const,
+    card: (scenarioId: string) => ["pricing-scenario-card", scenarioId] as const,
+    revision: (scenarioId: string, revisionId: string) =>
+      ["pricing-scenario-revision", scenarioId, revisionId] as const,
+  },
   salesOrders: {
     root: ["sales-orders"] as const,
     detail: (orderId: string) => ["sales-orders", orderId] as const,
