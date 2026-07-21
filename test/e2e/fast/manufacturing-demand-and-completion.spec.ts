@@ -35,6 +35,7 @@ import {
   getUnitId,
   releaseManufacturingOrder,
   testFetch,
+  updateSalesOrder,
 } from "../../helpers/api";
 import { buildStorageState } from "../../helpers/test-env";
 
@@ -2611,7 +2612,7 @@ test.describe("manufacturing demand and completion heartbeat", () => {
     expect(await onHand(component.body.id)).toBe("6.0000");
   });
 
-  test("linked make-to-order completion reopens without losing its sales link", async ({
+  test("linked make-to-order completion reopens without losing its sales link, and deleting the reopened order frees the line", async ({
     db,
   }) => {
     const unique = randomUUID().slice(0, 8);
@@ -2681,6 +2682,12 @@ test.describe("manufacturing demand and completion heartbeat", () => {
     const completed = await completeManufacturingOrder(linkedOrder.id, "2");
     expect(completed.status, JSON.stringify(completed.body)).toBe(200);
 
+    const deleteWhileDone = await testFetch(
+      `/api/manufacturing-orders/${linkedOrder.id}`,
+      { method: "DELETE" }
+    );
+    expect([400, 409]).toContain(deleteWhileDone.status);
+
     const reopened = await testFetch(
       `/api/manufacturing-orders/${linkedOrder.id}/reopen`,
       { method: "POST", body: JSON.stringify({}) }
@@ -2699,5 +2706,32 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       salesOrderId: salesOrder.body.id,
       salesOrderLineId: salesLine.id,
     });
+
+    const blockedLineEdit = await updateSalesOrder(salesOrder.body.id, {
+      customerId: customer.body.id,
+      orderDate: "2026-07-01",
+      shipDate: "2026-07-02",
+      lines: [{ itemId: product.body.id, quantity: "3", unitPrice: "20.00" }],
+    });
+    expect(blockedLineEdit.status).toBe(400);
+
+    const deleteReopened = await testFetch(
+      `/api/manufacturing-orders/${linkedOrder.id}`,
+      { method: "DELETE" }
+    );
+    expect(deleteReopened.status, await deleteReopened.text()).toBe(200);
+    const [afterDelete] = await db
+      .select({ deletedAt: manufacturingOrders.deletedAt })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, linkedOrder.id));
+    expect(afterDelete.deletedAt).not.toBeNull();
+
+    const freedLineEdit = await updateSalesOrder(salesOrder.body.id, {
+      customerId: customer.body.id,
+      orderDate: "2026-07-01",
+      shipDate: "2026-07-02",
+      lines: [{ itemId: product.body.id, quantity: "3", unitPrice: "20.00" }],
+    });
+    expect(freedLineEdit.status, JSON.stringify(freedLineEdit.body)).toBe(200);
   });
 });

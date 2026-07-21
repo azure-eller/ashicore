@@ -1,7 +1,7 @@
 import "server-only";
 
 import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
-import { inventoryEvents, manufacturingOrderBatches, manufacturingOrderIngredients, manufacturingOrders } from "@/lib/db/schema";
+import { inventoryEvents, manufacturingOrderBatches, manufacturingOrderIngredients, manufacturingOrderOutputs, manufacturingOrders } from "@/lib/db/schema";
 import { trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
@@ -151,46 +151,89 @@ export async function deleteManufacturingOrdersInTx(
     };
   }
 
-  const [finalizedDiscreteEvent] = await tx
+  const discreteOutputTotals = await tx
     .select({
+      orderId: manufacturingOrderOutputs.manufacturingOrderId,
       orderNumber: manufacturingOrders.orderNumber,
+      netQuantity: sql<string>`SUM(${manufacturingOrderOutputs.quantity})`,
     })
-    .from(inventoryEvents)
+    .from(manufacturingOrderOutputs)
     .innerJoin(
       manufacturingOrders,
-      or(
-        and(
-          eq(inventoryEvents.referenceType, "manufacturing_order"),
-          eq(inventoryEvents.referenceId, manufacturingOrders.id)
-        ),
-        and(
-          eq(inventoryEvents.referenceType, "manufacturing_batch"),
-          inArray(
-            inventoryEvents.referenceId,
-            tx
-              .select({ id: manufacturingOrderBatches.id })
-              .from(manufacturingOrderBatches)
-              .where(
-                eq(manufacturingOrderBatches.manufacturingOrderId, manufacturingOrders.id)
-              )
-          )
-        )
-      )
+      eq(manufacturingOrderOutputs.manufacturingOrderId, manufacturingOrders.id)
     )
     .where(
       and(
         inArray(manufacturingOrders.id, orderIds),
-        ne(manufacturingOrders.manufacturingMode, "batch"),
-        eq(inventoryEvents.eventType, "manufacturing_output")
+        ne(manufacturingOrders.manufacturingMode, "batch")
       )
     )
-    .limit(1);
+    .groupBy(
+      manufacturingOrderOutputs.manufacturingOrderId,
+      manufacturingOrders.orderNumber
+    );
 
-  if (finalizedDiscreteEvent) {
+  const netOutputOrder = discreteOutputTotals.find(
+    (total) => parseFloat(total.netQuantity ?? "0") > 0
+  );
+  if (netOutputOrder) {
     return {
       deletedIds: [],
-      error: `Cannot delete manufacturing order ${finalizedDiscreteEvent.orderNumber} because production output has already been recorded. Production history must be preserved.`,
+      error: `Cannot delete manufacturing order ${netOutputOrder.orderNumber} because production output has already been recorded. Production history must be preserved.`,
     };
+  }
+
+  // Orders with no output rows predate per-output tracking; for those the
+  // kernel events are the only record of recorded production.
+  const orderIdsWithOutputRows = new Set(
+    discreteOutputTotals.map((total) => total.orderId)
+  );
+  const orderIdsWithoutOutputRows = orderIds.filter(
+    (orderId) => !orderIdsWithOutputRows.has(orderId)
+  );
+
+  if (orderIdsWithoutOutputRows.length > 0) {
+    const [finalizedDiscreteEvent] = await tx
+      .select({
+        orderNumber: manufacturingOrders.orderNumber,
+      })
+      .from(inventoryEvents)
+      .innerJoin(
+        manufacturingOrders,
+        or(
+          and(
+            eq(inventoryEvents.referenceType, "manufacturing_order"),
+            eq(inventoryEvents.referenceId, manufacturingOrders.id)
+          ),
+          and(
+            eq(inventoryEvents.referenceType, "manufacturing_batch"),
+            inArray(
+              inventoryEvents.referenceId,
+              tx
+                .select({ id: manufacturingOrderBatches.id })
+                .from(manufacturingOrderBatches)
+                .where(
+                  eq(manufacturingOrderBatches.manufacturingOrderId, manufacturingOrders.id)
+                )
+            )
+          )
+        )
+      )
+      .where(
+        and(
+          inArray(manufacturingOrders.id, orderIdsWithoutOutputRows),
+          ne(manufacturingOrders.manufacturingMode, "batch"),
+          eq(inventoryEvents.eventType, "manufacturing_output")
+        )
+      )
+      .limit(1);
+
+    if (finalizedDiscreteEvent) {
+      return {
+        deletedIds: [],
+        error: `Cannot delete manufacturing order ${finalizedDiscreteEvent.orderNumber} because production output has already been recorded. Production history must be preserved.`,
+      };
+    }
   }
 
   for (const order of orders) {

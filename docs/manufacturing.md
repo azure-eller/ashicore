@@ -51,7 +51,8 @@ Allowed transitions:
 - create -> `open`
 - `open` -> `done`
 - `done` -> `open` (the reopen transition above)
-- soft-delete `open`
+- soft-delete `open` (blocked while net recorded output is positive; a fully
+  reversed reopened order can be deleted, which also frees a linked sales line)
 
 Only `open` and `done` are persisted top-level statuses. Elsewhere this doc uses
 execution-phase words for an open order: *draft* (before release) and *released*
@@ -60,8 +61,9 @@ soft-deleting an open order.
 
 Deleting an open manufacturing order releases expected supply and ingredient
 demand, and reverses picked ingredient state in the same
-transaction. Completed orders, completed batches, and produced lots block
-deletion because production output history must be preserved.
+transaction. Done orders and orders with net-positive production output block
+deletion because production history must be preserved. After a successful
+reopen fully reverses that output, the open order can be deleted.
 
 ## Priority Ranking
 
@@ -343,7 +345,8 @@ Released cancellation also:
 - releases any remaining ingredient demand
 - releases the output-side expected supply
 
-Produced output still cannot be cancelled in v1.
+Orders with net-positive produced output cannot be cancelled. A successfully
+reopened order has fully reversed output and can be cancelled normally.
 
 ## Sales Traceability
 
