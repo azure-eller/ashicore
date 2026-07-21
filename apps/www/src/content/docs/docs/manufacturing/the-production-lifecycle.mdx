@@ -1,6 +1,6 @@
 ---
 title: The production lifecycle
-description: How manufacturing orders move from open planning to started work, blocked work, output, and done history.
+description: How manufacturing orders move through planning, production, completion, and safe reopening.
 sidebar:
   order: 5
   badge:
@@ -10,7 +10,6 @@ sidebar:
 
 import { Aside } from '@astrojs/starlight/components';
 import Pill from '../../../../widgets/Pill.astro';
-import ManufacturingLifecycle from '../../../../widgets/ManufacturingLifecycle.astro';
 
 Manufacturing has two layers of state. The database stores `open` or `done`; the UI shows a derived production state so operators can see whether open work is not started, blocked, or in progress.
 
@@ -20,18 +19,14 @@ Manufacturing has two layers of state. The database stores `open` or `done`; the
   <span class="po-chip">history-preserving</span>
 </p>
 
-## Explore Each State
-
-Select a state to see what it allows and where the order can move next.
-
-<ManufacturingLifecycle />
+## Production States
 
 | Visible state | Stored status | What makes it appear | What it means |
 | --- | --- | --- | --- |
 | <Pill status="draft" label="Not started" /> | `open` | No start, no picks, no completed batches. | Planned work is still fully editable. |
 | <Pill status="partial" label="Work in progress" /> | `open` | `startedAt`, pick progress, or completed batch activity exists. | Execution has started and planning is locked. |
 | <Pill status="ordered" label="Blocked" /> | `open` | `isBlocked` is true. | Work is paused but still open. |
-| <Pill status="received" label="Done" /> | `done` | The order was completed. | Production history is terminal and read-only. |
+| <Pill status="received" label="Done" /> | `done` | The order was completed. | Output and costs are recorded; the order is read-only unless safely returned to work in progress. |
 
 ## What Happens When You Complete
 
@@ -46,11 +41,17 @@ Batch orders close batch rows. **Partially complete** records a chosen number of
 | Not started | Start, block, complete, delete, edit plan. | - |
 | Work in progress | Block, complete, record output. | Return to not started, edit planning fields. |
 | Blocked | Unblock, complete if execution is otherwise valid. | Treat blocked as a separate stored status. |
-| Done | View history. | Edit, delete, start, block, complete again. |
+| Done | View history; return to work in progress when the produced stock is still available. | Edit, delete, start, block, complete again while still done. |
 
 <Aside type="note" title="Partially complete is a dialog action">
 The production status menu includes **Partially complete** for batch orders. It is not a stored manufacturing order status; it opens the completion dialog in batch output mode.
 </Aside>
+
+## Returning Done Work To Production
+
+Choose **Work in progress** from the **Production** menu on a done order, then confirm **Return to work in progress**. Ashicore removes the produced stock, returns consumed materials, restores the original ingredient demand and expected output, and puts the order at the end of the open queue. Planning fields remain locked because the order stays execution-started. Completed batches return to pending. Linked make-to-order work keeps its sales-order link and locks sales-line quantity editing again while the order is open.
+
+The change succeeds in full or does nothing. If any produced stock has already been shipped or consumed, Ashicore leaves the order done and shows: “Some produced stock has already been shipped or consumed, so this order can't return to work in progress.”
 
 ## Why Can't I Delete This Order?
 

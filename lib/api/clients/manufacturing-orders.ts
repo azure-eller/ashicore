@@ -134,6 +134,17 @@ export async function startManufacturingOrder(
   });
 }
 
+export async function reopenManufacturingOrder(
+  orderId: string,
+): Promise<ManufacturingOrderDetail> {
+  const path = `/api/manufacturing-orders/${orderId}/reopen`;
+  return json<ManufacturingOrderDetail>(path, {
+    method: "POST",
+    idempotencyKey: "reopenManufacturingOrder",
+    body: {},
+  });
+}
+
 type ManufacturingOrderIngredientInput = {
   itemId: string;
   defaultItemId?: string;

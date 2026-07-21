@@ -205,6 +205,8 @@ Discrete completion must reuse persisted pick allocations and must not deduct in
 
 Completion also closes the remaining manufacturing planning references: the output-side expected supply is released and any still-open ingredient demand for the completed order is released through the kernel. A `done` manufacturing order must not leave non-zero `manufacturing_order` expected rows or `manufacturing_order_ingredient` demand rows.
 
+Reopening a `done` manufacturing order is the inverse planning boundary. In one transaction it appends compensating output and ingredient inventory events, settles the pick allocations represented by the reversed consumption against the recorded lot and location with cost-layer-first attribution, restores full planned ingredient demand and expected output, resets completed batches, and appends the order to the open priority queue. The kernel's no-negative-stock guard aborts the entire transition if any produced stock has since shipped or been consumed; historical events and output rows are never deleted or rewritten.
+
 ### Lot Numbers
 
 Auto-created inventory lots use the received business date as their display number. The first lot for an item/date is `LOT-YYYY-MM-DD`; additional lots for the same item/date use `LOT-YYYY-MM-DD-01`, `LOT-YYYY-MM-DD-02`, and so on. The uniqueness boundary is `organization_id + item_id + lot_number`, so different products may share the same date lot number.

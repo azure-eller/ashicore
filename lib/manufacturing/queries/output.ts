@@ -1,7 +1,7 @@
 import "server-only";
 
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
-import { type InventoryDisposition, manufacturingOrderBatches, manufacturingOrderOperationCosts, manufacturingOrderOutputConsumptions, manufacturingOrderOutputs, manufacturingOrderIngredients, manufacturingOrders } from "@/lib/db/schema";
+import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { type InventoryDisposition, manufacturingOrderBatches, manufacturingOrderOperationCosts, manufacturingOrderOutputConsumptions, manufacturingOrderOutputs, manufacturingOrderIngredients, manufacturingOrders, manufacturingPickAllocations } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { normalizeNumeric, normalizeNumericScale, normalizeQuantityNumber } from "@/lib/format";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
@@ -281,7 +281,7 @@ export function buildOutputConsumptionsFromPickedAllocations(
   return rows;
 }
 
-async function reverseManufacturingOutputInTx(
+export async function reverseManufacturingOutputInTx(
   tx: Tx,
   params: {
     organizationId: string;
@@ -438,7 +438,8 @@ async function reverseManufacturingOutputInTx(
         ),
       })
       .from(manufacturingOrderOutputConsumptions)
-      .where(eq(manufacturingOrderOutputConsumptions.manufacturingOrderOutputId, output.id));
+      .where(eq(manufacturingOrderOutputConsumptions.manufacturingOrderOutputId, output.id))
+      .orderBy(asc(manufacturingOrderOutputConsumptions.id));
 
     for (const consumption of consumptions) {
       const quantity = normalizeQuantityNumber(parseFloat(consumption.quantityUsed) * ratio);
@@ -499,7 +500,7 @@ async function reverseManufacturingOutputInTx(
 
     if (!ingredient) continue;
 
-    for (const row of reversed.rows) {
+    for (const [rowIndex, row] of reversed.rows.entries()) {
       // Each consumption row records where it drew stock; legacy rows
       // (null) restore at the operation's location.
       await restockExistingLotInTx(tx, {
@@ -514,14 +515,119 @@ async function reverseManufacturingOutputInTx(
         referenceType: "manufacturing_order",
         referenceId: params.manufacturingOrderId,
         actorUserId: params.actorUserId,
-        // Location is part of the key: the same output/ingredient/lot can
-        // have consumption rows at several locations, each restored separately.
+        // Location and row index are part of the key: the same
+        // output/ingredient/lot can have several consumption rows, each
+        // restored separately.
         idempotencyKey: deriveInventoryIdempotencyKey(
           params.idempotencyKey,
-          `reverse-consume:${row.outputId}:${ingredientId}:${row.lotId}:${row.locationId ?? location.id}`
+          `reverse-consume:${row.outputId}:${ingredientId}:${row.lotId}:${row.locationId ?? location.id}:${rowIndex}`
         ),
         metadata: { manufacturingOrderIngredientId: ingredientId },
       });
+    }
+
+    // The restocks above return stock that pick-allocation rows still claim.
+    // Settle those rows in step, or the next completion counts them as
+    // consumed again on top of its fresh consumption. Within a lot/location
+    // bucket, layers settle by recorded cost first, oldest-first — the same
+    // attribution order completion uses — so a partial reversal releases the
+    // layer whose cost the reversed consumption actually recorded; layers
+    // without a cost match (legacy rows) fall back oldest-first.
+    const reversedByLotAndLocation = new Map<
+      string,
+      { lotId: string; locationId: string; layers: Map<string, number> }
+    >();
+    for (const row of reversed.rows) {
+      const locationId = row.locationId ?? location.id;
+      const key = `${row.lotId}:${locationId}`;
+      const bucket = reversedByLotAndLocation.get(key) ?? {
+        lotId: row.lotId,
+        locationId,
+        layers: new Map<string, number>(),
+      };
+      const costKey = normalizeNumericScale(row.costPerUnit, 6);
+      bucket.layers.set(
+        costKey,
+        normalizeQuantityNumber((bucket.layers.get(costKey) ?? 0) + row.quantity)
+      );
+      reversedByLotAndLocation.set(key, bucket);
+    }
+    for (const reversedAtLocation of reversedByLotAndLocation.values()) {
+      const allocationRows = await tx
+        .select({
+          id: manufacturingPickAllocations.id,
+          quantityUsed: trimScale(manufacturingPickAllocations.quantityUsed).as(
+            "quantityUsed"
+          ),
+          costPerUnit: trimScaleNullable(manufacturingPickAllocations.costPerUnit).as(
+            "costPerUnit"
+          ),
+        })
+        .from(manufacturingPickAllocations)
+        .where(
+          and(
+            eq(manufacturingPickAllocations.manufacturingOrderIngredientId, ingredientId),
+            eq(manufacturingPickAllocations.lotId, reversedAtLocation.lotId),
+            reversedAtLocation.locationId === planningLocation.id
+              ? or(
+                  eq(manufacturingPickAllocations.locationId, planningLocation.id),
+                  sql`${manufacturingPickAllocations.locationId} IS NULL`
+                )
+              : eq(manufacturingPickAllocations.locationId, reversedAtLocation.locationId)
+          )
+        )
+        .orderBy(asc(manufacturingPickAllocations.createdAt), asc(manufacturingPickAllocations.id))
+        .for("update");
+      const allocations = allocationRows.map((row) => ({
+        id: row.id,
+        originalQuantity: parseFloat(row.quantityUsed),
+        remaining: parseFloat(row.quantityUsed),
+        costKey:
+          row.costPerUnit == null
+            ? null
+            : normalizeNumericScale(parseFloat(row.costPerUnit), 6),
+      }));
+
+      let unmatched = 0;
+      for (const [costKey, layerQuantity] of reversedAtLocation.layers) {
+        let remainingToRelease = layerQuantity;
+        for (const allocation of allocations) {
+          if (remainingToRelease <= 0) break;
+          if (allocation.costKey !== costKey || allocation.remaining <= 0) continue;
+          const released = normalizeQuantityNumber(
+            Math.min(remainingToRelease, allocation.remaining)
+          );
+          if (released <= 0) continue;
+          allocation.remaining = normalizeQuantityNumber(allocation.remaining - released);
+          remainingToRelease = normalizeQuantityNumber(remainingToRelease - released);
+        }
+        unmatched = normalizeQuantityNumber(unmatched + remainingToRelease);
+      }
+      let remainingToRelease = unmatched;
+      for (const allocation of allocations) {
+        if (remainingToRelease <= 0) break;
+        if (allocation.remaining <= 0) continue;
+        const released = normalizeQuantityNumber(
+          Math.min(remainingToRelease, allocation.remaining)
+        );
+        if (released <= 0) continue;
+        allocation.remaining = normalizeQuantityNumber(allocation.remaining - released);
+        remainingToRelease = normalizeQuantityNumber(remainingToRelease - released);
+      }
+
+      for (const allocation of allocations) {
+        if (allocation.remaining >= allocation.originalQuantity) continue;
+        if (allocation.remaining <= 0) {
+          await tx
+            .delete(manufacturingPickAllocations)
+            .where(eq(manufacturingPickAllocations.id, allocation.id));
+        } else {
+          await tx
+            .update(manufacturingPickAllocations)
+            .set({ quantityUsed: normalizeNumeric(allocation.remaining) })
+            .where(eq(manufacturingPickAllocations.id, allocation.id));
+        }
+      }
     }
 
     const nextActualQuantity = Math.max(
@@ -623,6 +729,57 @@ async function reverseManufacturingOutputInTx(
   }
 }
 
+export async function recomputeManufacturingActualRollupsInTx(
+  tx: Tx,
+  orderId: string,
+  options?: { batchId?: string | null }
+) {
+  const allOutputs = await tx
+    .select({
+      quantity: trimScale(sql`COALESCE(SUM(${manufacturingOrderOutputs.quantity}), 0)`).as(
+        "quantity"
+      ),
+      materialCostTotal: trimScale(
+        sql`COALESCE(SUM(${manufacturingOrderOutputs.materialCostTotal}), 0)`
+      ).as("materialCostTotal"),
+    })
+    .from(manufacturingOrderOutputs)
+    .where(eq(manufacturingOrderOutputs.manufacturingOrderId, orderId));
+  const totalActualQuantity = parseFloat(allOutputs[0]?.quantity ?? "0");
+  const totalMaterialCost = parseFloat(allOutputs[0]?.materialCostTotal ?? "0");
+  const totalOperationsCost = await getAbsorbedOperationCostForQuantityInTx(
+    tx,
+    orderId,
+    totalActualQuantity
+  );
+  if (options?.batchId) {
+    const batchOutputQuantity = await getOutputQuantityInTx(tx, {
+      manufacturingOrderId: orderId,
+      manufacturingOrderBatchId: options.batchId,
+    });
+    await tx
+      .update(manufacturingOrderBatches)
+      .set({
+        actualQuantity: normalizeNumeric(batchOutputQuantity),
+        updatedAt: new Date(),
+      })
+      .where(eq(manufacturingOrderBatches.id, options.batchId));
+  }
+  await tx
+    .update(manufacturingOrders)
+    .set({
+      actualQuantity: normalizeNumeric(totalActualQuantity),
+      actualMaterialCost: normalizeNumeric(totalMaterialCost),
+      actualOperationsCost: normalizeNumericScale(totalOperationsCost, 6),
+      actualCostPerUnit:
+        totalActualQuantity > 0
+          ? normalizeNumeric((totalMaterialCost + totalOperationsCost) / totalActualQuantity)
+          : null,
+      updatedAt: new Date(),
+    })
+    .where(eq(manufacturingOrders.id, orderId));
+}
+
 export async function recordManufacturingOutput(
   orderId: string,
   payload: RecordManufacturingOutput,
@@ -681,50 +838,9 @@ export async function recordManufacturingOutput(
         notes: payload.notes,
       });
 
-      const allOutputs = await tx
-        .select({
-          quantity: trimScale(sql`COALESCE(SUM(${manufacturingOrderOutputs.quantity}), 0)`).as(
-            "quantity"
-          ),
-          materialCostTotal: trimScale(
-            sql`COALESCE(SUM(${manufacturingOrderOutputs.materialCostTotal}), 0)`
-          ).as("materialCostTotal"),
-        })
-        .from(manufacturingOrderOutputs)
-        .where(eq(manufacturingOrderOutputs.manufacturingOrderId, orderId));
-      const totalActualQuantity = parseFloat(allOutputs[0]?.quantity ?? "0");
-      const totalMaterialCost = parseFloat(allOutputs[0]?.materialCostTotal ?? "0");
-      const totalOperationsCost = await getAbsorbedOperationCostForQuantityInTx(
-        tx,
-        orderId,
-        totalActualQuantity
-      );
-      if (options?.batchId) {
-        const batchOutputQuantity = await getOutputQuantityInTx(tx, {
-          manufacturingOrderId: orderId,
-          manufacturingOrderBatchId: options.batchId,
-        });
-        await tx
-          .update(manufacturingOrderBatches)
-          .set({
-            actualQuantity: normalizeNumeric(batchOutputQuantity),
-            updatedAt: new Date(),
-          })
-          .where(eq(manufacturingOrderBatches.id, options.batchId));
-      }
-      await tx
-        .update(manufacturingOrders)
-        .set({
-          actualQuantity: normalizeNumeric(totalActualQuantity),
-          actualMaterialCost: normalizeNumeric(totalMaterialCost),
-          actualOperationsCost: normalizeNumericScale(totalOperationsCost, 6),
-          actualCostPerUnit:
-            totalActualQuantity > 0
-              ? normalizeNumeric((totalMaterialCost + totalOperationsCost) / totalActualQuantity)
-              : null,
-          updatedAt: new Date(),
-        })
-        .where(eq(manufacturingOrders.id, orderId));
+      await recomputeManufacturingActualRollupsInTx(tx, orderId, {
+        batchId: options?.batchId ?? null,
+      });
 
       const result = {
         id: orderId,

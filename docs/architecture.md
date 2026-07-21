@@ -17,7 +17,7 @@ The ERP is built module by module. Current and planned domains:
 | Materials | Active | Raw inputs — purchased items tracked by lot, UOM, and SKU |
 | Products | Active | Manufactured outputs — defined by a BOM of materials |
 | BOM (Bill of Materials) | Active | Lines linking a product to its component materials with quantities |
-| Manufacturing Orders | Active | Draft/release/complete workflow with BOM snapshots, expected-qty recompute, FIFO consumption, and produced lots |
+| Manufacturing Orders | Active | Draft/release/complete/reopen workflow with BOM snapshots, expected-qty recompute, FIFO consumption, and produced lots |
 | Sales Orders | Active | Multi-line customer orders with snapshots, soft delete, and committed-qty updates on confirmation |
 | Customers | Active | Sales customer master data |
 | Purchase Orders | Active | Not received to received workflow for material purchasing with expected supply and lot-backed receiving |

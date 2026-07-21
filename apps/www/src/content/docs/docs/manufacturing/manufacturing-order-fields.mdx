@@ -34,7 +34,7 @@ This reference names the user-facing fields and the underlying concepts that mat
 | Notes | long text | blank | Internal notes, editable until the order is done. |
 | Blocked | boolean | false | Marks the order as blocked and changes the derived production state. |
 | Started at | timestamp | blank | Set when production is started or implied by production activity. |
-| Completed at | timestamp | blank | Set when the order is done. |
+| Completed at | timestamp | blank | Set when the order is done and cleared if it returns to Work in progress. |
 
 ## Ingredients
 
@@ -63,7 +63,7 @@ This reference names the user-facing fields and the underlying concepts that mat
 | Output lot | lot reference | generated when completed | Finished lot created from production output. |
 | Output disposition | enum | `available` | `available` or `blocked`. |
 | Unit cost | money | calculated | Material cost per output unit on the output row. Order totals and produced stock costing also absorb operation cost. |
-| Reversed quantity | decimal + unit | 0 | Quantity reversed from a recorded output row. |
+| Reversed quantity | decimal + unit | 0 | Quantity reversed from a recorded output row; compensating rows preserve the output history. |
 | Completed at | timestamp | blank | Time the batch or output row was recorded. |
 
 ## Operation Costs
@@ -89,7 +89,7 @@ This reference names the user-facing fields and the underlying concepts that mat
 | Value | Label | Meaning |
 | --- | --- | --- |
 | `open` | <Pill status="ordered" label="Open" /> | Active planning or execution. |
-| `done` | <Pill status="received" label="Done" /> | Terminal production history. |
+| `done` | <Pill status="received" label="Done" /> | Completed production history; can return to Work in progress while its produced stock remains available. |
 
 ### Derived production state
 

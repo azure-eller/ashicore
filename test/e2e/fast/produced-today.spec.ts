@@ -37,7 +37,11 @@ test.describe("produced-today includes all production, not just sellable goods",
   }
 
   /** Build + complete one MO today, forcing the product's sellable flag. Throws on any non-2xx. */
-  async function produceOnce(suffix: string, sellable: boolean, qty: string): Promise<string> {
+  async function produceOnce(
+    suffix: string,
+    sellable: boolean,
+    qty: string
+  ): Promise<{ sku: string; orderId: string }> {
     const component = await createItem({
       itemType: "material",
       name: `PT Comp ${suffix}`,
@@ -86,10 +90,14 @@ test.describe("produced-today includes all production, not just sellable goods",
     await pickAllIngredients(order.body.id);
     const completion = await completeManufacturingOrder(order.body.id, qty);
     if (completion.status !== 200) throw new Error(`complete ${completion.status}`);
-    return sku;
+    return { sku, orderId: order.body.id as string };
   }
 
-  async function produceToday(label: string, sellable: boolean, qty: string): Promise<string> {
+  async function produceToday(
+    label: string,
+    sellable: boolean,
+    qty: string
+  ): Promise<{ sku: string; orderId: string }> {
     let lastErr: unknown;
     for (let attempt = 1; attempt <= 4; attempt++) {
       try {
@@ -102,8 +110,8 @@ test.describe("produced-today includes all production, not just sellable goods",
   }
 
   test("non-sellable production from today shows up in produced-today", async () => {
-    const intermediateSku = await produceToday("INT", false, "5");
-    const finishedSku = await produceToday("FIN", true, "3");
+    const { sku: intermediateSku } = await produceToday("INT", false, "5");
+    const { sku: finishedSku } = await produceToday("FIN", true, "3");
 
     const res = await testFetch("/api/manufacturing-orders/produced-today");
     expect(res.status).toBe(200);
@@ -115,5 +123,31 @@ test.describe("produced-today includes all production, not just sellable goods",
     expect(skus).toContain(finishedSku);
     // The bug: a non-sellable intermediate produced today must ALSO be counted.
     expect(skus).toContain(intermediateSku);
+  });
+
+  test("a same-day done→WIP reopen nets out of produced-today", async () => {
+    const { sku, orderId } = await produceToday("REOPEN", true, "4");
+
+    const before = await testFetch("/api/manufacturing-orders/produced-today");
+    expect(before.status).toBe(200);
+    const skusBefore = ((await before.json()) as Array<{ productSku: string | null }>).map(
+      (row) => row.productSku
+    );
+    expect(skusBefore).toContain(sku);
+
+    const reopen = await testFetch(`/api/manufacturing-orders/${orderId}/reopen`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    expect(reopen.status, await reopen.text()).toBe(200);
+
+    const after = await testFetch("/api/manufacturing-orders/produced-today");
+    expect(after.status).toBe(200);
+    const skusAfter = ((await after.json()) as Array<{ productSku: string | null }>).map(
+      (row) => row.productSku
+    );
+    // Reversed production is no longer "produced today" — the negative
+    // reversal rows net the day's sum to zero for this order.
+    expect(skusAfter).not.toContain(sku);
   });
 });

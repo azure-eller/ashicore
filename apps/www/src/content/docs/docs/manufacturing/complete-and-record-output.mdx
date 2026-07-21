@@ -75,3 +75,11 @@ Discrete output can be recorded without closing the order when the dialog is use
 <Aside type="note" title="Already recorded output">
 If output already exists on a discrete order, choosing **Done** closes the order and releases remaining open demand instead of creating a duplicate output row.
 </Aside>
+
+## Reopening A Completed Order
+
+To correct or redo a completion, choose **Work in progress** from the **Production** menu on the done order. Confirm **Return to work in progress**. Ashicore removes the completion's produced stock, returns its consumed materials, restores the full production plan, and makes the order ready to execute and complete again. Planning fields remain locked because production has started; limited operational fields such as notes remain editable. Batch orders return all batches to pending.
+
+<Aside type="caution" title="Produced stock must still be available">
+You cannot return the order to work in progress after any of its produced stock has been shipped or consumed. The whole reversal is cancelled and the order stays done.
+</Aside>

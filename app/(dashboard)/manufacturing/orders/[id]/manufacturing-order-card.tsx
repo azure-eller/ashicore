@@ -6,10 +6,7 @@ import { apiJson } from "@/lib/client/api";
 import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
 import { useSmartBack } from "@/lib/hooks/use-smart-back";
 import { OrderStatusControl } from "@/components/card-page/order-status-control";
-import {
-  isManufacturingStatusDisabled,
-  manufacturingOrderStatusConfig,
-} from "@/components/card-page/order-status-configs";
+import { manufacturingOrderStatusConfig } from "@/components/card-page/order-status-configs";
 import { CardPage, CardPageBanner, CardPageBody } from "@/components/card-page/card-page";
 import { CardPageHeader } from "@/components/card-page/card-page-header";
 import {
@@ -166,7 +163,6 @@ export function ManufacturingOrderCard({
                   actualQuantity: order.actualQuantity,
                 },
               }}
-              disabled={isManufacturingStatusDisabled(order)}
               actionBoundary={{
                 flushPolicy: "requireSaved",
                 requiresPersistedId: true,

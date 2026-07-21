@@ -7,14 +7,18 @@ import { test, expect } from "../fixtures";
 import {
   inventoryDemandSummary,
   inventoryEvents,
+  inventoryExpectedSummary,
   inventoryItemBalances,
+  inventoryLocations,
   lots,
   itemFamilies,
   items,
   manufacturingResources,
   manufacturingOrderBatches,
   manufacturingOrderIngredients,
+  manufacturingOrderOutputs,
   manufacturingOrders,
+  manufacturingPickAllocations,
   notifications,
   salesOrderLines,
   user,
@@ -1706,6 +1710,33 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       .where(eq(manufacturingOrders.id, orderId));
     expect(savedOrder.status).toBe("done");
 
+    const reopen = await testFetch(
+      `/api/manufacturing-orders/${orderId}/reopen`,
+      { method: "POST", body: JSON.stringify({}) }
+    );
+    expect(reopen.status, await reopen.text()).toBe(200);
+
+    const reopenedBatches = await db
+      .select({
+        status: manufacturingOrderBatches.status,
+        actualQuantity: manufacturingOrderBatches.actualQuantity,
+        completedAt: manufacturingOrderBatches.completedAt,
+      })
+      .from(manufacturingOrderBatches)
+      .where(eq(manufacturingOrderBatches.manufacturingOrderId, orderId));
+    expect(reopenedBatches).toHaveLength(2);
+    expect(reopenedBatches).toEqual(
+      expect.arrayContaining([
+        { status: "pending", actualQuantity: "0.0000", completedAt: null },
+        { status: "pending", actualQuantity: "0.0000", completedAt: null },
+      ])
+    );
+    const [reopenedOrder] = await db
+      .select({ status: manufacturingOrders.status })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, orderId));
+    expect(reopenedOrder.status).toBe("open");
+
     const [batchDoneNotification] = await db
       .select({ id: notifications.id })
       .from(notifications)
@@ -2322,5 +2353,351 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       await setManufacturingResourceExclusion(labelCrew.id, false).catch(() => {});
       await setNotificationPreference("manufacturing_order_created", false);
     }
+  });
+
+  test("done order reopens to work in progress with exact compensation, re-completes once, and blocks after shipping", async ({
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const component = await createItem({
+      itemType: "material",
+      name: `Fast Reopen Component ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-REOPEN-COMP-${unique}`,
+      category: `Fast Manufacturing ${ts}`,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "10",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(component.status).toBe(201);
+    const product = await createItem({
+      itemType: "product",
+      name: `Fast Reopen Product ${unique}`,
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-REOPEN-PROD-${unique}`,
+      category: `Fast Manufacturing ${ts}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "20.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: component.body.id, quantity: "2" }],
+    });
+    expect(product.status).toBe(201);
+
+    const order = await createManufacturingOrder({
+      productId: product.body.id,
+      plannedQuantity: "3",
+      ingredients: [{ itemId: component.body.id, quantityPerUnit: "2" }],
+      confirmShortage: false,
+    });
+    expect(order.status).toBe(201);
+    const orderId = order.body.id as string;
+    expect((await releaseManufacturingOrder(orderId)).status).toBe(200);
+
+    const [defaultLocation] = await db
+      .select({ id: inventoryLocations.id })
+      .from(inventoryLocations)
+      .where(
+        and(
+          eq(inventoryLocations.organizationId, orgId),
+          eq(inventoryLocations.isDefault, true)
+        )
+      );
+    const [secondaryLocation] = await db
+      .insert(inventoryLocations)
+      .values({
+        organizationId: orgId,
+        name: `Fast Reopen Secondary ${unique}`,
+        code: `fast-reopen-secondary-${unique}`,
+        isDefault: false,
+      })
+      .returning({ id: inventoryLocations.id });
+    const transfer = await testFetch("/api/inventory/transfers", {
+      method: "POST",
+      body: JSON.stringify({
+        fromLocationId: defaultLocation.id,
+        toLocationId: secondaryLocation.id,
+        lines: [{ itemId: component.body.id, quantity: "7" }],
+      }),
+    });
+    expect(transfer.status, await transfer.text()).toBe(201);
+    const [ingredient] = await db
+      .select({ id: manufacturingOrderIngredients.id })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
+    await db
+      .update(manufacturingOrderIngredients)
+      .set({ plannedQuantity: "3" })
+      .where(eq(manufacturingOrderIngredients.id, ingredient.id));
+    const pickSecondary = await testFetch(
+      `/api/manufacturing-orders/${orderId}/ingredients/${ingredient.id}/pick`,
+      {
+        method: "POST",
+        body: JSON.stringify({ locationId: secondaryLocation.id }),
+      }
+    );
+    expect(pickSecondary.status, await pickSecondary.text()).toBe(200);
+    await db
+      .update(manufacturingOrderIngredients)
+      .set({ plannedQuantity: "6", pickStatus: "in_progress" })
+      .where(eq(manufacturingOrderIngredients.id, ingredient.id));
+    const pickDefault = await testFetch(
+      `/api/manufacturing-orders/${orderId}/ingredients/${ingredient.id}/pick`,
+      {
+        method: "POST",
+        body: JSON.stringify({}),
+      }
+    );
+    expect(pickDefault.status, await pickDefault.text()).toBe(200);
+    const partialOutput = await testFetch(
+      `/api/manufacturing-orders/${orderId}/outputs`,
+      {
+        method: "POST",
+        body: JSON.stringify({ quantity: "1" }),
+      }
+    );
+    expect(partialOutput.status, await partialOutput.text()).toBe(200);
+    const partialReversal = await testFetch(
+      `/api/manufacturing-orders/${orderId}/outputs`,
+      {
+        method: "POST",
+        body: JSON.stringify({ quantity: "-1" }),
+      }
+    );
+    expect(partialReversal.status, await partialReversal.text()).toBe(200);
+    const allocationsAfterPartialReversal = await db
+      .select({
+        locationId: manufacturingPickAllocations.locationId,
+        quantityUsed: manufacturingPickAllocations.quantityUsed,
+      })
+      .from(manufacturingPickAllocations)
+      .where(
+        eq(manufacturingPickAllocations.manufacturingOrderIngredientId, ingredient.id)
+      );
+    expect(
+      allocationsAfterPartialReversal
+        .map((allocation) => ({
+          locationId: allocation.locationId,
+          quantityUsed: allocation.quantityUsed,
+        }))
+        .sort((left, right) => (left.locationId ?? "").localeCompare(right.locationId ?? ""))
+    ).toEqual(
+      [
+        { locationId: defaultLocation.id, quantityUsed: "3.0000" },
+        { locationId: secondaryLocation.id, quantityUsed: "1.0000" },
+      ].sort((left, right) => (left.locationId ?? "").localeCompare(right.locationId ?? ""))
+    );
+    const pickRemainder = await testFetch(
+      `/api/manufacturing-orders/${orderId}/ingredients/${ingredient.id}/pick`,
+      {
+        method: "POST",
+        body: JSON.stringify({ locationId: secondaryLocation.id }),
+      }
+    );
+    expect(pickRemainder.status, await pickRemainder.text()).toBe(200);
+    const completion = await completeManufacturingOrder(orderId, "3");
+    expect(completion.status, JSON.stringify(completion.body)).toBe(200);
+
+    async function onHand(itemId: string) {
+      const [row] = await db
+        .select({ onHandQty: sql<string>`COALESCE(SUM(${inventoryItemBalances.onHandQty}), 0)` })
+        .from(inventoryItemBalances)
+        .where(eq(inventoryItemBalances.itemId, itemId));
+      return row?.onHandQty ?? "0.0000";
+    }
+
+    const reopen = () =>
+      testFetch(`/api/manufacturing-orders/${orderId}/reopen`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+
+    // Reopen restores stock, planning, and lifecycle exactly.
+    const reopened = await reopen();
+    expect(reopened.status, await reopened.text()).toBe(200);
+    expect(await onHand(product.body.id)).toBe("0.0000");
+    expect(await onHand(component.body.id)).toBe("10.0000");
+    const allocationsAfterReopen = await db
+      .select({ locationId: manufacturingPickAllocations.locationId })
+      .from(manufacturingPickAllocations)
+      .where(
+        eq(manufacturingPickAllocations.manufacturingOrderIngredientId, ingredient.id)
+      );
+    expect(allocationsAfterReopen).toHaveLength(0);
+    const [demand] = await db
+      .select({
+        total: sql<string>`COALESCE(SUM(${inventoryDemandSummary.quantity}), 0)`,
+      })
+      .from(inventoryDemandSummary)
+      .where(
+        and(
+          eq(inventoryDemandSummary.referenceType, "manufacturing_order_ingredient"),
+          eq(inventoryDemandSummary.itemId, component.body.id)
+        )
+      );
+    expect(Number(demand.total)).toBe(6);
+    const [expected] = await db
+      .select({
+        total: sql<string>`COALESCE(SUM(${inventoryExpectedSummary.quantity}), 0)`,
+      })
+      .from(inventoryExpectedSummary)
+      .where(
+        and(
+          eq(inventoryExpectedSummary.referenceType, "manufacturing_order"),
+          eq(inventoryExpectedSummary.referenceId, orderId)
+        )
+      );
+    expect(Number(expected.total)).toBe(3);
+    const [afterReopen] = await db
+      .select()
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, orderId));
+    expect(afterReopen.status).toBe("open");
+    expect(afterReopen.completedAt).toBeNull();
+    expect(afterReopen.startedAt).not.toBeNull();
+    expect(afterReopen.priorityRank).not.toBeNull();
+
+    // Re-completion posts exactly one live output set on top of the
+    // compensated history.
+    const replenishDefault = await testFetch("/api/inventory/transfers", {
+      method: "POST",
+      body: JSON.stringify({
+        fromLocationId: secondaryLocation.id,
+        toLocationId: defaultLocation.id,
+        lines: [{ itemId: component.body.id, quantity: "1" }],
+      }),
+    });
+    expect(replenishDefault.status, await replenishDefault.text()).toBe(201);
+    expect((await completeManufacturingOrder(orderId, "2")).status).toBe(200);
+    expect(await onHand(product.body.id)).toBe("2.0000");
+    expect(await onHand(component.body.id)).toBe("6.0000");
+    const [netOutput] = await db
+      .select({
+        total: sql<string>`COALESCE(SUM(${manufacturingOrderOutputs.quantity}), 0)`,
+      })
+      .from(manufacturingOrderOutputs)
+      .where(eq(manufacturingOrderOutputs.manufacturingOrderId, orderId));
+    expect(Number(netOutput.total)).toBe(2);
+
+    // Shipped output makes the transition fail atomically.
+    const customer = await createCustomer({ name: `Fast Reopen Customer ${unique}` });
+    expect(customer.status).toBe(201);
+    const so = await createSalesOrder({
+      customerId: customer.body.id,
+      orderDate: "2026-07-01",
+      shipDate: "2026-07-02",
+      lines: [{ itemId: product.body.id, quantity: "2", unitPrice: "25.00" }],
+    });
+    expect(so.status).toBe(201);
+    const ship = await testFetch(`/api/sales-orders/${so.body.id}/ship`, {
+      method: "POST",
+      headers: { "Idempotency-Key": `fast-reopen-ship-${unique}` },
+      body: JSON.stringify({}),
+    });
+    expect(ship.status, await ship.text()).toBe(200);
+
+    const blocked = await reopen();
+    expect([400, 409]).toContain(blocked.status);
+    const [afterBlocked] = await db
+      .select({ status: manufacturingOrders.status })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, orderId));
+    expect(afterBlocked.status).toBe("done");
+    expect(await onHand(component.body.id)).toBe("6.0000");
+  });
+
+  test("linked make-to-order completion reopens without losing its sales link", async ({
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const component = await createItem({
+      itemType: "material",
+      name: `Fast Reopen MTO Component ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-REOPEN-MTO-COMP-${unique}`,
+      category: `Fast Manufacturing ${ts}`,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "10",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(component.status).toBe(201);
+    const product = await createItem({
+      itemType: "product",
+      name: `Fast Reopen MTO Product ${unique}`,
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-REOPEN-MTO-PROD-${unique}`,
+      category: `Fast Manufacturing ${ts}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "20.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: component.body.id, quantity: "1" }],
+    });
+    expect(product.status).toBe(201);
+    const customer = await createCustomer({ name: `Fast Reopen MTO Customer ${unique}` });
+    expect(customer.status).toBe(201);
+    const salesOrder = await createSalesOrder({
+      customerId: customer.body.id,
+      orderNumber: `REOPEN-MTO-${unique}`,
+      orderDate: "2026-07-01",
+      shipDate: "2026-07-02",
+      lines: [{ itemId: product.body.id, quantity: "2", unitPrice: "20.00" }],
+    });
+    expect(salesOrder.status).toBe(201);
+    const [salesLine] = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, salesOrder.body.id));
+
+    const createLinked = await testFetch(
+      `/api/sales-orders/${salesOrder.body.id}/manufacturing-orders`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          manufacturingStrategy: "make_to_order",
+          plannedDate: "2026-07-01",
+          salesOrderLineIds: [salesLine.id],
+          priorityRank: null,
+          notes: null,
+        }),
+      }
+    );
+    expect(createLinked.status, await createLinked.text()).toBe(201);
+    const [linkedOrder] = await db
+      .select({ id: manufacturingOrders.id })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.salesOrderLineId, salesLine.id));
+    expect((await releaseManufacturingOrder(linkedOrder.id)).status).toBe(200);
+    const completed = await completeManufacturingOrder(linkedOrder.id, "2");
+    expect(completed.status, JSON.stringify(completed.body)).toBe(200);
+
+    const reopened = await testFetch(
+      `/api/manufacturing-orders/${linkedOrder.id}/reopen`,
+      { method: "POST", body: JSON.stringify({}) }
+    );
+    expect(reopened.status, await reopened.text()).toBe(200);
+    const [afterReopen] = await db
+      .select({
+        status: manufacturingOrders.status,
+        salesOrderId: manufacturingOrders.salesOrderId,
+        salesOrderLineId: manufacturingOrders.salesOrderLineId,
+      })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.id, linkedOrder.id));
+    expect(afterReopen).toEqual({
+      status: "open",
+      salesOrderId: salesOrder.body.id,
+      salesOrderLineId: salesLine.id,
+    });
   });
 });

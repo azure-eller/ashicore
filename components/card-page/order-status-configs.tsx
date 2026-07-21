@@ -39,6 +39,7 @@ import {
 } from "@/lib/api/clients/purchase-orders";
 import {
   patchManufacturingOrder,
+  reopenManufacturingOrder,
   startManufacturingOrder,
 } from "@/lib/api/clients/manufacturing-orders";
 import { deriveProductionStatus } from "@/lib/manufacturing/derive-status";
@@ -480,7 +481,7 @@ export const manufacturingOrderStatusConfig: OrderStatusControlConfig<Manufactur
       startedAt: order.startedAt,
     }),
   transitionKind: (from, to, { order }) => {
-    if (from === "done") return "disabled";
+    if (from === "done") return to === "in_progress" ? "dialog" : "disabled";
     if (to === from) return "noop";
     if (to === "not_started" && hasManufacturingWorkStarted(order)) return "disabled";
     if (to === "partially_complete" && order.manufacturingMode !== "batch") {
@@ -498,6 +499,15 @@ export const manufacturingOrderStatusConfig: OrderStatusControlConfig<Manufactur
     );
   },
   renderDialog: ({ to, ctx, onClose, onDone }) => {
+    if (to === "in_progress" && ctx.order.status === "done") {
+      return (
+        <ManufacturingReopenDialog
+          orderId={ctx.order.id}
+          onClose={onClose}
+          onDone={onDone}
+        />
+      );
+    }
     if (to !== "done" && to !== "partially_complete") return null;
     return (
       <ManufacturingCompletionDialog
@@ -520,10 +530,48 @@ function hasManufacturingWorkStarted(order: ManufacturingStatusFields) {
   );
 }
 
-export function isManufacturingStatusDisabled(
-  order: Pick<ManufacturingStatusFields, "status">
-) {
-  return order.status === "done";
+function ManufacturingReopenDialog({
+  orderId,
+  onClose,
+  onDone,
+}: {
+  orderId: string;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const mutation = useMutation({
+    mutationFn: () => reopenManufacturingOrder(orderId),
+    onSuccess: () => onDone(),
+  });
+
+  return (
+    <Dialog open onOpenChange={(open) => (!open ? onClose() : undefined)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Return to work in progress?</DialogTitle>
+          <DialogDescription>
+            This removes the produced stock and returns the consumed materials.
+            The order becomes editable and can be completed again.
+          </DialogDescription>
+        </DialogHeader>
+        {mutation.isError ? (
+          <p className="text-sm text-[var(--status-danger-ink)]">
+            {mutation.error instanceof Error
+              ? mutation.error.message
+              : "Failed to return the order to work in progress."}
+          </p>
+        ) : null}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>
+            Cancel
+          </Button>
+          <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+            {mutation.isPending ? "Reversing..." : "Return to work in progress"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 export type PurchaseStatusContext = {

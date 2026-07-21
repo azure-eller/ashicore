@@ -60,10 +60,7 @@ import {
 } from "@/lib/tooltip-copy";
 import type { ManufacturingOrdersPreference } from "@/lib/view-preferences";
 import { OrderStatusControl } from "@/components/card-page/order-status-control";
-import {
-  isManufacturingStatusDisabled,
-  manufacturingOrderStatusConfig,
-} from "@/components/card-page/order-status-configs";
+import { manufacturingOrderStatusConfig } from "@/components/card-page/order-status-configs";
 import type { ManufacturingOrderListRow } from "@/lib/manufacturing/types";
 import { queryKeys } from "@/lib/client/query-keys";
 import {
@@ -203,19 +200,10 @@ function IngredientsStatusCell({ order }: { order: ManufacturingOrderListRow }) 
 function ProductionActionCell({ order }: { order: ManufacturingOrderListRow }) {
   const queryClient = useQueryClient();
 
-  if (order.status === "done") {
-    return (
-      <StatusBlock tone="success" aria-label="Production: Done">
-        Done
-      </StatusBlock>
-    );
-  }
-
   return (
     <OrderStatusControl
       config={manufacturingOrderStatusConfig}
       ctx={{ order }}
-      disabled={isManufacturingStatusDisabled(order)}
       actionVariant="button"
       actionBoundary={{ flushPolicy: "none", requiresPersistedId: true }}
       onChanged={() => {

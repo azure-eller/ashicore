@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import { toRows } from "@/lib/db/query-result";
 import type { Tx } from "@/lib/db/with-org-context";
@@ -86,11 +86,12 @@ export async function getProducedTodayOrders(
       // production — non-sellable intermediates (media prep, totes) included, and
       // a missing product row never drops the output. Mirrors the report below.
       .leftJoin(items, eq(manufacturingOrders.productId, items.id))
+      // Negative reversal rows stay in the sum so a same-day done→WIP reopen
+      // nets out; orders whose day nets to zero or below drop via HAVING.
       .where(
         and(
           sql`${manufacturingOrderOutputs.createdAt} >= ${window.startAt}`,
           sql`${manufacturingOrderOutputs.createdAt} < ${window.endAt}`,
-          gt(manufacturingOrderOutputs.quantity, "0"),
           isNull(manufacturingOrders.deletedAt)
         )
       )
@@ -102,6 +103,7 @@ export async function getProducedTodayOrders(
         items.category,
         manufacturingOrders.unitName
       )
+      .having(sql`SUM(${manufacturingOrderOutputs.quantity}) > 0`)
       .orderBy(asc(manufacturingOrders.productName));
 
     if (rows.length === 0) {

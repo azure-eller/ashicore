@@ -37,7 +37,7 @@ The inventory kernel now provides demand release and unpick semantics for manufa
 Top-level statuses stay small:
 
 - `open`: editable operational work; execution may have reversible picked ingredients and open ingredient demand
-- `done`: terminal; production output or finalized consumption has been recorded
+- `done`: production output or finalized consumption has been recorded; the status dropdown can move it back to Work in progress for discrete or batch, make-to-stock or linked make-to-order work. Reopening reverses the completion's stock and cost effects through compensating kernel events, settles consumed pick allocations by their recorded lot, location, and cost layer, resets completed batches, restores ingredient demand and expected output to the full plan targets, and returns the order to the end of the open priority queue (`lib/manufacturing/queries/reopen.ts`). The reopened order remains execution-started, so planning fields stay locked. The reversal fails atomically when produced stock has since shipped or been consumed. Reopening and completing again must produce one net live set of output, consumption, and cost effects.
 
 Open-order editing is split by risk:
 
@@ -50,9 +50,8 @@ Allowed transitions:
 
 - create -> `open`
 - `open` -> `done`
+- `done` -> `open` (the reopen transition above)
 - soft-delete `open`
-
-No revert-to-open in v1.
 
 Only `open` and `done` are persisted top-level statuses. Elsewhere this doc uses
 execution-phase words for an open order: *draft* (before release) and *released*
@@ -72,7 +71,7 @@ Manufacturing orders may have an optional `priorityRank`:
 - only positive whole numbers are valid
 - unranked orders stay unranked and sort after ranked work
 - draft and released orders may be ranked or reprioritized
-- completed orders keep their historical rank but cannot be changed
+- completed orders leave the open queue; reopening appends them at its end
 
 Ranking changes demand queue order. It does not directly mutate inventory, costing, Xero, shipments, or status transitions.
 
@@ -88,6 +87,7 @@ Use:
 - `/manufacturing/orders/[id]` for admin/detail
 - Android for pick/start-batch/complete execution workflows
 - `/api/manufacturing-orders/[id]/execution` and related execution endpoints as the mobile/API contract
+- `POST /api/manufacturing-orders/[id]/reopen` for the idempotent Done-to-Work-in-progress reversal
 
 The web app must not expose a `/manufacturing/orders/[id]/execute` workflow. Web detail/list
 surfaces can change simple status metadata and complete output through the shared status
@@ -158,6 +158,8 @@ details with the live resource link detached.
 Manufacturing notification resource filters use active `manufacturing.resources` rows as the configurable source of truth. Manufacturing order operation-cost snapshots provide event context for a created MO, but deleted resources and historical snapshot-only names are not independently configurable notification identities.
 
 MO creation snapshots the current BOM operation rows into `manufacturing.manufacturing_order_operation_costs`. MO completion absorbs the snapshotted standard operation cost into produced inventory through the inventory kernel's `overheadCostTotal` input. Sales margins then pick up labor/operation cost through lot cost; sales must not add operation cost again.
+
+The produced-today projection sums signed output rows per order for the organisation day. A same-day completion reversal therefore nets the order to zero and removes it from the report; a later completion contributes only its net positive output.
 
 Partial output absorbs fixed-per-MO cost incrementally up to the planned total.
 Final completion absorbs any remaining fixed-per-MO cost, even when actual
@@ -352,6 +354,7 @@ Manufacturing may optionally link one sales order line:
 - the link is informational only; it does not create or complete anything in sales
 - the link blocks duplicate sales-driven MO creation for that line
 - a linked MO keeps claiming the line while it exists (open or done); deleting (cancelling) the MO frees it
+- reopening a linked MO preserves the link and restores the open-MO quantity edit lock on the sales line
 
 `salesOrderLineId` stays a snapshot reference because sales draft edits replace line rows. Draft manufacturing-order edits should preserve or relink unchanged snapshots when possible.
 
