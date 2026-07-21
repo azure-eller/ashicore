@@ -294,7 +294,8 @@ use this workflow before calling the change done:
    - sales shipment / consumption: `pnpm test:slow:sales`
    - kernel / projection / math: `pnpm test:fast:inventory`
    - cross-domain: `pnpm test:slow`
-3. Run `pnpm verify:inventory`
+3. If the change affects an inventory quantity law or a command already modelled by the property harness, run `pnpm test:invariants`
+4. Run `pnpm verify:inventory`
 
 `pnpm verify:inventory` is the standard post-test inventory integrity check:
 

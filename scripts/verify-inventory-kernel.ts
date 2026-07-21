@@ -136,6 +136,9 @@ const GUARDS: Guard[] = [
       "scripts/consolidate-untracked-internal-lots.ts",
       "scripts/verify-inventory-kernel.ts",
       "test/e2e/reconciliation/global-invariants.spec.ts",
+      // Property-based harness: reads projections back with independent raw
+      // SQL on purpose — that is its oracle.
+      "test/e2e/invariants.spec.ts",
       // Names the agent_query.items_stock view columns in the query tool's
       // prompt; the view itself encodes the kernel projection (0154 migration).
       "lib/agent/chat/read-tools.ts",

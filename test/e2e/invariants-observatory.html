@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Invariants Observatory</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    display: flex; height: 100vh; overflow: hidden;
+    background: #100f0c; color: #e8e3d7;
+    font: 13px 'IBM Plex Sans', sans-serif;
+  }
+  .mono { font-family: 'IBM Plex Mono', monospace; }
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-thumb { background: #2c2920; border-radius: 4px; }
+
+  /* ---- history board ---- */
+  #board { width: 340px; flex: none; background: #0d0c0a; border-right: 1px solid #262319; display: flex; flex-direction: column; }
+  #board header { padding: 16px; border-bottom: 1px solid #262319; }
+  #board h1 { font: 600 12px 'IBM Plex Mono', monospace; letter-spacing: 0.08em; color: #e0a94d; }
+  #board .sub { font-size: 11px; color: #7c7668; margin-top: 3px; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: #262319; margin-top: 12px; border: 1px solid #262319; }
+  .stats div { background: #0d0c0a; padding: 8px 10px; }
+  .stats .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: #7c7668; }
+  .stats .val { font: 500 18px 'IBM Plex Mono', monospace; margin-top: 2px; }
+  #runs { flex: 1; overflow-y: auto; }
+  .run { padding: 12px 16px 12px 13px; border-bottom: 1px solid #1c1a13; border-left: 3px solid transparent; cursor: pointer; }
+  .run.sel { background: #211d15; border-left-color: #e0a94d; }
+  .run .l1 { display: flex; gap: 8px; align-items: baseline; }
+  .run .glyph { font-family: 'IBM Plex Mono', monospace; }
+  .run .seq { color: #e8e3d7; font-family: 'IBM Plex Mono', monospace; }
+  .run .word { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; }
+  .run .ago { margin-left: auto; font-size: 11px; color: #6f6a5d; }
+  .pill { font-size: 9px; text-transform: uppercase; color: #100f0c; background: #e05a41; padding: 1px 5px; border-radius: 3px; }
+  .run .seed { font: 11px 'IBM Plex Mono', monospace; color: #8f897b; margin-top: 2px; }
+  .run .meta { font-size: 11px; color: #6f6a5d; margin-top: 2px; }
+  .pass { color: #8ec06a; } .fail { color: #e05a41; }
+
+  /* ---- report ---- */
+  #report { flex: 1; overflow-y: auto; padding: 22px 26px 60px; }
+  #vhead { display: flex; gap: 20px; border-bottom: 1px solid #262319; padding-bottom: 20px; align-items: flex-start; }
+  .chip { padding: 12px 20px; border-radius: 6px; border: 1px solid; font: 600 30px 'IBM Plex Mono', monospace; }
+  .chip.pass { color: #8ec06a; background: #131a10; border-color: #8ec06a; }
+  .chip.fail { color: #e05a41; background: #1f120e; border-color: #e05a41; }
+  #vhead .t1 { display: flex; gap: 10px; align-items: baseline; }
+  #vhead .runno { font: 18px 'IBM Plex Mono', monospace; }
+  #vhead .dim { font-size: 12px; color: #7c7668; }
+  #vhead .git { font: 12px 'IBM Plex Mono', monospace; color: #6f6a5d; }
+  #vhead .sub { margin-top: 6px; color: #c9c3b4; max-width: 760px; }
+  #vhead .params { margin-top: 8px; font: 12px 'IBM Plex Mono', monospace; color: #8f897b; display: flex; flex-wrap: wrap; gap: 14px; }
+  #vhead .params b { color: #c9c3b4; font-weight: 400; }
+
+  /* ---- counterexample ---- */
+  #cx { margin-top: 22px; border: 1px solid #5a2b22; border-radius: 8px; overflow: hidden; }
+  #cx .bar { background: #1f120e; padding: 11px 16px; border-bottom: 1px solid #5a2b22; display: flex; gap: 12px; align-items: baseline; }
+  #cx .bar .tag { font: 600 12px 'IBM Plex Mono', monospace; letter-spacing: 0.1em; color: #e05a41; }
+  #cx .bar .asrt { font: 12px 'IBM Plex Mono', monospace; color: #e8b7ab; }
+  #cx .body { display: flex; flex-wrap: wrap; }
+  #cx .left { flex: 1 1 300px; min-width: 280px; border-right: 1px solid #262319; padding: 16px; }
+  #cx .right { flex: 1 1 420px; min-width: 320px; padding: 16px; overflow-x: auto; }
+  .seclbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: #7c7668; margin-bottom: 6px; }
+  #cx .shrink { font: 12px 'IBM Plex Mono', monospace; color: #e0a94d; margin-bottom: 10px; }
+  #cx .cmdline { font: 12px 'IBM Plex Mono', monospace; margin: 3px 0; }
+  #cx .cmdline .n { color: #6f6a5d; margin-right: 8px; }
+  #ledger { border: 1px solid #262319; border-radius: 6px; overflow: hidden; min-width: 388px; margin-top: 4px; }
+  #ledger .row { display: grid; grid-template-columns: 38px minmax(0,1fr) repeat(4, 88px); border-top: 1px solid #1c1a13; }
+  #ledger .row.head { border-top: none; background: #161410; font: 10px 'IBM Plex Mono', monospace; color: #7c7668; }
+  #ledger .c { padding: 6px 8px; font: 12px 'IBM Plex Mono', monospace; }
+  #ledger .num { text-align: right; }
+  #ledger .step { color: #6f6a5d; }
+  #ledger .cmd { color: #c9c3b4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #ledger .q { color: #8f897b; }
+  #ledger .q div { line-height: 1.4; }
+  #ledger .q.bad { background: #2a1410; border-left: 1px solid #5a2b22; }
+  #ledger .q.bad .m { color: #e05a41; } #ledger .q.bad .r { color: #e8b7ab; }
+  #cx .foot { border-top: 1px solid #262319; background: #141310; padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 18px; font: 12px 'IBM Plex Mono', monospace; width: 100%; }
+  #cx .foot .lbl2 { color: #7c7668; } #cx .foot .repro { color: #e0a94d; }
+
+  /* ---- panels ---- */
+  #panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin-top: 22px; }
+  .panel { border: 1px solid #262319; border-radius: 8px; padding: 16px; background: #141310; }
+  .panel.wide { grid-column: 1 / -1; }
+  .phead { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+  .phead .t { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #c9c3b4; }
+  .phead .cap { font: 10px 'IBM Plex Mono', monospace; color: #6f6a5d; }
+  .dcmd { margin-bottom: 12px; }
+  .dcmd .line { display: flex; justify-content: space-between; font: 12px 'IBM Plex Mono', monospace; margin-bottom: 4px; }
+  .dcmd .line .r { color: #8f897b; }
+  .barrow { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+  .barrow .blbl { width: 44px; font: 10px 'IBM Plex Mono', monospace; color: #6f6a5d; }
+  .track { flex: 1; height: 7px; background: #1c1a13; border-radius: 4px; overflow: hidden; }
+  .track .fill { height: 100%; }
+  .f-drawn { background: #4a463a; } .f-exec { background: #e0a94d; }
+  .sweep { border-top: 1px solid #1c1a13; padding: 8px 0; }
+  .sweep:first-of-type { border-top: none; }
+  .sweep .l1 { display: flex; gap: 8px; align-items: baseline; font: 12px 'IBM Plex Mono', monospace; }
+  .sweep .checks { margin-left: auto; font-size: 10px; color: #6f6a5d; }
+  .sweep .pred { margin-left: 20px; font: 11px 'IBM Plex Mono', monospace; color: #8f897b; }
+  .sweep .fv { margin-left: 20px; font-size: 10px; color: #6b8f57; }
+  .hrow { display: flex; align-items: center; gap: 8px; margin: 3px 0; font: 11px 'IBM Plex Mono', monospace; }
+  .hrow .hl { width: 50px; text-align: right; color: #8f897b; }
+  .hrow .ht { flex: 1; height: 11px; background: #1c1a13; border-radius: 3px; overflow: hidden; }
+  .hrow .hf { height: 100%; background: #6f7d8f; }
+  .hrow .hp { width: 44px; text-align: right; color: #8f897b; }
+  .mrow .hl { width: 150px; text-align: left; color: #c9c3b4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mrow .hf { background: #8a7d9f; }
+  /* menu chips */
+  #menu { margin-top: 16px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; }
+  .mchip { border-radius: 6px; padding: 8px 12px; font: 12px 'IBM Plex Mono', monospace; }
+  .mchip .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 7px; }
+  .mchip.on { border: 1px solid #2f4a29; background: #131a10; }
+  .mchip.on .dot { background: #8ec06a; }
+  .mchip.parked { border: 1px solid #5a4a22; background: #1a160e; max-width: 520px; }
+  .mchip.parked .dot { background: #e0a94d; }
+  .mchip.parked .name { text-decoration: line-through; text-decoration-color: #5a4a22; }
+  .mchip.parked .ppill { font-size: 9px; text-transform: uppercase; color: #e0a94d; border: 1px solid #5a4a22; border-radius: 3px; padding: 0 4px; margin-left: 7px; }
+  .mchip.parked .why { font: 11px 'IBM Plex Sans', sans-serif; color: #a89877; margin-top: 4px; }
+  .mchip.next { border: 1px dashed #33302680; color: #8f897b; }
+  .mchip.next .dot { background: none; border: 1px solid #6f6a5d; }
+  .mchip.next .note { font: 11px 'IBM Plex Sans', sans-serif; color: #6f6a5d; margin-left: 7px; }
+  #empty { padding: 40px; color: #7c7668; }
+  /* tabs */
+  #tabs { display: flex; gap: 8px; margin-top: 12px; }
+  #tabs button { flex: 1; background: #141310; border: 1px solid #262319; color: #8f897b; font: 11px 'IBM Plex Mono', monospace; letter-spacing: 0.06em; padding: 6px; border-radius: 6px; cursor: pointer; }
+  #tabs button.on { color: #e0a94d; border-color: #5a4a22; background: #1a160e; }
+  /* spec view */
+  #report h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #c9c3b4; margin: 28px 0 12px; }
+  #report h2 .cap { font: 400 10px 'IBM Plex Mono', monospace; color: #6f6a5d; text-transform: none; letter-spacing: 0; margin-left: 10px; }
+  .law { display: flex; gap: 12px; padding: 7px 0; border-top: 1px solid #1c1a13; align-items: baseline; }
+  .law:first-child { border-top: none; }
+  .law .id { font: 600 12px 'IBM Plex Mono', monospace; color: #e0a94d; width: 26px; flex: none; }
+  .law .id.k { color: #8a7d9f; }
+  .law .id.q { color: #7d9f8a; }
+  .law .txt { color: #c9c3b4; }
+  #parkedwarn { margin: 14px 0 0; padding: 9px 12px; border: 1px solid #5a4a22; background: #1a160e; color: #e0a94d; font: 12px 'IBM Plex Sans', sans-serif; border-radius: 6px; }
+  .sit { display: flex; gap: 9px; align-items: baseline; padding: 4px 0; font: 12px 'IBM Plex Sans', sans-serif; color: #c9c3b4; }
+  .sit .mk { color: #7da06f; flex: none; }
+  .sit .n { margin-left: auto; font: 11px 'IBM Plex Mono', monospace; color: #8f897b; }
+  .sit.miss, .sit.miss .mk, .sit.miss .n { color: #e0a94d; }
+  .sit .req { font: 9px 'IBM Plex Mono', monospace; text-transform: uppercase; color: #9f8a7d; border: 1px solid #3a2f2a; border-radius: 3px; padding: 0 4px; margin-left: 6px; }
+  .skind { font: 9px 'IBM Plex Mono', monospace; text-transform: uppercase; color: #8a7d9f; border: 1px solid #2e2a3a; border-radius: 3px; padding: 0 4px; }
+  .prop { font: 9px 'IBM Plex Mono', monospace; text-transform: uppercase; color: #7d9f8a; border: 1px solid #23352b; border-radius: 3px; padding: 0 4px; }
+  .lkind { color: #8a7d9f; font-size: 11px; }
+  .proto { padding: 6px 0; border-top: 1px solid #1c1a13; display: flex; gap: 12px; color: #b7b1a2; }
+  .proto:first-child { border-top: none; }
+  .proto .n { font-family: 'IBM Plex Mono', monospace; color: #6f6a5d; }
+  #entities { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+  .entity { border: 1px solid #262319; border-radius: 8px; background: #141310; overflow: hidden; }
+  .entity .head { background: #161410; padding: 10px 14px; border-bottom: 1px solid #262319; display: flex; justify-content: space-between; align-items: baseline; }
+  .entity .head .name { font: 600 13px 'IBM Plex Mono', monospace; color: #e8e3d7; }
+  .entity .head .key { font: 10px 'IBM Plex Mono', monospace; color: #6f6a5d; }
+  .field { display: flex; gap: 10px; padding: 7px 14px; border-top: 1px solid #1c1a13; }
+  .field:first-of-type { border-top: none; }
+  .field .fname { font: 12px 'IBM Plex Mono', monospace; color: #e0a94d; width: 84px; flex: none; }
+  .field .fmean { font-size: 12px; color: #8f897b; }
+  .field.derived .fname { color: #6f7d8f; }
+  .field.derived .fmean::after { content: " (derived)"; color: #6f6a5d; font-size: 10px; }
+  .convention { margin-top: 12px; font-size: 12px; color: #a89877; border-left: 2px solid #5a4a22; padding-left: 10px; }
+  .card { border: 1px solid #262319; border-radius: 8px; background: #141310; margin-bottom: 14px; overflow: hidden; }
+  .card .head { background: #161410; padding: 10px 14px; border-bottom: 1px solid #262319; }
+  .card .head .name { font: 600 13px 'IBM Plex Mono', monospace; color: #e8e3d7; }
+  .card .head .name.parked { text-decoration: line-through; text-decoration-color: #5a4a22; }
+  .card .head .ppill { font-size: 9px; text-transform: uppercase; color: #e0a94d; border: 1px solid #5a4a22; border-radius: 3px; padding: 0 4px; margin-left: 8px; }
+  .card .summary { padding: 10px 14px 0; color: #c9c3b4; }
+  .card .pre2 { padding: 8px 14px 2px; font: 11px 'IBM Plex Mono', monospace; color: #8f897b; }
+  .card .pre2 b { color: #6b8f57; font-weight: 400; }
+  .card details { margin: 8px 14px 12px; }
+  .card summary { cursor: pointer; font: 11px 'IBM Plex Mono', monospace; color: #6f6a5d; }
+  .card summary:hover { color: #e0a94d; }
+  .card pre { margin-top: 8px; padding: 12px; background: #0d0c0a; border: 1px solid #1c1a13; border-radius: 6px; overflow-x: auto; font: 11px/1.5 'IBM Plex Mono', monospace; color: #b7b1a2; }
+  .card pre.post { margin: 6px 14px 4px; border-left: 2px solid #2f4a29; }
+</style>
+</head>
+<body>
+  <aside id="board">
+    <header>
+      <h1>&#9671; INVARIANTS &middot; OBSERVATORY</h1>
+      <div class="sub">stateful property harness &middot; fast-check model-run</div>
+      <div id="tabs">
+        <button data-view="runs" class="on">runs</button>
+        <button data-view="spec">the spec</button>
+      </div>
+      <div class="stats" id="stats"></div>
+    </header>
+    <div id="runs"></div>
+  </aside>
+  <main id="report"><div id="empty">loading runs&hellip;</div></main>
+
+<script>
+const $ = (s, el) => (el || document).querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function timeAgo(iso) {
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (s < 90) return `${Math.round(s)}s ago`;
+  if (s < 5400) return `${Math.round(s / 60)}m ago`;
+  if (s < 129600) return `${Math.round(s / 3600)}h ago`;
+  return `${Math.round(s / 86400)}d ago`;
+}
+
+let runs = [];       // oldest → newest, seq attached
+let selected = null; // run object
+let view = location.hash === "#spec" ? "spec" : "runs";
+let specData = null; // cached invariants-spec.json
+
+async function load() {
+  const res = await fetch("invariants/invariants-journal.jsonl", { cache: "no-store" });
+  const text = await res.text();
+  runs = text.split("\n").filter(Boolean).map((line, i) => {
+    try { const r = JSON.parse(line); r.seq = i + 1; return r; } catch { return null; }
+  }).filter(Boolean);
+  runs.forEach((r, i) => { r.regression = r.result === "red" && i > 0 && runs[i - 1].result === "green"; });
+  // Default to the latest run: a red that is still unresolved IS the latest
+  // run; older reds are history (clickable in the sidebar), not the verdict.
+  selected = runs[runs.length - 1] ?? null;
+  render();
+}
+
+function setView(v) {
+  view = v;
+  location.hash = v === "spec" ? "#spec" : "";
+  document.querySelectorAll("#tabs button").forEach((b) =>
+    b.classList.toggle("on", b.dataset.view === v)
+  );
+  renderReport();
+}
+document.querySelectorAll("#tabs button").forEach((b) =>
+  b.addEventListener("click", () => setView(b.dataset.view))
+);
+window.addEventListener("hashchange", () =>
+  setView(location.hash === "#spec" ? "spec" : "runs")
+);
+
+function render() {
+  renderStats(); renderRuns();
+  document.querySelectorAll("#tabs button").forEach((b) =>
+    b.classList.toggle("on", b.dataset.view === view)
+  );
+  renderReport();
+}
+
+function renderStats() {
+  const total = runs.length;
+  const passes = runs.filter((r) => r.result === "green").length;
+  let streak = 0;
+  for (let i = runs.length - 1; i >= 0 && runs[i].result === "green"; i--) streak++;
+  const lastRed = [...runs].reverse().find((r) => r.result === "red");
+  $("#stats").innerHTML = `
+    <div><div class="lbl">runs</div><div class="val">${total}</div></div>
+    <div><div class="lbl">pass rate</div><div class="val pass">${total ? Math.round((100 * passes) / total) : 0}%</div></div>
+    <div><div class="lbl">green streak</div><div class="val">${streak}</div></div>
+    <div><div class="lbl">last regression</div><div class="val fail" style="font-size:13px">${lastRed ? `#${String(lastRed.seq).padStart(2, "0")} · ${timeAgo(lastRed.at)}` : "none"}</div></div>`;
+}
+
+function renderRuns() {
+  $("#runs").innerHTML = [...runs].reverse().map((r) => {
+    const ok = r.result === "green";
+    return `<div class="run ${r === selected ? "sel" : ""}" data-seq="${r.seq}">
+      <div class="l1">
+        <span class="glyph ${ok ? "pass" : "fail"}">${ok ? "&#10003;" : "&#10005;"}</span>
+        <span class="seq">#${String(r.seq).padStart(2, "0")}</span>
+        <span class="word ${ok ? "pass" : "fail"}">${ok ? "PASS" : "FAIL"}</span>
+        ${r.property && r.property !== "integration" ? `<span class="prop">${esc(r.property)}</span>` : ""}
+        ${r.regression ? '<span class="pill">regression</span>' : ""}
+        <span class="ago">${timeAgo(r.at)}</span>
+      </div>
+      <div class="seed">seed ${esc(r.seed ?? "—")}</div>
+      <div class="meta">${r.numRuns ?? "?"} seqs · max ${r.maxCommands ?? "?"} · ${r.executed ?? "?"} exec · ${esc(r.duration ?? "")}</div>
+    </div>`;
+  }).join("");
+  $("#runs").querySelectorAll(".run").forEach((el) =>
+    el.addEventListener("click", () => {
+      selected = runs.find((r) => r.seq === Number(el.dataset.seq));
+      view = "runs";
+      location.hash = "";
+      render();
+    })
+  );
+}
+
+function bars(pcts, cls) {
+  return pcts.map(([lbl, pct]) => `
+    <div class="barrow"><span class="blbl">${lbl}</span>
+      <div class="track"><div class="fill ${cls[lbl] ?? ""}" style="width:${pct}%"></div></div>
+    </div>`).join("");
+}
+
+async function renderSpec() {
+  if (!specData) {
+    const res = await fetch("invariants/invariants-spec.json", { cache: "no-store" });
+    if (!res.ok) {
+      $("#report").innerHTML = '<div id="empty">no spec snapshot yet — run the harness once.</div>';
+      return;
+    }
+    specData = await res.json();
+  }
+  const d = specData;
+  let html = "";
+
+  html += `<h2>The spec<span class="cap">the authority — the model answers to this, never to the app</span></h2><div class="panel">`;
+  for (const l of d.spec.laws) html += `<div class="law"><span class="id">${esc(l.id)}</span><span class="txt">${esc(l.text)}${l.kind ? ` <span class="lkind">— ${esc(l.kind)}</span>` : ""}</span></div>`;
+  html += `</div><div class="panel" style="margin-top:10px">`;
+  for (const c of d.spec.decisions) html += `<div class="law"><span class="id ${c.id.startsWith("K") ? "k" : ""}">${esc(c.id)}</span><span class="txt">${esc(c.text)}</span></div>`;
+  html += `</div>`;
+  if (d.spec.open?.length) {
+    html += `<h2>Open questions<span class="cap">undecided — each waits for the slice that makes it concrete</span></h2><div class="panel">`;
+    for (const q of d.spec.open) html += `<div class="law"><span class="id q">${esc(q.id)}</span><span class="txt">${esc(q.text)}</span></div>`;
+    html += `</div>`;
+  }
+
+  html += `<h2>The protocol<span class="cap">how the model may change</span></h2><div class="panel">`;
+  d.spec.protocol.forEach((p, i) => { html += `<div class="proto"><span class="n">${i + 1}</span><span>${esc(p)}</span></div>`; });
+  html += `</div>`;
+
+  html += `<h2>The model<span class="cap">everything the harness remembers — nothing else exists for it</span></h2><div id="entities">`;
+  for (const e of d.model.entities) {
+    html += `<div class="entity"><div class="head"><span class="name">${esc(e.name)}</span><span class="key">keyed by ${esc(e.keyedBy)}</span></div>`;
+    for (const f of e.fields) html += `<div class="field"><span class="fname">${esc(f.name)}</span><span class="fmean">${esc(f.meaning)}</span></div>`;
+    for (const f of e.derived ?? []) html += `<div class="field derived"><span class="fname">${esc(f.name)}</span><span class="fmean">${esc(f.meaning)}</span></div>`;
+    html += `</div>`;
+  }
+  html += `</div><div class="convention">${esc(d.model.convention)}</div>`;
+  if (d.modelSource) {
+    html += `<div class="card" style="margin-top:12px"><details><summary>model state (actual source from invariants.spec.ts)</summary><pre>${esc(d.modelSource)}</pre></details></div>`;
+  }
+
+  const parked = new Set((d.menu?.parked ?? []).map((p) => p.name));
+  html += `<h2>Commands<span class="cap">precondition + postcondition shown open — source extracted from the live classes, cannot drift</span></h2>`;
+  if (d.recordStepSource) {
+    html += `<div class="card">
+      <div class="head"><span class="name">shared postcondition — every command</span></div>
+      <div class="summary">after every command, the app's stored ATP must equal floor-at-zero(onHand + expected) − demand (I4 as a postcondition, asserted in recordStep)</div>
+      <details><summary>recordStep (actual source)</summary><pre>${esc(d.recordStepSource)}</pre></details>
+    </div>`;
+  }
+  for (const c of d.commands) {
+    const isParked = parked.has(c.name);
+    html += `<div class="card">
+      <div class="head"><span class="name ${isParked ? "parked" : ""}">${esc(c.name)}</span>${isParked ? '<span class="ppill">parked</span>' : ""}</div>
+      <div class="summary">${esc(c.summary)}</div>
+      <div class="pre2"><b>precondition</b>  ${esc(c.precondition.replace(/\s+/g, " "))}</div>
+      ${c.postcondition ? `<div class="pre2"><b>postcondition</b>  (model vs real, from the live source)</div><pre class="post">${esc(c.postcondition)}</pre>` : ""}
+      <details><summary>full run(): execute &rarr; next-state &rarr; postcondition (actual source)</summary><pre>${esc(c.source)}</pre></details>
+    </div>`;
+  }
+
+  html += `<h2>Invariant sweeps<span class="cap">real vs itself — checked org-wide after every command</span></h2><div class="panel">`;
+  for (const s of d.sweeps) {
+    html += `<div class="sweep"><div class="l1"><span class="pass">&#10003;</span><span>${esc(s.name)}</span></div><div class="pred">${esc(s.predicate)}</div></div>`;
+  }
+  html += `</div>`;
+  if (d.invariantSource) {
+    html += `<div class="card" style="margin-top:12px"><details><summary>the sweep query (actual source — one UNION, five checks)</summary><pre>${esc(d.invariantSource)}</pre></details></div>`;
+  }
+  if (d.reads?.length) {
+    html += `<h2>Judging reads<span class="cap">raw SQL only — never the app's own query code</span></h2>`;
+    html += `<div class="card"><details><summary>storedQuantities / storedLine (actual source)</summary><pre>${d.reads.map(esc).join("\n\n")}</pre></details></div>`;
+  }
+
+  const active = d.menuDrawn?.length ? d.menuDrawn : d.menu.active;
+  const prose = new Set(d.menu.active);
+  const drift =
+    d.menuDrawn?.length &&
+    (d.menuDrawn.some((n) => !prose.has(n)) || d.menu.active.some((n) => !d.menuDrawn.includes(n)));
+  html += `<h2>The menu<span class="cap">active = observed from the generator, not a hand-kept list</span></h2><div class="panel"><div class="chips">`;
+  for (const name of active) html += `<span class="mchip on"><span class="dot"></span>${esc(name)}</span>`;
+  for (const p of d.menu.parked) html += `<span class="mchip parked"><span class="dot"></span><span class="name">${esc(p.name)}</span><span class="ppill">parked</span><div class="why">${esc(p.reason)}</div></span>`;
+  for (const n of d.menu.next) html += `<span class="mchip next"><span class="dot"></span>${esc(n.name)}<span class="note">${esc(n.note)}</span></span>`;
+  html += `</div>`;
+  if (drift) html += `<div class="convention" style="margin-top:10px">&#9888; MENU.active prose disagrees with the observed generator menu — fix the prose.</div>`;
+  html += `</div>`;
+
+  html += `<div style="margin-top:26px;font:11px 'IBM Plex Mono',monospace;color:#6f6a5d;border-top:1px solid #262319;padding-top:12px">snapshot ${esc(d.at)} · git ${esc(d.gitRef)}</div>`;
+  $("#report").innerHTML = html;
+}
+
+function renderReport() {
+  if (view === "spec") { renderSpec(); return; }
+  const r = selected;
+  if (!r) { $("#report").innerHTML = '<div id="empty">no runs in the journal yet — run the harness once.</div>'; return; }
+  const ok = r.result === "green";
+  const sweepCount = r.sweeps?.length ?? 5;
+  const sub = ok
+    ? `${r.numRuns} sequences · ${r.executed} commands executed · ${r.executed} postconditions (model = real) and all ${sweepCount} invariant sweeps held after every step`
+    : esc(r.fail?.assertion ?? "failed");
+  const menuSummary = r.menu ? `${r.menu.active.length} active · ${r.menu.parked.length} parked` : "—";
+
+  let html = `
+    <div id="vhead">
+      <div class="chip ${ok ? "pass" : "fail"}">${ok ? "PASS" : "FAIL"}</div>
+      <div>
+        <div class="t1"><span class="runno">run #${String(r.seq).padStart(2, "0")}</span>
+          ${r.property && r.property !== "integration" ? `<span class="prop">${esc(r.property)}</span>` : ""}
+          <span class="dim">${timeAgo(r.at)}</span>
+          ${r.gitRef ? `<span class="git">git ${esc(r.gitRef)}</span>` : ""}</div>
+        <div class="sub">${sub}</div>
+        <div class="params mono">
+          <span>seed <b>${esc(r.seed ?? "—")}</b></span>
+          <span>numRuns <b>${r.numRuns ?? "—"}</b></span>
+          <span>maxCommands <b>${r.maxCommands ?? "—"}</b></span>
+          ${r.shrinkAttempts ? `<span>shrink attempts <b>${r.shrinkAttempts}</b></span>` : ""}
+          <span>duration <b>${esc(r.duration ?? "—")}</b></span>
+          <span>menu <b>${menuSummary}</b></span>
+        </div>
+      </div>
+    </div>`;
+
+  if (r.menu?.parked?.length) {
+    const items = r.menu.parked.map((p) => `<b>${esc(p.name)}</b>${p.reason ? ` — ${esc(p.reason)}` : ""}`).join(" · ");
+    html += `<div id="parkedwarn">⚠ green does not cover ${r.menu.parked.length} parked divergence${r.menu.parked.length > 1 ? "s" : ""}: ${items}</div>`;
+  }
+
+  if (!ok && r.fail) html += renderCounterexample(r);
+
+  html += '<div id="panels">';
+  if (r.dist) {
+    html += `<div class="panel"><div class="phead"><span class="t">Command distribution</span><span class="cap">aggregate(command_names)</span></div>`;
+    for (const d of r.dist) {
+      html += `<div class="dcmd">
+        <div class="line"><span>${esc(d.name)}</span><span class="r">drawn ${d.drawn}% · exec ${d.exec}% · ${d.count}×</span></div>
+        <div class="barrow"><span class="blbl">drawn</span><div class="track"><div class="fill f-drawn" style="width:${d.drawn}%"></div></div></div>
+        <div class="barrow"><span class="blbl">exec</span><div class="track"><div class="fill f-exec" style="width:${d.exec}%"></div></div></div>
+      </div>`;
+    }
+    html += `<div style="border-top:1px solid #262319;padding-top:8px;font-size:11px;color:#8f897b">drawn = generator proposals · exec = survived preconditions; the gap is the filter</div></div>`;
+  }
+  if (r.situations) {
+    html += `<div class="panel"><div class="phead"><span class="t">Situations</span><span class="cap">did the run reach the states that matter?</span></div>`;
+    for (const s of r.situations) {
+      html += `<div class="sit${s.count ? "" : " miss"}"><span class="mk">${s.count ? "&#10003;" : "&#8212;"}</span><span>${esc(s.name)}${s.required ? '<span class="req">floor</span>' : ""}</span><span class="n">${s.count ? `${s.count}&times;` : "never reached"}</span></div>`;
+    }
+    html += `</div>`;
+  }
+  if (r.sweeps) {
+    html += `<div class="panel"><div class="phead"><span class="t">Invariant sweeps</span><span class="cap">org-wide · after every command</span></div>`;
+    for (const s of r.sweeps) {
+      html += `<div class="sweep">
+        <div class="l1"><span class="pass">&#10003;</span><span>${esc(s.name)}</span>${s.kind ? `<span class="skind">${esc(s.kind)}</span>` : ""}<span class="checks">${s.checks} checks</span></div>
+        <div class="pred">${esc(s.predicate)}</div>
+        <div class="fv">${s.faultEvidence ? `fault-validated with retained evidence: ${esc(s.faultEvidence)}` : "fault-validated in development — seeded break was caught (no retained record)"}</div>
+      </div>`;
+    }
+    html += `</div>`;
+  }
+  if (r.lengths?.length) {
+    const hist = {};
+    r.lengths.forEach((l) => { hist[l] = (hist[l] ?? 0) + 1; });
+    const entries = Object.entries(hist).map(([len, n]) => [Number(len), Math.round((100 * n) / r.lengths.length)]).sort((a, b) => a[0] - b[0]);
+    const max = Math.max(...entries.map((e) => e[1]));
+    html += `<div class="panel"><div class="phead"><span class="t">Sequence length</span><span class="cap">statistics · executed per sequence</span></div>`;
+    for (const [len, pct] of entries) {
+      html += `<div class="hrow"><span class="hl">len ${len}</span><div class="ht"><div class="hf" style="width:${(100 * pct) / max}%"></div></div><span class="hp">${pct}%</span></div>`;
+    }
+    html += `</div>`;
+  }
+  if (r.mix?.length) {
+    const max = Math.max(...r.mix.map((m) => m.pct));
+    html += `<div class="panel"><div class="phead"><span class="t">Command mix</span><span class="cap">top compositions</span></div>`;
+    for (const m of r.mix) {
+      html += `<div class="hrow mrow"><span class="hl" title="${esc(m.label)}">${esc(m.label)}</span><div class="ht"><div class="hf" style="width:${(100 * m.pct) / max}%"></div></div><span class="hp">${m.pct}%</span></div>`;
+    }
+    html += `</div>`;
+  }
+  html += "</div>";
+
+  if (r.menu) {
+    html += `<div class="panel" id="menu"><div class="phead"><span class="t">The menu</span><span class="cap">the envelope grows one promotion at a time</span></div><div class="chips">`;
+    for (const name of r.menu.active) html += `<span class="mchip on"><span class="dot"></span>${esc(name)}</span>`;
+    for (const p of r.menu.parked) html += `<span class="mchip parked"><span class="dot"></span><span class="name">${esc(p.name)}</span><span class="ppill">parked</span><div class="why">${esc(p.reason)}</div></span>`;
+    for (const n of r.menu.next) html += `<span class="mchip next"><span class="dot"></span>${esc(n.name)}<span class="note">${esc(n.note)}</span></span>`;
+    html += `</div></div>`;
+  }
+
+  $("#report").innerHTML = html;
+}
+
+function renderCounterexample(r) {
+  const f = r.fail;
+  const cmds = (f.counterexample ?? "").replace(/\/\*.*?\*\//g, "").replace(/^\[|\]\s*$/g, "").split(/(?<=\)),/).map((c) => c.trim()).filter(Boolean);
+  const ledgerRows = (f.ledger ?? []).map((s, i) => {
+    const cell = (key) => {
+      const [m, rr] = s[key];
+      const bad = s.bad.includes(key);
+      return `<div class="c q num ${bad ? "bad" : ""}"><div class="m">m ${m}</div><div class="r">r ${rr}</div></div>`;
+    };
+    return `<div class="row">
+      <div class="c step">${i + 1}</div><div class="c cmd" title="item ${esc(s.item)}">${esc(s.cmd)}</div>
+      ${cell("oh")}${cell("dm")}${cell("ex")}${cell("atp")}
+    </div>`;
+  }).join("");
+  const repro = `INVARIANTS_SEED=${f.seed}${f.path ? ` INVARIANTS_PATH="${f.path}"` : ""} pnpm exec playwright test test/e2e/invariants.spec.ts`;
+  const kind = /invariant violated/i.test(f.assertion ?? "")
+    ? "invariant failure — app disagrees with itself"
+    : /postcondition|ATP formula|fulfilled counter/i.test(f.assertion ?? "")
+      ? "postcondition failure — app disagrees with the model"
+      : /rejected/i.test(f.assertion ?? "")
+        ? "command rejected by the app"
+        : "failure";
+  return `<div id="cx">
+    <div class="bar"><span class="tag">&#9670; COUNTEREXAMPLE</span><span class="ppill" style="color:#e8b7ab;border:1px solid #5a2b22;border-radius:3px;padding:1px 5px;font-size:9px;text-transform:uppercase">${kind}</span><span class="asrt">${esc(f.assertion ?? "")}</span></div>
+    <div class="body">
+      <div class="left">
+        <div class="seclbl">Minimal failing sequence</div>
+        <div class="shrink">shrunk ${f.shrunk ?? 0} time(s)</div>
+        ${cmds.map((c, i) => `<div class="cmdline"><span class="n">${i + 1}</span>${esc(c)}</div>`).join("")}
+      </div>
+      <div class="right">
+        <div class="seclbl">model vs real · per step (m = model prediction · r = app)</div>
+        <div id="ledger">
+          <div class="row head"><div class="c">#</div><div class="c">command</div><div class="c num">on-hand</div><div class="c num">demand</div><div class="c num">expected</div><div class="c num">atp</div></div>
+          ${ledgerRows || '<div class="row"><div class="c" style="grid-column:1/-1;color:#6f6a5d">no ledger recorded</div></div>'}
+        </div>
+      </div>
+      <div class="foot"><span><span class="lbl2">reproduce&nbsp;&nbsp;</span><span class="repro">${esc(repro)}</span></span></div>
+    </div>
+  </div>`;
+}
+
+load();
+</script>
+</body>
+</html>

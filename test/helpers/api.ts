@@ -289,6 +289,17 @@ export async function deleteItem(id: string) {
   return { status: res.status, body };
 }
 
+/**
+ * DELETE /api/purchase-orders/:id
+ */
+export async function deletePurchaseOrder(id: string) {
+  const res = await testFetch(`/api/purchase-orders/${id}`, {
+    method: "DELETE",
+  });
+  const body = await res.json().catch(() => null);
+  return { status: res.status, body };
+}
+
 async function jsonMutation(path: string, method: "PATCH" | "POST" | "PUT", body: unknown) {
   const res = await testFetch(path, {
     method,
@@ -820,6 +831,7 @@ export async function fulfillSalesOrder(
   options?: {
     confirmNegativeStock?: boolean;
     completeLinkedManufacturing?: boolean;
+    lines?: Array<{ salesOrderLineId: string; quantity: string }>;
   }
 ) {
   const res = await testFetch(`/api/sales-orders/${id}/ship`, {
@@ -866,6 +878,7 @@ export async function createPurchaseOrder(data: {
 export async function receivePurchaseOrder(
   id: string,
   data: {
+    confirmOverReceipt?: boolean;
     lines: Array<{
       lineId: string;
       quantityReceived: string;

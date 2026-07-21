@@ -156,6 +156,7 @@ pnpm dev
 pnpm build
 pnpm lint
 pnpm test
+pnpm test:invariants
 ```
 
 Focused fast tests:
@@ -196,6 +197,7 @@ pnpm drizzle-kit migrate
 - `test/global-setup.ts` provisions the test session and writes `test/.test-env.json`.
 - Start `pnpm dev` before running Playwright locally.
 - The test org is isolated by RLS and reused across runs.
+- `pnpm test:invariants` exercises generated inventory and purchasing command sequences; inspect its run journal at `/dev/invariants`.
 
 ## Repo Workflow
 

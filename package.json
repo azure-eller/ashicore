@@ -59,6 +59,7 @@
     "test:fast": "pnpm test:e2e:fast",
     "test:e2e:fast": "NODE_OPTIONS='--conditions react-server' EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/fast --workers=${PLAYWRIGHT_FAST_WORKERS:-2}",
     "test:scratch": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/scratch --workers=1",
+    "test:invariants": "EMAIL_OUTBOX_ONLY=1 playwright test test/e2e/invariants.spec.ts --workers=1",
     "review": "tsx scripts/agent-review.ts",
     "sandbox": "tsx scripts/agent-sandbox.ts",
     "perf:ag-grid": "tsx scripts/ag-grid-perf.ts",
@@ -157,6 +158,7 @@
     "drizzle-kit": "^0.31.9",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "fast-check": "^4.8.0",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
     "typescript": "^5"

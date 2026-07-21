@@ -24,6 +24,7 @@ The `db` fixture uses the app role with RLS — same security path as the real a
 - Keep slow specs rooted in normal operations. Only include guards/errors when they arise inside a realistic workflow.
 - Slow specs are not bug archives. A slow spec must be a realistic operational story that a small manufacturer would recognize.
 - Do not add new one-off story suites outside `fast/`, `slow/`, or the auth/security access lane.
+- **Invariants harness** (`pnpm test:invariants`) is a stateful property-based lane in `test/e2e/invariants.spec.ts`: generated command sequences exercise the public API, a spec-derived model supplies the oracle, and org-wide invariant sweeps run after every command. It currently covers the inventory quantity spine and a focused purchasing lifecycle slice.
 
 ## Which lane to run
 
@@ -34,6 +35,7 @@ The `db` fixture uses the app role with RLS — same security path as the real a
 | Deep change in one domain | Add `pnpm test:slow:<domain>` |
 | Auth, invites, team access | `pnpm test:slow:auth` (covers `auth-security.spec.ts` + `team-access.spec.ts`) |
 | Stock mutations, demand, expected supply, inventory projections, inventory-affecting API routes | Affected slow spec(s), then `pnpm verify:inventory` |
+| Inventory quantity laws or a command already modelled by the invariants harness | Add `pnpm test:invariants` |
 
 Slow lanes are one canonical story file per operating workflow. There is no generic inventory slow lane; route inventory-affecting PRs by workflow:
 
@@ -49,6 +51,30 @@ Local fast lanes default to 2 Playwright workers. CI overrides with `PLAYWRIGHT_
 Do not run the whole slow lane locally unless the change is cross-domain or explicitly needs broad workflow verification.
 
 `pnpm verify:inventory` is the standard inventory integrity workflow: kernel grep guards, projection diff, and planning-reference integrity checks for the current Playwright test org. The projection diff compares item balances to current lot balances plus active demand/expected summaries, while lot and reference drift remain ledger diagnostics. The planning checks fail on negative, orphaned, inactive, or over-target demand/expected rows even when projection totals otherwise balance.
+
+## Invariants Harness
+
+Start the dev server and initialise the Playwright session before running `pnpm test:invariants`. The harness wipes its test org between generated sequences and holds a database advisory lock for the whole suite, so only one invariants run may use a database at a time. It does not replace the fast, slow, or `verify:inventory` lanes.
+
+Each run appends `test/e2e/invariants-journal.jsonl`, rewrites `test/e2e/invariants-spec.json`, and prints the observatory URL. Open `/dev/invariants` on the dev server to inspect the current specification, command coverage, situations reached, invariant sweeps, and any shrunk counterexample. The route and generated artifacts are development-only; the route returns 404 in production and before an artifact exists.
+
+Replay a failed journal entry with all three values recorded on that entry:
+
+```bash
+INVARIANTS_SEED=<seed> \
+INVARIANTS_PATH='<path>' \
+INVARIANTS_PROPERTY=<integration-or-purchasing> \
+pnpm test:invariants
+```
+
+Available tuning variables are:
+
+- `INVARIANTS_NUM_RUNS` — generated sequences per property
+- `INVARIANTS_MAX_COMMANDS` — maximum commands per sequence
+- `INVARIANTS_TIMEOUT_MS` — timeout for each property
+- `INVARIANTS_VERBOSE=1` — print each generated sequence
+
+Lower budgets may fail the binding coverage floors even when no business invariant is violated. Model semantics changes must follow **THE PROTOCOL** in the spec file header: author the model proposal blind to application code, triage every divergence explicitly, and park unresolved commands with a reason. When the I3 liveness sweep SQL changes, rerun `test/e2e/validate-i3-liveness.sh` and replace `test/e2e/invariants-i3-fault-validation.md`; the script requires the boot-created test environment and owner database URL.
 
 ## Fast Test Guardrails
 
@@ -135,6 +161,10 @@ Failed scheduled slow runs open/update an investigation PR, comment with run det
 - `test/e2e/slow/SLOW_TEST_STORIES.md` — allowed slow-story registry
 - `test/e2e/auth-security.spec.ts` — auth and permission regressions
 - `test/e2e/team-access.spec.ts` — compact team invite and access-boundary stories
+- `test/e2e/invariants.spec.ts` — stateful model, generated commands, specification, and invariant sweeps
+- `test/e2e/invariants-observatory.html` — development-only run and specification viewer served at `/dev/invariants`
+- `test/e2e/invariants-i3-fault-validation.md` — retained fault-injection evidence for the I3 liveness sweep
+- `test/e2e/validate-i3-liveness.sh` — destructive-in-its-test-org fault validator for the I3 liveness sweep
 - `test/global-setup.ts` — creates test user/org/unit, writes `.test-env.json`
 - `test/helpers/api.ts` — authenticated fetch helpers
 

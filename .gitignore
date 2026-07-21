@@ -14,6 +14,8 @@
 # testing
 /coverage
 /test-results/
+test/e2e/invariants-journal.jsonl
+test/e2e/invariants-spec.json
 /playwright-report/
 /test/.test-env.json
 /test/.auth/
