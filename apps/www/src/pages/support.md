@@ -8,7 +8,7 @@ label: Help
 
 ## Contact
 
-Email [support@ashicore.app](mailto:support@ashicore.app) for product support, security questions, account help, app review requests, or data deletion requests.
+Email [support@ashicore.app](mailto:support@ashicore.app) for product support, security questions, account help, or app review requests. To remove an account or associated personal data, follow the [data deletion instructions](/data-deletion).
 
 ## Documentation
 

@@ -27,7 +27,7 @@ Vercel project settings for the public site:
 
 ## Route Ownership
 
-Astro owns public routes such as `/`, `/docs`, `/privacy`, `/terms`, `/support`, `/security`, `/resources`, and `/subprocessors`.
+Astro owns public routes such as `/`, `/docs`, `/privacy`, `/data-deletion`, `/terms`, `/support`, `/security`, `/resources`, and `/subprocessors`.
 
 The ERP app owns `/sign-in`, dashboard prefixes such as `/sales` and `/inventory`, `/android`, `/.well-known/*`, and `/api/*`.
 
