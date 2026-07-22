@@ -24,6 +24,7 @@ export const navItems = [
 export const publicPages = [
   { path: "/", priority: "1.0" },
   { path: "/docs", priority: "0.9" },
+  { path: "/data-deletion", priority: "0.7" },
   { path: "/privacy", priority: "0.7" },
   { path: "/terms", priority: "0.7" },
   { path: "/support", priority: "0.8" },
