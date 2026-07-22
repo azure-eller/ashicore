@@ -3,6 +3,7 @@ import { hasModuleAccess } from "@/lib/authz";
 import { getUnitDefinitionsForItemDraft } from "@/lib/inventory/queries/units";
 import { getSuppliers } from "@/lib/purchasing/queries/suppliers";
 import type { ItemCardDto } from "@/lib/api/clients/item-cards";
+import { getFeatureAccessForCurrentOrg } from "@/lib/billing/dal";
 import { MaterialCard } from "../materials/[id]/material-card";
 
 function emptyCard(itemType: "material", unitDefinitionId: string): ItemCardDto {
@@ -32,9 +33,10 @@ function emptyCard(itemType: "material", unitDefinitionId: string): ItemCardDto 
 
 export default async function MaterialDraftPage() {
   const context = await requireModuleAccess("inventory", "operate");
-  const [units, suppliers] = await Promise.all([
+  const [units, suppliers, lotAccess] = await Promise.all([
     getUnitDefinitionsForItemDraft(),
     getSuppliers(),
+    getFeatureAccessForCurrentOrg("lot_tracking"),
   ]);
   const defaultUnit =
     units.find((unit) => unit.name.toLowerCase() === "each") ?? units[0];
@@ -57,7 +59,9 @@ export default async function MaterialDraftPage() {
         code: supplier.code,
       }))}
       initialLots={[]}
+      canOperateInventory
       canAdminInventory={hasModuleAccess(context.assignedRoles, "inventory", "admin")}
+      lotTrackingLocked={lotAccess.locked}
     />
   );
 }

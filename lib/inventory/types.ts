@@ -1,3 +1,4 @@
+import type { InventoryDisposition } from "@/lib/db/schema";
 import { parseQuantity } from "@/lib/format";
 
 export const ITEM_TYPES = ["product", "material"] as const;
@@ -51,6 +52,11 @@ export type DuplicateCombinationWarning = {
   message: string;
 };
 
+export type ItemDispositionBalance = {
+  disposition: InventoryDisposition;
+  quantity: string;
+};
+
 export type ItemRow = {
   id: string;
   familyId: string | null;
@@ -61,6 +67,7 @@ export type ItemRow = {
   sku: string | null;
   itemType: ItemType;
   lotTrackingMode: "tracked" | "untracked";
+  dispositionBalances: ItemDispositionBalance[];
   stock: string;
   demandQty: string;
   availableQty: string;

@@ -37,6 +37,11 @@ Stocktakes support creation-mode snapshots plus lot-aware blind counts:
 
 Stocktakes reconcile the `available` disposition. Blocked and rejected stock remains managed by disposition actions and is not collapsed into available by a stocktake. Location-specific counting is still not exposed in the UI; lot count rows reconcile the default location's available lot balance.
 
+Use a stock adjustment or stocktake variance when the counted physical total is
+wrong. Use Block, Release, Reject, or Scrap when the physical stock is known but
+its quality state changes. Blocking and rejecting keep physical on-hand; only
+scrap removes it.
+
 Stocktakes use the current inventory lot unit cost as valuation context. For
 manufactured lots completed after standard operation costs are enabled, that lot
 unit cost includes absorbed standard operation cost.

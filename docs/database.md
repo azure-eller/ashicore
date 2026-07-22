@@ -327,6 +327,14 @@ Purchase receipts and manufacturing output may create `available` or `blocked` s
 
 Mobile-facing stock writes must carry idempotency keys so retries do not duplicate receipts, releases, rejects, or scrap.
 
+Tracked items use `POST /api/items/[id]/lots/[lotId]/disposition`. Untracked
+items use `POST /api/items/[id]/disposition`; the DAL resolves their hidden
+`INTERNAL-UNTRACKED` storage lot and clients never receive or submit that ID.
+Both routes accept the same action, source disposition, positive quantity, and
+optional notes contract and call the same kernel operations. Item list/card read
+models expose aggregated default-location `dispositionBalances` so clients can
+offer partial actions without exposing hidden lots.
+
 ## Purchasing
 
 Purchasing uses the same header/line snapshot pattern as sales and manufacturing:

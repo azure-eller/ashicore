@@ -48,6 +48,7 @@ import {
   projectedOnHandQty,
 } from "@/lib/inventory/kernel";
 import { stockSubquery, lastCountedAtSubquery, demandQtySubquery, availableQtySubquery, expectedQtySubquery, potentialSubquery, getVariantOptionValuesByItemIdInTx, formatNormalizedVariantDisplay, buildDuplicateCombinationWarnings, type BomViewPermissions, getBomViewPermissions, hasBomViewAccess, getBomParentVisibilityCondition } from "./shared";
+import { getDispositionBalancesByItemIdInTx } from "./item-disposition-balances";
 
 function buildItemSearchText({
   displayName,
@@ -265,7 +266,13 @@ export async function getItems(filters?: {
         );
 
         const leafIds = rows.map((row) => row.id);
-        const [hasBomSet, usedInCounts, revenueByItemId, estimatedCostSummariesByItemId] = await Promise.all([
+        const [
+          hasBomSet,
+          usedInCounts,
+          revenueByItemId,
+          estimatedCostSummariesByItemId,
+          dispositionBalancesByItemId,
+        ] = await Promise.all([
           measureObservedOperation(
             "inventory.get_items.current_bom_set",
             () => getCurrentBomProductIdSetInTx(tx, leafIds),
@@ -297,6 +304,14 @@ export async function getItems(filters?: {
               extra: { rowCount: leafIds.length },
               successData: (summaries) => ({ resultCount: summaries.size }),
             }
+          ),
+          measureObservedOperation(
+            "inventory.get_items.disposition_balances",
+            () => getDispositionBalancesByItemIdInTx(tx, leafIds, locationId),
+            {
+              extra: { rowCount: leafIds.length },
+              successData: (balances) => ({ resultCount: balances.size }),
+            },
           ),
         ]);
         const optionValuesByItemId = await measureObservedOperation(
@@ -342,6 +357,7 @@ export async function getItems(filters?: {
                   itemType: row.itemType as ItemType,
                   lotTrackingMode:
                     row.lotTrackingMode === "untracked" ? "untracked" : "tracked",
+                  dispositionBalances: dispositionBalancesByItemId.get(row.id) ?? [],
                   stock: row.stock,
                   demandQty: row.demandQty,
                   availableQty: row.availableQty,

@@ -54,6 +54,7 @@ export default async function MaterialDetailPage({
         code: supplier.code,
       }))}
       initialLots={lots}
+      canOperateInventory={hasModuleAccess(context.assignedRoles, "inventory", "operate")}
       canAdminInventory={hasModuleAccess(context.assignedRoles, "inventory", "admin")}
       lotTrackingLocked={lotAccess.locked}
     />

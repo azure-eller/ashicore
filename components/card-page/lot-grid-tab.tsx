@@ -126,7 +126,8 @@ function LotNumberCell({ data }: ICellRendererParams<CardLotRow>) {
                   : "secondary"
             }
           >
-            {formatInventoryDisposition(balance.disposition)}
+            {formatInventoryDisposition(balance.disposition)}{" "}
+            {formatQuantity(balance.quantity)}
           </Badge>
         </span>
       ))}

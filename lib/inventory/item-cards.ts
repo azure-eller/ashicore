@@ -59,6 +59,7 @@ import {
   type BomOperationCostInputRow,
 } from "@/lib/inventory/queries/bom-write";
 import { getMinimumLotAgeDays } from "@/lib/bom/constraints";
+import { getDispositionBalancesByItemIdInTx } from "@/lib/inventory/queries/item-disposition-balances";
 import {
   getCurrentBomComponentsInTx,
   getCurrentBomRevisionInTx,
@@ -66,6 +67,7 @@ import {
 import { getCurrentBomOperationCostsInTx } from "@/lib/bom/operation-costs";
 import type {
   DuplicateCombinationWarning,
+  ItemDispositionBalance,
   ItemType,
   VariantOptionValueDisplay,
 } from "@/lib/inventory/types";
@@ -162,6 +164,7 @@ export type ItemCardVariantDto = {
   defaultSellingPrice: string | null;
   defaultPurchasePrice: string | null;
   inStockQty: string;
+  dispositionBalances: ItemDispositionBalance[];
   ingredientsCost: string | null;
   operationsCost: string | null;
   sortOrder: number;
@@ -476,12 +479,17 @@ async function getItemCardInTx(tx: Tx, itemId: string): Promise<ItemCardDto> {
       ...row,
       values: valuesByOption.get(row.id) ?? [],
     }));
-    const optionValuesByItem = await optionValuesForItemsInTx(
-      tx,
-      variantRows.map((row) => row.id),
-    );
+    const variantIds = variantRows.map((row) => row.id);
     const warningsByVariant = duplicateWarnings(variantRows);
-    const costSummariesByVariant = await getVariantCostSummariesInTx(tx, variantRows);
+    const [
+      optionValuesByItem,
+      costSummariesByVariant,
+      dispositionBalancesByVariant,
+    ] = await Promise.all([
+      optionValuesForItemsInTx(tx, variantIds),
+      getVariantCostSummariesInTx(tx, variantRows),
+      getDispositionBalancesByItemIdInTx(tx, variantIds),
+    ]);
 
     return {
       focusedVariantId: itemId,
@@ -502,6 +510,7 @@ async function getItemCardInTx(tx: Tx, itemId: string): Promise<ItemCardDto> {
           displayName: `${displayName(family.name, optionValues)}${row.deletedAt ? " (deleted)" : ""}`,
           optionValues,
           duplicateCombinationWarnings: warningsByVariant.get(row.id) ?? [],
+          dispositionBalances: dispositionBalancesByVariant.get(row.id) ?? [],
           ingredientsCost: costSummariesByVariant.get(row.id)?.ingredientsCost ?? null,
           operationsCost: costSummariesByVariant.get(row.id)?.operationsCost ?? null,
         };

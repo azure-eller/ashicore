@@ -490,7 +490,7 @@ export function formatMovementType(type: string | null): string {
 }
 
 const INVENTORY_DISPOSITION_LABELS: Record<InventoryDisposition, string> = {
-  available: "Usable",
+  available: "Available",
   blocked: "Blocked",
   rejected: "Rejected",
 };

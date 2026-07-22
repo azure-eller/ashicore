@@ -4,13 +4,15 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { MoreVerticalIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useMutation } from "@tanstack/react-query";
 import type { InventoryDisposition } from "@/lib/db/schema";
 import { apiJson } from "@/lib/client/api";
+import { useApiMutation } from "@/lib/client/use-api-mutation";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -29,7 +31,9 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { formatInventoryDisposition } from "@/lib/format";
+import { formatInventoryDisposition, formatQuantity } from "@/lib/format";
+import { queryKeys } from "@/lib/client/query-keys";
+import type { ItemDispositionBalance } from "@/lib/inventory/types";
 
 type DispositionAction = "release" | "block" | "reject" | "scrap";
 
@@ -44,6 +48,18 @@ const ACTIONS: Array<{
   { action: "scrap", label: "Scrap", toDisposition: null },
 ];
 
+function actionDescription(
+  action: DispositionAction | undefined,
+  fromDisposition: InventoryDisposition | undefined,
+) {
+  if (action === "block") return "Keeps this stock on hand but unavailable.";
+  if (action === "scrap") return "Permanently removes this stock from on hand.";
+  if (fromDisposition) {
+    return `Moves stock from ${formatInventoryDisposition(fromDisposition).toLowerCase()}.`;
+  }
+  return "Update this stock's quality status.";
+}
+
 export function LotDispositionActions({
   itemId,
   lotId,
@@ -51,11 +67,8 @@ export function LotDispositionActions({
   locked = false,
 }: {
   itemId: string;
-  lotId: string;
-  balances: Array<{
-    disposition: InventoryDisposition;
-    quantity: string;
-  }>;
+  lotId?: string;
+  balances: ItemDispositionBalance[];
   locked?: boolean;
 }) {
   const router = useRouter();
@@ -85,13 +98,33 @@ export function LotDispositionActions({
         maxQuantity: balance.quantity,
       })),
     );
+  const positiveBalances = balances.filter(
+    (balance) => Number(balance.quantity) > 0,
+  );
+  const hasHeldStock = positiveBalances.some(
+    (balance) =>
+      balance.disposition === "blocked" || balance.disposition === "rejected",
+  );
+  const summaryBalances =
+    hasHeldStock &&
+    !positiveBalances.some((balance) => balance.disposition === "available")
+      ? [{ disposition: "available" as const, quantity: "0" }, ...positiveBalances]
+      : positiveBalances;
 
-  const mutation = useMutation({
+  const mutation = useApiMutation({
+    invalidates: [
+      queryKeys.itemCards.root,
+      queryKeys.itemLocationBalances.root,
+      queryKeys.items.root,
+    ],
     mutationFn: async () => {
       if (!selectedAction || !idempotencyKey) {
         throw new Error("Choose a disposition action.");
       }
-      await apiJson<void>(`/api/items/${itemId}/lots/${lotId}/disposition`, {
+      const endpoint = lotId
+        ? `/api/items/${itemId}/lots/${lotId}/disposition`
+        : `/api/items/${itemId}/disposition`;
+      await apiJson<void>(endpoint, {
         method: "POST",
         headers: { "Idempotency-Key": idempotencyKey },
         body: {
@@ -131,41 +164,81 @@ export function LotDispositionActions({
   };
 
   // Hidden when off: no menu at all when no free action remains for the org.
-  if (locked && menuActions.length === 0) {
+  if (lotId && locked && menuActions.length === 0) {
     return null;
   }
 
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            size="icon-xs"
-            variant="ghost"
-            aria-label="Lot actions"
-            disabled={menuActions.length === 0}
+      <div
+        className={
+          lotId
+            ? undefined
+            : "flex flex-wrap items-center justify-end gap-(--space-2)"
+        }
+      >
+        {!lotId
+          ? summaryBalances.map((balance) => (
+                <Badge
+                  key={balance.disposition}
+                  variant={
+                    balance.disposition === "available"
+                      ? "success"
+                      : balance.disposition === "rejected"
+                        ? "destructive"
+                        : "secondary"
+                  }
+                >
+                  {formatInventoryDisposition(balance.disposition)}{" "}
+                  {formatQuantity(balance.quantity)}
+                </Badge>
+              ))
+          : null}
+        {menuActions.length > 0 ? <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            {lotId ? (
+              <Button
+                type="button"
+                size="icon-xs"
+                variant="ghost"
+                aria-label="Lot actions"
+                disabled={menuActions.length === 0}
+              >
+                <HugeiconsIcon
+                  icon={MoreVerticalIcon}
+                  className="h-4 w-4"
+                  aria-hidden
+                />
+              </Button>
+            ) : (
+              <Button type="button" variant="outline" disabled={menuActions.length === 0}>
+                Stock action
+              </Button>
+            )}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            className="bg-[var(--color-surface)] text-[var(--color-ink)]"
           >
-            <HugeiconsIcon icon={MoreVerticalIcon} className="h-4 w-4" aria-hidden />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="bg-[var(--color-surface)] text-[var(--color-ink)]">
-          {menuActions.map((selection) => (
-            <DropdownMenuItem
-              key={`${selection.fromDisposition}-${selection.action.action}`}
-              variant={selection.action.action === "scrap" ? "destructive" : "default"}
-              onSelect={() => openAction(selection)}
-            >
-              {selection.action.label}
-              {balances.length > 1 ? (
-                <span className="ml-auto text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-                  {formatInventoryDisposition(selection.fromDisposition)}
-                </span>
-              ) : null}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+            {menuActions.map((selection) => (
+              <DropdownMenuItem
+                key={`${selection.fromDisposition}-${selection.action.action}`}
+                variant={
+                  selection.action.action === "scrap" ? "destructive" : "default"
+                }
+                onSelect={() => openAction(selection)}
+              >
+                {selection.action.label}
+                {balances.length > 1 ? (
+                  <span className="ml-auto text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                    {formatInventoryDisposition(selection.fromDisposition)}
+                  </span>
+                ) : null}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu> : null}
+      </div>
 
       <Dialog
         open={selectedAction != null}
@@ -179,6 +252,12 @@ export function LotDispositionActions({
             <DialogTitle>
               {selectedAction?.action.label ?? "Update Disposition"}
             </DialogTitle>
+            <DialogDescription>
+              {actionDescription(
+                selectedAction?.action.action,
+                selectedAction?.fromDisposition,
+              )}
+            </DialogDescription>
           </DialogHeader>
 
           <FieldGroup>

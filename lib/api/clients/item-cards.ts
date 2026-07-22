@@ -5,6 +5,7 @@ import {
 } from "@/lib/client/api";
 import type {
   DuplicateCombinationWarning,
+  ItemDispositionBalance,
   ItemType,
   VariantOptionValueDisplay,
 } from "@/lib/inventory/types";
@@ -60,6 +61,7 @@ export type ItemCardVariantDto = {
   defaultSellingPrice: string | null;
   defaultPurchasePrice: string | null;
   inStockQty: string;
+  dispositionBalances: ItemDispositionBalance[];
   ingredientsCost: string | null;
   operationsCost: string | null;
   sortOrder: number;

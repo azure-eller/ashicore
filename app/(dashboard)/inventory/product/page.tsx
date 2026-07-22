@@ -2,6 +2,7 @@ import { requireModuleAccess } from "@/lib/dal/auth";
 import { hasModuleAccess } from "@/lib/authz";
 import { getUnitDefinitionsForItemDraft } from "@/lib/inventory/queries/units";
 import type { ItemCardDto } from "@/lib/api/clients/item-cards";
+import { getFeatureAccessForCurrentOrg } from "@/lib/billing/dal";
 import { ProductCard } from "../products/[id]/product-card";
 
 function emptyCard(itemType: "product", unitDefinitionId: string): ItemCardDto {
@@ -31,7 +32,10 @@ function emptyCard(itemType: "product", unitDefinitionId: string): ItemCardDto {
 
 export default async function ProductDraftPage() {
   const context = await requireModuleAccess("inventory", "operate");
-  const units = await getUnitDefinitionsForItemDraft();
+  const [units, lotAccess] = await Promise.all([
+    getUnitDefinitionsForItemDraft(),
+    getFeatureAccessForCurrentOrg("lot_tracking"),
+  ]);
   const defaultUnit =
     units.find((unit) => unit.name.toLowerCase() === "each") ?? units[0];
   if (!defaultUnit) throw new Error("Unable to prepare a default inventory unit.");
@@ -46,7 +50,9 @@ export default async function ProductDraftPage() {
         size: unit.size,
         uom: unit.uom,
       }))}
+      canOperateInventory
       canAdminInventory={hasModuleAccess(context.assignedRoles, "inventory", "admin")}
+      lotTrackingLocked={lotAccess.locked}
     />
   );
 }

@@ -27,6 +27,7 @@ import { buildStorageState, readTestEnv } from "../../helpers/test-env";
 import {
   consumeStockFifoInTx,
   createPositiveStockEventInTx,
+  getDefaultInventoryLocationInTx,
   INTERNAL_UNTRACKED_LOT_NUMBER,
 } from "../../../lib/inventory/kernel";
 import { buildStocktakeCategoryScope } from "../../../lib/schemas/stocktakes";
@@ -479,16 +480,9 @@ test.describe("inventory mutation kernel heartbeat", () => {
       JSON.stringify(await modeResponse.json().catch(() => null))
     ).toBe(200);
 
-    const [location] = await db
-      .select({ id: inventoryLocations.id })
-      .from(inventoryLocations)
-      .where(
-        and(
-          eq(inventoryLocations.organizationId, orgId),
-          eq(inventoryLocations.isDefault, true)
-        )
-      );
-    if (!location?.id) throw new Error("Default inventory location not found.");
+    const location = await db.transaction((tx) =>
+      getDefaultInventoryLocationInTx(tx, orgId),
+    );
 
     await db.transaction(async (tx) => {
       await createPositiveStockEventInTx(tx, {
@@ -614,6 +608,130 @@ test.describe("inventory mutation kernel heartbeat", () => {
       onHandQty: "3.0000",
       availableToPromise: "3.0000",
     });
+
+    const block = await testFetch(`/api/items/${itemId}/disposition`, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "block",
+        fromDisposition: "available",
+        quantity: "1",
+        notes: "Fast untracked disposition",
+      }),
+    });
+    expect(block.status, await block.text()).toBe(200);
+
+    const [blockedItemBalance] = await db
+      .select({
+        onHandQty: inventoryItemBalances.onHandQty,
+        availableToPromise: inventoryItemBalances.availableToPromise,
+      })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, itemId));
+    expect(blockedItemBalance).toMatchObject({
+      onHandQty: "3.0000",
+      availableToPromise: "2.0000",
+    });
+
+    const list = await testFetch("/api/items?itemType=material");
+    const listedItem = ((await list.json()) as Array<{
+      id: string;
+      dispositionBalances: Array<{ disposition: string; quantity: string }>;
+    }>).find((row) => row.id === itemId);
+    expect(listedItem?.dispositionBalances).toEqual(
+      expect.arrayContaining([
+        { disposition: "available", quantity: "2" },
+        { disposition: "blocked", quantity: "1" },
+      ]),
+    );
+
+    const card = (await (
+      await testFetch(`/api/item-cards/${itemId}`)
+    ).json()) as {
+      variants: Array<{
+        id: string;
+        dispositionBalances: Array<{ disposition: string; quantity: string }>;
+      }>;
+    };
+    expect(
+      card.variants.find((variant) => variant.id === itemId)?.dispositionBalances,
+    ).toEqual(
+      expect.arrayContaining([
+        { disposition: "available", quantity: "2" },
+        { disposition: "blocked", quantity: "1" },
+      ]),
+    );
+
+    const untrackedLotRoute = await testFetch(
+      `/api/items/${itemId}/lots/${lotRows[0].id}/disposition`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          action: "block",
+          fromDisposition: "available",
+          quantity: "1",
+          notes: null,
+        }),
+      },
+    );
+    expect(untrackedLotRoute.status).toBe(409);
+    expect(await (await testFetch(`/api/items/${itemId}/lots`)).json()).toEqual([]);
+  });
+
+  test("disposition routes enforce tracked item and lot addressing", async ({
+    db,
+  }) => {
+    const createTrackedItem = async (suffix: string) => {
+      const response = await createItem({
+        itemType: "material",
+        name: `Fast Tracked Disposition ${suffix} ${ts}`,
+        unitDefinitionId: unitId,
+        sku: `FAST-TRACKED-DISP-${suffix}-${ts}`,
+        category: `Fast Tracked Disposition ${ts}`,
+        description: null,
+        defaultPurchasePrice: "2.00",
+        defaultSellingPrice: null,
+        stock: "0",
+        safetyStock: "0",
+        bom: [],
+      });
+      expect(response.status).toBe(201);
+      return response.body.id as string;
+    };
+
+    const itemId = await createTrackedItem("A");
+    const otherItemId = await createTrackedItem("B");
+    const [otherLot] = await db
+      .insert(lots)
+      .values({
+        organizationId: orgId,
+        itemId: otherItemId,
+        lotNumber: `FAST-TRACKED-DISP-${ts}`,
+      })
+      .returning({ id: lots.id });
+    const action = JSON.stringify({
+      action: "block",
+      fromDisposition: "available",
+      quantity: "1",
+      notes: null,
+    });
+
+    const itemRoute = await testFetch(`/api/items/${itemId}/disposition`, {
+      method: "POST",
+      body: action,
+    });
+    expect(itemRoute.status).toBe(409);
+
+    const mismatchedLotRoute = await testFetch(
+      `/api/items/${itemId}/lots/${otherLot.id}/disposition`,
+      { method: "POST", body: action },
+    );
+    expect(mismatchedLotRoute.status).toBe(404);
+
+    const events = await db
+      .select({ id: inventoryEvents.id })
+      .from(inventoryEvents)
+      .where(inArray(inventoryEvents.itemId, [itemId, otherItemId]));
+    expect(events).toEqual([]);
   });
 
   test("turning off lot tracking consolidates existing lots", async ({ db }) => {

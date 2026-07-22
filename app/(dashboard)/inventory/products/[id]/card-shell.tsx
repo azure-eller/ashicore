@@ -7,6 +7,7 @@ import { requireModuleReadAccess } from "@/lib/dal/auth";
 import { hasModuleAccess } from "@/lib/authz";
 import { getItemCard } from "@/lib/inventory/item-cards";
 import { ProductCard, type ProductCardTab } from "./product-card";
+import { getFeatureAccessForCurrentOrg } from "@/lib/billing/dal";
 
 type ProductCardShellProps = {
   itemId: string;
@@ -30,7 +31,10 @@ export async function ProductCardShell({
 
   const card = await getItemCard(itemId);
 
-  const units = await getUnitDefinitions();
+  const [units, lotAccess] = await Promise.all([
+    getUnitDefinitions(),
+    getFeatureAccessForCurrentOrg("lot_tracking"),
+  ]);
 
   return (
     <ProductCard
@@ -44,7 +48,9 @@ export async function ProductCardShell({
       }))}
       activeTab={activeTab}
       lotsCount={lotsCount}
+      canOperateInventory={hasModuleAccess(context.assignedRoles, "inventory", "operate")}
       canAdminInventory={hasModuleAccess(context.assignedRoles, "inventory", "admin")}
+      lotTrackingLocked={lotAccess.locked}
     >
       {children}
     </ProductCard>

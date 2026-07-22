@@ -1,6 +1,6 @@
 ---
 title: Block, release and scrap
-description: Move lot quantity between quality dispositions, or remove it from stock as scrap.
+description: Move stock between quality dispositions, or remove it as scrap.
 sidebar:
   order: 5
   badge:
@@ -12,17 +12,17 @@ import { Steps, Aside } from '@astrojs/starlight/components';
 import Frame from '../../../../widgets/Frame.astro';
 import Field from '../../../../widgets/Field.astro';
 
-Use lot actions to block, release, reject, or scrap a quantity. These actions preserve the audit trail: disposition changes write quality disposition records and inventory events.
+Use stock actions to block, release, reject, or scrap a quantity. These actions preserve the audit trail: disposition changes write quality disposition records and inventory events.
 
 <p class="po-meta">
   <span class="po-chip">4 actions</span>
-  <span class="po-chip">lot-level</span>
+  <span class="po-chip">tracked or untracked</span>
   <span class="po-chip">default location</span>
 </p>
 
 <Steps>
 
-1. **Open the lot action menu.** On an item lot, open the lot actions menu. The menu shows actions for dispositions that currently have positive quantity.
+1. **Open the stock actions.** For a tracked item, open the action menu on the lot. For an untracked item, open the item card and select **Stock action**. The menu shows actions for dispositions that currently have positive quantity.
 
 2. **Choose the target action.**
 
@@ -49,8 +49,8 @@ Use lot actions to block, release, reject, or scrap a quantity. These actions pr
 
 </Steps>
 
-<Aside type="note" title="Only available stock is usable">
-Blocked and rejected quantities remain visible on the lot, but they are held out of sellable and consumable stock. Scrap is different: it removes stock from inventory.
+<Aside type="note" title="Only Available stock can be used">
+Blocked and rejected quantities remain visible in the disposition totals on the item card or lot, but they are held out of sellable and consumable stock. Scrap is different: it removes stock from inventory.
 </Aside>
 
 <Aside type="caution" title="Location behavior">

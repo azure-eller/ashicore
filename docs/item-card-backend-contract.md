@@ -19,6 +19,7 @@ Product/material cards live in `inventory.item_families`; operational variants l
 - `optionValues`
 - `displayName`
 - `duplicateCombinationWarnings`
+- `dispositionBalances` (positive default-location quantities grouped by disposition)
 
 Legacy fake master rows are not returned.
 
@@ -43,7 +44,9 @@ purchase-to-stock conversion. Variant rows include `sellable`,
 SKU/barcode/default fields, option display, duplicate-combination warnings, and
 deleted variants display with `(deleted)`. Products and materials both use the
 variant-level `sellable` flag to control whether the item can appear on sales
-orders.
+orders. Each variant also includes `dispositionBalances`, aggregated at the
+default location so clients can offer item-level quality actions without
+exposing the hidden lot used by untracked stock.
 
 `PATCH /api/item-cards/:itemId` updates family/card metadata only. Variant-owned
 fields such as SKU, prices, barcodes, lead time, and MOQ stay on

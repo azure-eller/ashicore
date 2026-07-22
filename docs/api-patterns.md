@@ -96,6 +96,19 @@ must go through `runIdempotentInventoryOperationInTx`; do not hand-thread the
 site. The helper claims before reading mutable source rows and always records
 the returned result, including `null` not-found outcomes.
 
+### Stock disposition routes
+
+Quality disposition mutations share one body contract but use tracking-specific
+resource paths:
+
+- tracked stock: `POST /api/items/[id]/lots/[lotId]/disposition`
+- untracked stock: `POST /api/items/[id]/disposition`
+
+The untracked route resolves the canonical internal lot in the DAL. Public
+clients must not fetch, display, or submit that hidden lot identifier. Both
+routes require idempotency keys and accept `action`, `fromDisposition`, a
+positive decimal `quantity`, and optional `notes`.
+
 ## Query Params
 
 Use `lib/routing/search-params.ts` for request query parsing instead of rebuilding

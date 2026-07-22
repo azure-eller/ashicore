@@ -22,8 +22,8 @@ import {
   normalizeNumeric,
 } from "@/lib/format";
 import {
-  assertTrackedItemInTx,
   getItemLotTrackingModeInTx,
+  LotTrackingError,
 } from "@/lib/inventory/lot-tracking";
 import {
   withAuthedOrgContext,
@@ -34,6 +34,7 @@ import {
   ledgerLotUnitCostByOrigin,
   projectedLotUnitCost,
   scrapLotDispositionInTx,
+  getOrCreateInternalUntrackedLotInTx,
 } from "@/lib/inventory/kernel";
 import {
   calculateMarginMetrics,
@@ -41,6 +42,7 @@ import {
 import type {
   QualityDispositionAction,
 } from "@/lib/schemas/inventory-disposition";
+import type { ItemDispositionBalance } from "@/lib/inventory/types";
 
 export async function getLots(
   itemId: string,
@@ -166,10 +168,7 @@ export async function getLots(
           href: string;
           quantity: string;
         }>;
-        dispositionBalances: Array<{
-          disposition: InventoryDisposition;
-          quantity: string;
-        }>;
+        dispositionBalances: ItemDispositionBalance[];
       }
     >();
 
@@ -223,12 +222,48 @@ export async function applyLotDispositionAction(
   action: QualityDispositionAction,
   options?: { idempotencyKey?: string }
 ) {
+  return applyItemDispositionAction(itemId, action, {
+    ...options,
+    lotId,
+  });
+}
+
+export async function applyItemDispositionAction(
+  itemId: string,
+  action: QualityDispositionAction,
+  options?: { idempotencyKey?: string; lotId?: string }
+) {
   return withAuthedOrgContext(async (tx, orgId, userId) => {
-    await assertTrackedItemInTx(
-      tx,
-      itemId,
-      "Lot disposition changes are not available for untracked items."
-    );
+    const trackingMode = await getItemLotTrackingModeInTx(tx, itemId);
+    let lotId: string;
+
+    if (trackingMode === "untracked") {
+      if (options?.lotId) {
+        throw new LotTrackingError(
+          "Use the item disposition action for untracked stock.",
+          409,
+        );
+      }
+      lotId = (
+        await getOrCreateInternalUntrackedLotInTx(tx, {
+          organizationId: orgId,
+          itemId,
+        })
+      ).id;
+    } else {
+      if (!options?.lotId) {
+        throw new LotTrackingError("Choose a lot for tracked stock.", 409);
+      }
+      const [lot] = await tx
+        .select({ id: lots.id })
+        .from(lots)
+        .where(and(eq(lots.id, options.lotId), eq(lots.itemId, itemId)));
+      if (!lot) {
+        throw new LotTrackingError("Lot not found for this item.", 404);
+      }
+      lotId = lot.id;
+    }
+
     const quantity = Number(action.quantity);
     const toDisposition = dispositionForAction(action.action);
 
@@ -237,7 +272,9 @@ export async function applyLotDispositionAction(
     // are lot-tracking workflows.
     if (toDisposition !== "available") {
       await assertFeatureAccessInTx(tx, orgId, "lot_tracking", {
-        route: "POST /api/items/[id]/lots/[lotId]/disposition",
+        route: options?.lotId
+          ? "POST /api/items/[id]/lots/[lotId]/disposition"
+          : "POST /api/items/[id]/disposition",
       });
     }
 

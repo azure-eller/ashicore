@@ -31,6 +31,7 @@ import type { SupplierOption } from "@/lib/purchasing/types";
 import { useItemCardDraftController } from "@/components/card-page/use-item-card-draft-controller";
 import { queryKeys } from "@/lib/client/query-keys";
 import type { UnitSelectOption } from "@/components/card-page/unit-select-field";
+import { LotDispositionActions } from "../../lot-disposition-actions";
 
 export type MaterialCardProps = {
   initialItemId: string | null;
@@ -43,6 +44,7 @@ export type MaterialCardProps = {
   unitOptions: UnitSelectOption[];
   supplierOptions: SupplierOption[];
   initialLots: CardLotRow[];
+  canOperateInventory?: boolean;
   canAdminInventory?: boolean;
   lotTrackingLocked?: boolean;
 };
@@ -54,6 +56,7 @@ export function MaterialCard({
   unitOptions,
   supplierOptions,
   initialLots,
+  canOperateInventory = false,
   canAdminInventory = false,
   lotTrackingLocked = false,
 }: MaterialCardProps) {
@@ -195,6 +198,9 @@ export function MaterialCard({
   );
 
   const avgIngredientsCost = getAverageIngredientsCost(renderedCard);
+  const focusedVariant = renderedCard.variants.find(
+    (variant) => variant.id === currentItemId,
+  );
   const saveState: CardSaveState =
     actionSaveStatus.status === "saving" || cloneCardMutation.isPending
       ? "saving"
@@ -282,6 +288,18 @@ export function MaterialCard({
                 itemId={currentItemId}
                 unitLabel={renderedCard.family.unitName}
               />
+              {canOperateInventory &&
+              lotTrackingModeForReachability === "untracked" &&
+              focusedVariant ? (
+                <div className="flex justify-end">
+                  <LotDispositionActions
+                    key={focusedVariant.id}
+                    itemId={focusedVariant.id}
+                    balances={focusedVariant.dispositionBalances}
+                    locked={lotTrackingLocked}
+                  />
+                </div>
+              ) : null}
             </>
           ),
           ...(lotTrackingModeForReachability === "tracked"

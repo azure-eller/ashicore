@@ -34,6 +34,7 @@ import { useItemCardDraftController } from "@/components/card-page/use-item-card
 import { ItemCardProvider } from "@/components/card-page/item-card-focus-context";
 import { queryKeys } from "@/lib/client/query-keys";
 import type { UnitSelectOption } from "@/components/card-page/unit-select-field";
+import { LotDispositionActions } from "../../lot-disposition-actions";
 
 export type ProductCardTab = "general" | "recipe" | "production" | "lots";
 
@@ -43,7 +44,9 @@ export type ProductCardProps = {
   unitOptions: UnitSelectOption[];
   activeTab?: ProductCardTab;
   lotsCount?: number;
+  canOperateInventory?: boolean;
   canAdminInventory?: boolean;
+  lotTrackingLocked?: boolean;
   children?: ReactNode;
 };
 
@@ -53,7 +56,9 @@ export function ProductCard({
   unitOptions,
   activeTab,
   lotsCount,
+  canOperateInventory = false,
   canAdminInventory = false,
+  lotTrackingLocked = false,
   children,
 }: ProductCardProps) {
   const router = useRouter();
@@ -294,6 +299,9 @@ export function ProductCard({
   );
 
   const avgIngredientsCost = getAverageIngredientsCost(renderedCard);
+  const focusedVariant = renderedCard.variants.find(
+    (variant) => variant.id === (resolvedFocusedItemId ?? currentItemId),
+  );
   const resolvedActiveTab = activeTab ?? getProductCardTabFromPath(pathname);
   const saveState: CardSaveState =
     actionSaveStatus.status === "saving" || cloneCardMutation.isPending
@@ -394,6 +402,18 @@ export function ProductCard({
                 itemId={isDraft ? null : resolvedFocusedItemId ?? currentItemId}
                 unitLabel={renderedCard.family.unitName}
               />
+              {canOperateInventory &&
+              lotTrackingModeForReachability === "untracked" &&
+              focusedVariant ? (
+                <div className="flex justify-end">
+                  <LotDispositionActions
+                    key={focusedVariant.id}
+                    itemId={focusedVariant.id}
+                    balances={focusedVariant.dispositionBalances}
+                    locked={lotTrackingLocked}
+                  />
+                </div>
+              ) : null}
             </>
           ) : (
             children

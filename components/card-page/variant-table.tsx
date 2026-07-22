@@ -154,6 +154,7 @@ function makeEmptyVariant(card: ItemCardDto): ItemCardVariantDto {
     defaultSellingPrice: null,
     defaultPurchasePrice: null,
     inStockQty: "0",
+    dispositionBalances: [],
     ingredientsCost: null,
     operationsCost: null,
     sortOrder: 0,
