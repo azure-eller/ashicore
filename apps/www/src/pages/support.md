@@ -20,7 +20,7 @@ Use [Sign in](/sign-in?next=%2Fsales%2Forders) to access Ashicore. If you are al
 
 ## App and integration reviews
 
-Vendor reviewers can use the public pages on this site for privacy, terms, security, subprocessors, and support contact details.
+Vendor reviewers can use the public pages on this site for privacy, data deletion, terms, security, subprocessors, and support contact details.
 
 ## Operational issues
 
