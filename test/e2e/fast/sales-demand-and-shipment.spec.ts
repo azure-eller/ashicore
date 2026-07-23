@@ -2679,14 +2679,14 @@ test.describe("pricing scenario document seam", () => {
     expect(stale.body.current.scenario.name).toBe("Seam scenario");
 
     // Commit freezes live baseline + doc: 2 x 30 = 60 direct,
-    // 60 / (1 - 0.2 - 0.3) = 120.
+    // loaded 60 * 1.2 = 72, sell at 72 / (1 - 0.3) = 102.86.
     const rev1 = await pricingSeamFetch(`/api/pricing-scenarios/${scenarioId}/revisions`, {
       method: "POST",
       body: JSON.stringify({ note: "baseline" }),
     });
     expect(rev1.status).toBe(201);
     expect(rev1.body.revision.revisionNumber).toBe(1);
-    expect(rev1.body.revision.snapshot.products[0].result.sellAt).toBe("120.00");
+    expect(rev1.body.revision.snapshot.products[0].result.sellAt).toBe("102.86");
     expect(rev1.body.revision.snapshot.products[0].currentPriceSource).toBe(
       "baseline"
     );
@@ -2706,14 +2706,14 @@ test.describe("pricing scenario document seam", () => {
     const rev1After = await pricingSeamFetch(
       `/api/pricing-scenarios/${scenarioId}/revisions/${rev1.body.revision.id}`
     );
-    expect(rev1After.body.revision.snapshot.products[0].result.sellAt).toBe("120.00");
+    expect(rev1After.body.revision.snapshot.products[0].result.sellAt).toBe("102.86");
 
     const rev2 = await pricingSeamFetch(`/api/pricing-scenarios/${scenarioId}/revisions`, {
       method: "POST",
       body: JSON.stringify({}),
     });
     expect(rev2.body.revision.revisionNumber).toBe(2);
-    expect(rev2.body.revision.snapshot.products[0].result.sellAt).toBe("180.00");
+    expect(rev2.body.revision.snapshot.products[0].result.sellAt).toBe("154.29");
 
     // Soft delete hides the scenario but keeps its revision history.
     const removed = await pricingSeamFetch(`/api/pricing-scenarios/${scenarioId}`, {

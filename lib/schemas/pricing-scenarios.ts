@@ -5,7 +5,7 @@ import {
   optionalNonNegativeDecimalString,
 } from "./numeric";
 
-export const PRICING_SCENARIO_CALCULATION_VERSION = "sales-share-v1" as const;
+export const PRICING_SCENARIO_CALCULATION_VERSION = "cost-plus-margin-v1" as const;
 
 export const PRICING_SCENARIO_MAX_PRODUCTS = 200;
 const MAX_OVERRIDE_ROWS = 500;
@@ -27,7 +27,6 @@ const materialOverrideSchema = z.object({
   itemId: z.string().uuid(),
   price: overrideDecimal("Price"),
   inboundFreight: overrideDecimal("Inbound freight"),
-  handling: overrideDecimal("Handling"),
 });
 
 const resourceRateOverrideSchema = z.object({
@@ -68,15 +67,6 @@ export const pricingScenarioDocSchema = z
     }
     if (!uniqueBy(doc.products, (row) => row.itemId)) {
       ctx.addIssue({ code: "custom", path: ["products"], message: "Duplicate product values" });
-    }
-    const overhead = Number(doc.overheadPercent ?? "0");
-    const targetProfit = Number(doc.targetProfitPercent ?? "0");
-    if (overhead + targetProfit >= 100) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["targetProfitPercent"],
-        message: "Overhead plus target profit must be below 100%",
-      });
     }
   });
 
@@ -135,7 +125,6 @@ const revisionMaterialTermSchema = z.object({
   quantityPerUnit: snapshotDecimal,
   unitPrice: snapshotNullableDecimal,
   inboundFreight: snapshotNullableDecimal,
-  handling: snapshotNullableDecimal,
   priceSource: z.enum(["baseline", "override"]),
   costPerUnit: snapshotNullableDecimal.default(null),
 });
@@ -173,7 +162,6 @@ const revisionProductSchema = z.object({
   buckets: z.object({
     materials: snapshotNullableDecimal,
     inboundFreight: snapshotNullableDecimal,
-    handling: snapshotNullableDecimal,
     labor: snapshotNullableDecimal,
     directCost: snapshotNullableDecimal,
     costToRecover: snapshotNullableDecimal,

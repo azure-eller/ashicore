@@ -20,10 +20,10 @@ execution: code
 - All CLAUDE.md hard rules (DAL only, RLS on new tables, API routes for mutations, HugeIcons, tokens, Playwright-only scratch-first testing).
 - Branch: `feat/pricing-scenarios`, stacked on `refactor/bom-batch-readers` (PR #763). Worktree `.worktrees/pricing-scenarios`.
 - Nothing in this feature writes ERP items, costs, prices, recipes, inventory, orders, or accounting. Scenario tables + idempotency records only.
-- Reference implementation to salvage from: branch `feat/paonia-margin-calculator` @ `d6879e34` (closed #761). Salvage the sales-share math and section-layout ideas; do NOT copy its lifecycle, frozen sources, provenance vocabulary, or Example Construction catalog.
+- Reference implementation to salvage from: branch `feat/paonia-margin-calculator` @ `d6879e34` (closed #761). Salvage the section-layout ideas; do NOT copy its sales-share math, lifecycle, frozen sources, provenance vocabulary, or Example Construction catalog.
 - Deliberately not built (were #761's clunk): frozen source snapshots, explicit Save, conflict fork dialogs, archive/restore, org-slug access checks, hardcoded eligibility (categories/package codes), needs-input provenance taxonomy, direct-link-only routing.
 
-## Calculation contract (carried from #761, validated there)
+## Calculation contract
 
 Per product unit, `decimal.js-light` over 6-dp strings, display rounds to cents:
 
@@ -34,22 +34,21 @@ handling         = Σ leafQtyPerUnit × (override.handling ?? 0)
 labor            = Σ hoursPerUnit(resource) × (override.rate ?? baselineRate)
 directCost       = materials + inboundFreight + handling + labor
 costToRecover    = directCost + (override.outboundFreight ?? 0)
-denominator      = 1 − overheadPct − targetProfitPct        // must be > 0
-sellAt           = costToRecover / denominator
-overheadDollars  = sellAt × overheadPct
+overheadDollars  = costToRecover × overheadPct
 newCost          = costToRecover + overheadDollars
+marginDenominator = 1 − targetProfitPct                      // must be > 0
+sellAt           = newCost / marginDenominator
 profitDollars    = sellAt × targetProfitPct
 currentPrice     = override.currentPrice ?? items.defaultSellingPrice
-currentOverhead  = currentPrice × overheadPct
-currentProfit    = currentPrice − costToRecover − currentOverhead
+currentProfit    = currentPrice − newCost
 currentMargin    = currentProfit / currentPrice              // null when currentPrice blank/0
 ```
 
 Rules:
 - **Leaf** = any component item with no current BOM revision (materials and BOM-less products). Products with a current BOM always expand recursively; a leaf's baseline price resolves exactly like `estimated-cost.ts` (`currentStockUnitCost ?? purchase-price conversion`).
 - Quantity flattening uses the existing float/6-dp discipline (`calculateAverageUnitConsumptionQuantity`, batch ÷ outputQuantity, `fixed_per_mo` hours ÷ (`expectedBatchYield ?? typicalBatchSize ?? standardCostQuantity`)). Same numbers the item card shows.
-- Withhold (never zero, never NaN/∞): product result when a cycle/invalid quantity/invalid denominator exists in its tree, when a leaf has neither baseline price nor override, or when `overheadPct + targetProfitPct ≥ 1`. Each withheld product carries a named issue rendered next to the result.
-- AE anchor: directCost 60, outbound 0, overhead 20%, profit 30% → sellAt 120, overhead $24, newCost 84, profit $36.
+- Withhold (never zero, never NaN/∞): product result when a cycle or invalid quantity exists in its tree, when a leaf has neither baseline price nor override, or when the margin denominator is invalid (`targetProfitPct ≥ 1`). Overhead and target profit are each validated independently below 100%. Each withheld product carries a named issue rendered next to the result.
+- AE anchor: directCost 60, outbound 0, overhead 20%, profit 30% → sellAt $102.86, overhead $12, newCost $72, profit $30.86.
 
 ## Data model
 
@@ -92,7 +91,7 @@ Collections diff by id (`itemId`/`resourceId`) via kernel `collections` config. 
 
 ```ts
 {
-  calculationVersion: "sales-share-v1";
+  calculationVersion: "cost-plus-margin-v1";
   capturedAt: string;                            // server time at commit
   globals: { overheadPercent, targetProfitPercent };
   products: {
@@ -147,7 +146,7 @@ Baseline block (assembled in the DAL for GET detail and commit): distinct leaf i
 
 ## Pure calc engine
 
-`lib/pricing-scenarios/calculations.ts` — isomorphic (no `server-only`), consumed by both the client (instant recalc via kernel `derive`/memo) and the server (revision commit). Adapt the sales-share arithmetic from `d6879e34:lib/margin-calculator/calculations.ts`; inputs are `{ baseline, usageTerms, doc }`, output is the per-product `result | withheld` shape used by `PricingScenarioRevisionSnapshot.products[].result`. Snapshots carry the `"sales-share-v1"` calculation version.
+`lib/pricing-scenarios/calculations.ts` — isomorphic (no `server-only`), consumed by both the client (instant recalc via kernel `derive`/memo) and the server (revision commit). Use standard cost-plus-margin arithmetic: overhead marks up `costToRecover`, while target profit is a margin of the selling price. Inputs are `{ baseline, usageTerms, doc }`; output is the per-product `result | withheld` shape used by `PricingScenarioRevisionSnapshot.products[].result`. Snapshots carry the `"cost-plus-margin-v1"` calculation version.
 
 ## API + DAL
 
@@ -191,7 +190,7 @@ Steps: scratch spec seeding nested BOM (unit+batch basis, nested product, fixed_
 
 ### T4. Calc engine + schemas
 Files: `lib/pricing-scenarios/calculations.ts`, `lib/schemas/pricing-scenarios.ts`.
-Steps: scratch cases — AE anchor (60→120), ≥100% withheld, missing baseline withheld, shared-material override propagating to two products, product-specific isolation, blank current price → margin null — red → implement → green → commit.
+Steps: scratch cases — AE anchor (60→102.86), target profit ≥100% withheld, independent percentage validation, missing baseline withheld, shared-material override propagating to two products, product-specific isolation, blank current price → margin null — red → implement → green → commit.
 
 ### T5. DAL + routes
 Files: DAL, routes, api client, query keys per API table.
@@ -210,6 +209,6 @@ Prod script run via `!`: append `pricing_scenarios` to Paonia org `entitlements`
 
 ## Self-review notes
 
-- #761 parity check: shared-across-products override semantics preserved (overrides key by itemId/resourceId, not per product); product-specific price/freight preserved (products array); sales-share formula identical; decimal-string discipline kept at the calc layer while extraction matches app-canonical quantities.
+- #761 parity check: shared-across-products override semantics preserved (overrides key by itemId/resourceId, not per product); product-specific price/freight preserved (products array); cost-plus-margin deliberately replaces the sales-share formula; decimal-string discipline stays at the calc layer while extraction matches app-canonical quantities.
 - Deviations from #761 are all deliberate and listed under Global constraints.
 - Open items intentionally deferred: revision-to-revision diff view; packaging/pricing of the plugin; folding under wholesale_pricing; operator docs page.

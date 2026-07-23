@@ -102,7 +102,7 @@ export function calculatePricingScenario(
   const targetProfitRate = (
     parseDecimal(doc.targetProfitPercent) ?? new ScenarioDecimal(0)
   ).div(100);
-  const denominator = new ScenarioDecimal(1).minus(overheadRate).minus(targetProfitRate);
+  const marginDenominator = new ScenarioDecimal(1).minus(targetProfitRate);
 
   const products: PricingScenarioRevisionProduct[] = doc.productIds.map((productId) => {
     const meta = productById.get(productId);
@@ -122,7 +122,6 @@ export function calculatePricingScenario(
 
     let materialsTotal = new ScenarioDecimal(0);
     let inboundFreightTotal = new ScenarioDecimal(0);
-    let handlingTotal = new ScenarioDecimal(0);
     const materialRows: PricingScenarioRevisionProduct["materials"] = [];
 
     for (const term of usage?.materialTerms ?? []) {
@@ -133,7 +132,6 @@ export function calculatePricingScenario(
       const unitPrice = overridePrice ?? baselinePrice;
       const quantity = parseDecimal(term.quantityPerUnit);
       const inboundFreight = parseDecimal(override?.inboundFreight);
-      const handling = parseDecimal(override?.handling);
 
       if (quantity == null) {
         issues.push(`Invalid quantity for ${leaf?.name ?? term.itemId}`);
@@ -147,16 +145,11 @@ export function calculatePricingScenario(
       if (inboundFreight != null) {
         inboundFreightTotal = inboundFreightTotal.plus(quantity.times(inboundFreight));
       }
-      if (handling != null) {
-        handlingTotal = handlingTotal.plus(quantity.times(handling));
-      }
 
       const landedRate =
         unitPrice == null
           ? null
-          : unitPrice
-              .plus(inboundFreight ?? new ScenarioDecimal(0))
-              .plus(handling ?? new ScenarioDecimal(0));
+          : unitPrice.plus(inboundFreight ?? new ScenarioDecimal(0));
 
       materialRows.push({
         itemId: term.itemId,
@@ -165,7 +158,6 @@ export function calculatePricingScenario(
         quantityPerUnit: term.quantityPerUnit,
         unitPrice: unitPrice == null ? null : unitPrice.toString(),
         inboundFreight: inboundFreight == null ? null : inboundFreight.toString(),
-        handling: handling == null ? null : handling.toString(),
         priceSource: overridePrice != null ? "override" : "baseline",
         costPerUnit: landedRate == null ? null : money(quantity.times(landedRate)),
       });
@@ -212,21 +204,17 @@ export function calculatePricingScenario(
     const currentPriceSource: "baseline" | "override" =
       currentPriceOverride != null ? "override" : "baseline";
 
-    if (denominator.lte(0)) {
-      issues.push("Overhead plus target profit must be below 100%");
+    if (marginDenominator.lte(0)) {
+      issues.push("Target profit must be below 100%");
     }
 
     const complete = issues.length === 0;
-    const directCost = materialsTotal
-      .plus(inboundFreightTotal)
-      .plus(handlingTotal)
-      .plus(laborTotal);
+    const directCost = materialsTotal.plus(inboundFreightTotal).plus(laborTotal);
     const costToRecover = directCost.plus(outboundFreight ?? new ScenarioDecimal(0));
 
     const buckets = {
       materials: complete ? money(materialsTotal) : null,
       inboundFreight: complete ? money(inboundFreightTotal) : null,
-      handling: complete ? money(handlingTotal) : null,
       labor: complete ? money(laborTotal) : null,
       directCost: complete ? money(directCost) : null,
       costToRecover: complete ? money(costToRecover) : null,
@@ -247,16 +235,15 @@ export function calculatePricingScenario(
       };
     }
 
-    const sellAt = costToRecover.div(denominator);
-    const overheadDollars = sellAt.times(overheadRate);
-    const profitDollars = sellAt.times(targetProfitRate);
+    const overheadDollars = costToRecover.times(overheadRate);
     const newCost = costToRecover.plus(overheadDollars);
+    const sellAt = newCost.div(marginDenominator);
+    const profitDollars = sellAt.times(targetProfitRate);
 
     let currentMargin: string | null = null;
     if (currentPrice != null && currentPrice.gt(0)) {
-      const currentOverhead = currentPrice.times(overheadRate);
-      const currentProfit = currentPrice.minus(costToRecover).minus(currentOverhead);
-      currentMargin = currentProfit
+      currentMargin = currentPrice
+        .minus(newCost)
         .div(currentPrice)
         .times(100)
         .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)

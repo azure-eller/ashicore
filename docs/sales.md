@@ -173,12 +173,12 @@ Invalid transitions:
 `pricing_scenarios` beta plugin (see `docs/billing.md` → Beta plugins). A
 scenario is a card-kernel document (autosave, versioned saves, standard
 duplicate/soft-delete) holding a product selection plus **sparse overrides**:
-per-leaf-item material price / inbound freight / handling, per-resource labor
+per-leaf-item material price / inbound freight, per-resource labor
 rates, global overhead % and target profit %, and per-product current price /
 outbound freight.
 
 The worksheet labels every result in the selected product's stock unit. Material
-price, inbound freight, and handling remain rates per material stock unit; the
+price and inbound freight remain rates per material stock unit; the
 worksheet multiplies their landed rate by recipe usage to show the derived
 material cost per product unit. Labour similarly shows hours and derived cost
 per product unit. Product and material unit names come from the live baseline,
@@ -192,15 +192,18 @@ current margin in one explicit unit context.
   prices resolve exactly like estimated cost, labor rates come from
   manufacturing resources, current price from `items.defaultSellingPrice`.
 - The pure isomorphic engine (`lib/pricing-scenarios/calculations.ts`)
-  implements the sales-share model:
-  `sellAt = (directCost + outboundFreight) / (1 − overhead − targetProfit)`,
+  implements the cost-plus-margin model: overhead marks up cost and target
+  profit is a margin of the selling price —
+  `sellAt = (directCost + outboundFreight) × (1 + overhead) / (1 − targetProfit)` —
   with results withheld (never zero/NaN) on recipe issues, missing prices, or
-  combined rates ≥ 100%.
+  target profit ≥ 100%. The resulting loaded cost is also the basis for margin
+  at the current price.
 - **Revisions are the history model** (like BOM revisions): committing one
   resolves live baseline + overrides server-side and inserts an immutable
   numbered snapshot carrying inputs *and* results into
   `sales.pricing_scenario_revisions` (insert-only; app role has no
-  UPDATE/DELETE). Later ERP changes move the working scenario, never a
+  UPDATE/DELETE). New snapshots identify this arithmetic as calculation version
+  `cost-plus-margin-v1`. Later ERP changes move the working scenario, never a
   committed revision. A revision can be viewed in the card and restored as
   sparse overrides in the current draft; restoring does not alter the revision.
   Soft-deleting a scenario keeps its revisions. Material and labour snapshot
@@ -211,7 +214,7 @@ current margin in one explicit unit context.
 
 The scenario document accepts at most 200 products. Names are 1–120 characters,
 revision notes are at most 500 characters, override values are non-negative,
-and overhead plus target profit must remain below 100%.
+and each percentage must stay below 100.
 
 ### Pricing scenario API
 

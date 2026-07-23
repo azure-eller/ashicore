@@ -144,7 +144,7 @@ function fmtMoney(value: string | null | undefined): string {
   return formatPrice(value) ?? value;
 }
 
-const MATERIAL_KEYS = ["price", "inboundFreight", "handling"] as const;
+const MATERIAL_KEYS = ["price", "inboundFreight"] as const;
 const PRODUCT_KEYS = ["currentPrice", "outboundFreight"] as const;
 
 function serializeScenario(draft: ScenarioCardDoc): {
@@ -368,7 +368,6 @@ export function PricingScenarioCard({
           itemId,
           price: null,
           inboundFreight: null,
-          handling: null,
         };
         const nextRow = { ...existing, [key]: value };
         const empty = MATERIAL_KEYS.every((k) => nextRow[k] == null);
@@ -476,18 +475,13 @@ export function PricingScenarioCard({
       const products: PricingScenarioProductValues[] = [];
       for (const product of snapshot.products) {
         for (const term of product.materials) {
-          if (
-            term.priceSource !== "override" &&
-            term.inboundFreight == null &&
-            term.handling == null
-          ) {
+          if (term.priceSource !== "override" && term.inboundFreight == null) {
             continue;
           }
           materials.set(term.itemId, {
             itemId: term.itemId,
             price: term.priceSource === "override" ? term.unitPrice : null,
             inboundFreight: term.inboundFreight,
-            handling: term.handling,
           });
         }
         for (const term of product.labor) {
@@ -545,20 +539,15 @@ export function PricingScenarioCard({
   const materialRowById = new Map(
     (selectedResult?.materials ?? []).map((row) => [row.itemId, row])
   );
-  const assumptionsInvalid =
-    Number(draft.overheadPercent ?? 0) + Number(draft.targetProfitPercent ?? 0) >=
-    100;
+  const overheadInvalid = Number(draft.overheadPercent ?? 0) >= 100;
+  const targetProfitInvalid = Number(draft.targetProfitPercent ?? 0) >= 100;
+  const assumptionsInvalid = overheadInvalid || targetProfitInvalid;
   const buckets = selectedResult?.buckets;
   const landedMaterialsTotal =
     buckets != null &&
     buckets.materials != null &&
-    buckets.inboundFreight != null &&
-    buckets.handling != null
-      ? (
-          Number(buckets.materials) +
-          Number(buckets.inboundFreight) +
-          Number(buckets.handling)
-        ).toFixed(2)
+    buckets.inboundFreight != null
+      ? (Number(buckets.materials) + Number(buckets.inboundFreight)).toFixed(2)
       : null;
   const completeResult =
     selectedResult != null && !selectedResult.result.withheld
@@ -713,11 +702,10 @@ export function PricingScenarioCard({
                     </EmptyState>
                   ) : (
                     <div className="overflow-x-auto">
-                      <div className="grid min-w-[44rem] grid-cols-[minmax(10rem,1.6fr)_minmax(6rem,1fr)_minmax(5.5rem,1fr)_minmax(5.5rem,1fr)_minmax(5.5rem,0.9fr)_minmax(6rem,0.9fr)] items-center gap-x-(--space-4) gap-y-(--space-2)">
+                      <div className="grid min-w-[40rem] grid-cols-[minmax(10rem,1.8fr)_minmax(6rem,1fr)_minmax(5.5rem,1fr)_minmax(5.5rem,0.9fr)_minmax(6rem,0.9fr)] items-center gap-x-(--space-4) gap-y-(--space-2)">
                         <HeaderCell>Material</HeaderCell>
                         <HeaderCell align="end">Price</HeaderCell>
                         <HeaderCell align="end">Freight</HeaderCell>
-                        <HeaderCell align="end">Handling</HeaderCell>
                         <HeaderCell align="end">Uses / {productUnit}</HeaderCell>
                         <HeaderCell align="end">Cost / {productUnit}</HeaderCell>
                         {selectedUsage.materialTerms.map((term) => {
@@ -773,19 +761,6 @@ export function PricingScenarioCard({
                                   setMaterialValue(term.itemId, "inboundFreight", value)
                                 }
                               />
-                              <CommitInput
-                                label={`${leaf?.name ?? "Material"} handling`}
-                                inputMode="decimal"
-                                value={override?.handling ?? null}
-                                placeholder="0"
-                                className={cn(
-                                  underlineControlClass(false),
-                                  "text-right font-mono tabular-nums"
-                                )}
-                                onCommit={(value) =>
-                                  setMaterialValue(term.itemId, "handling", value)
-                                }
-                              />
                               <div className="text-right font-mono text-[length:var(--text-sm)] tabular-nums">
                                 {trimDecimal(term.quantityPerUnit) ?? term.quantityPerUnit}
                                 <span className="ml-(--space-1) text-[length:var(--text-2xs)] text-[var(--color-ink-faint)]">
@@ -800,7 +775,7 @@ export function PricingScenarioCard({
                             </div>
                           );
                         })}
-                        <div className="col-span-5 border-t border-[var(--color-line-soft)] pt-(--space-3) text-right text-[length:var(--text-sm)] font-medium">
+                        <div className="col-span-4 border-t border-[var(--color-line-soft)] pt-(--space-3) text-right text-[length:var(--text-sm)] font-medium">
                           Materials / {productUnit}
                         </div>
                         <div className="border-t border-[var(--color-line-soft)] pt-(--space-3) text-right font-mono text-[length:var(--text-sm)] font-semibold tabular-nums">
@@ -962,7 +937,7 @@ export function PricingScenarioCard({
                     <CardField
                       label="Overhead %"
                       htmlFor="scenario-overhead"
-                      invalid={assumptionsInvalid}
+                      invalid={overheadInvalid}
                     >
                       <CommitInput
                         id="scenario-overhead"
@@ -971,7 +946,7 @@ export function PricingScenarioCard({
                         value={draft.overheadPercent}
                         placeholder="0"
                         className={cn(
-                          underlineControlClass(assumptionsInvalid),
+                          underlineControlClass(overheadInvalid),
                           "font-mono tabular-nums"
                         )}
                         onCommit={(value) => setGlobal("overheadPercent", value)}
@@ -980,7 +955,7 @@ export function PricingScenarioCard({
                     <CardField
                       label="Target profit %"
                       htmlFor="scenario-profit"
-                      invalid={assumptionsInvalid}
+                      invalid={targetProfitInvalid}
                     >
                       <CommitInput
                         id="scenario-profit"
@@ -989,7 +964,7 @@ export function PricingScenarioCard({
                         value={draft.targetProfitPercent}
                         placeholder="0"
                         className={cn(
-                          underlineControlClass(assumptionsInvalid),
+                          underlineControlClass(targetProfitInvalid),
                           "font-mono tabular-nums"
                         )}
                         onCommit={(value) => setGlobal("targetProfitPercent", value)}
@@ -1004,9 +979,13 @@ export function PricingScenarioCard({
                         : "text-[var(--color-ink-faint)]"
                     )}
                   >
-                    {assumptionsInvalid
-                      ? "Together they must stay under 100% of the selling price."
-                      : "Shares of the selling price, applied to every product."}
+                    {overheadInvalid && targetProfitInvalid
+                      ? "Overhead and target profit must each stay under 100%."
+                      : overheadInvalid
+                      ? "Overhead must stay under 100% of cost."
+                      : targetProfitInvalid
+                        ? "Target profit must stay under 100% of the selling price."
+                      : "Overhead marks up cost; profit is a margin of the selling price."}
                   </p>
                 </RailPanel>
 
@@ -1088,7 +1067,7 @@ export function PricingScenarioCard({
                         rule
                       />
                       <BreakdownRow
-                        label={`Overhead at ${fmtMoney(completeResult.sellAt)}`}
+                        label={`Overhead (${trimDecimal(draft.overheadPercent, 2) ?? "0"}% of cost)`}
                         value={fmtMoney(completeResult.overheadDollars)}
                       />
                       <BreakdownRow
