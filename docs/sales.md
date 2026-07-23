@@ -174,8 +174,9 @@ Invalid transitions:
 scenario is a card-kernel document (autosave, versioned saves, standard
 duplicate/soft-delete) holding a product selection plus **sparse overrides**:
 per-leaf-item material price / inbound freight, per-resource labor
-rates, global overhead % and target profit %, and per-product current price /
-outbound freight.
+rates, global overhead % and target profit %, and per-product current price
+plus outbound freight entered as a shipment total over a tote count and
+divided to a per-unit cost.
 
 The worksheet labels every result in the selected product's stock unit. Material
 price and inbound freight remain rates per material stock unit; the
@@ -192,20 +193,21 @@ current margin in one explicit unit context.
   prices resolve exactly like estimated cost, labor rates come from
   manufacturing resources, current price from `items.defaultSellingPrice`.
 - The pure isomorphic engine (`lib/pricing-scenarios/calculations.ts`)
-  implements the cost-plus-margin model: overhead marks up cost and target
-  profit is a margin of the selling price —
-  `sellAt = (directCost + outboundFreight) × (1 + overhead) / (1 − targetProfit)` —
+  implements the target-margin (share) model: overhead and target profit are
+  both shares of the selling price, matching how an SG&A ratio is measured
+  against revenue —
+  `sellAt = (directCost + outboundFreight) / (1 − overhead − targetProfit)` —
   with results withheld (never zero/NaN) on recipe issues, missing prices, or
-  target profit ≥ 100%. The resulting loaded cost is also the basis for margin
-  at the current price.
+  overhead + target profit ≥ 100%. Margin at the current price is recomputed
+  against that price (overhead scales with price, not the recommended sell-at).
 - **Revisions are the history model** (like BOM revisions): committing one
   resolves live baseline + overrides server-side and inserts an immutable
   numbered snapshot carrying inputs *and* results into
   `sales.pricing_scenario_revisions` (insert-only; app role has no
   UPDATE/DELETE). New snapshots identify this arithmetic as calculation version
-  `cost-plus-margin-v1`; the reader accepts every calculation version previously
-  written (`sales-share-v1` and `cost-plus-margin-v1`) so immutable history stays
-  readable when the model changes. Historical versions must remain in
+  `sales-share-v2`; the reader accepts every calculation version previously
+  written (`sales-share-v1`, `cost-plus-margin-v1`, and `sales-share-v2`) so
+  immutable history stays readable when the model changes. Historical versions must remain in
   `PRICING_SCENARIO_CALCULATION_VERSIONS`; new snapshots always use
   `PRICING_SCENARIO_CALCULATION_VERSION`. Later ERP changes move the working
   scenario, never a committed revision. A revision can be viewed in the card and

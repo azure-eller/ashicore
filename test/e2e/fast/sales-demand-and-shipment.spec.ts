@@ -2602,6 +2602,51 @@ test.describe("pricing scenario document seam", () => {
     }));
   });
 
+  test("outbound freight is a shipment total shared across the tote count", () => {
+    const productId = randomUUID();
+    const calculation = calculatePricingScenario({
+      baseline: {
+        leafItems: [],
+        resources: [],
+        products: [{
+          itemId: productId,
+          name: "Freight Product",
+          sku: null,
+          unitName: null,
+          baselineCurrentPrice: null,
+        }],
+      },
+      usageTerms: [{
+        productId,
+        materialTerms: [],
+        laborTerms: [{ resourceId: null, hoursPerUnit: "1", fallbackRatePerHour: "100" }],
+        issues: [],
+      }],
+      doc: {
+        ...emptyPricingScenarioDoc(),
+        productIds: [productId],
+        overheadPercent: "25",
+        targetProfitPercent: "25",
+        products: [{
+          itemId: productId,
+          currentPrice: null,
+          outboundFreightCost: "760",
+          outboundFreightTotes: "76",
+        }],
+      },
+    });
+
+    // $760 over 76 totes = $10/tote freight; labor 100 + 10 = 110 cost to recover;
+    // share model 110 / (1 - 0.25 - 0.25) = 220.00.
+    const product = calculation.products[0];
+    expect(product.outboundFreight).toBe("10");
+    expect(product.buckets.costToRecover).toBe("110.00");
+    expect(product.result).toEqual(expect.objectContaining({
+      withheld: false,
+      sellAt: "220.00",
+    }));
+  });
+
   test("saves are version-guarded and revisions are insert-only frozen snapshots", async ({
     db,
   }) => {
@@ -2681,15 +2726,15 @@ test.describe("pricing scenario document seam", () => {
     expect(stale.body.current.scenario.version).toBe(2);
     expect(stale.body.current.scenario.name).toBe("Seam scenario");
 
-    // Commit freezes live baseline + doc: 2 x 30 = 60 direct,
-    // loaded 60 * 1.2 = 72, sell at 72 / (1 - 0.3) = 102.86.
+    // Commit freezes live baseline + doc. Share model: overhead and profit are
+    // both slices of price, so 2 x 30 = 60 cost, sell at 60 / (1 - 0.2 - 0.3) = 120.00.
     const rev1 = await pricingSeamFetch(`/api/pricing-scenarios/${scenarioId}/revisions`, {
       method: "POST",
       body: JSON.stringify({ note: "baseline" }),
     });
     expect(rev1.status).toBe(201);
     expect(rev1.body.revision.revisionNumber).toBe(1);
-    expect(rev1.body.revision.snapshot.products[0].result.sellAt).toBe("102.86");
+    expect(rev1.body.revision.snapshot.products[0].result.sellAt).toBe("120.00");
     expect(rev1.body.revision.snapshot.products[0].currentPriceSource).toBe(
       "baseline"
     );
@@ -2717,14 +2762,14 @@ test.describe("pricing scenario document seam", () => {
     const rev1After = await pricingSeamFetch(
       `/api/pricing-scenarios/${scenarioId}/revisions/${rev1.body.revision.id}`
     );
-    expect(rev1After.body.revision.snapshot.products[0].result.sellAt).toBe("102.86");
+    expect(rev1After.body.revision.snapshot.products[0].result.sellAt).toBe("120.00");
 
     const rev2 = await pricingSeamFetch(`/api/pricing-scenarios/${scenarioId}/revisions`, {
       method: "POST",
       body: JSON.stringify({}),
     });
     expect(rev2.body.revision.revisionNumber).toBe(2);
-    expect(rev2.body.revision.snapshot.products[0].result.sellAt).toBe("154.29");
+    expect(rev2.body.revision.snapshot.products[0].result.sellAt).toBe("180.00");
 
     // Soft delete hides the scenario but keeps its revision history.
     const removed = await pricingSeamFetch(`/api/pricing-scenarios/${scenarioId}`, {

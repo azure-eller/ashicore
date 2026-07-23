@@ -102,7 +102,11 @@ export function calculatePricingScenario(
   const targetProfitRate = (
     parseDecimal(doc.targetProfitPercent) ?? new ScenarioDecimal(0)
   ).div(100);
-  const marginDenominator = new ScenarioDecimal(1).minus(targetProfitRate);
+  // Overhead and profit are both shares of the selling price, so the price is
+  // cost divided by the leftover share: price = cost ÷ (1 − overhead − profit).
+  const shareDenominator = new ScenarioDecimal(1)
+    .minus(overheadRate)
+    .minus(targetProfitRate);
 
   const products: PricingScenarioRevisionProduct[] = doc.productIds.map((productId) => {
     const meta = productById.get(productId);
@@ -197,15 +201,24 @@ export function calculatePricingScenario(
       });
     }
 
-    const outboundFreight = parseDecimal(values?.outboundFreight);
+    // Freight is entered as a shipment total for a tote count and divided down
+    // to a per-tote cost that joins the cost base.
+    const outboundFreightCost = parseDecimal(values?.outboundFreightCost);
+    const outboundFreightTotes = parseDecimal(values?.outboundFreightTotes);
+    const outboundFreight =
+      outboundFreightCost != null &&
+      outboundFreightTotes != null &&
+      outboundFreightTotes.gt(0)
+        ? outboundFreightCost.div(outboundFreightTotes)
+        : null;
     const currentPriceOverride = parseDecimal(values?.currentPrice);
     const currentPrice =
       currentPriceOverride ?? parseDecimal(meta?.baselineCurrentPrice);
     const currentPriceSource: "baseline" | "override" =
       currentPriceOverride != null ? "override" : "baseline";
 
-    if (marginDenominator.lte(0)) {
-      issues.push("Target profit must be below 100%");
+    if (shareDenominator.lte(0)) {
+      issues.push("Overhead plus target profit must be below 100%");
     }
 
     const complete = issues.length === 0;
@@ -220,6 +233,14 @@ export function calculatePricingScenario(
       costToRecover: complete ? money(costToRecover) : null,
     };
 
+    const freightFields = {
+      outboundFreight: outboundFreight == null ? null : outboundFreight.toString(),
+      outboundFreightCost:
+        outboundFreightCost == null ? null : outboundFreightCost.toString(),
+      outboundFreightTotes:
+        outboundFreightTotes == null ? null : outboundFreightTotes.toString(),
+    };
+
     if (!complete) {
       return {
         itemId: productId,
@@ -228,22 +249,27 @@ export function calculatePricingScenario(
         materials: materialRows,
         labor: laborRows,
         buckets,
-        outboundFreight: outboundFreight == null ? null : outboundFreight.toString(),
+        ...freightFields,
         currentPrice: currentPrice == null ? null : currentPrice.toString(),
         currentPriceSource,
         result: { withheld: true as const, issues },
       };
     }
 
-    const overheadDollars = costToRecover.times(overheadRate);
-    const newCost = costToRecover.plus(overheadDollars);
-    const sellAt = newCost.div(marginDenominator);
+    // Share model: overhead and profit are both slices of the selling price.
+    const sellAt = costToRecover.div(shareDenominator);
+    const overheadDollars = sellAt.times(overheadRate);
     const profitDollars = sellAt.times(targetProfitRate);
+    // Fully-loaded cost before profit (cost base plus the overhead it must carry).
+    const newCost = sellAt.minus(profitDollars);
 
+    // Margin actually earned at the current price. Overhead scales with price, so
+    // it must be recomputed against currentPrice rather than the recommended one.
     let currentMargin: string | null = null;
     if (currentPrice != null && currentPrice.gt(0)) {
+      const loadedCostAtCurrent = costToRecover.plus(currentPrice.times(overheadRate));
       currentMargin = currentPrice
-        .minus(newCost)
+        .minus(loadedCostAtCurrent)
         .div(currentPrice)
         .times(100)
         .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
@@ -257,7 +283,7 @@ export function calculatePricingScenario(
       materials: materialRows,
       labor: laborRows,
       buckets,
-      outboundFreight: outboundFreight == null ? null : outboundFreight.toString(),
+      ...freightFields,
       currentPrice: currentPrice == null ? null : currentPrice.toString(),
       currentPriceSource,
       result: {

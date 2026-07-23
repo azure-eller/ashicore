@@ -6,16 +6,23 @@ import {
 } from "./numeric";
 
 /** The model new revision snapshots are computed and stamped with. */
-export const PRICING_SCENARIO_CALCULATION_VERSION = "cost-plus-margin-v1" as const;
+export const PRICING_SCENARIO_CALCULATION_VERSION = "sales-share-v2" as const;
 
 /**
  * Every calculationVersion ever committed. Revisions are immutable history, so
  * the read schema must keep parsing older versions after the model changes —
  * append here, never remove. New snapshots always use the current version above.
+ *
+ * sales-share-v2 is the target-margin model: overhead and profit are both shares
+ * of the selling price (`price = cost ÷ (1 − overhead% − profit%)`), matching how
+ * Paonia's overhead is measured (a percent of revenue). It supersedes the
+ * cost-plus-margin experiment, which under-recovered overhead by applying a
+ * revenue ratio as a cost markup.
  */
 export const PRICING_SCENARIO_CALCULATION_VERSIONS = [
   "sales-share-v1",
   "cost-plus-margin-v1",
+  "sales-share-v2",
 ] as const;
 
 export const PRICING_SCENARIO_MAX_PRODUCTS = 200;
@@ -48,7 +55,10 @@ const resourceRateOverrideSchema = z.object({
 const productValueSchema = z.object({
   itemId: z.string().uuid(),
   currentPrice: overrideDecimal("Current price"),
-  outboundFreight: overrideDecimal("Outbound freight"),
+  // Outbound freight is entered as a shipment total for a tote count
+  // ("$X for N totes") and divided down to a per-tote cost in the calculation.
+  outboundFreightCost: overrideDecimal("Outbound freight"),
+  outboundFreightTotes: overrideDecimal("Freight totes"),
 });
 
 function uniqueBy<T>(rows: T[], key: (row: T) => string) {
@@ -78,6 +88,17 @@ export const pricingScenarioDocSchema = z
     }
     if (!uniqueBy(doc.products, (row) => row.itemId)) {
       ctx.addIssue({ code: "custom", path: ["products"], message: "Duplicate product values" });
+    }
+    // Overhead and profit are both shares of the selling price, so their sum
+    // must stay below 100% or the price denominator collapses.
+    const overhead = doc.overheadPercent != null ? Number(doc.overheadPercent) : 0;
+    const profit = doc.targetProfitPercent != null ? Number(doc.targetProfitPercent) : 0;
+    if (overhead + profit >= 100) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["targetProfitPercent"],
+        message: "Overhead plus target profit must be below 100%",
+      });
     }
   });
 
@@ -177,7 +198,11 @@ const revisionProductSchema = z.object({
     directCost: snapshotNullableDecimal,
     costToRecover: snapshotNullableDecimal,
   }),
+  // Derived per-tote outbound freight, plus the shipment total/tote count it was
+  // entered as (null on snapshots committed before freight-as-total input).
   outboundFreight: snapshotNullableDecimal,
+  outboundFreightCost: snapshotNullableDecimal.default(null),
+  outboundFreightTotes: snapshotNullableDecimal.default(null),
   currentPrice: snapshotNullableDecimal,
   currentPriceSource: z.enum(["baseline", "override"]),
   result: revisionResultSchema,

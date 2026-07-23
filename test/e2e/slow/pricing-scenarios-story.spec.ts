@@ -89,18 +89,19 @@ test.describe("pricing scenario story", () => {
       timeout: 20_000,
     });
 
-    // Shared assumptions recalculate live: 60 * 1.2 / 0.7 = 102.86.
+    // Shared assumptions recalculate live. Share model: overhead and profit are
+    // both shares of price, so 60 / (1 - 0.2 - 0.3) = 120.00.
     await page.locator("#scenario-overhead").fill("20");
     await page.locator("#scenario-overhead").press("Enter");
     await page.locator("#scenario-profit").fill("30");
     await page.locator("#scenario-profit").press("Enter");
-    await expect(page.getByText("$102.86").first()).toBeVisible();
+    await expect(page.getByText("$120.00").first()).toBeVisible();
 
-    // A material override carries through: 40 + 30 = 70 => 70 * 1.2 / 0.7 = 120.
+    // A material override carries through: 40 + 30 = 70 => 70 / 0.5 = 140.00.
     const priceInput = page.getByLabel(`Story Coir ${ts} price`);
     await priceInput.fill("40");
     await priceInput.press("Enter");
-    await expect(page.getByText("$120.00").first()).toBeVisible();
+    await expect(page.getByText("$140.00").first()).toBeVisible();
     await expect(page.getByText("Saved", { exact: true })).toBeVisible({
       timeout: 20_000,
     });
@@ -128,7 +129,7 @@ test.describe("pricing scenario story", () => {
     expect(revisions).toHaveLength(1);
     expect(revisions[0].note).toBe("Spring price list");
     const rev1Product = revisions[0].snapshot.products[0];
-    expect(rev1Product.result).toMatchObject({ withheld: false, sellAt: "120.00" });
+    expect(rev1Product.result).toMatchObject({ withheld: false, sellAt: "140.00" });
 
     // ERP moves on: coir price doubles. Reopening shows the live baseline
     // moved while the committed record did not.
@@ -139,9 +140,9 @@ test.describe("pricing scenario story", () => {
 
     await page.reload();
     await expect(page.getByText("Rev 1", { exact: true })).toBeVisible();
-    // Override still pins coir at 40, so the live result stays 120; the
+    // Override still pins coir at 40, so the live result stays 140; the
     // placeholder under the override now reflects the new baseline.
-    await expect(page.getByText("$120.00").first()).toBeVisible();
+    await expect(page.getByText("$140.00").first()).toBeVisible();
     await expect(page.getByLabel(`Story Coir ${ts} price`)).toHaveAttribute(
       "placeholder",
       "60"
@@ -150,14 +151,14 @@ test.describe("pricing scenario story", () => {
     // The frozen record still reads exactly what was decided.
     await page.getByText("Rev 1", { exact: true }).click();
     await expect(page.getByRole("dialog")).toContainText("Spring price list");
-    await expect(page.getByRole("dialog")).toContainText("$120.00");
+    await expect(page.getByRole("dialog")).toContainText("$140.00");
     await page.getByRole("button", { name: "Close" }).first().click();
 
     // Clearing the override lets the live baseline through: 60 + 30 = 90
-    // => 90 * 1.2 / 0.7 = 154.29. Committing captures the new reality as Rev 2.
+    // => 90 / 0.5 = 180.00. Committing captures the new reality as Rev 2.
     await page.getByLabel(`Story Coir ${ts} price`).fill("");
     await page.getByLabel(`Story Coir ${ts} price`).press("Enter");
-    await expect(page.getByText("$154.29").first()).toBeVisible();
+    await expect(page.getByText("$180.00").first()).toBeVisible();
     await expect(page.getByText("Saved", { exact: true })).toBeVisible({
       timeout: 20_000,
     });

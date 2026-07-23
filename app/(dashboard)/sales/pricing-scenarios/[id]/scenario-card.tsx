@@ -145,7 +145,11 @@ function fmtMoney(value: string | null | undefined): string {
 }
 
 const MATERIAL_KEYS = ["price", "inboundFreight"] as const;
-const PRODUCT_KEYS = ["currentPrice", "outboundFreight"] as const;
+const PRODUCT_KEYS = [
+  "currentPrice",
+  "outboundFreightCost",
+  "outboundFreightTotes",
+] as const;
 
 function serializeScenario(draft: ScenarioCardDoc): {
   payload: ScenarioPayload;
@@ -404,7 +408,8 @@ export function PricingScenarioCard({
         const existing = current.products.find((row) => row.itemId === itemId) ?? {
           itemId,
           currentPrice: null,
-          outboundFreight: null,
+          outboundFreightCost: null,
+          outboundFreightTotes: null,
         };
         const nextRow = { ...existing, [key]: value };
         const empty = PRODUCT_KEYS.every((k) => nextRow[k] == null);
@@ -492,10 +497,20 @@ export function PricingScenarioCard({
             });
           }
         }
+        // Newer snapshots carry the freight total + tote count directly; legacy
+        // snapshots only have a per-tote `outboundFreight`, which maps to a total
+        // over one tote so the per-tote figure is preserved on restore.
+        const freightCost = product.outboundFreightCost ?? product.outboundFreight;
+        const freightTotes =
+          product.outboundFreightCost != null
+            ? product.outboundFreightTotes
+            : product.outboundFreight != null
+              ? "1"
+              : null;
         if (
           (product.currentPriceSource === "override" &&
             product.currentPrice != null) ||
-          product.outboundFreight != null
+          freightCost != null
         ) {
           products.push({
             itemId: product.itemId,
@@ -503,7 +518,8 @@ export function PricingScenarioCard({
               product.currentPriceSource === "override"
                 ? product.currentPrice
                 : null,
-            outboundFreight: product.outboundFreight,
+            outboundFreightCost: freightCost,
+            outboundFreightTotes: freightTotes,
           });
         }
       }
@@ -539,9 +555,23 @@ export function PricingScenarioCard({
   const materialRowById = new Map(
     (selectedResult?.materials ?? []).map((row) => [row.itemId, row])
   );
+  const outboundFreightPerUnit =
+    selectedValues?.outboundFreightCost != null &&
+    selectedValues?.outboundFreightTotes != null &&
+    Number(selectedValues.outboundFreightTotes) > 0
+      ? (
+          Number(selectedValues.outboundFreightCost) /
+          Number(selectedValues.outboundFreightTotes)
+        ).toFixed(2)
+      : null;
   const overheadInvalid = Number(draft.overheadPercent ?? 0) >= 100;
   const targetProfitInvalid = Number(draft.targetProfitPercent ?? 0) >= 100;
-  const assumptionsInvalid = overheadInvalid || targetProfitInvalid;
+  // Overhead and profit are both shares of the selling price, so their sum must
+  // stay under 100% or the price denominator collapses.
+  const combinedAssumptionsInvalid =
+    Number(draft.overheadPercent ?? 0) + Number(draft.targetProfitPercent ?? 0) >= 100;
+  const assumptionsInvalid =
+    overheadInvalid || targetProfitInvalid || combinedAssumptionsInvalid;
   const buckets = selectedResult?.buckets;
   const landedMaterialsTotal =
     buckets != null &&
@@ -909,22 +939,51 @@ export function PricingScenarioCard({
                         </InputCaption>
                       ) : null}
                     </CardField>
-                    <CardField label="Outbound freight" htmlFor="scenario-outbound">
+                    <CardField label="Outbound freight" htmlFor="scenario-outbound-cost">
                       <CommitInput
-                        id="scenario-outbound"
+                        id="scenario-outbound-cost"
                         label="Outbound freight"
                         inputMode="decimal"
-                        value={selectedValues?.outboundFreight ?? null}
+                        value={selectedValues?.outboundFreightCost ?? null}
                         placeholder="0"
                         className={cn(
                           underlineControlClass(false),
                           "font-mono tabular-nums"
                         )}
                         onCommit={(value) =>
-                          setProductValue(selectedProductId, "outboundFreight", value)
+                          setProductValue(
+                            selectedProductId,
+                            "outboundFreightCost",
+                            value
+                          )
                         }
                       />
-                      <InputCaption align="start">per {productUnit}</InputCaption>
+                      <InputCaption align="start">shipment total</InputCaption>
+                    </CardField>
+                    <CardField label={`Covers (${productUnit}s)`} htmlFor="scenario-outbound-totes">
+                      <CommitInput
+                        id="scenario-outbound-totes"
+                        label={`Covers (${productUnit}s)`}
+                        inputMode="decimal"
+                        value={selectedValues?.outboundFreightTotes ?? null}
+                        placeholder="0"
+                        className={cn(
+                          underlineControlClass(false),
+                          "font-mono tabular-nums"
+                        )}
+                        onCommit={(value) =>
+                          setProductValue(
+                            selectedProductId,
+                            "outboundFreightTotes",
+                            value
+                          )
+                        }
+                      />
+                      <InputCaption align="start">
+                        {outboundFreightPerUnit != null
+                          ? `${fmtMoney(outboundFreightPerUnit)} / ${productUnit}`
+                          : `${productUnit}s in shipment`}
+                      </InputCaption>
                     </CardField>
                   </CardFormRow>
                 </div>
@@ -937,7 +996,7 @@ export function PricingScenarioCard({
                     <CardField
                       label="Overhead %"
                       htmlFor="scenario-overhead"
-                      invalid={overheadInvalid}
+                      invalid={overheadInvalid || combinedAssumptionsInvalid}
                     >
                       <CommitInput
                         id="scenario-overhead"
@@ -946,7 +1005,9 @@ export function PricingScenarioCard({
                         value={draft.overheadPercent}
                         placeholder="0"
                         className={cn(
-                          underlineControlClass(overheadInvalid),
+                          underlineControlClass(
+                            overheadInvalid || combinedAssumptionsInvalid
+                          ),
                           "font-mono tabular-nums"
                         )}
                         onCommit={(value) => setGlobal("overheadPercent", value)}
@@ -955,7 +1016,7 @@ export function PricingScenarioCard({
                     <CardField
                       label="Target profit %"
                       htmlFor="scenario-profit"
-                      invalid={targetProfitInvalid}
+                      invalid={targetProfitInvalid || combinedAssumptionsInvalid}
                     >
                       <CommitInput
                         id="scenario-profit"
@@ -964,7 +1025,9 @@ export function PricingScenarioCard({
                         value={draft.targetProfitPercent}
                         placeholder="0"
                         className={cn(
-                          underlineControlClass(targetProfitInvalid),
+                          underlineControlClass(
+                            targetProfitInvalid || combinedAssumptionsInvalid
+                          ),
                           "font-mono tabular-nums"
                         )}
                         onCommit={(value) => setGlobal("targetProfitPercent", value)}
@@ -979,13 +1042,9 @@ export function PricingScenarioCard({
                         : "text-[var(--color-ink-faint)]"
                     )}
                   >
-                    {overheadInvalid && targetProfitInvalid
-                      ? "Overhead and target profit must each stay under 100%."
-                      : overheadInvalid
-                      ? "Overhead must stay under 100% of cost."
-                      : targetProfitInvalid
-                        ? "Target profit must stay under 100% of the selling price."
-                      : "Overhead marks up cost; profit is a margin of the selling price."}
+                    {combinedAssumptionsInvalid
+                      ? "Overhead plus target profit must stay under 100% of the selling price."
+                      : "Overhead and profit are both shares of the selling price."}
                   </p>
                 </RailPanel>
 
@@ -1067,7 +1126,7 @@ export function PricingScenarioCard({
                         rule
                       />
                       <BreakdownRow
-                        label={`Overhead (${trimDecimal(draft.overheadPercent, 2) ?? "0"}% of cost)`}
+                        label={`Overhead (${trimDecimal(draft.overheadPercent, 2) ?? "0"}% of price)`}
                         value={fmtMoney(completeResult.overheadDollars)}
                       />
                       <BreakdownRow
