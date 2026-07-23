@@ -20,7 +20,7 @@ We use customer data to provide the service, maintain security, investigate issu
 
 ## Support and deletion requests
 
-For privacy questions, access requests, or deletion requests, contact [support@ashicore.app](mailto:support@ashicore.app).
+For privacy questions or access requests, contact [support@ashicore.app](mailto:support@ashicore.app). To remove an account or associated personal data, follow the [data deletion instructions](/data-deletion).
 
 ## Updates
 

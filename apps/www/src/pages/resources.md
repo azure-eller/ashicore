@@ -12,6 +12,7 @@ Use these resources for vendor review, app approval, procurement, and support wo
 
 - [Documentation](/docs)
 - [Privacy Policy](/privacy)
+- [Data deletion](/data-deletion)
 - [Terms of Service](/terms)
 - [Security](/security)
 - [Subprocessors](/subprocessors)

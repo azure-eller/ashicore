@@ -43,6 +43,7 @@ const publicAstroRoutes = new Set([
   "/",
   "/docs",
   "/privacy",
+  "/data-deletion",
   "/terms",
   "/support",
   "/pricing",
