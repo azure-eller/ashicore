@@ -5,7 +5,18 @@ import {
   optionalNonNegativeDecimalString,
 } from "./numeric";
 
+/** The model new revision snapshots are computed and stamped with. */
 export const PRICING_SCENARIO_CALCULATION_VERSION = "cost-plus-margin-v1" as const;
+
+/**
+ * Every calculationVersion ever committed. Revisions are immutable history, so
+ * the read schema must keep parsing older versions after the model changes —
+ * append here, never remove. New snapshots always use the current version above.
+ */
+export const PRICING_SCENARIO_CALCULATION_VERSIONS = [
+  "sales-share-v1",
+  "cost-plus-margin-v1",
+] as const;
 
 export const PRICING_SCENARIO_MAX_PRODUCTS = 200;
 const MAX_OVERRIDE_ROWS = 500;
@@ -173,7 +184,7 @@ const revisionProductSchema = z.object({
 });
 
 export const pricingScenarioRevisionSnapshotSchema = z.object({
-  calculationVersion: z.literal(PRICING_SCENARIO_CALCULATION_VERSION),
+  calculationVersion: z.enum(PRICING_SCENARIO_CALCULATION_VERSIONS),
   capturedAt: z.string(),
   globals: z.object({
     overheadPercent: snapshotNullableDecimal,

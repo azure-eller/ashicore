@@ -203,12 +203,17 @@ current margin in one explicit unit context.
   numbered snapshot carrying inputs *and* results into
   `sales.pricing_scenario_revisions` (insert-only; app role has no
   UPDATE/DELETE). New snapshots identify this arithmetic as calculation version
-  `cost-plus-margin-v1`. Later ERP changes move the working scenario, never a
-  committed revision. A revision can be viewed in the card and restored as
-  sparse overrides in the current draft; restoring does not alter the revision.
-  Soft-deleting a scenario keeps its revisions. Material and labour snapshot
-  rows include their derived `costPerUnit`; the reader defaults that field to
-  `null` so revisions written before the worksheet added it remain readable.
+  `cost-plus-margin-v1`; the reader accepts every calculation version previously
+  written (`sales-share-v1` and `cost-plus-margin-v1`) so immutable history stays
+  readable when the model changes. Historical versions must remain in
+  `PRICING_SCENARIO_CALCULATION_VERSIONS`; new snapshots always use
+  `PRICING_SCENARIO_CALCULATION_VERSION`. Later ERP changes move the working
+  scenario, never a committed revision. A revision can be viewed in the card and
+  restored as sparse overrides in the current draft; restoring does not alter
+  the revision. Soft-deleting a scenario keeps its revisions. Material and
+  labour snapshot rows include their derived `costPerUnit`; the reader defaults
+  that field to `null` so revisions written before the worksheet added it remain
+  readable.
 - Scenario writes touch only the two scenario tables plus the idempotency
   ledger — never items, recipes, prices, inventory, orders, or accounting.
 

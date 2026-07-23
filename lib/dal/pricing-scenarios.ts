@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, max, sql } from "drizzle-orm";
 import {
   itemFamilies,
   items,
@@ -275,22 +275,47 @@ export async function getPricingScenarioProductOptions(): Promise<
 export async function listPricingScenarios(): Promise<PricingScenarioListRow[]> {
   return withAuthedOrgContext(async (tx, orgId) => {
     await assertPricingScenariosAccessInTx(tx, orgId, "GET /api/pricing-scenarios");
-    return tx
+    const scenarios = await tx
       .select({
         id: pricingScenarios.id,
         name: pricingScenarios.name,
         version: pricingScenarios.version,
         updatedAt: pricingScenarios.updatedAt,
         updatedByUserId: pricingScenarios.updatedByUserId,
-        latestRevisionNumber: sql<number | null>`(
-          SELECT MAX(${pricingScenarioRevisions.revisionNumber})
-          FROM ${pricingScenarioRevisions}
-          WHERE ${pricingScenarioRevisions.scenarioId} = ${pricingScenarios.id}
-        )`,
       })
       .from(pricingScenarios)
       .where(isNull(pricingScenarios.deletedAt))
       .orderBy(desc(pricingScenarios.updatedAt));
+
+    // A correlated subquery on the revisions table silently returns NULL under
+    // RLS; a direct grouped read on that table as the primary relation does
+    // not. Fetch the max revision per scenario separately and merge in memory.
+    const latestByScenarioId = new Map<string, number>();
+    if (scenarios.length > 0) {
+      const revisionMaxes = await tx
+        .select({
+          scenarioId: pricingScenarioRevisions.scenarioId,
+          latest: max(pricingScenarioRevisions.revisionNumber),
+        })
+        .from(pricingScenarioRevisions)
+        .where(
+          inArray(
+            pricingScenarioRevisions.scenarioId,
+            scenarios.map((scenario) => scenario.id)
+          )
+        )
+        .groupBy(pricingScenarioRevisions.scenarioId);
+      for (const row of revisionMaxes) {
+        if (row.latest != null) {
+          latestByScenarioId.set(row.scenarioId, row.latest);
+        }
+      }
+    }
+
+    return scenarios.map((scenario) => ({
+      ...scenario,
+      latestRevisionNumber: latestByScenarioId.get(scenario.id) ?? null,
+    }));
   });
 }
 

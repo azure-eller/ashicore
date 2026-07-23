@@ -36,7 +36,10 @@ import {
   updateItem,
 } from "../../helpers/api";
 import { buildStorageState } from "../../helpers/test-env";
-import { emptyPricingScenarioDoc } from "../../../lib/schemas/pricing-scenarios";
+import {
+  emptyPricingScenarioDoc,
+  pricingScenarioRevisionSnapshotSchema,
+} from "../../../lib/schemas/pricing-scenarios";
 import { calculatePricingScenario } from "../../../lib/pricing-scenarios/calculations";
 import { withAccountingConnectionFixtureLock } from "../../helpers/accounting-connection-fixture-lock";
 
@@ -2691,6 +2694,14 @@ test.describe("pricing scenario document seam", () => {
       "baseline"
     );
 
+    // The scenario list must surface the latest committed revision number. A
+    // correlated subquery returns NULL under RLS, so this reads it separately.
+    const listAfterCommit = await pricingSeamFetch("/api/pricing-scenarios");
+    const listedRow = listAfterCommit.body.scenarios.find(
+      (row: { id: string }) => row.id === scenarioId
+    );
+    expect(listedRow.latestRevisionNumber).toBe(1);
+
     // ERP drift moves the live baseline but never a committed snapshot.
     const drift = await updateItem(material.body.id as string, {
       defaultPurchasePrice: "45.00",
@@ -2736,5 +2747,58 @@ test.describe("pricing scenario document seam", () => {
     const lockedList = await pricingSeamFetch("/api/pricing-scenarios");
     expect(lockedList.status).toBe(402);
     await setPricingSeamEntitlements(db, ["pricing_scenarios"]);
+  });
+
+  test("revision snapshots stay readable across calculation-model versions", () => {
+    // Revisions are immutable history: a snapshot committed under a retired
+    // model (older calculationVersion, since-removed fields) must still parse.
+    const legacy = {
+      calculationVersion: "sales-share-v1",
+      capturedAt: "2026-06-05T00:00:00.000Z",
+      globals: { overheadPercent: "35", targetProfitPercent: "35" },
+      products: [
+        {
+          itemId: "11111111-1111-4111-8111-111111111111",
+          name: "Legacy",
+          sku: null,
+          materials: [
+            {
+              itemId: "22222222-2222-4222-8222-222222222222",
+              name: "Coir",
+              sku: null,
+              quantityPerUnit: "1",
+              unitPrice: "1300",
+              inboundFreight: "0",
+              handling: "9.17",
+              priceSource: "override",
+              costPerUnit: "1309.17",
+            },
+          ],
+          labor: [],
+          buckets: {
+            materials: "1300",
+            inboundFreight: "0",
+            handling: "9.17",
+            labor: "0",
+            directCost: "1309.17",
+            costToRecover: "1309.17",
+          },
+          outboundFreight: "0",
+          currentPrice: "1500",
+          currentPriceSource: "baseline",
+          result: {
+            withheld: false,
+            sellAt: "4363.90",
+            newCost: "1309.17",
+            overheadDollars: "1527.37",
+            profitDollars: "1527.37",
+            currentMargin: "-74.61",
+          },
+        },
+      ],
+    };
+    const parsed = pricingScenarioRevisionSnapshotSchema.parse(legacy);
+    expect(parsed.calculationVersion).toBe("sales-share-v1");
+    expect(parsed.products[0].result).toMatchObject({ sellAt: "4363.90" });
   });
 });
