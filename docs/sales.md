@@ -219,6 +219,37 @@ current margin in one explicit unit context.
 - Scenario writes touch only the two scenario tables plus the idempotency
   ledger — never items, recipes, prices, inventory, orders, or accounting.
 
+### Overhead default (derived from Xero)
+
+The **Overhead** tab (`/sales/overhead`) derives the default
+`overheadPercent` from the company's Xero Profit & Loss. It uses the trailing
+12 complete months by default; the operator can choose another valid date
+range. A new scenario pre-fills the latest saved rate, while existing scenarios
+keep their own value.
+
+- `overhead% = operating-overhead pool ÷ revenue` over a trailing period, all read
+  from the **same** Xero P&L (`getReportProfitAndLoss`) so numerator and denominator
+  are consistent. `lib/overhead/compute.ts` is the pure, testable core (parse →
+  classify → compute); `lib/xero/reports.ts` is the thin live fetch.
+- Each P&L account is classified `revenue` / `overhead` / `excluded`. Auto rules
+  classify `REVENUE`, `SALES`, and `OTHERINCOME` as revenue;
+  `OVERHEADS`, `EXPENSE`, and `DEPRECIATN` as overhead; and `DIRECTCOSTS` as
+  excluded because direct cost already lives in the BOM. Unknown and
+  balance-sheet types are also excluded. The user can override any account;
+  overrides are stored and replayed.
+- The derived rate and its point-in-time derivation snapshot (every account,
+  amount, classification, and the pool/revenue totals) persist one-row-per-org in
+  `settings.organization_overhead_settings` (mirrors `organization_tax_settings`;
+  upsert-only, no DELETE grant). Each successful save replaces the org's
+  previous rate and snapshot. Saving always **recomputes server-side** from Xero
+  — the client's preview numbers are never trusted.
+- Reading the P&L needs the `accounting.reports.read` Xero scope. It is appended to
+  `REQUIRED_SCOPES`, but granted scopes are not stored, so existing connections are
+  missing it until the user reconnects; a report call returns 403, which the tab
+  surfaces as a "Reconnect to Xero" prompt (the existing `/api/xero/connect` flow).
+- `getOverheadDefaultPercent()` feeds the pricing page, which pre-fills a new
+  scenario's overhead field; it stays fully per-scenario overridable.
+
 The scenario document accepts at most 200 products. Names are 1–120 characters,
 revision notes are at most 500 characters, override values are non-negative,
 and each percentage must stay below 100.
@@ -239,6 +270,20 @@ entitlement. Create, duplicate, and revision-commit requests also require an
 | `POST /api/pricing-scenarios/:id/duplicate` | Copies the name and document, but not revisions; accepts an optional `name`. |
 | `POST /api/pricing-scenarios/:id/revisions` | Computes and stores the next immutable snapshot; accepts an optional `note`. |
 | `GET /api/pricing-scenarios/:id/revisions/:revisionId` | Returns one immutable revision snapshot; material and labour rows expose nullable derived `costPerUnit`. |
+
+### Overhead settings API
+
+All routes require the `pricing_scenarios` beta entitlement. `GET` requires
+Sales read access; `POST` and `PUT` require Sales operate access. Mutation
+bodies are `{ periodStart, periodEnd, overrides }`, where dates are valid
+`YYYY-MM-DD` values with `periodStart <= periodEnd`, and `overrides` maps Xero
+account IDs to `revenue`, `overhead`, or `excluded`.
+
+| Route | Behaviour |
+| --- | --- |
+| `GET /api/overhead-settings` | Returns the org's latest saved rate, period, totals, derivation, overrides, and update time; fields are null when no rate has been saved. |
+| `POST /api/overhead-settings` | Fetches the Xero P&L and chart of accounts, then returns a preview derivation and live accounts without persisting. |
+| `PUT /api/overhead-settings` | Fetches Xero again, recomputes authoritatively, and replaces the org's saved rate, derivation snapshot, and overrides. |
 
 ## Oversell Behavior
 

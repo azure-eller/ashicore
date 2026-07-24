@@ -51,7 +51,9 @@ export default async function DashboardLayout({
           }))}
           hiddenNavHrefs={[
             ...(wholesaleAccess.locked ? ["/sales/pricing"] : []),
-            ...(pricingScenariosAccess.locked ? ["/sales/pricing-scenarios"] : []),
+            ...(pricingScenariosAccess.locked
+              ? ["/sales/pricing-scenarios", "/sales/overhead"]
+              : []),
           ]}
         />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">

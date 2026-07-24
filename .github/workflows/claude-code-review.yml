@@ -12,6 +12,7 @@ jobs:
   claude-review:
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
       pull-requests: write
       issues: write

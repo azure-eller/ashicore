@@ -104,7 +104,10 @@ function detailToCardDoc(detail: PricingScenarioDetailData): ScenarioCardDoc {
   };
 }
 
-function makeDraftScenario(id: string): ScenarioCardDoc {
+function makeDraftScenario(
+  id: string,
+  overheadDefaultPercent: string | null
+): ScenarioCardDoc {
   return {
     id,
     name: "",
@@ -113,7 +116,9 @@ function makeDraftScenario(id: string): ScenarioCardDoc {
     materials: [],
     resourceRates: [],
     products: [],
-    overheadPercent: null,
+    // Pre-fill overhead from the org's Xero-derived default so a new scenario
+    // starts on the real number, not a guess. Still per-scenario overridable.
+    overheadPercent: overheadDefaultPercent,
     targetProfitPercent: null,
     baseline: { leafItems: [], resources: [], products: [] },
     usageTerms: [],
@@ -215,10 +220,12 @@ export function PricingScenarioCard({
   initialScenarioId,
   initialDetail,
   productOptions,
+  overheadDefaultPercent = null,
 }: {
   initialScenarioId: string | null;
   initialDetail: PricingScenarioDetailData | null;
   productOptions: InventoryItemComboboxOption[];
+  overheadDefaultPercent?: string | null;
 }) {
   const queryClient = useQueryClient();
   const [newScenarioId] = useState(() => crypto.randomUUID());
@@ -228,7 +235,7 @@ export function PricingScenarioCard({
     entityType: "pricing-scenario",
     id: scenarioId,
     initialServerDoc: initialDetail ? detailToCardDoc(initialDetail) : null,
-    makeNewDoc: makeDraftScenario,
+    makeNewDoc: (id) => makeDraftScenario(id, overheadDefaultPercent),
     collections: {
       materials: { idKey: "itemId" },
       resourceRates: { idKey: "resourceId" },

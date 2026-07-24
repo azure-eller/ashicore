@@ -16,11 +16,17 @@ import {
   billingUsageEvents,
   manufacturingOrders,
   organization,
+  organizationOverheadSettings,
   pricingScenarioRevisions,
   pricingScenarios,
   salesOrderLines,
   salesOrders,
 } from "../../../lib/db/schema";
+import {
+  parseProfitAndLoss,
+  classifyLines,
+  computeOverhead,
+} from "../../../lib/overhead/compute";
 import {
   addCustomerContact,
   createCustomer,
@@ -2845,5 +2851,138 @@ test.describe("pricing scenario document seam", () => {
     const parsed = pricingScenarioRevisionSnapshotSchema.parse(legacy);
     expect(parsed.calculationVersion).toBe("sales-share-v1");
     expect(parsed.products[0].result).toMatchObject({ sellAt: "4363.90" });
+  });
+});
+
+const OVERHEAD_PL_FIXTURE = {
+  reports: [
+    {
+      reportID: "ProfitAndLoss",
+      rows: [
+        {
+          rowType: "Section",
+          title: "Income",
+          rows: [
+            {
+              rowType: "Row",
+              cells: [
+                { value: "Sales", attributes: [{ id: "account", value: "rev-1" }] },
+                { value: "200000.00" },
+              ],
+            },
+            { rowType: "SummaryRow", cells: [{ value: "Total Income" }, { value: "200000.00" }] },
+          ],
+        },
+        {
+          rowType: "Section",
+          title: "Less Cost of Sales",
+          rows: [
+            {
+              rowType: "Row",
+              cells: [
+                { value: "Materials", attributes: [{ id: "account", value: "dc-1" }] },
+                { value: "80000.00" },
+              ],
+            },
+          ],
+        },
+        {
+          rowType: "Section",
+          title: "Less Operating Expenses",
+          rows: [
+            {
+              rowType: "Row",
+              cells: [
+                { value: "Rent", attributes: [{ id: "account", value: "oh-1" }] },
+                { value: "36000.00" },
+              ],
+            },
+            {
+              rowType: "Row",
+              cells: [
+                { value: "Admin Wages", attributes: [{ id: "account", value: "oh-2" }] },
+                { value: "24000.00" },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  ],
+};
+
+const OVERHEAD_ACCOUNT_TYPES = new Map<string, string | null>([
+  ["rev-1", "REVENUE"],
+  ["dc-1", "DIRECTCOSTS"],
+  ["oh-1", "OVERHEADS"],
+  ["oh-2", "OVERHEADS"],
+]);
+
+test.describe("overhead settings seam", () => {
+  test.describe.configure({ mode: "serial" });
+
+  test("derives overhead % from a Xero P&L: pool ÷ revenue, direct excluded, overrides applied", () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const lines = parseProfitAndLoss(OVERHEAD_PL_FIXTURE as any);
+    // Section subtotals are skipped; only the four account rows survive.
+    expect(lines).toHaveLength(4);
+
+    const base = computeOverhead(
+      classifyLines(lines, OVERHEAD_ACCOUNT_TYPES),
+      { periodStart: "2025-07-01", periodEnd: "2026-06-30" }
+    );
+    // rent 36000 + wages 24000 = 60000 pool; revenue 200000; direct 80000 excluded.
+    expect(base.overheadPercent).toBe("30.00");
+
+    const overridden = computeOverhead(
+      classifyLines(lines, OVERHEAD_ACCOUNT_TYPES, { "oh-2": "excluded" }),
+      { periodStart: "2025-07-01", periodEnd: "2026-06-30" }
+    );
+    expect(overridden.overheadPercent).toBe("18.00");
+  });
+
+  test("saved overhead default reads back under RLS and gates on entitlement", async ({ db }) => {
+    await setPricingSeamEntitlements(db, ["pricing_scenarios"]);
+
+    // Seed a derived rate directly (the compute path itself needs a live Xero
+    // connection, which CI can't provide; this guards the persistence + read + RLS).
+    await db
+      .insert(organizationOverheadSettings)
+      .values({
+        organizationId: getOrgId(),
+        overheadPercent: "30.0000",
+        periodStart: "2025-07-01",
+        periodEnd: "2026-06-30",
+        overheadPool: "60000.00",
+        revenueTotal: "200000.00",
+        derivation: {
+          periodStart: "2025-07-01",
+          periodEnd: "2026-06-30",
+          lines: [],
+          overheadPool: "60000.00",
+          revenueTotal: "200000.00",
+          overheadPercent: "30.00",
+        },
+        accountOverrides: { "oh-2": "excluded" },
+      })
+      .onConflictDoUpdate({
+        target: organizationOverheadSettings.organizationId,
+        set: { overheadPercent: "30.0000", updatedAt: new Date() },
+      });
+
+    const read = await testFetch("/api/overhead-settings");
+    expect(read.status).toBe(200);
+    const body = await read.json();
+    expect(body.overheadPercent).toBe("30");
+    expect(body.periodStart).toBe("2025-07-01");
+    expect(body.accountOverrides).toEqual({ "oh-2": "excluded" });
+
+    // Beta gate: unentitled orgs get 402 on the overhead route too.
+    await setPricingSeamEntitlements(db, []);
+    const locked = await testFetch("/api/overhead-settings");
+    expect(locked.status).toBe(402);
+    await setPricingSeamEntitlements(db, ["pricing_scenarios"]);
+    // No cleanup delete: the row is upsert-only (feature never deletes), and the
+    // upsert above makes re-runs deterministic.
   });
 });

@@ -8,6 +8,7 @@ import {
   Invoice01Icon,
   Package02Icon,
   PackageIcon,
+  PercentIcon,
   Settings02Icon,
   ShoppingBag01Icon,
   ShoppingCart01Icon,
@@ -78,6 +79,7 @@ const dashboardNavModules: DashboardNavModule[] = [
       { title: "Customers", href: "/sales/customers", icon: Store01Icon },
       { title: "Pricing", href: "/sales/pricing", icon: ChartIcon },
       { title: "Scenarios", href: "/sales/pricing-scenarios", icon: Calculator01Icon },
+      { title: "Overhead", href: "/sales/overhead", icon: PercentIcon },
     ],
   },
   {
@@ -226,6 +228,13 @@ export function getDashboardSearchActions(
         description: "View pricing scenarios",
         href: "/sales/pricing-scenarios",
         icon: Calculator01Icon,
+        group: "Sales",
+      },
+      {
+        title: "Overhead",
+        description: "Derive overhead from Xero",
+        href: "/sales/overhead",
+        icon: PercentIcon,
         group: "Sales",
       }
     );

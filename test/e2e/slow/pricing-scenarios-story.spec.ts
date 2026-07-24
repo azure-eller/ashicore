@@ -3,6 +3,7 @@ import { test, expect } from "../fixtures";
 import {
   manufacturingResources,
   organization,
+  organizationOverheadSettings,
   pricingScenarioRevisions,
   pricingScenarios,
 } from "../../../lib/db/schema";
@@ -173,5 +174,57 @@ test.describe("pricing scenario story", () => {
       .from(pricingScenarioRevisions)
       .where(eq(pricingScenarioRevisions.scenarioId, scenarioRow.id));
     expect(allRevisions.map((row) => row.revisionNumber).sort()).toEqual([1, 2]);
+  });
+
+  test("a new scenario pre-fills overhead from the org's derived rate", async ({
+    page,
+    db,
+  }) => {
+    await db
+      .update(organization)
+      .set({ entitlements: ["pricing_scenarios"] })
+      .where(eq(organization.id, orgId));
+
+    // The org has a saved, Xero-derived overhead rate.
+    await db
+      .insert(organizationOverheadSettings)
+      .values({
+        organizationId: orgId,
+        overheadPercent: "31.5000",
+        periodStart: "2025-07-01",
+        periodEnd: "2026-06-30",
+        overheadPool: "63000.00",
+        revenueTotal: "200000.00",
+        derivation: {
+          periodStart: "2025-07-01",
+          periodEnd: "2026-06-30",
+          lines: [],
+          overheadPool: "63000.00",
+          revenueTotal: "200000.00",
+          overheadPercent: "31.50",
+        },
+        accountOverrides: {},
+      })
+      .onConflictDoUpdate({
+        target: organizationOverheadSettings.organizationId,
+        set: { overheadPercent: "31.5000", updatedAt: new Date() },
+      });
+
+    // A brand-new scenario starts with the derived overhead already filled in,
+    // so the operator prices off the real number instead of a guess. The
+    // assumptions panel only renders once a product is on the scenario, so add
+    // the blend from the first story (waiting for the autosave to settle the
+    // combobox), then read the pre-filled overhead field.
+    await page.goto("/sales/pricing-scenarios/new");
+    await page.locator("#scenario-name").fill(`Overhead Prefill ${ts}`);
+    await page.locator("#scenario-name").press("Enter");
+    const picker = page.locator("#scenario-add-product");
+    await picker.click();
+    await picker.pressSequentially(`STORY-BLEND-${ts}`, { delay: 25 });
+    await page.getByRole("option").first().click();
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(page.locator("#scenario-overhead")).toHaveValue("31.5");
   });
 });

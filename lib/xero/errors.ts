@@ -2,6 +2,8 @@ import { DomainError } from "@/lib/errors/domain-error";
 
 export type XeroErrorExtra = {
   validationErrors?: Array<{ property: string; message: string }>;
+  /** Set when a 403 means the connection lacks a required scope (e.g. reports). */
+  reason?: "missing_scope";
 };
 
 export class XeroError extends DomainError<XeroErrorExtra> {

@@ -54,6 +54,12 @@ Store setup/support copy, read `docs/xero-support-listing.md`.
   can reset a completed run when imported rows are not referenced by orders.
   Fetch active contacts, update matching ERP rows by Xero ID/email/name, but
   only create new rows for Xero contacts flagged as customers or suppliers.
+- **Profit & Loss overhead inputs** — `lib/xero/reports.ts` fetches one P&L
+  report and the chart of accounts for the Sales overhead calculator.
+  `lib/overhead/compute.ts` parses leaf account rows, applies the account-type
+  rules and org overrides, and derives the overhead share of revenue. A report
+  `403` becomes `reason: "missing_scope"` so `/sales/overhead` can prompt the
+  operator to reconnect.
 - **Supplier price sync retired** — the previous history-driven supplier item
   price updater is no longer exposed because Xero line units are not reliable
   enough to infer ERP stock-unit costs automatically.
@@ -111,13 +117,15 @@ accounting.contacts
 accounting.invoices
 accounting.transactions    ← needed for PurchaseOrders
 accounting.attachments      ← needed for PO attachment upload
+accounting.reports.read     ← needed for the overhead calculator's Profit & Loss
+accounting.settings.read    ← needed for the overhead calculator's account types
 offline_access
 ```
 
-When you add or remove a scope, every existing connection must
-disconnect + reconnect for the OAuth consent to re-prompt. The
-**Test connection** button in settings will surface this as
-`Missing scope`.
+When you add or remove a scope, every existing connection must reconnect for
+the OAuth consent to re-prompt. The **Test connection** health probe detects
+missing transaction scope. Report scope is verified by loading the P&L on
+`/sales/overhead`; a `403` there shows **Reconnect to Xero**.
 
 ## Testing — use the Xero Demo Company
 
@@ -173,20 +181,27 @@ After any change in `lib/xero/` or in the sales push hook (`shipSalesOrder`):
 3. **Purchase import happy path.** Enable purchase order import or run bulk
    import. Expect open Xero POs to appear in ERP for receiving; received ERP PO
    lines must not be rewritten by later imports.
-4. **Failure path.** Revoke the access token from inside Xero
+4. **Overhead report path.** Open `/sales/overhead`, load a completed period,
+   and confirm the account amounts match the same Xero P&L. Confirm the automatic
+   classifications, change one account classification, save, and open a new
+   pricing scenario. Expect its overhead field to contain the saved derived
+   percentage. For a connection authorised before
+   `accounting.reports.read` was added, expect **Reconnect to Xero**; reconnect
+   and load the report again.
+5. **Failure path.** Revoke the access token from inside Xero
    (Settings → Connected apps → revoke). Ship another order. Expect
    `xero_push_status='failed'`, the order detail page to show the
    "Retry Xero push" action, and the **Test connection** button to
    surface `Reconnect required`. Reconnect, click Retry — should
    recover.
-5. **Cron path.** Force a few failed rows, then poke the cron:
+6. **Cron path.** Force a few failed rows, then poke the cron:
    ```bash
    curl -H "Authorization: Bearer $CRON_SECRET" \
      http://localhost:3000/api/internal/xero-retry
    ```
    Expect the response JSON to show `recovered > 0` and the rows
    to flip back to `pushed` without a duplicate Xero document.
-6. **Idempotency past the 6-minute window.** Manually delete the
+7. **Idempotency past the 6-minute window.** Manually delete the
    `xero_invoice_id` from a row whose Xero invoice still exists, then
    trigger retry. The push should adopt the existing Xero invoice via
    `findXeroInvoiceForSalesOrder` rather than creating a duplicate.
