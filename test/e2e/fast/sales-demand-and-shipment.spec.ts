@@ -22,11 +22,8 @@ import {
   salesOrderLines,
   salesOrders,
 } from "../../../lib/db/schema";
-import {
-  parseProfitAndLoss,
-  classifyLines,
-  computeOverhead,
-} from "../../../lib/overhead/compute";
+import { classifyLines, computeOverhead } from "../../../lib/overhead/compute";
+import { parseProfitAndLoss } from "../../../lib/overhead/parse";
 import {
   addCustomerContact,
   createCustomer,

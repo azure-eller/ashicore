@@ -2,13 +2,40 @@
 
 import { useMemo, useState } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { RefreshIcon, Alert02Icon, LinkSquare02Icon } from "@hugeicons/core-free-icons";
+import {
+  RefreshIcon,
+  Alert02Icon,
+  LinkSquare02Icon,
+  ArrowReloadHorizontalIcon,
+} from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
-import { apiJson, ApiJsonError } from "@/lib/client/api";
+import { DatePicker } from "@/components/ui/date-picker";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  SettingsPageHeader,
+  SettingsCard,
+  SettingsBlock,
+} from "@/components/settings-panel";
+import {
+  FramedTable,
+  FramedTableHead,
+  FramedTableBody,
+  FramedTableRow,
+  FramedTableHeaderCell,
+  FramedTableCell,
+} from "@/components/table-frame";
+import { EmptyState } from "@/components/empty-state";
+import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { OverheadSettingsData, OverheadComputeResult } from "@/lib/dal/overhead-settings";
+import { apiJson, ApiJsonError } from "@/lib/client/api";
 import {
   computeOverhead,
   type ClassifiedLine,
@@ -21,19 +48,41 @@ const CLASS_OPTIONS: { value: OverheadClass; label: string }[] = [
   { value: "excluded", label: "Excluded" },
 ];
 
-function fmtMoney(value: string | number): string {
-  const n = typeof value === "string" ? Number(value) : value;
-  return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+const BUCKET_TONE: Record<OverheadClass, string> = {
+  overhead: "text-[var(--color-accent-ink)]",
+  revenue: "text-[var(--color-success)]",
+  excluded: "text-[var(--color-ink-faint)]",
+};
+
+// Xero account-type codes are all-caps machine tokens; show them the way an
+// operator would read them on a P&L.
+const TYPE_LABELS: Record<string, string> = {
+  REVENUE: "Revenue",
+  SALES: "Sales",
+  OTHERINCOME: "Other income",
+  DIRECTCOSTS: "Direct costs",
+  OVERHEADS: "Overhead",
+  EXPENSE: "Expense",
+  DEPRECIATN: "Depreciation",
+};
+
+function humanizeType(type: string | null): string {
+  if (!type) return "—";
+  return TYPE_LABELS[type.toUpperCase()] ?? type.charAt(0) + type.slice(1).toLowerCase();
+}
+
+function money(value: string | number): string {
+  return formatCurrency(value) ?? "—";
 }
 
 function fmtPeriod(start: string, end: string): string {
-  const fmt = (iso: string) =>
+  const label = (iso: string) =>
     new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
       month: "short",
       year: "numeric",
       timeZone: "UTC",
     });
-  return `${fmt(start)} – ${fmt(end)}`;
+  return `${label(start)} – ${label(end)}`;
 }
 
 export function OverheadPanel({
@@ -61,18 +110,19 @@ export function OverheadPanel({
         }
       : null
   );
+  const [previewIsSaved, setPreviewIsSaved] = useState(
+    initialSettings.derivation != null
+  );
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [needsReconnect, setNeedsReconnect] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
 
-  // Use the same decimal arithmetic as the authoritative server recompute so
-  // classification edits cannot preview a rate that differs from the saved rate.
-  const derived = useMemo(
-    () => computeOverhead(lines, period),
-    [lines, period]
-  );
+  // Same decimal arithmetic as the authoritative server recompute, so
+  // classification edits can never preview a rate that differs from what
+  // the server will persist.
+  const derived = useMemo(() => computeOverhead(lines, period), [lines, period]);
   const derivedPercent = Number(derived.overheadPercent);
   const hasCurrentPreview =
     lines.length > 0 &&
@@ -85,6 +135,25 @@ export function OverheadPanel({
     derivedPercent >= 0 &&
     derivedPercent < 100;
 
+  const excludedTotal = useMemo(
+    () =>
+      lines
+        .filter((line) => line.classification === "excluded")
+        .reduce((total, line) => total + Number(line.amount || 0), 0),
+    [lines]
+  );
+
+  const isDefaultPeriod =
+    period.periodStart === defaultPeriod.periodStart &&
+    period.periodEnd === defaultPeriod.periodEnd;
+
+  const savedIsCurrent =
+    settings.overheadPercent != null &&
+    settings.periodStart === period.periodStart &&
+    settings.periodEnd === period.periodEnd &&
+    previewIsSaved &&
+    !dirty;
+
   const overridesFromLines = () =>
     Object.fromEntries([
       ...Object.entries(settings.accountOverrides),
@@ -93,12 +162,12 @@ export function OverheadPanel({
         .map((line) => [line.accountId, line.classification] as const),
     ]);
 
-  const isMissingScopeError = (error: unknown) =>
-    error instanceof ApiJsonError &&
-    typeof error.body === "object" &&
-    error.body != null &&
-    "reason" in error.body &&
-    error.body.reason === "missing_scope";
+  const isMissingScopeError = (err: unknown) =>
+    err instanceof ApiJsonError &&
+    typeof err.body === "object" &&
+    err.body != null &&
+    "reason" in err.body &&
+    err.body.reason === "missing_scope";
 
   async function refresh() {
     setLoading(true);
@@ -119,6 +188,7 @@ export function OverheadPanel({
         periodStart: result.derivation.periodStart,
         periodEnd: result.derivation.periodEnd,
       });
+      setPreviewIsSaved(false);
       setDirty(
         Object.entries(overrides).some(
           ([accountId, classification]) =>
@@ -129,7 +199,7 @@ export function OverheadPanel({
       if (isMissingScopeError(e)) {
         setNeedsReconnect(true);
       } else {
-        setError(e instanceof Error ? e.message : "Failed to load from Xero.");
+        setError(e instanceof Error ? e.message : "Couldn't load from Xero.");
       }
     } finally {
       setLoading(false);
@@ -158,10 +228,11 @@ export function OverheadPanel({
             }
           : null
       );
+      setPreviewIsSaved(saved.derivation != null);
       setDirty(false);
     } catch (e) {
       if (isMissingScopeError(e)) setNeedsReconnect(true);
-      else setError(e instanceof Error ? e.message : "Failed to save.");
+      else setError(e instanceof Error ? e.message : "Couldn't save.");
     } finally {
       setSaving(false);
     }
@@ -169,172 +240,375 @@ export function OverheadPanel({
 
   function setLineClass(accountId: string, classification: OverheadClass) {
     setLines((prev) =>
-      prev.map((l) =>
-        l.accountId === accountId ? { ...l, classification, classificationSource: "override" } : l
+      prev.map((line) =>
+        line.accountId === accountId
+          ? { ...line, classification, classificationSource: "override" }
+          : line
       )
     );
+    setPreviewIsSaved(false);
     setDirty(true);
   }
 
+  function setPeriodValue(nextPeriod: { periodStart: string; periodEnd: string }) {
+    setPeriod(nextPeriod);
+    setLines([]);
+    setPreviewIsSaved(false);
+    setDirty(false);
+  }
+
+  const hasLines = hasCurrentPreview;
+
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-(--space-6) p-(--space-6)">
-      <header className="flex flex-col gap-(--space-2)">
-        <h1 className="text-[length:var(--text-xl)] font-semibold">Overhead</h1>
-        <p className="text-[length:var(--text-sm)] text-[var(--color-ink-muted)]">
-          Derive your overhead rate from your Xero Profit &amp; Loss, then use it as the
-          default in pricing scenarios. Overhead % = operating overhead ÷ revenue over the
-          period.
-        </p>
-      </header>
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-(--space-8) p-(--space-8)">
+      <SettingsPageHeader
+        title="Overhead"
+        sub="Derive one company-wide overhead rate from your Xero Profit & Loss, then use it as the default in every pricing scenario. Overhead rate = operating overhead ÷ revenue over the period."
+      />
 
-      {needsReconnect ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-(--space-2)">
-              <HugeiconsIcon icon={Alert02Icon} className="size-(--space-6)" strokeWidth={2} />
-              Reconnect to Xero
-            </CardTitle>
-            <CardDescription>
-              Your Xero connection needs read access to your Profit &amp; Loss report. Reconnect
-              once to grant it — nothing else about the connection changes.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button asChild>
-              <a href="/api/xero/connect">
-                <HugeiconsIcon icon={LinkSquare02Icon} className="size-(--space-5)" strokeWidth={2} />
-                Reconnect to Xero
-              </a>
-            </Button>
-          </CardContent>
-        </Card>
-      ) : null}
+      {needsReconnect ? <ReconnectCard /> : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Current overhead rate</CardTitle>
-          <CardDescription>
-            {settings.overheadPercent != null && settings.periodStart && settings.periodEnd
-              ? `Saved default: ${settings.overheadPercent}% — ${fmtPeriod(settings.periodStart, settings.periodEnd)}`
-              : "No overhead rate saved yet. Load your P&L to compute one."}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-(--space-4)">
-          <div className="flex flex-wrap items-end gap-(--space-4)">
-            <label className="flex flex-col gap-(--space-1) text-[length:var(--text-2xs)] text-[var(--color-ink-muted)]">
-              From
-              <input
-                type="date"
-                value={period.periodStart}
-                onChange={(e) => setPeriod((p) => ({ ...p, periodStart: e.target.value }))}
-                disabled={!canOperate}
-                className="rounded-(--radius-sm) border border-[var(--color-border)] bg-transparent px-(--space-2) py-(--space-1) font-mono text-[length:var(--text-sm)]"
-              />
-            </label>
-            <label className="flex flex-col gap-(--space-1) text-[length:var(--text-2xs)] text-[var(--color-ink-muted)]">
-              To
-              <input
-                type="date"
-                value={period.periodEnd}
-                onChange={(e) => setPeriod((p) => ({ ...p, periodEnd: e.target.value }))}
-                disabled={!canOperate}
-                className="rounded-(--radius-sm) border border-[var(--color-border)] bg-transparent px-(--space-2) py-(--space-1) font-mono text-[length:var(--text-sm)]"
-              />
-            </label>
+      <SettingsCard>
+        <SettingsBlock
+          title="Rate"
+          actions={
             <Button variant="outline" onClick={refresh} disabled={!canOperate || loading}>
               {loading ? (
-                <Spinner className="size-(--space-5)" />
+                <Spinner className="size-(--space-6)" />
               ) : (
-                <HugeiconsIcon icon={RefreshIcon} className="size-(--space-5)" strokeWidth={2} />
+                <HugeiconsIcon icon={RefreshIcon} data-icon="inline-start" strokeWidth={2} />
               )}
-              Load from Xero
+              {hasLines ? "Reload from Xero" : "Load from Xero"}
             </Button>
+          }
+        >
+          <div className="flex flex-col gap-(--space-6)">
+            <div className="flex flex-wrap items-end gap-(--space-5)">
+              <PeriodField
+                label="From"
+                value={period.periodStart}
+                onChange={(value) =>
+                  setPeriodValue({ ...period, periodStart: value })
+                }
+                disabled={!canOperate}
+              />
+              <PeriodField
+                label="To"
+                value={period.periodEnd}
+                onChange={(value) =>
+                  setPeriodValue({ ...period, periodEnd: value })
+                }
+                disabled={!canOperate}
+              />
+              {!isDefaultPeriod ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setPeriodValue(defaultPeriod)}
+                  disabled={!canOperate}
+                  className="mb-(--space-1) text-[var(--color-ink-faint)]"
+                >
+                  <HugeiconsIcon
+                    icon={ArrowReloadHorizontalIcon}
+                    data-icon="inline-start"
+                    strokeWidth={2}
+                  />
+                  Trailing 12 months
+                </Button>
+              ) : null}
+            </div>
+
+            {error ? (
+              <p
+                role="alert"
+                className="text-[length:var(--text-sm)] text-[var(--status-danger-ink)]"
+              >
+                {error}
+              </p>
+            ) : null}
+
+            {hasLines ? (
+              <RateEquation
+                pool={derived.overheadPool}
+                revenue={derived.revenueTotal}
+                percent={derived.overheadPercent}
+                period={period}
+                savedIsCurrent={savedIsCurrent}
+              />
+            ) : !error && !needsReconnect ? (
+              <EmptyState>
+                Load your Profit &amp; Loss to derive your overhead rate. Every
+                account stays reviewable before it counts.
+              </EmptyState>
+            ) : null}
           </div>
+        </SettingsBlock>
 
-          {error ? (
-            <p className="text-[length:var(--text-sm)] text-[var(--status-danger-ink)]">{error}</p>
-          ) : null}
-
-          {hasCurrentPreview ? (
-            <>
-              <div className="flex items-baseline justify-between rounded-(--radius-md) bg-[var(--color-surface-muted)] px-(--space-4) py-(--space-3)">
-                <div>
-                  <div className="text-[length:var(--text-2xs)] uppercase text-[var(--color-ink-muted)]">
-                    Derived overhead
-                  </div>
-                  <div className="font-mono text-[length:var(--text-2xl)] font-semibold tabular-nums">
-                    {derived.overheadPercent != null ? `${derived.overheadPercent}%` : "—"}
-                  </div>
-                </div>
-                <div className="text-right font-mono text-[length:var(--text-xs)] text-[var(--color-ink-muted)] tabular-nums">
-                  <div>overhead {fmtMoney(derived.overheadPool)}</div>
-                  <div>revenue {fmtMoney(derived.revenueTotal)}</div>
-                </div>
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-[length:var(--text-sm)]">
-                  <thead>
-                    <tr className="border-b border-[var(--color-border)] text-left text-[length:var(--text-2xs)] uppercase text-[var(--color-ink-muted)]">
-                      <th className="py-(--space-2) pr-(--space-3) font-medium">Account</th>
-                      <th className="py-(--space-2) px-(--space-3) text-right font-medium">Amount</th>
-                      <th className="py-(--space-2) pl-(--space-3) font-medium">Classification</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lines.map((line) => (
-                      <tr key={line.accountId} className="border-b border-[var(--color-border-subtle)]">
-                        <td className="py-(--space-2) pr-(--space-3)">{line.name}</td>
-                        <td className="py-(--space-2) px-(--space-3) text-right font-mono tabular-nums">
-                          {fmtMoney(line.amount)}
-                        </td>
-                        <td className="py-(--space-2) pl-(--space-3)">
-                          <select
-                            value={line.classification}
-                            onChange={(e) => setLineClass(line.accountId, e.target.value as OverheadClass)}
-                            disabled={!canOperate}
-                            className={cn(
-                              "rounded-(--radius-sm) border border-[var(--color-border)] bg-transparent px-(--space-2) py-(--space-1) text-[length:var(--text-xs)]",
-                              line.classification === "overhead" && "text-[var(--status-warning-ink)]",
-                              line.classification === "revenue" && "text-[var(--status-success-ink)]"
-                            )}
-                          >
-                            {CLASS_OPTIONS.map((opt) => (
-                              <option key={opt.value} value={opt.value}>
-                                {opt.label}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="flex items-center justify-end gap-(--space-3)">
+        {hasLines ? (
+          <SettingsBlock
+            title="Accounts"
+            count={lines.length}
+            actions={
+              <div className="flex flex-wrap items-center justify-end gap-(--space-5)">
                 {!canSaveDerived ? (
-                  <span className="text-[length:var(--text-2xs)] text-[var(--status-danger-ink)]">
-                    Pricing overhead must be at least 0% and below 100%.
+                  <span className="text-[length:var(--text-xs)] text-[var(--status-danger-ink)]">
+                    Rate must be 0–100% to save
                   </span>
-                ) : null}
-                {dirty ? (
-                  <span className="text-[length:var(--text-2xs)] text-[var(--color-ink-muted)]">
-                    Unsaved classification changes
+                ) : dirty ? (
+                  <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+                    Unsaved changes
                   </span>
                 ) : null}
                 <Button
                   onClick={save}
-                  disabled={!canOperate || saving || !canSaveDerived}
+                  disabled={!canOperate || saving || !canSaveDerived || savedIsCurrent}
                 >
-                  {saving ? <Spinner className="size-(--space-5)" /> : null}
-                  Save as pricing default
+                  {saving ? <Spinner className="size-(--space-6)" /> : null}
+                  {savedIsCurrent ? "Saved as default" : "Save as pricing default"}
                 </Button>
               </div>
-            </>
-          ) : null}
-        </CardContent>
-      </Card>
+            }
+          >
+            <AccountLedger
+              lines={lines}
+              onClassify={setLineClass}
+              canOperate={canOperate}
+              revenueTotal={derived.revenueTotal}
+              overheadPool={derived.overheadPool}
+              excludedTotal={excludedTotal}
+            />
+          </SettingsBlock>
+        ) : null}
+      </SettingsCard>
+    </div>
+  );
+}
+
+function PeriodField({
+  label,
+  value,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  disabled: boolean;
+}) {
+  return (
+    <label className="flex min-w-[180px] flex-col gap-(--space-2)">
+      <span className="text-[length:var(--text-card-label)] font-bold tracking-[0.04em] text-[var(--color-ink-2)] uppercase">
+        {label}
+      </span>
+      <DatePicker value={value} onChange={onChange} disabled={disabled} />
+    </label>
+  );
+}
+
+function RateEquation({
+  pool,
+  revenue,
+  percent,
+  period,
+  savedIsCurrent,
+}: {
+  pool: string;
+  revenue: string;
+  percent: string | null;
+  period: { periodStart: string; periodEnd: string };
+  savedIsCurrent: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-(--space-4)">
+      <div className="flex flex-col divide-y divide-[var(--color-line-soft)] overflow-hidden rounded-(--radius-md) border border-[var(--color-line)] sm:flex-row sm:divide-x sm:divide-y-0">
+        <Operand label="Overhead pool" value={money(pool)} />
+        <Operator symbol="÷" />
+        <Operand label="Revenue" value={money(revenue)} />
+        <Operator symbol="=" />
+        <div className="flex flex-1 flex-col justify-center gap-(--space-1) bg-[var(--color-accent-soft)] p-(--space-6)">
+          <span className="text-[length:var(--text-card-label)] font-bold tracking-[0.04em] text-[var(--color-accent-ink)] uppercase">
+            Overhead rate
+          </span>
+          <span className="font-mono text-[length:var(--text-2xl)] font-semibold tabular-nums text-[var(--color-accent-ink)]">
+            {percent != null ? `${percent}%` : "—"}
+          </span>
+        </div>
+      </div>
+      <p className="text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-[var(--color-ink-faint)]">
+        From your Xero Profit &amp; Loss · {fmtPeriod(period.periodStart, period.periodEnd)}
+        {savedIsCurrent ? " · saved as your pricing default" : " · not saved"}
+      </p>
+    </div>
+  );
+}
+
+function Operand({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-1 flex-col justify-center gap-(--space-1) p-(--space-6)">
+      <span className="text-[length:var(--text-card-label)] font-bold tracking-[0.04em] text-[var(--color-ink-faint)] uppercase">
+        {label}
+      </span>
+      <span className="font-mono text-[length:var(--text-lg)] font-semibold tabular-nums text-[var(--color-ink)]">
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function Operator({ symbol }: { symbol: string }) {
+  return (
+    <div
+      aria-hidden
+      className="flex shrink-0 items-center justify-center px-(--space-6) py-(--space-2) font-mono text-[length:var(--text-lg)] text-[var(--color-ink-faint)] sm:py-0"
+    >
+      {symbol}
+    </div>
+  );
+}
+
+function AccountLedger({
+  lines,
+  onClassify,
+  canOperate,
+  revenueTotal,
+  overheadPool,
+  excludedTotal,
+}: {
+  lines: ClassifiedLine[];
+  onClassify: (accountId: string, classification: OverheadClass) => void;
+  canOperate: boolean;
+  revenueTotal: string;
+  overheadPool: string;
+  excludedTotal: number;
+}) {
+  return (
+    <FramedTable containerClassName="rounded-(--radius-md) border border-[var(--color-line)]">
+      <FramedTableHead>
+        <FramedTableRow>
+          <FramedTableHeaderCell>Account</FramedTableHeaderCell>
+          <FramedTableHeaderCell>Type</FramedTableHeaderCell>
+          <FramedTableHeaderCell align="right">Amount</FramedTableHeaderCell>
+          <FramedTableHeaderCell align="right">Bucket</FramedTableHeaderCell>
+        </FramedTableRow>
+      </FramedTableHead>
+      <FramedTableBody>
+        {lines.map((line) => (
+          <FramedTableRow key={line.accountId}>
+            <FramedTableCell strong>{line.name}</FramedTableCell>
+            <FramedTableCell muted>{humanizeType(line.accountType)}</FramedTableCell>
+            <FramedTableCell numeric>{money(line.amount)}</FramedTableCell>
+            <FramedTableCell align="right" className="py-(--space-2)">
+              <div className="flex justify-end">
+                <Select
+                  value={line.classification}
+                  onValueChange={(value) =>
+                    onClassify(line.accountId, value as OverheadClass)
+                  }
+                  disabled={!canOperate}
+                >
+                  <SelectTrigger
+                    size="sm"
+                    aria-label={`Bucket for ${line.name}`}
+                    className={cn(
+                      "w-[128px] justify-between font-semibold",
+                      BUCKET_TONE[line.classification]
+                    )}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent align="end">
+                    {CLASS_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </FramedTableCell>
+          </FramedTableRow>
+        ))}
+      </FramedTableBody>
+      <tfoot className="bg-[var(--color-surface-sunk)]">
+        <ReconcileRow
+          label="Revenue"
+          value={money(revenueTotal)}
+          tone="text-[var(--color-success)]"
+        />
+        <ReconcileRow
+          label="Overhead pool"
+          value={money(overheadPool)}
+          tone="text-[var(--color-accent-ink)]"
+          emphasized
+        />
+        <ReconcileRow
+          label="Excluded"
+          value={money(excludedTotal)}
+          tone="text-[var(--color-ink-faint)]"
+        />
+      </tfoot>
+    </FramedTable>
+  );
+}
+
+function ReconcileRow({
+  label,
+  value,
+  tone,
+  emphasized = false,
+}: {
+  label: string;
+  value: string;
+  tone: string;
+  emphasized?: boolean;
+}) {
+  return (
+    <tr className="border-t border-[var(--color-line-soft)]">
+      <td
+        colSpan={2}
+        className={cn(
+          "h-(--height-framed-table-row) px-(--space-7) text-right align-middle text-[length:var(--text-card-control)] font-semibold tracking-[0.04em] uppercase",
+          tone
+        )}
+      >
+        {label}
+      </td>
+      <td
+        className={cn(
+          "h-(--height-framed-table-row) px-(--space-7) text-right align-middle font-mono text-[length:var(--text-card-control)] tabular-nums text-[var(--color-ink)]",
+          emphasized && "text-[length:var(--text-md)] font-semibold"
+        )}
+      >
+        {value}
+      </td>
+      <td className="border-l border-[var(--color-line-soft)]" />
+    </tr>
+  );
+}
+
+function ReconnectCard() {
+  return (
+    <div className="flex flex-col gap-(--space-5) rounded-(--radius-lg) border border-[color-mix(in_oklch,var(--color-warning),transparent_60%)] bg-[var(--color-warning-soft)] p-(--space-8)">
+      <div className="flex items-start gap-(--space-5)">
+        <span className="grid size-(--space-16) shrink-0 place-items-center rounded-(--radius-md) bg-[var(--color-surface)] text-[var(--status-warning-ink)]">
+          <HugeiconsIcon icon={Alert02Icon} size={20} strokeWidth={2} aria-hidden />
+        </span>
+        <div className="flex flex-col gap-(--space-2)">
+          <h2 className="text-[length:var(--text-md)] font-semibold text-[var(--color-ink)]">
+            Reconnect to Xero
+          </h2>
+          <p className="max-w-xl text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-[var(--color-ink-2)]">
+            Your Xero connection needs read access to your Profit &amp; Loss report.
+            Reconnect once to grant it — nothing else about the connection changes.
+          </p>
+        </div>
+      </div>
+      <Button asChild className="w-fit">
+        <a href="/api/xero/connect">
+          <HugeiconsIcon icon={LinkSquare02Icon} data-icon="inline-start" strokeWidth={2} />
+          Reconnect to Xero
+        </a>
+      </Button>
     </div>
   );
 }

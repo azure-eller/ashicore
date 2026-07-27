@@ -2,7 +2,8 @@ import "server-only";
 
 import { getAuthedXeroClient } from "./client";
 import { XeroError, extractXeroStatusCode, redactXeroError, extractXeroMessage } from "./errors";
-import { parseProfitAndLoss, type ProfitAndLossLine } from "@/lib/overhead/compute";
+import { parseProfitAndLoss } from "@/lib/overhead/parse";
+import type { ProfitAndLossLine } from "@/lib/overhead/compute";
 
 /** One chart-of-accounts row, surfaced so the overhead UI can show/override classifications. */
 export type XeroAccountSummary = {

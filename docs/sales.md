@@ -229,8 +229,12 @@ keep their own value.
 
 - `overhead% = operating-overhead pool ÷ revenue` over a trailing period, all read
   from the **same** Xero P&L (`getReportProfitAndLoss`) so numerator and denominator
-  are consistent. `lib/overhead/compute.ts` is the pure, testable core (parse →
-  classify → compute); `lib/xero/reports.ts` is the thin live fetch.
+  are consistent. `lib/xero/reports.ts` is the thin live fetch,
+  `lib/overhead/parse.ts` converts the server-only Xero report into account lines,
+  and browser-safe `lib/overhead/compute.ts` classifies and computes them. The
+  worksheet uses that same pure arithmetic to update the equation and reconciling
+  account totals immediately when an operator changes a bucket; saving still
+  recomputes from Xero on the server.
 - Each P&L account is classified `revenue` / `overhead` / `excluded`. Auto rules
   classify `REVENUE`, `SALES`, and `OTHERINCOME` as revenue;
   `OVERHEADS`, `EXPENSE`, and `DEPRECIATN` as overhead; and `DIRECTCOSTS` as
