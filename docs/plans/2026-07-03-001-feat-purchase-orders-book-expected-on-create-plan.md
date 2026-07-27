@@ -36,7 +36,7 @@ Sales orders already book demand on creation, but purchase orders are created as
 - R4. Edits to every unreceived or partially received PO must keep expected supply synchronized with remaining stock quantities. Any draft-only replace-lines path must be eliminated for POs.
 - R5. Deleting any unreceived booked standard PO must release expected supply in the same transaction. Partially or fully received POs remain protected from delete.
 - R6. `/api/purchase-orders/:id/submit` must no longer be the booking gate. It may survive only as a named compatibility shim if a real client still needs it.
-- R7. Xero purchase-order push or email flows must not depend on submit as the moment a PO becomes real.
+- R7. Manual supplier-bill creation and direct supplier email must not depend on submit as the moment a PO becomes real; Xero operational PO export remains retired.
 - R8. Sales order behavior must not change.
 - R9. Android impact must be checked against the sibling `erp-android` repo after reading its `CLAUDE.md`, and the PR body must report findings and any follow-up plan.
 - R10. Additional-cost POs are accounting documents, not stock supply documents. They may follow the parent status for bill/email workflows, but they must not book expected inventory.
@@ -65,11 +65,11 @@ Sales orders already book demand on creation, but purchase orders are created as
 ### Key Technical Decisions
 
 - KTD1. **Centralize create-time booking inside `createPurchaseOrderInTx`.** This is the single create path used by API card saves, duplication, planning actions, and accounting import helpers. Booking here keeps document-sync card creation and non-card creates consistent.
-- KTD2. **Treat `not_received` as open, not submitted.** The DB default and inserted value should become `not_received`; `orderedAt` should be set on creation for compatibility with PDFs, Xero/email document dates, and existing read models that display a PO date.
+- KTD2. **Treat `not_received` as open, not submitted.** The DB default and inserted value should become `not_received`; `orderedAt` should be set on creation for compatibility with PDFs, supplier-email document dates, and existing read models that display a PO date.
 - KTD3. **Convert update logic to always use the booked branch.** `updatePurchaseOrder` currently has a draft branch that hard-deletes/reinserts lines without expected sync. Remove that branch for purchase orders and use the current non-draft edit path for `not_received`, `partial`, and `received`.
 - KTD4. **Make submit idempotent/no-op or delete it after mobile/API audit.** Android does not call `/api/purchase-orders/:id/submit`; it only lists, reads detail, and posts `/receive`. Web tests/helpers and status/email routes do call submit today. Prefer deleting web usage; keep the route as a short-lived compatibility shim only if implementation finds an external/mobile/legacy caller.
 - KTD5. **Migration backfill must target only rows that were `draft` at migration start.** SQL cannot call the TypeScript function directly. The migration should capture currently draft standard PO line ids, convert those POs to `not_received`, create `expected_increase` events and `inventory_expected_summary` rows for only that captured draft set using the same event/reference semantics as `addExpectedFromPurchaseInTx`, then refresh affected item balances through the same projection SQL pattern used by kernel migrations. If it detects already-`not_received` or `partial` lines missing expected summary, it must fail loudly or emit an explicit migration diagnostic instead of silently repairing them; those rows are unrelated corruption evidence. `pnpm verify:inventory` is the truth gate.
-- KTD6. **Xero PO push remains retired for new workflows.** `docs/xero.md` says PO push is retired and purchase bills are manual from created/received POs. Remove submit-triggered auto PO push from active flow; preserve explicit legacy retry routes only if still present for history.
+- KTD6. **Xero PO export remains retired.** `docs/xero.md` says purchase bills are manual from created/received POs. Remove submit-triggered auto PO push from active flow; legacy export routes return HTTP 410 and historical sync rows remain readable, but no executable export or retry implementation remains.
 
 ### Code References
 
@@ -151,8 +151,8 @@ flowchart TB
 
 - **Goal:** Keep adjacent workflows consistent with booked-on-create semantics.
 - **Requirements:** R6, R7.
-- **Files:** `lib/xero/push-purchase-order.ts`, `lib/xero/retry-failed-pushes.ts`, `lib/purchasing/send-purchase-order-email.tsx`, `lib/pdf/purchase-order-document.tsx`, `lib/agent/chat/actions/purchasing.ts`, `lib/agent/chat/read-tools.ts`, `lib/agent/production-planning-context/service.ts`, `lib/planning/service.ts`, `lib/planning/actions.ts`, `lib/inventory/allocation/demand-queue.ts`, `lib/sales/fulfillment-read-model.ts`, `lib/agent/replenishment-context/service.ts`.
-- **Approach:** Replace active PO filters with `["not_received", "partial"]` where they mean expected supply. Remove `draft` from active material/supplier delete blockers where no persisted draft remains. Keep manufacturing draft semantics intact. For Xero, ensure manual purchase bill creation remains allowed on newly created not received POs and that retired PO push is not automatically triggered by creation unless product explicitly wants that lifecycle point.
+- **Files:** `lib/xero/retry-failed-pushes.ts`, `lib/purchasing/send-purchase-order-email.tsx`, `lib/pdf/purchase-order-document.tsx`, `lib/agent/chat/actions/purchasing.ts`, `lib/agent/chat/read-tools.ts`, `lib/agent/production-planning-context/service.ts`, `lib/planning/service.ts`, `lib/planning/actions.ts`, `lib/inventory/allocation/demand-queue.ts`, `lib/sales/fulfillment-read-model.ts`, `lib/agent/replenishment-context/service.ts`.
+- **Approach:** Replace active PO filters with `["not_received", "partial"]` where they mean expected supply. Remove `draft` from active material/supplier delete blockers where no persisted draft remains. Keep manufacturing draft semantics intact. For Xero, ensure manual purchase bill creation and direct supplier email remain allowed on newly created not received POs. Operational Xero PO export is unsupported.
 - **Test scenarios:** Planning-created PO is immediately expected supply and duplicate recommendation checks still prevent duplicate active POs. Supplier/item delete blockers still block active not received/partial POs. Purchase bill gate tests pass without submit.
 - **Verification:** `pnpm test:fast:purchasing`, `pnpm test:fast:planning` if planning expected-supply behavior changes, and Xero manual smoke note if Xero code changes.
 

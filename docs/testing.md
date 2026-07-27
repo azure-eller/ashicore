@@ -150,7 +150,9 @@ Missing labels fail the slow selector only after `ci:ready` is present.
 
 Add the slow-selection label **before** `ci:ready`. Add `ci:ready` only after local validation is complete and documented in the PR body or a PR comment. If you push another commit after final CI, remove `ci:ready`, rerun local validation, then re-add it.
 
-Failed scheduled slow runs open/update an investigation PR, comment with run details, and dispatch Claude Code with the run and artifact links. Treat those PRs as fix branches, not merge-ready reports.
+Non-draft pull requests run `.github/workflows/codex-code-review.yml`, which uses the official read-only Codex GitHub Action and updates one review comment per PR.
+
+Failed scheduled slow runs open/update an investigation PR, comment with run details, and hand the run and artifact links to Codex via `@codex`. Treat those PRs as fix branches, not merge-ready reports.
 
 ## Key files
 

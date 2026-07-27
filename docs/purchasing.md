@@ -66,8 +66,8 @@ be handled manually.
 - bill-affecting edits remain allowed after sync; users reconcile the accounting bill
   separately when needed
 - the legacy export routes (`accounting-push`/`xero-push`, `accounting-email`/`xero-email`)
-  are **retired** and return HTTP 410; open POs are imported *from* the provider instead
-  (see Accounting Purchase Order Import)
+  are **retired** and return HTTP 410; no provider PO-export implementation remains.
+  Open POs are imported *from* the provider instead (see Accounting Purchase Order Import)
 
 ## Accounting Purchase Order Import
 

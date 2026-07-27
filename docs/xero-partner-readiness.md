@@ -69,7 +69,8 @@ Track before certification:
 
 - Whether our Xero app was created before or after March 2, 2026.
 - Current broad scopes in `lib/xero/client.ts`.
-- Desired least-privilege granular scopes for contacts, invoices, purchase orders, attachments, and future bills.
+- Desired least-privilege granular scopes for contacts, invoices/bills, and
+  read-only purchase-order import. The app has no attachment-upload flow.
 - Which customers will need reauthorization.
 - UX for Xero `401` / `WWW-Authenticate: insufficient_scope`: show an **Update Xero permissions** reconnect flow instead of a generic sync failure.
 

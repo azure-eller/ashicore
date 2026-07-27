@@ -426,6 +426,20 @@ async function withOnlyXeroConnectionUnlocked<T>(
 }
 
 test.describe("Xero purchase bill gates", () => {
+  test("keeps operational purchase-order export and accounting email retired", async () => {
+    const paths = [
+      "/api/purchase-orders/retired-po-export/accounting-push",
+      "/api/purchase-orders/retired-po-export/xero-push",
+      "/api/purchase-orders/retired-po-export/accounting-email",
+      "/api/purchase-orders/retired-po-export/xero-email",
+    ];
+
+    for (const path of paths) {
+      const response = await testFetch(path, { method: "POST", body: "{}" });
+      expect(response.status, path).toBe(410);
+    }
+  });
+
   test("keeps bill management reachable on a dirty persisted purchase order", async ({
     page,
   }) => {

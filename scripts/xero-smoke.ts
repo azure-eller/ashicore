@@ -1,10 +1,9 @@
 /**
  * Live Xero smoke test against the connected Demo Company tenant.
  *
- * Walks the full sales + purchasing happy paths through the running dev
- * server (HTTP), then verifies the resulting invoice and purchase order
- * appear in Xero by calling the Xero API directly through the stored
- * connection.
+ * Walks the sales happy path through the running dev server (HTTP), then
+ * verifies the resulting invoice appears in Xero by calling the Xero API
+ * directly through the stored connection.
  *
  * Prereqs:
  *   - Dev server running (pnpm dev)
@@ -12,9 +11,7 @@
  *   - Xero connected to a Demo Company tenant for the test org
  *
  * Usage:
- *   pnpm xero:smoke              # both flows
- *   pnpm xero:smoke -- --sales   # only sales
- *   pnpm xero:smoke -- --po      # only purchasing
+ *   pnpm xero:smoke
  *
  * All created data is prefixed `TEST-XERO-<timestamp>` so the artefacts
  * are easy to identify and clean up in Xero. (Demo Company resets every
@@ -23,15 +20,17 @@
 
 import { loadWorktreeEnv } from "./load-worktree-env";
 
+const args = process.argv.slice(2);
+if (args.length > 0) {
+  throw new Error(
+    `Unsupported argument${args.length === 1 ? "" : "s"}: ${args.join(" ")}`
+  );
+}
+
 loadWorktreeEnv();
 
 type Cookies = string;
 type ApiOptions = RequestInit & { idempotencyKey?: string };
-
-const args = new Set(process.argv.slice(2));
-const explicit = args.has("--sales") || args.has("--po");
-const runSales = !explicit || args.has("--sales");
-const runPo = !explicit || args.has("--po");
 
 async function apiFetch<T>(
   baseUrl: string,
@@ -83,7 +82,7 @@ type XeroAccount = {
   enablePaymentsToAccount: boolean | null;
 };
 
-async function pickAccounts(baseUrl: string, cookies: Cookies) {
+async function pickSalesAccount(baseUrl: string, cookies: Cookies) {
   const { accounts } = await apiFetch<{ accounts: XeroAccount[] }>(
     baseUrl,
     cookies,
@@ -96,18 +95,8 @@ async function pickAccounts(baseUrl: string, cookies: Cookies) {
   const revenueByCode = active
     .filter((a) => a.type === "REVENUE" || a.type === "SALES")
     .sort((a, b) => a.code.localeCompare(b.code));
-  // Purchase/Expense code: prefer DIRECTCOSTS or EXPENSE.
-  const expenseByCode = active
-    .filter(
-      (a) =>
-        a.type === "DIRECTCOSTS" ||
-        a.type === "EXPENSE" ||
-        a.type === "OVERHEADS"
-    )
-    .sort((a, b) => a.code.localeCompare(b.code));
 
   const sales = revenueByCode[0];
-  const purchase = expenseByCode[0] ?? sales;
 
   if (!sales) {
     throw new Error(
@@ -115,7 +104,7 @@ async function pickAccounts(baseUrl: string, cookies: Cookies) {
     );
   }
 
-  return { sales, purchase };
+  return sales;
 }
 
 async function ensureXeroSettings(baseUrl: string, cookies: Cookies) {
@@ -123,26 +112,21 @@ async function ensureXeroSettings(baseUrl: string, cookies: Cookies) {
   // clicked Save in the UI. Picks valid account codes from the live
   // chart of accounts so this works against any tenant (Demo, pilot,
   // or otherwise). Auto-email stays OFF as a safety net.
-  const picks = await pickAccounts(baseUrl, cookies);
-  const salesTaxType = picks.sales.taxType ?? "NONE";
-  const purchaseTaxType = picks.purchase.taxType ?? "NONE";
+  const sales = await pickSalesAccount(baseUrl, cookies);
+  const salesTaxType = sales.taxType ?? "NONE";
 
-  await apiFetch(baseUrl, cookies, "/api/xero/settings", {
+  await apiFetch(baseUrl, cookies, "/api/accounting/connections/xero/settings", {
     method: "PUT",
     body: JSON.stringify({
-      defaultAccountCode: picks.sales.code,
+      defaultAccountCode: sales.code,
       defaultTaxType: salesTaxType,
       invoiceStatusPreference: "AUTHORISED",
       autoEmailSalesInvoices: false,
-      autoEmailPurchaseOrders: false,
-      purchaseOrderDefaultAccountCode: picks.purchase.code,
-      purchaseOrderDefaultTaxType: purchaseTaxType,
-      purchaseOrderStatusPreference: "DRAFT",
     }),
   });
 
   console.log(
-    `Xero defaults applied: sales=${picks.sales.code} (${picks.sales.name}, tax ${salesTaxType}), purchase=${picks.purchase.code} (${picks.purchase.name}, tax ${purchaseTaxType})`
+    `Xero defaults applied: sales=${sales.code} (${sales.name}, tax ${salesTaxType})`
   );
 }
 
@@ -181,7 +165,6 @@ async function createMaterial(
 /** Override default test contact emails so live email-delivery checks
  *  can route to a real inbox. */
 const CUSTOMER_EMAIL_OVERRIDE = process.env.XERO_SMOKE_CUSTOMER_EMAIL;
-const SUPPLIER_EMAIL_OVERRIDE = process.env.XERO_SMOKE_SUPPLIER_EMAIL;
 
 async function createCustomer(baseUrl: string, cookies: Cookies, ts: number) {
   type Customer = { id: string };
@@ -201,24 +184,6 @@ async function createCustomer(baseUrl: string, cookies: Cookies, ts: number) {
   });
 }
 
-async function createSupplier(baseUrl: string, cookies: Cookies, ts: number) {
-  type Supplier = { id: string };
-  const email =
-    SUPPLIER_EMAIL_OVERRIDE ?? `test+xero-sup-${ts}@example.com`;
-  return apiFetch<Supplier>(baseUrl, cookies, "/api/suppliers", {
-    method: "POST",
-    idempotencyKey: `xero-smoke:supplier:${ts}`,
-    body: JSON.stringify({
-      name: `TEST-XERO-SUP-${ts}`,
-      email,
-      billingLine1: "1 Supplier Lane",
-      billingCity: "Testville",
-      billingPostcode: "12345",
-      billingCountry: "US",
-    }),
-  });
-}
-
 type OrderDetail = {
   id: string;
   orderNumber: string;
@@ -226,56 +191,24 @@ type OrderDetail = {
   xeroPushError: string | null;
   xeroInvoiceId?: string | null;
   xeroInvoiceNumber?: string | null;
-  xeroPurchaseOrderId?: string | null;
-  xeroPurchaseOrderNumber?: string | null;
   xeroEmailStatus?: string | null;
   xeroEmailError?: string | null;
-  xeroPoEmailStatus?: string | null;
-  xeroPoEmailError?: string | null;
-  xeroRetryCount?: number;
 };
 
 type LookupResult = {
   found: boolean;
-  match: { invoiceID?: string; invoiceNumber?: string | null;
-    purchaseOrderID?: string; purchaseOrderNumber?: string | null } | null;
+  match: { invoiceID?: string; invoiceNumber?: string | null } | null;
 };
 
 async function setAutoEmail(baseUrl: string, cookies: Cookies, enabled: boolean) {
-  // Re-PUT the full settings block (the route requires every field).
-  const picks = await pickAccounts(baseUrl, cookies);
-  await apiFetch(baseUrl, cookies, "/api/xero/settings", {
+  const sales = await pickSalesAccount(baseUrl, cookies);
+  await apiFetch(baseUrl, cookies, "/api/accounting/connections/xero/settings", {
     method: "PUT",
     body: JSON.stringify({
-      defaultAccountCode: picks.sales.code,
-      defaultTaxType: picks.sales.taxType ?? "NONE",
+      defaultAccountCode: sales.code,
+      defaultTaxType: sales.taxType ?? "NONE",
       invoiceStatusPreference: "AUTHORISED",
       autoEmailSalesInvoices: enabled,
-      autoEmailPurchaseOrders: false,
-      purchaseOrderDefaultAccountCode: picks.purchase.code,
-      purchaseOrderDefaultTaxType: picks.purchase.taxType ?? "NONE",
-      purchaseOrderStatusPreference: "DRAFT",
-    }),
-  });
-}
-
-async function setAutoPurchaseOrderEmail(
-  baseUrl: string,
-  cookies: Cookies,
-  enabled: boolean
-) {
-  const picks = await pickAccounts(baseUrl, cookies);
-  await apiFetch(baseUrl, cookies, "/api/xero/settings", {
-    method: "PUT",
-    body: JSON.stringify({
-      defaultAccountCode: picks.sales.code,
-      defaultTaxType: picks.sales.taxType ?? "NONE",
-      invoiceStatusPreference: "AUTHORISED",
-      autoEmailSalesInvoices: false,
-      autoEmailPurchaseOrders: enabled,
-      purchaseOrderDefaultAccountCode: picks.purchase.code,
-      purchaseOrderDefaultTaxType: picks.purchase.taxType ?? "NONE",
-      purchaseOrderStatusPreference: enabled ? "SUBMITTED" : "DRAFT",
     }),
   });
 }
@@ -320,50 +253,6 @@ async function shipFreshSalesOrder(
     baseUrl,
     cookies,
     `/api/sales-orders/${created.id}`
-  );
-}
-
-async function submitFreshPurchaseOrder(
-  baseUrl: string,
-  cookies: Cookies,
-  unitId: string,
-  ts: number,
-  suffix: string
-): Promise<OrderDetail> {
-  const item = await createMaterial(baseUrl, cookies, unitId, ts, suffix);
-  const supplier = await createSupplier(baseUrl, cookies, ts + 2);
-  type CreateResult = { id: string };
-  const created = await apiFetch<CreateResult>(
-    baseUrl,
-    cookies,
-    "/api/purchase-orders",
-    {
-      method: "POST",
-      idempotencyKey: `xero-smoke:po:${suffix}:${ts}`,
-      body: JSON.stringify({
-        supplierId: supplier.id,
-        expectedDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-          .toISOString()
-          .slice(0, 10),
-        lines: [
-          {
-            itemId: item.id,
-            quantityOrdered: "50",
-            unitCost: "10",
-          },
-        ],
-      }),
-    }
-  );
-  await apiFetch(baseUrl, cookies, `/api/purchase-orders/${created.id}/submit`, {
-    method: "POST",
-    body: JSON.stringify({}),
-    idempotencyKey: `xero-smoke:po-submit:${suffix}:${ts}`,
-  });
-  return apiFetch<OrderDetail>(
-    baseUrl,
-    cookies,
-    `/api/purchase-orders/${created.id}`
   );
 }
 
@@ -421,50 +310,6 @@ async function smokeAutoEmail(
   } finally {
     // Always restore the safety default.
     await setAutoEmail(baseUrl, cookies, false);
-    console.log("  • Toggle OFF (restored)");
-  }
-}
-
-async function smokePurchaseOrderAutoEmail(
-  baseUrl: string,
-  cookies: Cookies,
-  unitId: string,
-  ts: number
-): Promise<boolean> {
-  console.log("─── PO auto-email check ────────────────────");
-  await setAutoPurchaseOrderEmail(baseUrl, cookies, true);
-  console.log("  • Toggle ON");
-  try {
-    const order = await submitFreshPurchaseOrder(
-      baseUrl,
-      cookies,
-      unitId,
-      ts,
-      "POEMAIL"
-    );
-    console.log(`  • Purchase order ${order.orderNumber} submitted`);
-    if (order.xeroPushStatus !== "pushed") {
-      console.error(`  ✗ FAIL: push failed: ${order.xeroPushError}`);
-      return false;
-    }
-    if (order.xeroPoEmailStatus === "sent") {
-      console.log(
-        "  ✓ xero_po_email_status = sent (Resend accepted the Xero PDF email)"
-      );
-      return true;
-    }
-    if (order.xeroPoEmailStatus === "failed") {
-      console.error(
-        `  ✗ FAIL: PO email failed: ${order.xeroPoEmailError ?? "(none)"}`
-      );
-      return false;
-    }
-    console.error(
-      `  ✗ FAIL: expected xero_po_email_status='sent', got '${order.xeroPoEmailStatus}'`
-    );
-    return false;
-  } finally {
-    await setAutoPurchaseOrderEmail(baseUrl, cookies, false);
     console.log("  • Toggle OFF (restored)");
   }
 }
@@ -668,139 +513,6 @@ async function smokeSales(
   return { ok: true, order: after };
 }
 
-async function smokePurchasingIdempotency(
-  baseUrl: string,
-  cookies: Cookies,
-  initialOrder: OrderDetail
-): Promise<boolean> {
-  console.log("─── Purchasing reconcile-by-reference check ─");
-  const beforeId = initialOrder.xeroPurchaseOrderId;
-  if (!beforeId) {
-    console.error("  ✗ FAIL: PO has no xero_purchase_order_id to start with");
-    return false;
-  }
-
-  await apiFetch(baseUrl, cookies, "/api/xero/test/mutate-row", {
-    method: "POST",
-    body: JSON.stringify({
-      entity: "purchase_order",
-      id: initialOrder.id,
-      clearPushIds: true,
-    }),
-  });
-  console.log("  • Cleared local xero_purchase_order_id");
-
-  await apiFetch(
-    baseUrl,
-    cookies,
-    `/api/purchase-orders/${initialOrder.id}/xero-push`,
-    { method: "POST", body: JSON.stringify({}) }
-  );
-  const after = await apiFetch<OrderDetail>(
-    baseUrl,
-    cookies,
-    `/api/purchase-orders/${initialOrder.id}`
-  );
-
-  if (after.xeroPushStatus !== "pushed") {
-    console.error(
-      `  ✗ FAIL: push status after retry is ${after.xeroPushStatus}`
-    );
-    return false;
-  }
-  if (after.xeroPurchaseOrderId !== beforeId) {
-    console.error(
-      `  ✗ FAIL: created a duplicate Xero PO. before=${beforeId}, after=${after.xeroPurchaseOrderId}`
-    );
-    return false;
-  }
-  console.log(
-    `  ✓ Adopted existing PO via reference lookup (Xero ID unchanged: ${beforeId.slice(0, 8)}…)`
-  );
-  return true;
-}
-
-async function smokePurchasing(
-  baseUrl: string,
-  cookies: Cookies,
-  unitId: string,
-  ts: number
-): Promise<{ ok: boolean; order: OrderDetail | null }> {
-  console.log("─── Purchasing flow ────────────────────────");
-  const item = await createMaterial(baseUrl, cookies, unitId, ts, "PO");
-  console.log(`  • Material created: ${item.id.slice(0, 8)}…`);
-
-  const supplier = await createSupplier(baseUrl, cookies, ts);
-  console.log(`  • Supplier created: ${supplier.id.slice(0, 8)}…`);
-
-  type CreateResult = { id: string };
-  const created = await apiFetch<CreateResult>(
-    baseUrl,
-    cookies,
-    "/api/purchase-orders",
-    {
-      method: "POST",
-      idempotencyKey: `xero-smoke:po:${ts}`,
-      body: JSON.stringify({
-        supplierId: supplier.id,
-        expectedDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-          .toISOString()
-          .slice(0, 10),
-        lines: [
-          {
-            itemId: item.id,
-            quantityOrdered: "50",
-            unitCost: "10",
-          },
-        ],
-      }),
-    }
-  );
-
-  const order = await apiFetch<OrderDetail>(
-    baseUrl,
-    cookies,
-    `/api/purchase-orders/${created.id}`
-  );
-  console.log(`  • Purchase order created: ${order.orderNumber}`);
-
-  await apiFetch(baseUrl, cookies, `/api/purchase-orders/${order.id}/submit`, {
-    method: "POST",
-    body: JSON.stringify({}),
-    idempotencyKey: `xero-smoke:po-submit:${order.id}:${ts}`,
-  });
-  console.log("  • Submitted (Xero PO push fires synchronously)");
-
-  const after = await apiFetch<OrderDetail>(
-    baseUrl,
-    cookies,
-    `/api/purchase-orders/${order.id}`
-  );
-  if (after.xeroPushStatus !== "pushed") {
-    console.error(
-      `  ✗ FAIL: local push status is ${after.xeroPushStatus}, error: ${after.xeroPushError ?? "(none)"}`
-    );
-    return { ok: false, order: null };
-  }
-  console.log(
-    `  • Local push status: pushed, PO number ${after.xeroPurchaseOrderNumber ?? order.orderNumber}`
-  );
-
-  const lookup = await apiFetch<LookupResult>(
-    baseUrl,
-    cookies,
-    `/api/xero/test/lookup?entity=purchase_order&reference=${encodeURIComponent(order.orderNumber)}`
-  );
-  if (!lookup.found || !lookup.match?.purchaseOrderID) {
-    console.error(`  ✗ FAIL: PO ${order.orderNumber} not found in Xero`);
-    return { ok: false, order: null };
-  }
-  console.log(
-    `  ✓ PO in Xero: ${lookup.match.purchaseOrderNumber ?? order.orderNumber} (id ${lookup.match.purchaseOrderID.slice(0, 8)}…)`
-  );
-  return { ok: true, order: after };
-}
-
 async function main() {
   const auth = await loadAuth();
   console.log(`Smoke target: ${auth.baseUrl} (org ${auth.orgId})`);
@@ -810,56 +522,30 @@ async function main() {
   const ts = Date.now();
   const results: Array<{ flow: string; ok: boolean }> = [];
 
-  if (runSales) {
-    const sales = await smokeSales(auth.baseUrl, auth.cookies, auth.unitId, ts);
-    results.push({ flow: "sales", ok: sales.ok });
-    if (sales.ok && sales.order) {
-      const idem = await smokeSalesIdempotency(
-        auth.baseUrl,
-        auth.cookies,
-        sales.order
-      );
-      results.push({ flow: "sales reconcile", ok: idem });
+  const sales = await smokeSales(auth.baseUrl, auth.cookies, auth.unitId, ts);
+  results.push({ flow: "sales", ok: sales.ok });
+  if (sales.ok && sales.order) {
+    const idem = await smokeSalesIdempotency(
+      auth.baseUrl,
+      auth.cookies,
+      sales.order
+    );
+    results.push({ flow: "sales reconcile", ok: idem });
 
-      const cron = await smokeCronRetry(
-        auth.baseUrl,
-        auth.cookies,
-        sales.order
-      );
-      results.push({ flow: "cron retry", ok: cron });
-    }
-    const email = await smokeAutoEmail(
+    const cron = await smokeCronRetry(
       auth.baseUrl,
       auth.cookies,
-      auth.unitId,
-      ts
+      sales.order
     );
-    results.push({ flow: "auto-email", ok: email });
+    results.push({ flow: "cron retry", ok: cron });
   }
-  if (runPo) {
-    const po = await smokePurchasing(
-      auth.baseUrl,
-      auth.cookies,
-      auth.unitId,
-      ts
-    );
-    results.push({ flow: "purchasing", ok: po.ok });
-    if (po.ok && po.order) {
-      const idem = await smokePurchasingIdempotency(
-        auth.baseUrl,
-        auth.cookies,
-        po.order
-      );
-      results.push({ flow: "purchasing reconcile", ok: idem });
-    }
-    const email = await smokePurchaseOrderAutoEmail(
-      auth.baseUrl,
-      auth.cookies,
-      auth.unitId,
-      ts
-    );
-    results.push({ flow: "PO auto-email", ok: email });
-  }
+  const email = await smokeAutoEmail(
+    auth.baseUrl,
+    auth.cookies,
+    auth.unitId,
+    ts
+  );
+  results.push({ flow: "auto-email", ok: email });
 
   console.log("");
   console.log("─── Summary ────────────────────────────────");

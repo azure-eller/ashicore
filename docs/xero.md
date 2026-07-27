@@ -2,7 +2,7 @@
 read_when:
   - touching anything under `lib/xero/`, `app/api/xero/`, or `app/api/*/xero-*`
   - changing the OAuth scope list in `lib/xero/client.ts`
-  - debugging a `xero_push_status='failed'` row in sales_orders or purchase_orders
+  - debugging a failed Xero row in `accounting.document_syncs`
   - smoke-testing a Xero change before opening a PR
   - preparing Xero App Store certification or partner-readiness work
 ---
@@ -43,10 +43,10 @@ Store setup/support copy, read `docs/xero-support-listing.md`.
   reference, and subtotal match the ERP purchase order. The Xero retry cron
   also checks pushed purchase bills and resets local bill status to Not billed
   when the external Xero bill has been deleted, voided, or is no longer found.
-- **PO push retired** — ERP purchase orders are the purchasing source of truth.
-  The UI no longer exports ERP purchase orders to Xero or emails Xero-rendered
-  PO PDFs. Legacy push routes remain only for old history/retry compatibility
-  and should not be wired into new workflows.
+- **PO export unsupported** — ERP purchase orders are the purchasing source of
+  truth. The app has no executable path for creating Xero purchase orders or
+  emailing Xero-rendered PO PDFs. Legacy export routes return HTTP 410 so old
+  clients fail explicitly; historical sync rows remain readable.
 - **Contact upsert** — `lib/xero/contacts.ts`. Used by sales invoice push and
   purchase bill push.
 - **Contact import** — `lib/xero/import-contacts.ts`. Customer/supplier
@@ -88,13 +88,14 @@ Store setup/support copy, read `docs/xero-support-listing.md`.
 - **Payload hash** — `lib/xero/payload-hash.ts`. Local drift check only;
   Xero does not enforce.
 - **Generic sync state** — Xero writes provider-neutral document and attachment
-  sync rows under `accounting.*`; old PO `xero_*` columns are compatibility
-  fields, not the long-term model.
+  sync rows under `accounting.*`; historical PO export rows are retained for
+  audit/history only.
 - **Retry cron** — `lib/xero/retry-failed-pushes.ts`, surfaced at
-  `GET /api/internal/xero-retry`. Per-org cap of 25 candidates per run,
-  per-row cap of 5 attempts. Creates only — never email. It also reconciles
-  pushed Xero purchase bills so deleted/voided external bills revert to Not
-  billed locally.
+  `GET /api/internal/xero-retry`. Per-org cap of 25 sales-invoice retry
+  candidates and 25 pushed purchase-bill checks per run; sales-invoice rows
+  stop after 5 attempts. It retries sales-invoice creates only and never sends
+  email. It also reconciles pushed Xero purchase bills so deleted/voided
+  external bills revert to Not billed locally.
 
 ## Token encryption keys
 
@@ -117,8 +118,7 @@ again. See `docs/xero-security-evidence.md`.
 ```
 accounting.contacts
 accounting.invoices
-accounting.transactions    ← needed for PurchaseOrders
-accounting.attachments      ← needed for PO attachment upload
+accounting.transactions    ← needed for Xero purchase-order import and health checks
 accounting.reports.read     ← needed for the overhead calculator's Profit & Loss
 accounting.settings.read    ← needed for the overhead calculator's account types
 offline_access
@@ -148,11 +148,10 @@ Demo Company properties:
 - Pre-loaded with fake contacts, items, accounts, tax codes
 - Demo contacts have throwaway emails, so even with
    `auto_email_sales_invoices=true` nothing reaches a real customer
-- **Auto-resets every 28 days** — your `xero_invoice_id`,
-  `xero_purchase_order_id`, and `xero_contact_id` columns will start
-  pointing to documents that no longer exist. If `Pushed` rows go
-  "missing" in Xero, this is why. Disconnect + reconnect and clear
-  out the affected rows to start fresh.
+- **Auto-resets every 28 days** — external IDs in local sync/contact records
+  can start pointing to documents that no longer exist. If pushed records go
+  "missing" in Xero, this is why. Disconnect + reconnect and clear out the
+  affected test records to start fresh.
 - Tenant id is unique per user, so two devs each get their own demo
   tenant — no collisions.
 
@@ -172,9 +171,10 @@ Once Demo Company smoke is green:
 After any change in `lib/xero/` or in the sales push hook (`shipSalesOrder`):
 
 1. **Sales happy path.** Confirm + ship an order. Expect a row in Xero
-   under Business → Invoices, with `xero_push_status='pushed'` and
-   `xero_invoice_id` populated locally. If `auto_email_sales_invoices`
-   is on, expect `xero_email_status='sent'`.
+   under Business → Invoices, with a `sales_order` row in
+   `accounting.document_syncs` whose `push_status='pushed'` and
+   `external_document_id` is populated. If `auto_email_sales_invoices`
+   is on, expect the sync row's `email_status='sent'`.
 2. **Purchase bill happy path.** Create or receive an ERP PO, open Bill actions
    > Manage bills..., enter supplier invoice metadata, and include or omit
    additional costs as needed. Expect a draft payable bill in Xero with ordered
@@ -206,9 +206,9 @@ After any change in `lib/xero/` or in the sales push hook (`shipSalesOrder`):
    Expect the response JSON to show `recovered > 0` and the rows
    to flip back to `pushed` without a duplicate Xero document.
 7. **Idempotency past the 6-minute window.** Manually delete the
-   `xero_invoice_id` from a row whose Xero invoice still exists, then
-   trigger retry. The push should adopt the existing Xero invoice via
-   `findXeroInvoiceForSalesOrder` rather than creating a duplicate.
+   `external_document_id` from a `sales_order` sync row whose Xero invoice
+   still exists, then trigger retry. The push should adopt the existing Xero
+   invoice via `findXeroInvoiceForSalesOrder` rather than creating a duplicate.
 
 ## Why there are no automated Xero tests
 

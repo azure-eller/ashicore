@@ -15,7 +15,7 @@ This repo owns the canonical ERP Sentry vocabulary. Android mirrors this contrac
 - `error.kind`: safe class such as `postgres`, `unique_violation`, `validation`, `http_500`, `network`, or `unknown`
 - `error.domain`: safe owner such as `db`, `validation`, `external_service`, `network`, `api`, or `unknown`
 - `module`: ERP module when known, for example `sales`, `purchasing`, `inventory`, or `manufacturing`
-- `operation`: `domain.action`, for example `sales_order.ship`, `purchase_order.list`, `xero.purchase_order.push`, `auth.sign_in`
+- `operation`: `domain.action`, for example `sales_order.ship`, `purchase_order.list`, `xero.purchase_bill.push`, `auth.sign_in`
 - `source`: capture source
 - `request_id`: value from `x-erp-request-id` or `x-request-id`
 - `release_sha`: deployed git SHA when available

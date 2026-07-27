@@ -74,22 +74,28 @@ passwords, customer notes, or free-form comments in audit metadata.
 
 ## Retry And Error Handling
 
-Xero document push retries are handled by `GET /api/internal/xero-retry` and
+Failed Xero sales-invoice pushes and external-state checks for pushed purchase
+bills are handled by `GET /api/internal/xero-retry` and
 `lib/xero/retry-failed-pushes.ts`.
 
-- Per-org retry candidate cap: 25 rows per run.
+- Per-org candidate cap: 25 sales invoices and 25 purchase bills per run.
 - Per-row retry cap: 5 attempts.
-- Retry creates documents only; it never sends customer or supplier email.
-- Push functions reconcile by deterministic Xero references before create, so
-  retries after Xero's short idempotency window do not create duplicates.
+- Sales-invoice retry creates documents only; it never sends customer email.
+- Sales-invoice pushes reconcile by deterministic Xero references before
+  create, so retries after Xero's short idempotency window do not create
+  duplicates.
+- Purchase bills are not retried by the cron. Pushed bills are checked and
+  reset to Not billed locally when the external bill is deleted, voided, or
+  missing.
 - Permanent OAuth refresh failures surface as reconnect-required user states.
 - Transient Xero refresh failures return retry-later behavior instead of asking
   users to reconnect unnecessarily.
 
 Manual evidence:
 
-- Run `pnpm xero:smoke` against Xero Demo Company for happy path, failure path,
-  idempotency/reconcile, and retry cron coverage.
+- Run `pnpm xero:smoke` against Xero Demo Company for the sales-invoice happy
+  path, idempotency/reconcile, and retry cron coverage. Follow the manual
+  purchase-bill, purchase-import, and failure checks in `docs/xero.md`.
 - Keep the generated rotation evidence file when rotating token keys.
 - Keep Sentry issue links or request IDs for production Xero failures.
 

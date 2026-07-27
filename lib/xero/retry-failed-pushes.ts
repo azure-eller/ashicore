@@ -35,12 +35,6 @@ export type XeroRetryOrgResult = {
     stillFailed: number;
     skipped: number;
   };
-  purchaseOrders: {
-    candidates: number;
-    recovered: number;
-    stillFailed: number;
-    skipped: number;
-  };
   purchaseBills: {
     candidates: number;
     reset: number;
@@ -48,7 +42,7 @@ export type XeroRetryOrgResult = {
     failedChecks: number;
   };
   errors: Array<{
-    entity: "sales_order" | "purchase_order" | "purchase_bill";
+    entity: "sales_order" | "purchase_bill";
     id: string;
     message: string;
   }>;
@@ -152,11 +146,10 @@ async function listPushedPurchaseBills(
 }
 
 /**
- * Retry every failed Xero push across every connected org. Idempotency
- * is guaranteed by the push functions themselves: they reconcile against
- * Xero by deterministic reference before issuing a new create, which
- * covers the long-tail retry window beyond Xero's ~6-minute idempotency
- * key retention.
+ * Retry failed sales-invoice pushes across every connected org and reconcile
+ * the external state of pushed purchase bills. Sales-invoice idempotency is
+ * guaranteed by reconcile-by-reference before create, which covers the
+ * long-tail retry window beyond Xero's ~6-minute idempotency key retention.
  *
  * Email retry is intentionally NOT performed here — duplicate customer
  * emails are worse than a stalled retry, so the email side stays manual.
@@ -174,12 +167,6 @@ export async function retryFailedXeroPushes(): Promise<XeroRetrySummary> {
     const orgResult: XeroRetryOrgResult = {
       orgId,
       salesOrders: { candidates: 0, recovered: 0, stillFailed: 0, skipped: 0 },
-      purchaseOrders: {
-        candidates: 0,
-        recovered: 0,
-        stillFailed: 0,
-        skipped: 0,
-      },
       purchaseBills: { candidates: 0, reset: 0, active: 0, failedChecks: 0 },
       errors: [],
     };
@@ -275,7 +262,6 @@ export async function retryFailedXeroPushes(): Promise<XeroRetrySummary> {
       source: "GET /api/internal/xero-retry",
       metadata: {
         salesOrders: orgResult.salesOrders,
-        purchaseOrders: orgResult.purchaseOrders,
         purchaseBills: orgResult.purchaseBills,
         errorCount: orgResult.errors.length,
       },
