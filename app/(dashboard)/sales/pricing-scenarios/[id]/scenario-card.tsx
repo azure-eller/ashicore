@@ -7,6 +7,7 @@ import {
   Alert02Icon,
   Cancel01Icon,
   GitCommitIcon,
+  RefreshIcon,
 } from "@hugeicons/core-free-icons";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,8 @@ import {
   underlineControlClass,
 } from "@/components/card-page/form-cell";
 import { CommitInput } from "@/components/card-page/commit-input";
+import { OverheadDrawer } from "./overhead-drawer";
+import type { OverheadSettingsData } from "@/lib/dal/overhead-settings";
 import { useCardEntityActions } from "@/components/card-page/use-card-entity-actions";
 import { type CardSaveState } from "@/components/card-page/card-save-status";
 import { EmptyState } from "@/components/empty-state";
@@ -216,26 +219,56 @@ function upsertRow<T>(rows: T[], match: (row: T) => boolean, next: T | null): T[
   return rows.map((row, i) => (i === index ? next : row));
 }
 
+function overheadPeriodLabel(start: string | null, end: string | null): string | null {
+  if (!start || !end) return null;
+  const month = (iso: string) =>
+    new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
+      month: "short",
+      year: "2-digit",
+      timeZone: "UTC",
+    });
+  return `${month(start)} – ${month(end)}`;
+}
+
+// Overhead values are trimmed decimal strings; compare numerically so "37.07"
+// and "37.070" read as the same derived default.
+function sameOverheadValue(a: string | null, b: string | null): boolean {
+  if (a == null || b == null) return false;
+  const na = Number(a);
+  const nb = Number(b);
+  if (!Number.isFinite(na) || !Number.isFinite(nb)) return false;
+  return Math.abs(na - nb) < 1e-9;
+}
+
 export function PricingScenarioCard({
   initialScenarioId,
   initialDetail,
   productOptions,
-  overheadDefaultPercent = null,
+  overheadSettings,
+  overheadDefaultPeriod,
+  overheadCanOperate,
 }: {
   initialScenarioId: string | null;
   initialDetail: PricingScenarioDetailData | null;
   productOptions: InventoryItemComboboxOption[];
-  overheadDefaultPercent?: string | null;
+  overheadSettings: OverheadSettingsData;
+  overheadDefaultPeriod: { periodStart: string; periodEnd: string };
+  overheadCanOperate: boolean;
 }) {
   const queryClient = useQueryClient();
   const [newScenarioId] = useState(() => crypto.randomUUID());
   const scenarioId = initialScenarioId ?? newScenarioId;
 
+  // The Xero-derived overhead default, held locally so saving it from the
+  // drawer updates the field and its provenance without a page reload.
+  const [overheadDefault, setOverheadDefault] = useState(overheadSettings);
+  const [overheadDrawerOpen, setOverheadDrawerOpen] = useState(false);
+
   const kernel = useCardKernel<ScenarioCardDoc, ScenarioPayload>({
     entityType: "pricing-scenario",
     id: scenarioId,
     initialServerDoc: initialDetail ? detailToCardDoc(initialDetail) : null,
-    makeNewDoc: (id) => makeDraftScenario(id, overheadDefaultPercent),
+    makeNewDoc: (id) => makeDraftScenario(id, overheadSettings.overheadPercent),
     collections: {
       materials: { idKey: "itemId" },
       resourceRates: { idKey: "resourceId" },
@@ -572,6 +605,15 @@ export function PricingScenarioCard({
         ).toFixed(2)
       : null;
   const overheadInvalid = Number(draft.overheadPercent ?? 0) >= 100;
+  const overheadDerivedPercent = overheadDefault.overheadPercent;
+  const overheadPeriod = overheadPeriodLabel(
+    overheadDefault.periodStart,
+    overheadDefault.periodEnd
+  );
+  const overheadTracksDefault = sameOverheadValue(
+    draft.overheadPercent,
+    overheadDerivedPercent
+  );
   const targetProfitInvalid = Number(draft.targetProfitPercent ?? 0) >= 100;
   // Overhead and profit are both shares of the selling price, so their sum must
   // stay under 100% or the price denominator collapses.
@@ -1000,26 +1042,68 @@ export function PricingScenarioCard({
                 <RailPanel>
                   <BlockLabel>Assumptions</BlockLabel>
                   <div className="grid grid-cols-2 gap-(--space-4)">
-                    <CardField
-                      label="Overhead %"
-                      htmlFor="scenario-overhead"
-                      invalid={overheadInvalid || combinedAssumptionsInvalid}
-                    >
-                      <CommitInput
-                        id="scenario-overhead"
+                    <div className="flex flex-col gap-(--space-2)">
+                      <CardField
                         label="Overhead %"
-                        inputMode="decimal"
-                        value={draft.overheadPercent}
-                        placeholder="0"
-                        className={cn(
-                          underlineControlClass(
-                            overheadInvalid || combinedAssumptionsInvalid
-                          ),
-                          "font-mono tabular-nums"
-                        )}
-                        onCommit={(value) => setGlobal("overheadPercent", value)}
-                      />
-                    </CardField>
+                        htmlFor="scenario-overhead"
+                        invalid={overheadInvalid || combinedAssumptionsInvalid}
+                      >
+                        <CommitInput
+                          id="scenario-overhead"
+                          label="Overhead %"
+                          inputMode="decimal"
+                          value={draft.overheadPercent}
+                          placeholder="0"
+                          className={cn(
+                            underlineControlClass(
+                              overheadInvalid || combinedAssumptionsInvalid
+                            ),
+                            "font-mono tabular-nums"
+                          )}
+                          onCommit={(value) => setGlobal("overheadPercent", value)}
+                        />
+                      </CardField>
+                      <div className="flex flex-col gap-(--space-1)">
+                        <button
+                          type="button"
+                          onClick={() => setOverheadDrawerOpen(true)}
+                          className="inline-flex w-fit items-center gap-(--space-1) text-[length:var(--text-2xs)] font-semibold text-[var(--color-accent-ink)] hover:underline"
+                        >
+                          <HugeiconsIcon
+                            icon={RefreshIcon}
+                            className="size-(--space-5)"
+                            strokeWidth={2}
+                            aria-hidden
+                          />
+                          {overheadDerivedPercent != null
+                            ? "Recalculate from Xero"
+                            : "Set from Xero"}
+                        </button>
+                        <span className="text-[length:var(--text-2xs)] leading-[var(--leading-xs)] text-[var(--color-ink-faint)]">
+                          {overheadDerivedPercent == null ? (
+                            "Not derived from Xero yet"
+                          ) : overheadTracksDefault ? (
+                            <>
+                              Matches Xero
+                              {overheadPeriod ? ` · ${overheadPeriod}` : ""}
+                            </>
+                          ) : (
+                            <>
+                              Custom ·{" "}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setGlobal("overheadPercent", overheadDerivedPercent)
+                                }
+                                className="underline hover:text-[var(--color-ink-2)]"
+                              >
+                                use Xero {overheadDerivedPercent}%
+                              </button>
+                            </>
+                          )}
+                        </span>
+                      </div>
+                    </div>
                     <CardField
                       label="Target profit %"
                       htmlFor="scenario-profit"
@@ -1054,6 +1138,20 @@ export function PricingScenarioCard({
                       : "Overhead and profit are both shares of the selling price."}
                   </p>
                 </RailPanel>
+
+                <OverheadDrawer
+                  open={overheadDrawerOpen}
+                  onOpenChange={setOverheadDrawerOpen}
+                  settings={overheadDefault}
+                  defaultPeriod={overheadDefaultPeriod}
+                  canOperate={overheadCanOperate}
+                  onSaved={(saved) => {
+                    setOverheadDefault(saved);
+                    if (saved.overheadPercent != null) {
+                      setGlobal("overheadPercent", saved.overheadPercent);
+                    }
+                  }}
+                />
 
                 {selectedResult?.result.withheld ? (
                   <RailPanel className="bg-[var(--color-warning-soft)]">

@@ -18,11 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  SettingsPageHeader,
-  SettingsCard,
-  SettingsBlock,
-} from "@/components/settings-panel";
+import { SettingsCard, SettingsBlock } from "@/components/settings-panel";
 import {
   FramedTable,
   FramedTableHead,
@@ -34,7 +30,10 @@ import {
 import { EmptyState } from "@/components/empty-state";
 import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { OverheadSettingsData, OverheadComputeResult } from "@/lib/dal/overhead-settings";
+import type {
+  OverheadSettingsData,
+  OverheadComputeResult,
+} from "@/lib/dal/overhead-settings";
 import { apiJson, ApiJsonError } from "@/lib/client/api";
 import {
   computeOverhead,
@@ -85,14 +84,23 @@ function fmtPeriod(start: string, end: string): string {
   return `${label(start)} – ${label(end)}`;
 }
 
-export function OverheadPanel({
+/**
+ * The overhead-rate worksheet: derive one company-wide rate from the Xero P&L,
+ * review every account, and save it as the pricing default. Rendered inside the
+ * scenario card's overhead drawer — the frame (header, padding) is the caller's.
+ * `onSaved` fires after a successful save so the field that opened it can adopt
+ * the freshly derived rate without a reload.
+ */
+export function OverheadWorksheet({
   initialSettings,
   defaultPeriod,
   canOperate,
+  onSaved,
 }: {
   initialSettings: OverheadSettingsData;
   defaultPeriod: { periodStart: string; periodEnd: string };
   canOperate: boolean;
+  onSaved?: (settings: OverheadSettingsData) => void;
 }) {
   const [settings, setSettings] = useState(initialSettings);
   const [lines, setLines] = useState<ClassifiedLine[]>(
@@ -230,6 +238,7 @@ export function OverheadPanel({
       );
       setPreviewIsSaved(saved.derivation != null);
       setDirty(false);
+      onSaved?.(saved);
     } catch (e) {
       if (isMissingScopeError(e)) setNeedsReconnect(true);
       else setError(e instanceof Error ? e.message : "Couldn't save.");
@@ -260,12 +269,7 @@ export function OverheadPanel({
   const hasLines = hasCurrentPreview;
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-(--space-8) p-(--space-8)">
-      <SettingsPageHeader
-        title="Overhead"
-        sub="Derive one company-wide overhead rate from your Xero Profit & Loss, then use it as the default in every pricing scenario. Overhead rate = operating overhead ÷ revenue over the period."
-      />
-
+    <div className="flex flex-col gap-(--space-8)">
       {needsReconnect ? <ReconnectCard /> : null}
 
       <SettingsCard>

@@ -2974,7 +2974,7 @@ test.describe("overhead settings seam", () => {
     expect(body.periodStart).toBe("2025-07-01");
     expect(body.accountOverrides).toEqual({ "oh-2": "excluded" });
 
-    // Beta gate: unentitled orgs get 402 on the overhead route too.
+    // Beta gate: unentitled orgs get 402 from the overhead settings API too.
     await setPricingSeamEntitlements(db, []);
     const locked = await testFetch("/api/overhead-settings");
     expect(locked.status).toBe(402);

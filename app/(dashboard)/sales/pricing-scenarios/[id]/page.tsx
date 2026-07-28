@@ -3,7 +3,12 @@ import {
   getPricingScenarioDetail,
   getPricingScenarioProductOptions,
 } from "@/lib/dal/pricing-scenarios";
-import { getOverheadDefaultPercent } from "@/lib/dal/overhead-settings";
+import {
+  getOverheadSettings,
+  getDefaultOverheadPeriod,
+} from "@/lib/dal/overhead-settings";
+import { getAuthedMemberContext } from "@/lib/dal/auth";
+import { hasModuleAccess } from "@/lib/authz";
 import type { PricingScenarioDetailData } from "@/lib/api/clients/pricing-scenarios";
 import { PricingScenarioCard } from "./scenario-card";
 
@@ -14,11 +19,13 @@ export default async function PricingScenarioDetailPage({
 }) {
   const { id } = await params;
   const isNew = id === "new";
-  const [detail, productOptions, overheadDefaultPercent] = await Promise.all([
-    isNew ? null : getPricingScenarioDetail(id),
-    getPricingScenarioProductOptions(),
-    getOverheadDefaultPercent(),
-  ]);
+  const [detail, productOptions, overheadSettings, memberContext] =
+    await Promise.all([
+      isNew ? null : getPricingScenarioDetail(id),
+      getPricingScenarioProductOptions(),
+      getOverheadSettings(),
+      getAuthedMemberContext(),
+    ]);
 
   if (!isNew && !detail) {
     redirect("/sales/pricing-scenarios");
@@ -29,7 +36,13 @@ export default async function PricingScenarioDetailPage({
       initialScenarioId={isNew ? null : id}
       initialDetail={detail as unknown as PricingScenarioDetailData | null}
       productOptions={productOptions}
-      overheadDefaultPercent={overheadDefaultPercent}
+      overheadSettings={overheadSettings}
+      overheadDefaultPeriod={getDefaultOverheadPeriod()}
+      overheadCanOperate={hasModuleAccess(
+        memberContext.assignedRoles,
+        "sales",
+        "operate"
+      )}
     />
   );
 }

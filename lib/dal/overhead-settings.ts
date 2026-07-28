@@ -217,34 +217,3 @@ export async function getOverheadSettingsInTx(
     updatedAt: row?.updatedAt ?? null,
   };
 }
-
-/**
- * Public read of the derived overhead default for pre-filling a new pricing
- * scenario. Not feature-gated on its own — the pricing page that calls this
- * already enforces the `pricing_scenarios` entitlement — so it stays a cheap,
- * side-effect-free single-row read.
- */
-export async function getOverheadDefaultPercent(): Promise<string | null> {
-  return withAuthedOrgContext((tx, orgId) => getOverheadDefaultPercentInTx(tx, orgId));
-}
-
-/** The derived overhead default for pricing pre-fill; null when never computed. */
-export async function getOverheadDefaultPercentInTx(
-  tx: Tx,
-  orgId: string
-): Promise<string | null> {
-  const [row] = await tx
-    .select({
-      overheadPercent: trimScaleNullable(organizationOverheadSettings.overheadPercent).as(
-        "overheadPercent"
-      ),
-    })
-    .from(organizationOverheadSettings)
-    .where(eq(organizationOverheadSettings.organizationId, orgId))
-    .limit(1);
-  if (row?.overheadPercent == null) return null;
-  const percent = Number(row.overheadPercent);
-  return Number.isFinite(percent) && percent >= 0 && percent < 100
-    ? row.overheadPercent
-    : null;
-}

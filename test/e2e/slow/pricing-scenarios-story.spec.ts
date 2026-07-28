@@ -8,6 +8,7 @@ import {
   pricingScenarios,
 } from "../../../lib/db/schema";
 import { createItem, getOrgId, getUnitId, updateItem } from "../../helpers/api";
+import type { OverheadDerivation } from "../../../lib/overhead/compute";
 
 const orgId = getOrgId();
 const unitId = getUnitId();
@@ -185,29 +186,57 @@ test.describe("pricing scenario story", () => {
       .set({ entitlements: ["pricing_scenarios"] })
       .where(eq(organization.id, orgId));
 
-    // The org has a saved, Xero-derived overhead rate.
+    // The org has a saved, Xero-derived overhead rate. Refresh the full row on
+    // conflict so a re-run against the same worktree DB seeds the derivation
+    // (with its account lines), not just the percentage.
+    const overheadDerivation: OverheadDerivation = {
+      periodStart: "2025-07-01",
+      periodEnd: "2026-06-30",
+      lines: [
+        {
+          accountId: "rev-sales",
+          name: "Sales",
+          amount: "200000.00",
+          accountType: "REVENUE",
+          classification: "revenue",
+          classificationSource: "auto",
+        },
+        {
+          accountId: "oh-rent",
+          name: "Rent",
+          amount: "63000.00",
+          accountType: "OVERHEADS",
+          classification: "overhead",
+          classificationSource: "auto",
+        },
+        {
+          accountId: "dc-materials",
+          name: "Direct materials",
+          amount: "50000.00",
+          accountType: "DIRECTCOSTS",
+          classification: "excluded",
+          classificationSource: "auto",
+        },
+      ],
+      overheadPool: "63000.00",
+      revenueTotal: "200000.00",
+      overheadPercent: "31.50",
+    };
+    const overheadValues = {
+      overheadPercent: "31.5000",
+      periodStart: "2025-07-01",
+      periodEnd: "2026-06-30",
+      overheadPool: "63000.00",
+      revenueTotal: "200000.00",
+      derivation: overheadDerivation,
+      accountOverrides: {},
+    };
     await db
       .insert(organizationOverheadSettings)
-      .values({
-        organizationId: orgId,
-        overheadPercent: "31.5000",
-        periodStart: "2025-07-01",
-        periodEnd: "2026-06-30",
-        overheadPool: "63000.00",
-        revenueTotal: "200000.00",
-        derivation: {
-          periodStart: "2025-07-01",
-          periodEnd: "2026-06-30",
-          lines: [],
-          overheadPool: "63000.00",
-          revenueTotal: "200000.00",
-          overheadPercent: "31.50",
-        },
-        accountOverrides: {},
-      })
+      .values({ organizationId: orgId, ...overheadValues })
       .onConflictDoUpdate({
         target: organizationOverheadSettings.organizationId,
-        set: { overheadPercent: "31.5000", updatedAt: new Date() },
+        set: { ...overheadValues, updatedAt: new Date() },
       });
 
     // A brand-new scenario starts with the derived overhead already filled in,
@@ -226,5 +255,19 @@ test.describe("pricing scenario story", () => {
       timeout: 20_000,
     });
     await expect(page.locator("#scenario-overhead")).toHaveValue("31.5");
+
+    // The field shows its relationship to Xero and opens the worksheet in place —
+    // overhead is no longer a separate destination.
+    await expect(page.getByText("Matches Xero ·", { exact: false })).toBeVisible();
+    await page.getByRole("button", { name: "Recalculate from Xero" }).click();
+    await expect(page.getByText("Overhead from Xero")).toBeVisible();
+    const drawer = page.locator('[data-slot="sheet-content"]');
+    await expect(drawer.getByText("Overhead rate", { exact: true })).toBeVisible();
+    await expect(drawer).toContainText(/31\.5/);
+    await expect(
+      drawer.getByRole("button", {
+        name: /Saved as default|Save as pricing default/,
+      })
+    ).toBeVisible();
   });
 });

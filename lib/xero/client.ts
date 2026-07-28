@@ -22,7 +22,8 @@ const REQUIRED_SCOPES = [
   "accounting.transactions",
   // Read-only Profit & Loss and chart-of-accounts access for the overhead
   // calculator. Existing connections stay missing these until the user
-  // reconnects; the overhead tab detects the 403 and prompts a reconnect.
+  // reconnects; the pricing scenario's overhead drawer detects the 403 and
+  // prompts a reconnect.
   "accounting.reports.read",
   "accounting.settings.read",
   "offline_access",

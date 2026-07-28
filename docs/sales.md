@@ -221,11 +221,16 @@ current margin in one explicit unit context.
 
 ### Overhead default (derived from Xero)
 
-The **Overhead** tab (`/sales/overhead`) derives the default
-`overheadPercent` from the company's Xero Profit & Loss. It uses the trailing
-12 complete months by default; the operator can choose another valid date
-range. A new scenario pre-fills the latest saved rate, while existing scenarios
-keep their own value.
+The overhead worksheet opens as a right-side drawer from a pricing scenario's
+**Overhead %** field via **Set from Xero** when no rate has been saved or
+**Recalculate from Xero** otherwise. It derives the default `overheadPercent`
+from the company's Xero Profit & Loss. The field identifies whether the current
+scenario value is the saved Xero-derived default, including its period, or a
+custom value; a custom value can be reset to the saved Xero rate inline. The
+worksheet uses the trailing 12 complete months by default, but the operator can
+choose another valid date range. A new scenario pre-fills the latest saved rate,
+while existing scenarios keep their own value until the operator resets it or
+saves a new rate from that scenario's drawer.
 
 - `overhead% = operating-overhead pool ÷ revenue` over a trailing period, all read
   from the **same** Xero P&L (`getReportProfitAndLoss`) so numerator and denominator
@@ -249,10 +254,12 @@ keep their own value.
   — the client's preview numbers are never trusted.
 - Reading the P&L needs the `accounting.reports.read` Xero scope. It is appended to
   `REQUIRED_SCOPES`, but granted scopes are not stored, so existing connections are
-  missing it until the user reconnects; a report call returns 403, which the tab
-  surfaces as a "Reconnect to Xero" prompt (the existing `/api/xero/connect` flow).
-- `getOverheadDefaultPercent()` feeds the pricing page, which pre-fills a new
-  scenario's overhead field; it stays fully per-scenario overridable.
+  missing it until the user reconnects; a report call returns 403, which the
+  drawer surfaces as a "Reconnect to Xero" prompt (the existing
+  `/api/xero/connect` flow).
+- `getOverheadSettings()` feeds the pricing scenario page with the saved
+  derivation and rate. Saving in the drawer updates that scenario's field
+  immediately; the field remains fully per-scenario overridable.
 
 The scenario document accepts at most 200 products. Names are 1–120 characters,
 revision notes are at most 500 characters, override values are non-negative,

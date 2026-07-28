@@ -60,8 +60,8 @@ Store setup/support copy, read `docs/xero-support-listing.md`.
   rows; browser-safe `lib/overhead/compute.ts` applies the account-type rules and
   org overrides, then derives the overhead share of revenue. This split lets the
   client worksheet preview the same arithmetic without bundling `xero-node`. A
-  report `403` becomes `reason: "missing_scope"` so `/sales/overhead` can prompt
-  the operator to reconnect.
+  report `403` becomes `reason: "missing_scope"` so the overhead worksheet can
+  prompt the operator to reconnect.
 - **Supplier price sync retired** — the previous history-driven supplier item
   price updater is no longer exposed because Xero line units are not reliable
   enough to infer ERP stock-unit costs automatically.
@@ -126,8 +126,8 @@ offline_access
 
 When you add or remove a scope, every existing connection must reconnect for
 the OAuth consent to re-prompt. The **Test connection** health probe detects
-missing transaction scope. Report scope is verified by loading the P&L on
-`/sales/overhead`; a `403` there shows **Reconnect to Xero**.
+missing transaction scope. Report scope is verified by loading the P&L from a
+pricing scenario's overhead worksheet; a `403` there shows **Reconnect to Xero**.
 
 ## Testing — use the Xero Demo Company
 
@@ -183,7 +183,8 @@ After any change in `lib/xero/` or in the sales push hook (`shipSalesOrder`):
 3. **Purchase import happy path.** Enable purchase order import or run bulk
    import. Expect open Xero POs to appear in ERP for receiving; received ERP PO
    lines must not be rewritten by later imports.
-4. **Overhead report path.** Open `/sales/overhead`, load a completed period,
+4. **Overhead report path.** Open a pricing scenario, click **Recalculate from
+   Xero** on the Overhead field, load a completed period,
    and confirm the account amounts match the same Xero P&L. Confirm the automatic
    classifications and that the Revenue, Overhead pool, and Excluded totals
    reconcile with the account ledger. Change one account bucket and confirm the
