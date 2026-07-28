@@ -57,11 +57,14 @@ Store setup/support copy, read `docs/xero-support-listing.md`.
 - **Profit & Loss overhead inputs** — `lib/xero/reports.ts` fetches one P&L
   report and the chart of accounts for the Sales overhead calculator.
   Server-only `lib/overhead/parse.ts` converts the Xero report's leaf account
-  rows; browser-safe `lib/overhead/compute.ts` applies the account-type rules and
-  org overrides, then derives the overhead share of revenue. This split lets the
-  client worksheet preview the same arithmetic without bundling `xero-node`. A
-  report `403` becomes `reason: "missing_scope"` so the overhead worksheet can
-  prompt the operator to reconnect.
+  rows and normalises accounting-style parenthesised negatives; browser-safe
+  `lib/overhead/compute.ts` applies the account-type rules and org overrides,
+  then derives the overhead share of revenue. Unrecognised or absent account
+  types default to Excluded, and the worksheet warns while that automatic
+  classification remains unresolved. This split lets the client worksheet
+  preview the same arithmetic without bundling `xero-node`. A report `403`
+  becomes `reason: "missing_scope"` so the overhead worksheet can prompt the
+  operator to reconnect.
 - **Supplier price sync retired** — the previous history-driven supplier item
   price updater is no longer exposed because Xero line units are not reliable
   enough to infer ERP stock-unit costs automatically.
@@ -187,10 +190,13 @@ After any change in `lib/xero/` or in the sales push hook (`shipSalesOrder`):
    Xero** on the Overhead field, load a completed period,
    and confirm the account amounts match the same Xero P&L. Confirm the automatic
    classifications and that the Revenue, Overhead pool, and Excluded totals
-   reconcile with the account ledger. Change one account bucket and confirm the
-   equation and totals update before saving, then open a new pricing scenario.
-   Expect its overhead field to contain the saved derived percentage. For a
-   connection authorised before
+   reconcile with the account ledger. Confirm a parenthesised negative amount in
+   Xero appears as a negative account row rather than disappearing. If an account
+   has an unrecognised or absent type, expect a warning that it defaults to
+   Excluded; classify that account manually and expect the warning to clear.
+   Change one account bucket and confirm the equation and totals update before
+   saving, then open a new pricing scenario. Expect its overhead field to contain
+   the saved derived percentage. For a connection authorised before
    `accounting.reports.read` was added, expect **Reconnect to Xero**; reconnect
    and load the report again.
 5. **Failure path.** Revoke the access token from inside Xero

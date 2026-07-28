@@ -37,6 +37,7 @@ import type {
 import { apiJson, ApiJsonError } from "@/lib/client/api";
 import {
   computeOverhead,
+  isUnresolvedType,
   type ClassifiedLine,
   type OverheadClass,
 } from "@/lib/overhead/compute";
@@ -148,6 +149,18 @@ export function OverheadWorksheet({
       lines
         .filter((line) => line.classification === "excluded")
         .reduce((total, line) => total + Number(line.amount || 0), 0),
+    [lines]
+  );
+
+  // Accounts whose Xero type we didn't recognise auto-default to Excluded. Count
+  // the ones still on that default (not user-classified) so the operator can
+  // confirm none are really overhead being left out of the pool.
+  const unresolvedCount = useMemo(
+    () =>
+      lines.filter(
+        (line) =>
+          line.classificationSource === "auto" && isUnresolvedType(line.accountType)
+      ).length,
     [lines]
   );
 
@@ -373,6 +386,14 @@ export function OverheadWorksheet({
               </div>
             }
           >
+            {unresolvedCount > 0 ? (
+              <p className="mb-(--space-5) text-[length:var(--text-xs)] leading-[var(--leading-xs)] text-[var(--status-warning-ink)]">
+                {unresolvedCount === 1
+                  ? "1 account had an unrecognized type and defaults to Excluded"
+                  : `${unresolvedCount} accounts had an unrecognized type and default to Excluded`}
+                {" "}— confirm none of them belong in the overhead pool.
+              </p>
+            ) : null}
             <AccountLedger
               lines={lines}
               onClassify={setLineClass}

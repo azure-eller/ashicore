@@ -65,6 +65,24 @@ export function autoClassify(accountType: string | null): OverheadClass {
 }
 
 /**
+ * True when an account's Xero `type` matched none of the known revenue /
+ * overhead / direct-cost sets (or is absent). Such accounts fall through to
+ * "excluded" by default — safe for the total, but indistinguishable from a
+ * confidently-excluded direct cost, so the worksheet surfaces the count to
+ * prompt review: a real overhead account with an unexpected type would
+ * otherwise stay silently out of the pool and understate the rate.
+ */
+export function isUnresolvedType(accountType: string | null): boolean {
+  if (accountType == null) return true;
+  const type = accountType.toUpperCase();
+  return (
+    !REVENUE_TYPES.has(type) &&
+    !OVERHEAD_TYPES.has(type) &&
+    !DIRECT_TYPES.has(type)
+  );
+}
+
+/**
  * Attach a classification to each P&L line, preferring a stored user override,
  * else the account type's auto rule.
  */

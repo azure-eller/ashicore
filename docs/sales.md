@@ -236,7 +236,8 @@ saves a new rate from that scenario's drawer.
   from the **same** Xero P&L (`getReportProfitAndLoss`) so numerator and denominator
   are consistent. `lib/xero/reports.ts` is the thin live fetch,
   `lib/overhead/parse.ts` converts the server-only Xero report into account lines,
-  and browser-safe `lib/overhead/compute.ts` classifies and computes them. The
+  including accounting-style parenthesised negatives such as `(1,234.56)`, and
+  browser-safe `lib/overhead/compute.ts` classifies and computes them. The
   worksheet uses that same pure arithmetic to update the equation and reconciling
   account totals immediately when an operator changes a bucket; saving still
   recomputes from Xero on the server.
@@ -244,8 +245,11 @@ saves a new rate from that scenario's drawer.
   classify `REVENUE`, `SALES`, and `OTHERINCOME` as revenue;
   `OVERHEADS`, `EXPENSE`, and `DEPRECIATN` as overhead; and `DIRECTCOSTS` as
   excluded because direct cost already lives in the BOM. Unknown and
-  balance-sheet types are also excluded. The user can override any account;
-  overrides are stored and replayed.
+  balance-sheet types are also excluded. If an automatically classified account
+  has an absent or unrecognised Xero type, the worksheet warns that it defaults
+  to Excluded until the operator reviews it. The user can override any account;
+  overrides are stored and replayed, and overriding an unrecognised account
+  resolves its warning.
 - The derived rate and its point-in-time derivation snapshot (every account,
   amount, classification, and the pool/revenue totals) persist one-row-per-org in
   `settings.organization_overhead_settings` (mirrors `organization_tax_settings`;

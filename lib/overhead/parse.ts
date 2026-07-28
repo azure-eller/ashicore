@@ -13,8 +13,17 @@ const ParseDecimal = Decimal.clone({ precision: 40, rounding: Decimal.ROUND_HALF
 
 function readCellAmount(value: string | undefined): string | null {
   if (value == null || value.trim() === "") return null;
+  // Xero can render negatives in accounting style, e.g. "(1,234.56)". Normalise
+  // the parentheses to a sign and drop thousands separators so the amount reads
+  // as a real negative instead of throwing — an unparsed cell would otherwise
+  // drop the whole account (parseProfitAndLoss skips lines with a null amount),
+  // silently omitting it from the pool/revenue totals.
+  const normalized = value
+    .trim()
+    .replace(/,/g, "")
+    .replace(/^\(([^)]*)\)$/, "-$1");
   try {
-    return new ParseDecimal(value.replace(/,/g, "")).toString();
+    return new ParseDecimal(normalized).toString();
   } catch {
     return null;
   }

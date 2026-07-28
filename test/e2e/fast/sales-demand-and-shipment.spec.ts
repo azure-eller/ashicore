@@ -22,7 +22,11 @@ import {
   salesOrderLines,
   salesOrders,
 } from "../../../lib/db/schema";
-import { classifyLines, computeOverhead } from "../../../lib/overhead/compute";
+import {
+  classifyLines,
+  computeOverhead,
+  isUnresolvedType,
+} from "../../../lib/overhead/compute";
 import { parseProfitAndLoss } from "../../../lib/overhead/parse";
 import {
   addCustomerContact,
@@ -2936,6 +2940,63 @@ test.describe("overhead settings seam", () => {
       { periodStart: "2025-07-01", periodEnd: "2026-06-30" }
     );
     expect(overridden.overheadPercent).toBe("18.00");
+  });
+
+  test("reads accounting-style negative amounts instead of dropping the account", () => {
+    const fixture = {
+      reports: [
+        {
+          reportID: "ProfitAndLoss",
+          rows: [
+            {
+              rowType: "Section",
+              title: "Less Operating Expenses",
+              rows: [
+                {
+                  rowType: "Row",
+                  cells: [
+                    { value: "Rent", attributes: [{ id: "account", value: "oh-1" }] },
+                    { value: "36000.00" },
+                  ],
+                },
+                {
+                  rowType: "Row",
+                  cells: [
+                    { value: "Rebate", attributes: [{ id: "account", value: "oh-neg" }] },
+                    { value: "(1,200.00)" },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const lines = parseProfitAndLoss(fixture as any);
+    // Both rows survive; the parenthesised amount reads as a negative, not
+    // dropped as unparseable (which would silently omit the account).
+    expect(lines).toHaveLength(2);
+    expect(lines.find((line) => line.accountId === "oh-neg")?.amount).toBe("-1200");
+  });
+
+  test("flags an account with an unrecognized type and excludes it by default", () => {
+    const classified = classifyLines(
+      [
+        { accountId: "rev-1", name: "Sales", amount: "100000.00" },
+        { accountId: "mystery", name: "Suspense", amount: "5000.00" },
+      ],
+      new Map<string, string | null>([
+        ["rev-1", "REVENUE"],
+        ["mystery", "BANKREV"],
+      ])
+    );
+    const mystery = classified.find((line) => line.accountId === "mystery");
+    expect(mystery?.classification).toBe("excluded");
+    expect(isUnresolvedType("BANKREV")).toBe(true);
+    expect(isUnresolvedType(null)).toBe(true);
+    expect(isUnresolvedType("REVENUE")).toBe(false);
+    expect(isUnresolvedType("overheads")).toBe(false);
   });
 
   test("saved overhead default reads back under RLS and gates on entitlement", async ({ db }) => {
