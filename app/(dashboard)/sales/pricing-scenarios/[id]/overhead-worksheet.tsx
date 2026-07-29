@@ -611,6 +611,11 @@ function ReconcileRow({
   );
 }
 
+/**
+ * Connecting Xero is managed in one place — Settings → Integrations — so this
+ * sends the operator there rather than running a second consent flow from the
+ * pricing surface.
+ */
 function ReconnectCard() {
   return (
     <div className="flex flex-col gap-(--space-5) rounded-(--radius-lg) border border-[color-mix(in_oklch,var(--color-warning),transparent_60%)] bg-[var(--color-warning-soft)] p-(--space-8)">
@@ -620,18 +625,19 @@ function ReconnectCard() {
         </span>
         <div className="flex flex-col gap-(--space-2)">
           <h2 className="text-[length:var(--text-md)] font-semibold text-[var(--color-ink)]">
-            Reconnect to Xero
+            Reconnect Xero to load your Profit &amp; Loss
           </h2>
           <p className="max-w-xl text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-[var(--color-ink-2)]">
-            Your Xero connection needs read access to your Profit &amp; Loss report.
-            Reconnect once to grant it — nothing else about the connection changes.
+            Overhead reads your Profit &amp; Loss, and this connection can&apos;t
+            do that yet — either it needs read access or its authorization has
+            expired. Reconnect in settings, then come back and load again.
           </p>
         </div>
       </div>
       <Button asChild className="w-fit">
-        <a href="/api/xero/connect">
+        <a href="/settings/integrations">
           <HugeiconsIcon icon={LinkSquare02Icon} data-icon="inline-start" strokeWidth={2} />
-          Reconnect to Xero
+          Go to Xero settings
         </a>
       </Button>
     </div>

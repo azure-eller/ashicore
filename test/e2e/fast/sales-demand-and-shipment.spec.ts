@@ -26,6 +26,7 @@ import {
   classifyLines,
   computeOverhead,
   isUnresolvedType,
+  isXeroReconnectStatus,
 } from "../../../lib/overhead/compute";
 import { parseProfitAndLoss } from "../../../lib/overhead/parse";
 import {
@@ -2978,6 +2979,20 @@ test.describe("overhead settings seam", () => {
     // dropped as unparseable (which would silently omit the account).
     expect(lines).toHaveLength(2);
     expect(lines.find((line) => line.accountId === "oh-neg")?.amount).toBe("-1200");
+  });
+
+  test("treats every Xero authorization failure as a reconnect, not a dead end", () => {
+    // A dead/revoked refresh token (401) and a missing connection (409) are as
+    // recoverable as a missing report scope (403): all three must reach the
+    // reconnect prompt. Previously only 403 did, so an expired token surfaced a
+    // raw error with no way for the operator to re-authorise.
+    expect(isXeroReconnectStatus(401)).toBe(true);
+    expect(isXeroReconnectStatus(403)).toBe(true);
+    expect(isXeroReconnectStatus(409)).toBe(true);
+    // Genuine failures must NOT be disguised as a reconnect prompt.
+    expect(isXeroReconnectStatus(500)).toBe(false);
+    expect(isXeroReconnectStatus(502)).toBe(false);
+    expect(isXeroReconnectStatus(null)).toBe(false);
   });
 
   test("flags an account with an unrecognized type and excludes it by default", () => {

@@ -83,6 +83,16 @@ export function isUnresolvedType(accountType: string | null): boolean {
 }
 
 /**
+ * True when a failed overhead pull is an authorisation problem the operator can
+ * fix by re-running the Xero consent flow: missing report scope (403), a dead or
+ * revoked refresh token (401), or no connection for the org (409). All three
+ * surface as one reconnect prompt — anything else is a genuine failure.
+ */
+export function isXeroReconnectStatus(status: number | null): boolean {
+  return status === 401 || status === 403 || status === 409;
+}
+
+/**
  * Attach a classification to each P&L line, preferring a stored user override,
  * else the account type's auto rule.
  */

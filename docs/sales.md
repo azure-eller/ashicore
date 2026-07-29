@@ -258,9 +258,11 @@ saves a new rate from that scenario's drawer.
   — the client's preview numbers are never trusted.
 - Reading the P&L needs the `accounting.reports.read` Xero scope. It is appended to
   `REQUIRED_SCOPES`, but granted scopes are not stored, so existing connections are
-  missing it until the user reconnects; a report call returns 403, which the
-  drawer surfaces as a "Reconnect to Xero" prompt (the existing
-  `/api/xero/connect` flow).
+  missing it until the user reconnects. Missing scope (`403`), an expired or
+  revoked refresh token (`401`), and no connection for the org (`409`) all
+  surface the same reconnect prompt. The prompt sends the operator to
+  **Settings > Integrations**, the single place for Xero connection management;
+  after reconnecting, they return to the worksheet and load again.
 - `getOverheadSettings()` feeds the pricing scenario page with the saved
   derivation and rate. Saving in the drawer updates that scenario's field
   immediately; the field remains fully per-scenario overridable.
