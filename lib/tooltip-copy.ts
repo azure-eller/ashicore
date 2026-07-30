@@ -212,7 +212,7 @@ export const PURCHASE_COST_REFERENCE_TOOLTIP =
   "Supplier invoice, tracking, or internal reference.";
 
 export const PURCHASE_COST_DISTRIBUTION_TOOLTIP =
-  "How this cost affects material landed costs.";
+  "By value uses each line's material value. By quantity uses ordered purchase units. Not distributed leaves inventory cost unchanged.";
 
 export const PURCHASE_COST_AMOUNT_TOOLTIP =
   "Cost amount added to this purchase order.";

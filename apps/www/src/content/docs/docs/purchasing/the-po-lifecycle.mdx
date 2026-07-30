@@ -32,7 +32,7 @@ Receiving is the most consequential action in purchasing — it's where a promis
 
 1. **Each received line writes inventory history.** Lot-tracked items get a new lot for the received quantity. Lot-untracked items append to their internal shared lot. Receipts arrive as **available**; move a lot to **blocked** afterward from inventory if it needs to be held out of use.
 
-2. **The lot is costed at the line's landed cost per stocking unit.** Any by-value additional costs you entered before receiving are already baked into that value.
+2. **The lot is costed at the line's landed cost per stocking unit.** Any **By value** or **By quantity** additional costs you entered before receiving are already baked into that value.
 
 3. **The receipt becomes permanent history.** Received lines can't be removed, and even deleting the order later keeps every receipt event in item history — only stock still on hand is backed out.
 

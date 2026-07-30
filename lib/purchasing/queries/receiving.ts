@@ -8,7 +8,12 @@ import { withAuthedOrgContext } from "@/lib/dal/auth";
 import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
 import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
 import { notifyPurchaseOrderReceived } from "@/lib/notifications/purchasing";
-import { calculatePurchaseOrderLandedCosts, normalizeLandedMoney, normalizeLandedStockUnitCost } from "@/lib/purchasing/landed-cost";
+import {
+  calculatePurchaseOrderLandedCosts,
+  normalizeLandedMoney,
+  normalizeLandedStockUnitCost,
+  resolveLandedCostAllocationBasis,
+} from "@/lib/purchasing/landed-cost";
 import { calculateTaxAmount, calculateTaxedLineTotal } from "@/lib/tax/calc";
 import {
   beginInventoryOperationInTx,
@@ -16,6 +21,7 @@ import {
   editExpectedFromPurchaseInTx,
   finishInventoryOperationInTx,
   receivePurchaseStockInTx,
+  revaluePurchaseLandedCostInTx,
 } from "@/lib/inventory/kernel";
 import type { PurchaseOrderStatus, ReceivePurchaseOrder } from "@/lib/schemas/purchase-orders";
 import { PurchasingError } from "./errors";
@@ -281,7 +287,10 @@ export async function receivePurchaseOrder(
       };
     });
 
-    if (receiveEntries.some((entry) => entry.overReceiptQuantity > 0)) {
+    const hasOverReceipt = receiveEntries.some(
+      (entry) => entry.overReceiptQuantity > 0,
+    );
+    if (hasOverReceipt) {
       await editExpectedFromPurchaseInTx(tx, {
         organizationId: orgId,
         purchaseOrderId: id,
@@ -314,7 +323,7 @@ export async function receivePurchaseOrder(
       ]),
     );
 
-    if (receiveEntries.some((entry) => entry.overReceiptQuantity > 0)) {
+    if (hasOverReceipt) {
       await Promise.all(
         finalLines.map((line) =>
           tx
@@ -327,6 +336,42 @@ export async function receivePurchaseOrder(
             .where(eq(purchaseOrderLines.id, line.id)),
         ),
       );
+
+      const revaluationLines = finalLines.flatMap((line, index) => {
+        const previousLine = existingLines[index];
+        const nextUnitCost = landedStockUnitCostByLineId.get(line.id);
+        if (
+          !previousLine ||
+          nextUnitCost == null ||
+          parseFloat(previousLine.stockQuantityReceived) <= 0 ||
+          Math.abs(
+            parseFloat(previousLine.stockUnitCost) - parseFloat(nextUnitCost),
+          ) < 0.000001
+        ) {
+          return [];
+        }
+
+        return [
+          {
+            purchaseOrderLineId: line.id,
+            itemId: line.itemId,
+            unitCost: nextUnitCost,
+          },
+        ];
+      });
+      if (revaluationLines.length > 0) {
+        await revaluePurchaseLandedCostInTx(tx, {
+          organizationId: orgId,
+          purchaseOrderId: id,
+          actorUserId: userId,
+          idempotencyKey: deriveInventoryIdempotencyKey(
+            options?.idempotencyKey,
+            "over-receipt-landed-cost-revaluation",
+          ),
+          allocationBasis: resolveLandedCostAllocationBasis(additionalCosts),
+          lines: revaluationLines,
+        });
+      }
     }
 
     await receivePurchaseStockInTx(tx, {

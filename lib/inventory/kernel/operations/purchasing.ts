@@ -465,6 +465,7 @@ export async function revaluePurchaseLandedCostInTx(
     purchaseOrderId: string;
     actorUserId?: string | null;
     idempotencyKey?: string | null;
+    allocationBasis?: "by_value" | "by_quantity" | "mixed";
     lines: Array<{
       purchaseOrderLineId: string;
       itemId: string;
@@ -481,6 +482,7 @@ export async function revaluePurchaseLandedCostInTx(
     idempotencyKey: params.idempotencyKey ?? null,
     payload: {
       purchaseOrderId: params.purchaseOrderId,
+      allocationBasis: params.allocationBasis ?? null,
       lines: params.lines,
     },
   });
@@ -684,7 +686,9 @@ export async function revaluePurchaseLandedCostInTx(
           previousUnitCost,
           newUnitCost,
           revaluedQuantity,
-          allocationBasis: "by_value",
+          ...(params.allocationBasis
+            ? { allocationBasis: params.allocationBasis }
+            : {}),
           costingMode: "fifo_lot",
         },
       });

@@ -12,6 +12,7 @@ import { trimScale } from "@/lib/db/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
 import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
 import { editExpectedFromPurchaseInTx } from "@/lib/inventory/kernel";
+import type { PurchaseOrderAdditionalCostDistributionMethod } from "@/lib/schemas/purchase-orders";
 import { createPurchaseOrderInTx, preparePurchaseOrderPayload } from "./order-write";
 import type { PurchaseOrderPayload } from "./order-write";
 import { getPurchaseOrderLinesInTx } from "./shared";
@@ -19,29 +20,31 @@ import { getPurchaseOrderLinesInTx } from "./shared";
 type CarryableCost = {
   costType: string;
   reference: string | null;
-  amount: string;
-  supplierId: string | null;
+  amount: string | null;
+  supplierId?: string | null;
+  distributionMethod: PurchaseOrderAdditionalCostDistributionMethod;
 };
 
-// Match reinserted costs to the rows they replace and keep the local supplier
-// assignment: exact (type, reference, amount) first, then a same-type pair when
-// both sides have exactly one unmatched row of that type (amount edited in the
-// provider). Each old row is consumed at most once.
-export function carryCostSupplierAssignments<
+// Match reinserted costs to the rows they replace and keep local-only fields:
+// exact (type, reference, amount) first, then a same-type pair when both sides
+// have exactly one unmatched row of that type (amount edited in the provider).
+// Each old row is consumed at most once.
+export function carryCostLocalAssignments<
   TCost extends {
     costType: string;
     reference: string | null;
-    amount: string;
-    supplierId: string | null;
+    amount: string | null;
+    supplierId?: string | null;
+    distributionMethod: PurchaseOrderAdditionalCostDistributionMethod;
   },
 >(previous: CarryableCost[], next: TCost[]): TCost[] {
-  if (!previous.some((cost) => cost.supplierId)) return next;
-
   const exactKey = (cost: CarryableCost) =>
     JSON.stringify([
       cost.costType,
       cost.reference?.trim() ?? "",
-      Number(cost.amount),
+      cost.amount == null || cost.amount.trim() === ""
+        ? null
+        : Number(cost.amount),
     ]);
   const groupIndexes = <TCostValue extends CarryableCost>(
     costs: TCostValue[],
@@ -74,12 +77,12 @@ export function carryCostSupplierAssignments<
     const nextIndex = nextIndexes[0];
     previousAvailable[previousIndex] = false;
     nextAvailable[nextIndex] = false;
-    if (!carried[nextIndex].supplierId && previous[previousIndex].supplierId) {
-      carried[nextIndex] = {
-        ...carried[nextIndex],
-        supplierId: previous[previousIndex].supplierId,
-      };
-    }
+    const previousCost = previous[previousIndex];
+    carried[nextIndex] = {
+      ...carried[nextIndex],
+      supplierId: carried[nextIndex].supplierId || previousCost.supplierId,
+      distributionMethod: previousCost.distributionMethod,
+    };
   }
 
   const previousTypeGroups = groupIndexes(
@@ -97,12 +100,11 @@ export function carryCostSupplierAssignments<
     if (previousIndexes.length !== 1 || nextIndexes?.length !== 1) continue;
     const previousCost = previous[previousIndexes[0]];
     const nextIndex = nextIndexes[0];
-    if (!carried[nextIndex].supplierId && previousCost.supplierId) {
-      carried[nextIndex] = {
-        ...carried[nextIndex],
-        supplierId: previousCost.supplierId,
-      };
-    }
+    carried[nextIndex] = {
+      ...carried[nextIndex],
+      supplierId: carried[nextIndex].supplierId || previousCost.supplierId,
+      distributionMethod: previousCost.distributionMethod,
+    };
   }
 
   return carried;
@@ -122,7 +124,6 @@ export async function upsertImportedAccountingPurchaseOrderInTx(
   data: ImportedAccountingPurchaseOrder,
   options: { actorUserId?: string | null } = {},
 ) {
-  const prepared = await preparePurchaseOrderPayload(tx, orgId, data);
   const [existingByExternal] = await tx
     .select({
       id: purchaseOrders.id,
@@ -207,6 +208,31 @@ export async function upsertImportedAccountingPurchaseOrderInTx(
       parseFloat(line.quantityReceived) > 0 ||
       parseFloat(line.stockQuantityReceived) > 0,
   );
+  const existingCosts = hasReceivedLines
+    ? []
+    : await tx
+        .select({
+          costType: purchaseOrderAdditionalCosts.costType,
+          reference: purchaseOrderAdditionalCosts.reference,
+          amount: purchaseOrderAdditionalCosts.amount,
+          supplierId: purchaseOrderAdditionalCosts.supplierId,
+          distributionMethod: purchaseOrderAdditionalCosts.distributionMethod,
+        })
+        .from(purchaseOrderAdditionalCosts)
+        .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, existing.id));
+  const prepared = await preparePurchaseOrderPayload(tx, orgId, {
+    ...data,
+    additionalCosts: hasReceivedLines
+      ? data.additionalCosts
+      : carryCostLocalAssignments(
+          existingCosts.map((cost) => ({
+            ...cost,
+            distributionMethod:
+              cost.distributionMethod as PurchaseOrderAdditionalCostDistributionMethod,
+          })),
+          data.additionalCosts ?? [],
+        ),
+  });
 
   await lockItemsInTx(tx, [
     ...new Set([
@@ -280,27 +306,12 @@ export async function upsertImportedAccountingPurchaseOrderInTx(
       nextLines,
     });
 
-    // The provider document has no per-cost supplier, so the reinsert below
-    // would wipe locally assigned cost suppliers; carry them over instead.
-    const existingCosts = await tx
-      .select({
-        costType: purchaseOrderAdditionalCosts.costType,
-        reference: purchaseOrderAdditionalCosts.reference,
-        amount: purchaseOrderAdditionalCosts.amount,
-        supplierId: purchaseOrderAdditionalCosts.supplierId,
-      })
-      .from(purchaseOrderAdditionalCosts)
-      .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, existing.id));
     await tx
       .delete(purchaseOrderAdditionalCosts)
       .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, existing.id));
     if (prepared.preparedAdditionalCosts.length > 0) {
-      const nextCosts = carryCostSupplierAssignments(
-        existingCosts,
-        prepared.preparedAdditionalCosts,
-      );
       await tx.insert(purchaseOrderAdditionalCosts).values(
-        nextCosts.map((cost) => ({
+        prepared.preparedAdditionalCosts.map((cost) => ({
           purchaseOrderId: existing.id,
           ...cost,
         })),

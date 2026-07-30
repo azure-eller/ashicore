@@ -38,7 +38,7 @@ Capture freight, customs, and other charges on a purchase order, and decide whet
      </div>
    </Frame>
 
-2. **Choose how it's distributed.** This is the important choice. **By value** spreads the cost across material lines in proportion to each line's share of the material subtotal, raising the **landed cost per stock unit** your inventory is valued at. **Not distributed** adds to the order total only and leaves inventory valuation untouched.
+2. **Choose how it's distributed.** This is the important choice. **By value** uses each line's share of the material subtotal. **By quantity** uses each line's share of the total ordered purchase units, regardless of its purchase-to-stock conversion. Both raise the **landed cost per stock unit** your inventory is valued at. **Not distributed** adds to the order total only and leaves inventory valuation untouched.
 
    <Frame title="<b>Additional costs</b> · PO-1045">
      <Grid>
@@ -59,7 +59,7 @@ Capture freight, customs, and other charges on a purchase order, and decide whet
    </Frame>
 
    <Aside type="note" title="Where the money lands">
-   Of the $540 in costs here, only the $480 by-value shipping flows into your inventory cost and, for tracked items, the lot cost at receipt. The $60 deposit raises the order total but never the inventory valuation. The exact allocation math is in [Landed cost & additional costs](/docs/purchasing/landed-and-additional-costs).
+   Of the $540 in costs here, only the $480 distributed shipping flows into your inventory cost and, for tracked items, the lot cost at receipt. The $60 deposit raises the order total but never the inventory valuation. The exact value- and quantity-allocation math is in [Landed cost & additional costs](/docs/purchasing/landed-and-additional-costs).
    </Aside>
 
 3. **Assign a cost to a different supplier (optional).** If a charge is owed to someone other than the order's supplier — say a freight company — set the **Supplier** column on that cost to the freight supplier. Leave it as **(PO supplier)** to bill the order's supplier. Once you choose a supplier, the row is no longer blank: it must also have an amount before the order can save. Ashicore keeps the charge on this purchase order, but Xero bill sync groups costs by resolved supplier so each supplier can be billed on its own invoice.
@@ -78,7 +78,7 @@ Capture freight, customs, and other charges on a purchase order, and decide whet
    A supplier on an additional-cost row changes Xero bill grouping. It does not create a separate purchase order in the operator workflow, and it does not create anything to receive.
    </Aside>
 
-4. **Editing costs after receipt revalues tracked stock.** Change a by-value cost (or a line price) *after* stock is received, and Ashicore appends a revaluation that rebases the on-hand tracked lots from this order — keeping inventory valuation correct. Untracked shared-bucket materials save the edit but aren't rebased in v1.
+4. **Editing costs after receipt revalues tracked stock.** Change a **By value** or **By quantity** cost (or a line price) *after* stock is received, and Ashicore appends a revaluation that rebases the on-hand tracked lots from this order — keeping inventory valuation correct. Untracked shared-bucket materials save the edit but aren't rebased in v1.
 
 </Steps>
 

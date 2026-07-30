@@ -76,7 +76,7 @@ You'll need at least one **supplier** and active items to buy. Items can carry a
    A "Bag (×69 kg)" line ordered twelve times becomes 828 kg of inventory. The **landed cost per stock unit** climbs above the raw `$310 ÷ 69 = $4.49` once by-value additional costs are allocated in the next step.
    </Aside>
 
-4. **Add additional costs (optional).** Choose **Add cost** to capture freight, customs, or other charges. In the **Cost** column, pick **Shipping**, **Customs**, or **Other**. Amount is required for any cost row you begin, including one where you only choose a separate supplier. For each row, choose how it's distributed: **By value** spreads it across the lines and raises your landed inventory cost, while **Not distributed** raises the order total only and leaves inventory valuation untouched.
+4. **Add additional costs (optional).** Choose **Add cost** to capture freight, customs, or other charges. In the **Cost** column, pick **Shipping**, **Customs**, or **Other**. Amount is required for any cost row you begin, including one where you only choose a separate supplier. For each row, choose how it's distributed: **By value** uses each line's share of material value, **By quantity** uses its share of ordered purchase units, and **Not distributed** raises the order total without changing inventory valuation.
 
    <Frame title="<b>Additional costs</b>">
      <Grid>
@@ -97,7 +97,7 @@ You'll need at least one **supplier** and active items to buy. Items can carry a
    </Frame>
 
    <Aside type="caution" title="Where the money lands">
-   Only **by-value** costs flow into your inventory cost and, for tracked items, the lot cost when you receive. A not-distributed cost raises the order total but never the inventory valuation. Editing a by-value cost *after* receipt revalues tracked stock still on hand from this order; untracked shared-bucket materials save the edit without rebasing in v1.
+   **By value** and **By quantity** costs flow into your inventory cost and, for tracked items, the lot cost when you receive. A **Not distributed** cost raises the order total but never the inventory valuation. Editing a distributed cost *after* receipt revalues tracked stock still on hand from this order; untracked shared-bucket materials save the edit without rebasing in v1.
    </Aside>
 
 5. **Set delivery details.** Add the delivery address and an optional expected arrival date. There is no Save button: valid changes autosave. Until you choose a supplier and add one complete material line, the card remains unsaved; the save indicator names the missing requirement. After the first valid save, it has a PO number, is counted in expected supply, and can be reopened. It stays editable and deletable after receipt; deleting received orders removes stock still on hand and keeps used quantities in history.

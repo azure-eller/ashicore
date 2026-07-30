@@ -82,12 +82,14 @@ provider. It is not the target purchasing workflow.
 - unmatched provider suppliers/materials may be created during manual import
 - imported POs update while unreceived; received rows still cannot be reduced
   below received quantity
-- re-import preserves a locally assigned additional-cost supplier when one old
-  and one incoming cost match exactly on type, trimmed reference, and numeric
-  amount; after exact matches are consumed, it also carries the supplier across
-  an amount edit when exactly one unmatched old and incoming cost share a type
+- re-import preserves a locally assigned additional-cost supplier and
+  distribution method when one old and one incoming cost match exactly on type,
+  trimmed reference, and numeric amount; after exact matches are consumed, it
+  also carries both local fields across an amount edit when exactly one
+  unmatched old and incoming cost share a type
 - ambiguous duplicate or same-type costs are never guessed; unmatched imported
-  costs keep the provider payload's blank supplier assignment
+  costs keep the provider payload's blank supplier assignment and classified
+  distribution method
 - delivery address is stored on the purchase order header, not per line
 
 ## Supplier Items
@@ -113,17 +115,25 @@ Purchase orders may store additional costs for `shipping`, `customs`, and
 
 - `by_value` additional costs are landed cost and are allocated to material
   lines by each line's share of the material subtotal
+- `by_quantity` additional costs are landed cost and are allocated by each
+  line's share of total ordered purchase-unit quantity; purchase-to-stock
+  conversion factors do not affect this allocation
 - `not_distributed` additional costs increase the PO total only and do not
   change line `stockUnitCost`, receipt lot cost, or inventory valuation
+- new additional-cost rows default to `by_value`; each distributed cost keeps
+  its own method, and a line's total allocation is the sum of its value-based
+  and quantity-based shares
 - create/edit and detail pages show landed cost per stocking unit; this is the
   inventory cost basis users should compare
 - receipt lots use the latest PO line landed stock-unit cost at receipt time, so
   additional-cost edits before receipt affect inventory valuation
-- after receipt, editing a line price or a `by_value` additional cost appends a
-  `landed_cost_revaluation` event that rebases eligible on-hand tracked lots and
-  the material's `currentStockUnitCost`; the original `purchase_receipt` event
-  is never mutated, consumed quantities keep their historical cost, and
-  untracked materials save the edit but skip v1 revaluation
+- after receipt, editing a line price or a distributed additional cost appends
+  a `landed_cost_revaluation` event that rebases eligible on-hand tracked lots
+  and the material's `currentStockUnitCost`; event metadata records
+  `by_value`, `by_quantity`, or `mixed` when additional costs establish an
+  allocation basis; the original `purchase_receipt` event is never mutated,
+  consumed quantities keep their historical cost, and untracked materials save
+  the edit but skip v1 revaluation
 
 - `defaultPurchasePrice` is the price of one purchase unit, not one stock unit
 - `purchaseToStockFactor` means "stock units per 1 purchase unit"
@@ -260,8 +270,11 @@ operator receive dialog blocks quantities above the line remainder and does not 
 over-receipt confirmation. API/internal callers can pass `confirmOverReceipt`; on
 confirmation the line's ordered (and stock-ordered) quantity is raised to match what was
 received and expected supply is reconciled via `editExpectedFromPurchaseInTx`, so the
-over-received portion never lingers as outstanding expected. A receipt when the remainder
-is already negative hard-errors.
+over-received portion never lingers as outstanding expected. Because raising ordered
+quantity can change landed-cost allocation, all line costs are recalculated before the
+new receipt; eligible tracked stock received earlier from the order is revalued through
+the same append-only landed-cost path. A receipt when the remainder is already negative
+hard-errors.
 
 ## Expected Supply Projection
 
@@ -280,7 +293,7 @@ Implementation rule:
 
 ## Purchase order invariants — coverage map
 
-Every consequence of acting on a purchase order, the invariant it protects, and whether a slow story protects it. The only slow story for purchasing is `purchasing-receiving.spec.ts`; it checks that received-order delete remains available and previews the reversal, but the fast lane owns the receipt-reversal database effects. Its covered list does not include the over-receipt path or untracked MAC revaluation (phase 2). The public docs hub carries the operator-facing version of this table without any test/coverage column — keep that mapping here, not there.
+Every consequence of acting on a purchase order, the invariant it protects, and whether a test protects it. The only slow story for purchasing is `purchasing-receiving.spec.ts`; it checks that received-order delete remains available and previews the reversal, while the fast lane owns the receipt-reversal database effects and confirmed over-receipt revaluation. Untracked MAC revaluation remains phase 2. The public docs hub carries the operator-facing version of this table without any test/coverage column — keep that mapping here, not there.
 
 | Invariant | Spec | Covered? |
 |-----------|------|----------|
@@ -289,7 +302,7 @@ Every consequence of acting on a purchase order, the invariant it protects, and 
 | Receive writes tracked lots or untracked bucket entries, releases matching expected supply, in one transaction (both-or-neither) | `purchasing-receiving.spec.ts` | Yes |
 | Partial receipt: only received part becomes stock; remainder stays expected | `purchasing-receiving.spec.ts` | Yes |
 | Full receipt: last remainder becomes stock; status Received; expected fully released | `purchasing-receiving.spec.ts` | Yes |
-| Received-line cost / by-value additional-cost edit revalues eligible on-hand tracked stock via append-only event; consumed and untracked-v1 stock unchanged | `purchasing-receiving.spec.ts` | Yes |
-| Over-receipt: confirmed receipt raises ordered quantity to match what was received | `purchasing-receiving.spec.ts` | No — not covered by that story |
+| Received-line cost or value-/quantity-distributed additional-cost edit revalues eligible on-hand tracked stock via append-only event; consumed and untracked-v1 stock unchanged | `purchasing-receiving.spec.ts` | Yes |
+| Over-receipt raises ordered quantity, reconciles expected supply, recalculates landed costs, revalues eligible earlier tracked receipts, then posts the new receipt at the recalculated cost | `purchasing-supply-and-receipt.spec.ts` (fast) | Yes |
 | Delete releases the order's remaining expected supply in the same transaction | `purchasing-supply-and-receipt.spec.ts` (fast) | Yes |
 | Delete after receipt reverses only the on-hand remainder via `purchase_receipt_reversal` events; `purchase_receipt` events and consumed quantities are preserved | `purchasing-supply-and-receipt.spec.ts` (fast) | Yes |

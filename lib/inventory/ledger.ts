@@ -335,6 +335,14 @@ export function summarizeInventoryLedgerMetadata(
 
   if (metadata.allocationBasis === "by_value") {
     add("Allocation basis", "Line value", "allocationBasis");
+  } else if (metadata.allocationBasis === "by_quantity") {
+    add("Allocation basis", "Purchase quantity", "allocationBasis");
+  } else if (metadata.allocationBasis === "mixed") {
+    add(
+      "Allocation basis",
+      "Mixed: line value + purchase quantity",
+      "allocationBasis",
+    );
   } else if (metadata.allocationBasis === "by_weight") {
     add("Allocation basis", "Weight", "allocationBasis");
   }

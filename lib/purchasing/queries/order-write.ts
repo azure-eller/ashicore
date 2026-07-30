@@ -34,6 +34,7 @@ import {
   normalizeLandedMoney,
   normalizeLandedQuantity,
   normalizeLandedStockUnitCost,
+  resolveLandedCostAllocationBasis,
 } from "@/lib/purchasing/landed-cost";
 import { calculateTaxAmount, calculateTaxedLineTotal } from "@/lib/tax/calc";
 import {
@@ -48,7 +49,11 @@ import {
   runIdempotentInventoryOperationInTx,
 } from "@/lib/inventory/kernel";
 import { generateShortDocumentNumberInTx } from "@/lib/document-numbers";
-import type { InsertPurchaseOrder, UpdatePurchaseOrder } from "@/lib/schemas/purchase-orders";
+import type {
+  InsertPurchaseOrder,
+  PurchaseOrderAdditionalCostDistributionMethod,
+  UpdatePurchaseOrder,
+} from "@/lib/schemas/purchase-orders";
 import type { PurchaseOrderDetail } from "@/lib/purchasing/types";
 import { softDeleteLinkedAdditionalCostPurchaseOrdersInTx } from "./additional-costs";
 import { PurchasingError } from "./errors";
@@ -95,7 +100,7 @@ type PreparedPurchaseOrderAdditionalCost = {
   costType: "shipping" | "customs" | "other";
   reference: string | null;
   supplierId: string | null;
-  distributionMethod: "by_value" | "not_distributed";
+  distributionMethod: PurchaseOrderAdditionalCostDistributionMethod;
   accountingPurchaseAccountCode: string | null;
   amount: string;
   sortOrder: number;
@@ -952,6 +957,9 @@ export async function updatePurchaseOrder(
         idempotencyKey: deriveInventoryIdempotencyKey(
           options?.idempotencyKey,
           "landed-cost-revaluation",
+        ),
+        allocationBasis: resolveLandedCostAllocationBasis(
+          prepared.preparedAdditionalCosts,
         ),
         lines: landedCostRevaluationLines,
       });

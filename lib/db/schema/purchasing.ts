@@ -356,7 +356,7 @@ export const purchaseOrderAdditionalCosts = purchasingSchema
       ),
       check(
         "purchase_order_additional_costs_distribution_check",
-        sql`distribution_method IN ('by_value', 'not_distributed')`
+        sql`distribution_method IN ('by_value', 'by_quantity', 'not_distributed')`
       ),
       check("purchase_order_additional_costs_amount_check", sql`amount >= 0`),
       foreignKey({

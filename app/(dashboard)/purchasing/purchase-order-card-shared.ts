@@ -81,6 +81,7 @@ export const ADDITIONAL_COST_DISTRIBUTION_LABELS: Record<
   string
 > = {
   by_value: "By value",
+  by_quantity: "By quantity",
   not_distributed: "Not distributed",
 };
 

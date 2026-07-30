@@ -56,7 +56,7 @@ Before writing, build a throwaway **fact sheet** for the module by reading the c
 Every public page serves a human operator **and** a build-agent (docs double as test input). That forces a strict split:
 
 - **Public pages** (`apps/www/src/content/docs/docs/<module>/`) stay operator-plain: what you see on screen, what you do, and what changes (expected supply, stock, lots, costs). **On-screen field labels and status names only.**
-- **Private mechanism doc** (`docs/<module>.md`) holds schema column names, kernel event names (`purchase_receipt`, `expected_release`, `landed_cost_revaluation`), `by_value`/`not_distributed` enum tokens, `purchaseUnitName`, "Source: … schema" notes, and the invariant→test map.
+- **Private mechanism doc** (`docs/<module>.md`) holds schema column names, kernel event names (`purchase_receipt`, `expected_release`, `landed_cost_revaluation`), `by_value`/`by_quantity`/`not_distributed` enum tokens, `purchaseUnitName`, "Source: … schema" notes, and the invariant→test map.
 
 Never put schema column names, DB types, or internal event names in a public page. A leak-check grep enforces this (§9). Keep the warning, lose the jargon: say "both happen together, or neither does," not "atomic"; "recalculated," not "re-derived."
 
@@ -185,7 +185,7 @@ Kit rules:
 ## 8. Writing rules & content restraint
 
 - **Tone:** precise, technical, second person, present tense. Short sentences. No marketing voice on spoke pages.
-- **Use the real names.** A control is named exactly as the app labels it, wrapped in `.po-uikey` (the **status** menu, **Add material**, **Send PO email**). An enum/value is a `.po-enum` chip using its operator label (**By value**, **Not distributed**) — never the schema token (`by_value`) on a public page.
+- **Use the real names.** A control is named exactly as the app labels it, wrapped in `.po-uikey` (the **status** menu, **Add material**, **Send PO email**). An enum/value is a `.po-enum` chip using its operator label (**By value**, **By quantity**, **Not distributed**) — never the schema token (`by_value`) on a public page.
 - **Quote real system strings** for guards and validation inside an `<Aside>` (e.g. "You can't receive more than remaining").
 - **Steps map to real clicks.** Each `<Steps>` item is one thing the user actually does, in real order. If the app does it via a status menu, the step says so (and the mock shows a `.mk-drop`), not a fictional "Submit" button.
 - **Cross-link generously:** how-tos link to the concepts they rely on and the reference for fields; concepts link to the how-to that performs them. Use real `/docs/<module>/<slug>` hrefs.

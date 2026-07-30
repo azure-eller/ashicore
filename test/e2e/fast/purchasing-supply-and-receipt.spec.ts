@@ -18,6 +18,7 @@ import {
   purchaseOrderLines,
   purchaseOrders,
   suppliers,
+  unitDefinitions,
   user,
 } from "../../../lib/db/schema";
 import { groupPurchaseOrderByResolvedSupplier } from "../../../lib/purchasing/resolved-supplier-groups";
@@ -1709,6 +1710,147 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     expect(cleanupPref.status).toBe(200);
   });
 
+  test("value and quantity costs use independent allocation bases", async ({
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const [purchaseUnit] = await db
+      .insert(unitDefinitions)
+      .values({
+        organizationId: getOrgId(),
+        name: `Fast Quantity Purchase Unit ${unique}`,
+        size: "1",
+        uom: "ea",
+      })
+      .returning({ id: unitDefinitions.id });
+    const [highValueMaterial, highQuantityMaterial] = await Promise.all([
+      createItem({
+        itemType: "material",
+        name: `Fast Quantity Cost High Value ${unique}`,
+        unitDefinitionId: unitId,
+        purchaseUnitDefinitionId: purchaseUnit.id,
+        purchaseToStockFactor: "48",
+        sku: `FAST-QTY-COST-HIGH-${unique}`,
+        category: `Fast Purchasing ${unique}`,
+        description: null,
+        defaultPurchasePrice: "100.00",
+        defaultSellingPrice: null,
+        stock: "0",
+        safetyStock: "0",
+        bom: [],
+      }),
+      createItem({
+        itemType: "material",
+        name: `Fast Quantity Cost High Quantity ${unique}`,
+        unitDefinitionId: unitId,
+        purchaseUnitDefinitionId: purchaseUnit.id,
+        purchaseToStockFactor: "3072",
+        sku: `FAST-QTY-COST-MANY-${unique}`,
+        category: `Fast Purchasing ${unique}`,
+        description: null,
+        defaultPurchasePrice: "10.00",
+        defaultSellingPrice: null,
+        stock: "0",
+        safetyStock: "0",
+        bom: [],
+      }),
+    ]);
+    expect(highValueMaterial.status).toBe(201);
+    expect(highQuantityMaterial.status).toBe(201);
+
+    const supplier = await createSupplier({
+      name: `Fast Quantity Cost Supplier ${unique}`,
+    });
+    expect(supplier.status).toBe(201);
+
+    const response = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId: supplier.body.id,
+        expectedDate: "2026-07-20",
+        notes: null,
+        lines: [
+          {
+            itemId: highValueMaterial.body.id,
+            quantityOrdered: "2",
+            unitCost: "100.00",
+          },
+          {
+            itemId: highQuantityMaterial.body.id,
+            quantityOrdered: "8",
+            unitCost: "10.00",
+          },
+        ],
+        additionalCosts: [
+          {
+            costType: "shipping",
+            reference: "Per-unit freight",
+            distributionMethod: "by_quantity",
+            accountingPurchaseAccountCode: null,
+            amount: "100.00",
+          },
+          {
+            costType: "customs",
+            reference: "Value-based duty",
+            distributionMethod: "by_value",
+            accountingPurchaseAccountCode: null,
+            amount: "70.00",
+          },
+          {
+            costType: "other",
+            reference: "Deposit",
+            distributionMethod: "not_distributed",
+            accountingPurchaseAccountCode: null,
+            amount: "30.00",
+          },
+        ],
+      }),
+    });
+    const order = await response.json();
+    expect(response.status, JSON.stringify(order)).toBe(201);
+    expect(order.additionalCosts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          distributionMethod: "by_quantity",
+          amount: "100",
+        }),
+        expect.objectContaining({
+          distributionMethod: "by_value",
+          amount: "70",
+        }),
+        expect.objectContaining({
+          distributionMethod: "not_distributed",
+          amount: "30",
+        }),
+      ]),
+    );
+    expect(order).toMatchObject({
+      shippingCost: "100",
+      subtotalAmount: "480",
+      totalAmount: "480",
+    });
+
+    const lineByItemId = new Map(
+      order.lines.map((line: { itemId: string }) => [line.itemId, line]),
+    );
+    expect(lineByItemId.get(highValueMaterial.body.id)).toMatchObject({
+      // 20 by purchase quantity + 50 by material value.
+      allocatedAdditionalCost: "70",
+      landedCost: "270",
+      purchaseToStockFactor: "48",
+      stockQuantityOrdered: "96",
+      stockUnitCost: "2.8125",
+    });
+    expect(lineByItemId.get(highQuantityMaterial.body.id)).toMatchObject({
+      // 80 by purchase quantity + 20 by material value.
+      allocatedAdditionalCost: "100",
+      landedCost: "180",
+      purchaseToStockFactor: "3072",
+      stockQuantityOrdered: "24576",
+      stockUnitCost: "0.007324",
+    });
+  });
+
   test("purchase order edit clears additional costs explicitly", async ({ db }) => {
     const material = await createItem({
       itemType: "material",
@@ -1869,7 +2011,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     expect(costs).toEqual([{ supplierId: freightSupplier.body.id }]);
   });
 
-  test("accounting re-import preserves additional-cost supplier assignments", async ({
+  test("accounting re-import preserves local additional-cost assignments", async ({
     db,
   }) => {
     const mainName = `Fast Import Main ${ts}-${randomUUID().slice(0, 6)}`;
@@ -1907,7 +2049,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
           {
             costType: "shipping",
             reference: "Freight",
-            distributionMethod: "by_value",
+            distributionMethod: "by_quantity",
             accountingPurchaseAccountCode: null,
             amount: "50.00",
             supplierId: freightSupplier.body.id,
@@ -1976,6 +2118,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       db
         .select({
           supplierId: purchaseOrderAdditionalCosts.supplierId,
+          distributionMethod: purchaseOrderAdditionalCosts.distributionMethod,
           amount: purchaseOrderAdditionalCosts.amount,
         })
         .from(purchaseOrderAdditionalCosts)
@@ -1983,6 +2126,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     expect(await costRows()).toEqual([
       expect.objectContaining({
         supplierId: freightSupplier.body.id,
+        distributionMethod: "by_quantity",
         amount: "50.0000",
       }),
     ]);
@@ -1997,6 +2141,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     expect(await costRows()).toEqual([
       expect.objectContaining({
         supplierId: freightSupplier.body.id,
+        distributionMethod: "by_quantity",
         amount: "60.0000",
       }),
     ]);
@@ -2013,7 +2158,11 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     const ambiguousExactRun = runImport(editedDocument);
     expect(ambiguousExactRun, ambiguousExactRun).toContain('"updated":1');
     expect(await costRows()).toEqual([
-      expect.objectContaining({ supplierId: null, amount: "60.0000" }),
+      expect.objectContaining({
+        supplierId: null,
+        distributionMethod: "by_value",
+        amount: "60.0000",
+      }),
     ]);
 
     await db
@@ -2036,11 +2185,17 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     const ambiguousFallbackRun = runImport(ambiguousFallbackDocument);
     expect(ambiguousFallbackRun, ambiguousFallbackRun).toContain('"updated":1');
     expect(await costRows()).toEqual([
-      expect.objectContaining({ supplierId: null, amount: "70.0000" }),
+      expect.objectContaining({
+        supplierId: null,
+        distributionMethod: "by_value",
+        amount: "70.0000",
+      }),
     ]);
   });
 
-  test("freight edit after receipt revalues landed cost via append-only event", async ({ db }) => {
+  test("quantity-distributed freight edit revalues landed cost via append-only event", async ({
+    db,
+  }) => {
     const material = await createItem({
       itemType: "material",
       name: `Fast PO Reval Material ${ts}`,
@@ -2071,7 +2226,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
           {
             costType: "shipping",
             reference: "Freight",
-            distributionMethod: "by_value",
+            distributionMethod: "by_quantity",
             accountingPurchaseAccountCode: null,
             amount: "20.00",
           },
@@ -2120,7 +2275,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
           {
             costType: "shipping",
             reference: "Freight",
-            distributionMethod: "by_value",
+            distributionMethod: "by_quantity",
             accountingPurchaseAccountCode: null,
             amount: "50.00",
           },
@@ -2160,7 +2315,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
           {
             costType: "shipping",
             reference: "Freight",
-            distributionMethod: "by_value",
+            distributionMethod: "by_quantity",
             accountingPurchaseAccountCode: null,
             amount: "50.00",
           },
@@ -2177,6 +2332,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
         lotId: inventoryEvents.lotId,
         referenceType: inventoryEvents.referenceType,
         referenceId: inventoryEvents.referenceId,
+        metadata: inventoryEvents.metadata,
       })
       .from(inventoryEvents)
       .where(
@@ -2192,6 +2348,9 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       lotId: receipt.lotId,
       referenceType: "purchase_order",
       referenceId: order.id,
+      metadata: expect.objectContaining({
+        allocationBasis: "by_quantity",
+      }),
     });
 
     const [lot] = await db
@@ -2232,7 +2391,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
           {
             costType: "shipping",
             reference: "Freight",
-            distributionMethod: "by_value",
+            distributionMethod: "by_quantity",
             accountingPurchaseAccountCode: null,
             amount: "50.00",
           },
@@ -2262,6 +2421,135 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       .from(items)
       .where(eq(items.id, itemId));
     expect(itemAfterPriceEdit.currentStockUnitCost).toBe("16.000000");
+  });
+
+  test("quantity allocation revalues an earlier receipt when over-receipt expands the order", async ({
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast Quantity Over Receipt Material ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-QTY-OVER-${unique}`,
+      category: `Fast Purchasing ${unique}`,
+      description: null,
+      defaultPurchasePrice: "10.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status).toBe(201);
+    const itemId = material.body.id as string;
+
+    const supplier = await createSupplier({
+      name: `Fast Quantity Over Receipt Supplier ${unique}`,
+    });
+    expect(supplier.status).toBe(201);
+
+    const createResponse = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId: supplier.body.id,
+        expectedDate: "2026-07-20",
+        notes: null,
+        lines: [{ itemId, quantityOrdered: "2", unitCost: "10.00" }],
+        additionalCosts: [
+          {
+            costType: "shipping",
+            reference: "Freight",
+            distributionMethod: "by_quantity",
+            accountingPurchaseAccountCode: null,
+            amount: "20.00",
+          },
+        ],
+      }),
+    });
+    const order = await createResponse.json();
+    expect(createResponse.status, JSON.stringify(order)).toBe(201);
+
+    const [line] = await db
+      .select({ id: purchaseOrderLines.id })
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, order.id));
+    const firstReceipt = await receivePurchaseOrder(order.id, {
+      lines: [{ lineId: line.id, quantityReceived: "1" }],
+    });
+    expect(firstReceipt.status, JSON.stringify(firstReceipt.body)).toBe(200);
+    expect(firstReceipt.body.status).toBe("partial");
+
+    const overReceipt = await receivePurchaseOrder(order.id, {
+      confirmOverReceipt: true,
+      lines: [{ lineId: line.id, quantityReceived: "2" }],
+    });
+    expect(overReceipt.status, JSON.stringify(overReceipt.body)).toBe(200);
+    expect(overReceipt.body.status).toBe("received");
+
+    const [updatedLine] = await db
+      .select({
+        quantityOrdered: purchaseOrderLines.quantityOrdered,
+        quantityReceived: purchaseOrderLines.quantityReceived,
+        stockUnitCost: purchaseOrderLines.stockUnitCost,
+      })
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.id, line.id));
+    expect(updatedLine).toMatchObject({
+      quantityOrdered: "3.0000",
+      quantityReceived: "3.0000",
+      stockUnitCost: "16.666667",
+    });
+
+    const events = await db
+      .select({
+        eventType: inventoryEvents.eventType,
+        quantity: inventoryEvents.quantity,
+        unitCost: inventoryEvents.unitCost,
+        extendedCost: inventoryEvents.extendedCost,
+        lotId: inventoryEvents.lotId,
+        metadata: inventoryEvents.metadata,
+      })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, itemId),
+          eq(inventoryEvents.referenceType, "purchase_order"),
+          eq(inventoryEvents.referenceId, order.id),
+        ),
+      );
+    const revaluation = events.find(
+      (event) => event.eventType === "landed_cost_revaluation",
+    );
+    expect(revaluation).toMatchObject({
+      quantity: "0.0000",
+      unitCost: "16.666667",
+      extendedCost: "-3.333333",
+      metadata: expect.objectContaining({
+        allocationBasis: "by_quantity",
+        previousUnitCost: "20",
+        newUnitCost: "16.666667",
+        revaluedQuantity: "1",
+      }),
+    });
+
+    const receiptCosts = events
+      .filter((event) => event.eventType === "purchase_receipt")
+      .map((event) => ({
+        quantity: event.quantity,
+        unitCost: event.unitCost,
+      }));
+    expect(receiptCosts).toEqual(
+      expect.arrayContaining([
+        { quantity: "1.0000", unitCost: "20.000000" },
+        { quantity: "2.0000", unitCost: "16.666667" },
+      ]),
+    );
+
+    const [firstReceiptLot] = await db
+      .select({ unitCost: inventoryLotBalances.unitCost })
+      .from(inventoryLotBalances)
+      .where(eq(inventoryLotBalances.lotId, revaluation!.lotId!));
+    expect(firstReceiptLot.unitCost).toBe("16.666667");
   });
 
   test("freight edit after receipt revalues only remaining available stock", async ({

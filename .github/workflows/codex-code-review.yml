@@ -33,7 +33,7 @@ jobs:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           allow-bots: true
           sandbox: read-only
-          effort: high
+          effort: medium
           prompt: |
             Review only the changes introduced by this pull request.
 
@@ -44,6 +44,10 @@ jobs:
             Read the applicable AGENTS.md files, then inspect the pull-request diff and
             relevant history. The checkout is the pull-request merge commit: HEAD^1 is
             the base and HEAD^2 is the proposed head.
+
+            Treat generated migration snapshots and lockfiles as supporting artifacts:
+            inspect their concise source migration or manifest first, and only open the
+            generated file sections needed to prove a suspected inconsistency.
 
             Focus on consequential, high-confidence issues introduced by the diff:
             correctness, data integrity, authorization/security, reliability, external

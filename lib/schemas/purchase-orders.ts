@@ -27,6 +27,7 @@ export const PURCHASE_ORDER_ADDITIONAL_COST_TYPES = [
 
 export const PURCHASE_ORDER_ADDITIONAL_COST_DISTRIBUTION_METHODS = [
   "by_value",
+  "by_quantity",
   "not_distributed",
 ] as const;
 

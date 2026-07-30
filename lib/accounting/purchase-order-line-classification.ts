@@ -1,4 +1,5 @@
 import { normalizeNumeric } from "@/lib/format";
+import type { PurchaseOrderAdditionalCostDistributionMethod } from "@/lib/schemas/purchase-orders";
 
 type ExternalPurchaseOrderLineLike = {
   itemCode: string | null;
@@ -11,7 +12,7 @@ type ExternalPurchaseOrderLineLike = {
 export type ImportedAdditionalCostLine = {
   costType: "shipping" | "customs" | "other";
   reference: string | null;
-  distributionMethod: "by_value" | "not_distributed";
+  distributionMethod: PurchaseOrderAdditionalCostDistributionMethod;
   accountingPurchaseAccountCode: string | null;
   amount: string;
 };
