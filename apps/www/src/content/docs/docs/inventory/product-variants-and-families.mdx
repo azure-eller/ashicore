@@ -45,6 +45,7 @@ Use variants when one product or material has several real sellable or stockable
 | --- | --- |
 | Shared fields are edited on the family card and mirror to all variants. | Name, item type, category, unit, lot-tracking mode, and purchasing setup are managed once. |
 | Per-variant fields are independent. | SKU, barcodes, supplier code, lead time, MOQ, prices, stock quantity, and sellability belong to each concrete variant item. |
+| The displayed name identifies the full variant. | The family name is followed by every assigned option value in option order, separated by `/`. A disabled value stays in the name of variants that already use it. |
 | Each option-value combination must be unique. | The API exposes duplicate-combination warnings; filled duplicate SKUs are hard-blocked. |
 | The card UI supports up to 3 option axes. | Each axis holds an ordered list of values. At least one active variant must remain on the card. |
 

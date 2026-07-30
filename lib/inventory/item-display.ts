@@ -7,11 +7,15 @@ import {
   variantOptionValues,
 } from "@/lib/db/schema";
 import type { Tx } from "@/lib/db/with-org-context";
+import { formatItemDisplayName } from "@/lib/inventory/display-name";
+
+export { formatItemDisplayName } from "@/lib/inventory/display-name";
 
 type ItemDisplayRow = {
   id: string;
   name: string;
   familyName: string | null;
+  deletedAt: Date | null;
 };
 
 export type ItemDisplayMetadata = ItemDisplayRow & {
@@ -20,23 +24,12 @@ export type ItemDisplayMetadata = ItemDisplayRow & {
   optionLabels: string[];
 };
 
-export function formatItemDisplayName(row: {
-  name: string;
-  familyName: string | null;
-  optionLabels?: string[];
-}) {
-  const optionLabels = row.optionLabels ?? [];
-  if (row.familyName && optionLabels.length > 0) {
-    return `${row.familyName} / ${optionLabels.join(" / ")}`;
-  }
-  return row.familyName ?? row.name;
-}
-
 export function formatItemDisplayMetadata(row: {
   id: string;
   name: string;
   familyName: string | null;
   optionLabels?: string[];
+  deletedAt: Date | null;
 }): ItemDisplayMetadata {
   const optionLabels = row.optionLabels ?? [];
 
@@ -44,18 +37,11 @@ export function formatItemDisplayMetadata(row: {
     id: row.id,
     name: row.name,
     familyName: row.familyName,
+    deletedAt: row.deletedAt,
     displayName: formatItemDisplayName({ ...row, optionLabels }),
     masterName: row.familyName ?? row.name,
     optionLabels,
   };
-}
-
-function activeOptionLabels(
-  rows: Array<{ label: string; optionDisabledAt: Date | null; valueDisabledAt: Date | null }>,
-) {
-  return rows
-    .filter((row) => row.optionDisabledAt == null && row.valueDisabledAt == null)
-    .map((row) => row.label);
 }
 
 export async function getItemDisplayMetadataByIdInTx(tx: Tx, itemIds: string[]) {
@@ -68,6 +54,7 @@ export async function getItemDisplayMetadataByIdInTx(tx: Tx, itemIds: string[]) 
         id: items.id,
         name: items.name,
         familyName: itemFamilies.name,
+        deletedAt: items.deletedAt,
       })
       .from(items)
       .leftJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
@@ -76,8 +63,6 @@ export async function getItemDisplayMetadataByIdInTx(tx: Tx, itemIds: string[]) 
       .select({
         itemId: itemVariantValues.itemId,
         label: variantOptionValues.label,
-        optionDisabledAt: variantOptions.disabledAt,
-        valueDisabledAt: variantOptionValues.disabledAt,
       })
       .from(itemVariantValues)
       .innerJoin(variantOptions, eq(itemVariantValues.optionId, variantOptions.id))
@@ -89,17 +74,10 @@ export async function getItemDisplayMetadataByIdInTx(tx: Tx, itemIds: string[]) 
       .orderBy(asc(variantOptions.sortOrder), asc(variantOptionValues.sortOrder)),
   ]);
 
-  const optionLabelsByItemId = new Map<
-    string,
-    Array<{ label: string; optionDisabledAt: Date | null; valueDisabledAt: Date | null }>
-  >();
+  const optionLabelsByItemId = new Map<string, string[]>();
   for (const row of optionRows) {
     const bucket = optionLabelsByItemId.get(row.itemId) ?? [];
-    bucket.push({
-      label: row.label,
-      optionDisabledAt: row.optionDisabledAt,
-      valueDisabledAt: row.valueDisabledAt,
-    });
+    bucket.push(row.label);
     optionLabelsByItemId.set(row.itemId, bucket);
   }
 
@@ -108,7 +86,7 @@ export async function getItemDisplayMetadataByIdInTx(tx: Tx, itemIds: string[]) 
       row.id,
       formatItemDisplayMetadata({
         ...row,
-        optionLabels: activeOptionLabels(optionLabelsByItemId.get(row.id) ?? []),
+        optionLabels: optionLabelsByItemId.get(row.id) ?? [],
       }),
     ])
   );

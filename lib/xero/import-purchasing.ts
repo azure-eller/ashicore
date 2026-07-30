@@ -22,6 +22,7 @@ import {
 import type { Tx } from "@/lib/db/with-org-context";
 import { withOrgContext } from "@/lib/db/with-org-context";
 import { trimScaleNullable } from "@/lib/db/numeric";
+import { getItemDisplayMetadataByIdInTx } from "@/lib/inventory/item-display";
 import { getAuthedXeroClient } from "./client";
 import { XeroError, extractXeroMessage, redactXeroError } from "./errors";
 import { isDemoCompanyTenant } from "./import-utils";
@@ -479,6 +480,10 @@ async function loadLocalDataInTx(tx: Tx) {
     })
     .from(items)
     .where(isNull(items.deletedAt));
+  const displayByItemId = await getItemDisplayMetadataByIdInTx(
+    tx,
+    localItems.map((item) => item.id)
+  );
   const externalRecords = await tx
     .select({
       entityType: integrationExternalRecords.entityType,
@@ -507,6 +512,7 @@ async function loadLocalDataInTx(tx: Tx) {
     const external = externalRecordByLocal.get(`item:${item.id}`);
     return {
       ...item,
+      name: displayByItemId.get(item.id)?.displayName ?? item.name,
       xeroItemId: external?.externalId ?? null,
       xeroItemCode: external?.externalCode ?? null,
       xeroItemName: external?.externalName ?? null,

@@ -17,6 +17,8 @@ import {
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
+import { formatItemSnapshotDisplayName } from "@/lib/inventory/display-name";
+import { getItemDisplayMetadataByIdInTx } from "@/lib/inventory/item-display";
 import {
   beginInventoryOperationInTx,
   locationIdOrDefaultSubquery,
@@ -281,7 +283,21 @@ async function getStocktakeLinesInTx(
     .where(eq(stocktakeItems.stocktakeId, stocktakeId))
     .orderBy(asc(stocktakeItems.sortOrder), asc(stocktakeItems.createdAt));
 
-  const lineRows = rows as StocktakeDetailLine[];
+  const displayByItemId = await getItemDisplayMetadataByIdInTx(
+    tx,
+    rows.map((row) => row.itemId),
+  );
+  const lineRows = rows.map((row) => {
+    const display = displayByItemId.get(row.itemId);
+    return {
+      ...row,
+      itemName: formatItemSnapshotDisplayName(
+        row.itemName,
+        display?.optionLabels ?? [],
+        [display?.masterName, display?.name],
+      ),
+    };
+  }) as StocktakeDetailLine[];
   if (lineRows.length === 0) return [];
   const lotRows = await tx
     .select({
@@ -449,7 +465,15 @@ async function getSnapshotItemsForScopeInTx(
     .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
     .where(inArray(items.id, lockedRows.map((row) => row.id)));
 
-  return rows.sort((left, right) => {
+  const displayByItemId = await getItemDisplayMetadataByIdInTx(
+    tx,
+    rows.map((row) => row.id),
+  );
+
+  return rows.map((row) => ({
+    ...row,
+    name: displayByItemId.get(row.id)?.displayName ?? row.name,
+  })).sort((left, right) => {
     const typeCompare = left.itemType.localeCompare(right.itemType);
     if (typeCompare !== 0) {
       return typeCompare;
@@ -501,7 +525,19 @@ async function getSnapshotItemsForItemIdsInTx(
     .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
     .where(inArray(items.id, lockedRows.map((row) => row.id)));
 
-  const rowById = new Map(rows.map((row) => [row.id, row]));
+  const displayByItemId = await getItemDisplayMetadataByIdInTx(
+    tx,
+    rows.map((row) => row.id),
+  );
+  const rowById = new Map(
+    rows.map((row) => [
+      row.id,
+      {
+        ...row,
+        name: displayByItemId.get(row.id)?.displayName ?? row.name,
+      },
+    ]),
+  );
   return uniqueIds.flatMap((id) => {
     const row = rowById.get(id);
     return row ? [row] : [];
@@ -604,22 +640,35 @@ export async function getStocktakePreviewItems(
       )
       .orderBy(asc(items.itemType), asc(items.name), asc(items.id));
 
-    return rows.map((row) => ({
-      ...row,
-      itemType: row.itemType as StocktakePreviewItem["itemType"],
-      lotTrackingMode: row.lotTrackingMode as StocktakePreviewItem["lotTrackingMode"],
-      stocktakeType: row.stocktakeType as StocktakeScopeItemType,
-      displayName: row.name,
-      searchText: [
-        row.name,
-        row.sku,
-        row.itemType,
-        row.category,
-        row.unitName,
-      ]
-        .filter((part): part is string => part != null && part.trim() !== "")
-        .join(" "),
-    }));
+    const displayByItemId = await getItemDisplayMetadataByIdInTx(
+      tx,
+      rows.map((row) => row.id),
+    );
+
+    return rows.map((row) => {
+      const display = displayByItemId.get(row.id);
+      const displayName = display?.displayName ?? row.name;
+      return {
+        ...row,
+        name: displayName,
+        itemType: row.itemType as StocktakePreviewItem["itemType"],
+        lotTrackingMode: row.lotTrackingMode as StocktakePreviewItem["lotTrackingMode"],
+        stocktakeType: row.stocktakeType as StocktakeScopeItemType,
+        displayName,
+        searchText: [
+          displayName,
+          row.name,
+          display?.masterName,
+          ...(display?.optionLabels ?? []),
+          row.sku,
+          row.itemType,
+          row.category,
+          row.unitName,
+        ]
+          .filter((part): part is string => part != null && part.trim() !== "")
+          .join(" "),
+      };
+    });
   });
 }
 

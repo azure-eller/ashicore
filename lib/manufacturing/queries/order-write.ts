@@ -693,7 +693,20 @@ async function getActiveIngredientItemMapInTx(tx: Tx, ingredientIds: string[]) {
     .innerJoin(unitDefinitions, eq(items.unitDefinitionId, unitDefinitions.id))
     .where(and(inArray(items.id, uniqueIds), isNull(items.deletedAt)));
 
-  return new Map(rows.map((row) => [row.id, row]));
+  const displayByItemId = await getManufacturingItemDisplayMetadataInTx(
+    tx,
+    rows.map((row) => row.id)
+  );
+
+  return new Map(
+    rows.map((row) => [
+      row.id,
+      {
+        ...row,
+        name: canonicalItemName(displayByItemId, row.id, row.name),
+      },
+    ])
+  );
 }
 
 async function prepareCreateIngredientsFromBomInTx(

@@ -102,6 +102,10 @@ Manufacturing orders still snapshot live master data at create time:
 - header snapshots: product name, SKU, unit, optional sales order number, optional sales customer
 - ingredient snapshots: item name, SKU, item type, unit, quantity used, consumption mode, basis, selected batch/group policy, calculated batch/group count, and planned quantity
 
+Product and ingredient names use the canonical variant display name when a
+manufacturing order is created. Reads also resolve current canonical names so
+legacy base-only snapshots remain distinguishable by assigned option values.
+
 Editing a draft manufacturing order never mutates the product BOM.
 
 Locked BOMs are still product-level flags on `inventory.items`. Locked BOMs restrict inventory editing surfaces, but manufacturing can still snapshot and execute from them.

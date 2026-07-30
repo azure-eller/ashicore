@@ -4,6 +4,7 @@ import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { customerCategories, customerProjects, customers, itemFamilies, itemVariantValues, items, unitDefinitions, variantOptions, variantOptionValues } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
+import { formatItemDisplayName } from "@/lib/inventory/display-name";
 import { projectedAvailableQty, projectedDemandQty, projectedExpectedQty, projectedOnHandQty } from "@/lib/inventory/kernel";
 import { SalesError } from "./errors";
 
@@ -105,8 +106,11 @@ export function formatSalesItemDisplayName(
   familyName: string | null,
   optionLabels: string[]
 ) {
-  if (!familyName) return itemName;
-  return optionLabels.length > 0 ? `${familyName} / ${optionLabels.join(" / ")}` : familyName;
+  return formatItemDisplayName({
+    name: itemName,
+    familyName,
+    optionLabels,
+  });
 }
 
 export type SalesItemValidationRow = {

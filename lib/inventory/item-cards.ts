@@ -48,6 +48,7 @@ import {
 } from "@/lib/inventory/kernel";
 import { projectedOnHandQty } from "@/lib/inventory/kernel/read";
 import { getEstimatedRecipeCostSummariesByItemIdInTx } from "@/lib/inventory/estimated-cost";
+import { formatItemDisplayName } from "@/lib/inventory/display-name";
 import { type LotTrackingMode } from "@/lib/inventory/lot-tracking";
 import {
   consolidateUntrackedFamilyLotsInTx,
@@ -247,18 +248,6 @@ function combinationSelectionKey(optionValueIdsByOptionId: Record<string, string
     .sort(([leftOptionId], [rightOptionId]) => leftOptionId.localeCompare(rightOptionId))
     .map(([optionId, valueId]) => `${optionId}=${valueId}`)
     .join("|");
-}
-
-function activeOptionValues(optionValues: VariantOptionValueDisplay[]) {
-  return optionValues.filter(
-    (value) => value.optionDisabledAt == null && value.valueDisabledAt == null,
-  );
-}
-
-function displayName(familyName: string, optionValues: VariantOptionValueDisplay[]) {
-  const activeValues = activeOptionValues(optionValues);
-  if (activeValues.length === 0) return familyName;
-  return `${familyName} / ${activeValues.map((value) => value.valueLabel).join(" / ")}`;
 }
 
 function duplicateWarnings(variants: Array<{ id: string; optionCombinationKey: string }>) {
@@ -507,7 +496,12 @@ async function getItemCardInTx(tx: Tx, itemId: string): Promise<ItemCardDto> {
           familyId: row.familyId!,
           sellable: row.sellable ?? false,
           itemType: row.itemType as ItemType,
-          displayName: `${displayName(family.name, optionValues)}${row.deletedAt ? " (deleted)" : ""}`,
+          displayName: formatItemDisplayName({
+            name: row.name,
+            familyName: family.name,
+            optionLabels: optionValues.map((value) => value.valueLabel),
+            deletedAt: row.deletedAt,
+          }),
           optionValues,
           duplicateCombinationWarnings: warningsByVariant.get(row.id) ?? [],
           dispositionBalances: dispositionBalancesByVariant.get(row.id) ?? [],

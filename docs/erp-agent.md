@@ -68,9 +68,11 @@ entry points.
 
 - `app/api/agent/mcp/**` exposes the OAuth-backed remote MCP surface.
 - `app/api/agent/api-tokens/**` manages bearer tokens for external planning access.
-- `app/api/agent/production-planning/context` serves read-only production context.
+- `app/api/agent/production-planning/context` serves read-only production context
+  with canonical item display names, including assigned variant option labels.
 - `lib/agent/**` owns external access, MCP OAuth, production planning context, and
-  replenishment context.
+  replenishment context; replenishment item names use the same canonical
+  identity.
 - `app/(dashboard)/settings/agent-access*` owns the settings UI for MCP URLs and
   token management.
 - `integrations/claude/ashicore-plugin/` owns the Claude plugin package.

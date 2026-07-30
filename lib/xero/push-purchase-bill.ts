@@ -27,6 +27,8 @@ import {
   tryRecordAccountingAuditEvent,
 } from "@/lib/accounting/audit-events";
 import { normalizeNumeric } from "@/lib/format";
+import { formatItemSnapshotDisplayName } from "@/lib/inventory/display-name";
+import { getItemDisplayMetadataByIdInTx } from "@/lib/inventory/item-display";
 import {
   groupPurchaseOrderByResolvedSupplier,
   resolvedPurchaseOrderSupplierGroupKey,
@@ -234,6 +236,7 @@ async function loadPurchaseOrderForBillInTx(
   const lines = await tx
     .select({
       id: purchaseOrderLines.id,
+      itemId: purchaseOrderLines.itemId,
       itemName: purchaseOrderLines.itemName,
       itemSku: purchaseOrderLines.itemSku,
       xeroItemCode: sql<string | null>`(
@@ -255,6 +258,21 @@ async function loadPurchaseOrderForBillInTx(
     .from(purchaseOrderLines)
     .where(eq(purchaseOrderLines.purchaseOrderId, orderId))
     .orderBy(purchaseOrderLines.sortOrder);
+  const displayByItemId = await getItemDisplayMetadataByIdInTx(
+    tx,
+    lines.map((line) => line.itemId),
+  );
+  const displayLines: LineForBill[] = lines.map(({ itemId, ...line }) => {
+    const display = displayByItemId.get(itemId);
+    return {
+      ...line,
+      itemName: formatItemSnapshotDisplayName(
+        line.itemName,
+        display?.optionLabels ?? [],
+        [display?.masterName, display?.name],
+      ),
+    };
+  });
 
   const additionalCosts = await tx
     .select({
@@ -296,7 +314,12 @@ async function loadPurchaseOrderForBillInTx(
     )
     .where(eq(purchaseOrderAdditionalCosts.purchaseOrderId, orderId));
 
-  return { order: orderWithSync, supplier, lines, additionalCosts };
+  return {
+    order: orderWithSync,
+    supplier,
+    lines: displayLines,
+    additionalCosts,
+  };
 }
 
 function conversionSummary(line: LineForBill) {

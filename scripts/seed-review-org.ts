@@ -37,6 +37,11 @@ export async function ensureReviewSession(options: {
   log?: (message: string) => void;
 }): Promise<string> {
   const log = options.log ?? console.log;
+  const previousTestEnv = {
+    TEST_ORG: process.env.TEST_ORG,
+    TEST_ORG_SLUG: process.env.TEST_ORG_SLUG,
+    TEST_BASE_URL: process.env.TEST_BASE_URL,
+  };
 
   // Force the review org — must NOT be `??=`. If TEST_ORG_SLUG were already set
   // (e.g. by a prior boot in the same process), `??=` would silently target the
@@ -45,17 +50,27 @@ export async function ensureReviewSession(options: {
   process.env.TEST_ORG_SLUG = REVIEW_ORG_SLUG;
   process.env.TEST_BASE_URL = options.baseUrl;
 
-  const { ensureTestAccount, REVIEW_ENV_PATH, REVIEW_STORAGE_STATE_PATH } =
-    await import("../test/helpers/test-account-setup");
+  try {
+    const { ensureTestAccount, REVIEW_ENV_PATH, REVIEW_STORAGE_STATE_PATH } =
+      await import("../test/helpers/test-account-setup");
 
-  const result = await ensureTestAccount({
-    baseUrl: options.baseUrl,
-    log,
-    envPath: REVIEW_ENV_PATH,
-    storageStatePath: REVIEW_STORAGE_STATE_PATH,
-  });
+    const result = await ensureTestAccount({
+      baseUrl: options.baseUrl,
+      log,
+      envPath: REVIEW_ENV_PATH,
+      storageStatePath: REVIEW_STORAGE_STATE_PATH,
+    });
 
-  return result.organizationId;
+    return result.organizationId;
+  } finally {
+    for (const [key, value] of Object.entries(previousTestEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  }
 }
 
 // True when the review org already holds snapshot data (mirrors the

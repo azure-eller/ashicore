@@ -29,6 +29,7 @@ import {
   projectedOnHandQty,
   projectedPotentialQty,
 } from "@/lib/inventory/kernel";
+import { formatItemDisplayName } from "@/lib/inventory/display-name";
 import type {
   DuplicateCombinationWarning,
   VariantOptionValueDisplay,
@@ -114,15 +115,12 @@ export function formatNormalizedVariantDisplay(
   optionValues: VariantOptionValueDisplay[],
   deletedAt?: Date | null,
 ) {
-  const baseName = familyName ?? itemName;
-  const activeOptionValues = optionValues.filter(
-    (value) => value.optionDisabledAt == null && value.valueDisabledAt == null,
-  );
-  const display =
-    activeOptionValues.length === 0
-      ? baseName
-      : `${baseName} / ${activeOptionValues.map((value) => value.valueLabel).join(" / ")}`;
-  return deletedAt ? `${display} (deleted)` : display;
+  return formatItemDisplayName({
+    name: itemName,
+    familyName,
+    optionLabels: optionValues.map((value) => value.valueLabel),
+    deletedAt,
+  });
 }
 
 export function buildDuplicateCombinationWarnings(

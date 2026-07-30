@@ -59,6 +59,7 @@ import {
 } from "@/lib/inventory/adjustment-reasons";
 import type { InventoryLedgerFilters } from "@/lib/schemas/inventory-ledger";
 import { itemDetailHref, type ItemType } from "@/lib/inventory/types";
+import { formatItemDisplayName } from "@/lib/inventory/display-name";
 import type {
   InventoryLedgerActorOption,
   InventoryLedgerItemOption,
@@ -308,6 +309,22 @@ async function shouldSuppressLotFilterInTx(
   return row?.lotTrackingMode === "untracked";
 }
 
+function buildItemIdentitySearchCondition(pattern: string) {
+  return or(
+    ilike(items.name, pattern),
+    ilike(itemFamilies.name, pattern),
+    sql`EXISTS (
+      SELECT 1
+      FROM ${itemVariantValues}
+      INNER JOIN ${variantOptionValues}
+        ON ${itemVariantValues.optionValueId} = ${variantOptionValues.id}
+      WHERE ${itemVariantValues.itemId} = ${items.id}
+        AND ${itemVariantValues.organizationId} = ${items.organizationId}
+        AND ${variantOptionValues.label} ILIKE ${pattern}
+    )`
+  );
+}
+
 function buildLedgerWhere(filters: InventoryLedgerFilters, organizationId: string) {
   const conditions: SQL[] = [eq(inventoryEvents.organizationId, organizationId)];
   const timeZone = getLedgerTimeZone(filters);
@@ -357,10 +374,22 @@ function buildLedgerWhere(filters: InventoryLedgerFilters, organizationId: strin
 
   if (filters.q) {
     const pattern = `%${filters.q}%`;
+    const displayNameSegments = filters.q
+      .split(/\s+\/\s+/)
+      .map((segment) => segment.trim())
+      .filter(Boolean);
+    const compositeItemIdentityCondition =
+      displayNameSegments.length > 1
+        ? and(
+            ...displayNameSegments.map((segment) =>
+              buildItemIdentitySearchCondition(`%${segment}%`)
+            )
+          )
+        : undefined;
     const searchCondition = or(
-      ilike(items.name, pattern),
+      buildItemIdentitySearchCondition(pattern),
+      compositeItemIdentityCondition,
       ilike(items.sku, pattern),
-      ilike(itemFamilies.name, pattern),
       ilike(lots.lotNumber, pattern),
       ilike(directPurchaseOrders.orderNumber, pattern),
       ilike(purchaseOrdersViaLines.orderNumber, pattern),
@@ -393,18 +422,11 @@ function resolveItemDisplayName(row: {
   familyName?: string | null;
   optionValues?: Array<{ valueLabel: string }>;
 }) {
-  const optionValues = row.optionValues ?? [];
-  if (optionValues.length > 0) {
-    return `${row.familyName ?? row.itemName} / ${optionValues
-      .map((value) => value.valueLabel)
-      .join(" / ")}`;
-  }
-
-  if (row.familyName) {
-    return row.familyName;
-  }
-
-  return row.itemName;
+  return formatItemDisplayName({
+    name: row.itemName,
+    familyName: row.familyName,
+    optionLabels: (row.optionValues ?? []).map((value) => value.valueLabel),
+  });
 }
 
 async function getLedgerOptionValuesByItemIdInTx(

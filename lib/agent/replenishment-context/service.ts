@@ -36,6 +36,7 @@ import {
   todayInTimeZone,
 } from "@/lib/format";
 import { projectedAvailableQty } from "@/lib/inventory/kernel/read";
+import { getItemDisplayMetadataByIdInTx } from "@/lib/inventory/item-display";
 import type {
   ReplenishmentContext,
   ReplenishmentDetailContext,
@@ -188,7 +189,7 @@ async function loadTodayInTx(tx: Tx, orgId: string) {
 }
 
 async function loadCandidateItemsInTx(tx: Tx, orgId: string) {
-  return tx
+  const rows = await tx
     .select({
       id: items.id,
       name: items.name,
@@ -242,6 +243,16 @@ async function loadCandidateItemsInTx(tx: Tx, orgId: string) {
       )
     )
     .orderBy(asc(items.name), asc(items.id));
+
+  const displayByItemId = await getItemDisplayMetadataByIdInTx(
+    tx,
+    rows.map((row) => row.id)
+  );
+
+  return rows.map((row) => ({
+    ...row,
+    name: displayByItemId.get(row.id)?.displayName ?? row.name,
+  }));
 }
 
 async function loadUsageStatsInTx(

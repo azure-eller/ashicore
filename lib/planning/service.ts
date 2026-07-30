@@ -5,7 +5,6 @@ import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm
 import {
   inventoryLotBalances,
   itemFamilies,
-  itemVariantValues,
   items,
   manufacturingOrderBatches,
   manufacturingOrderIngredients,
@@ -18,8 +17,6 @@ import {
   salesOrders,
   suppliers,
   unitDefinitions,
-  variantOptions,
-  variantOptionValues,
 } from "@/lib/db/schema";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { documentNumberSortSql } from "@/lib/document-numbers";
@@ -30,6 +27,8 @@ import {
   projectedOnHandQty,
 } from "@/lib/inventory/kernel";
 import { getDefaultInventoryLocationInTx } from "@/lib/inventory/kernel/locations";
+import { formatItemSnapshotDisplayName } from "@/lib/inventory/display-name";
+import { getItemDisplayMetadataByIdInTx } from "@/lib/inventory/item-display";
 import { dateInTimeZone, normalizeNumeric, roundQuantity } from "@/lib/format";
 import { calculateIngredientPlannedQuantity, normalizeRecipeBasis } from "@/lib/manufacturing/consumption";
 import { LOT_AGE_MIN_DAYS_CONSTRAINT } from "@/lib/bom/constraints";
@@ -60,35 +59,6 @@ import type {
 const MAX_BOM_EXPLOSION_LEVEL = 8;
 const DEFAULT_COVER_HORIZON_DAYS = 90;
 const REPLENISHMENT_SOON_MULTIPLIER = 1.2;
-
-async function getPlanningOptionValuesByItemIdInTx(tx: Tx, itemIds: string[]) {
-  const uniqueItemIds = [...new Set(itemIds)];
-  if (uniqueItemIds.length === 0) {
-    return new Map<string, string[]>();
-  }
-
-  const rows = await tx
-    .select({
-      itemId: itemVariantValues.itemId,
-      label: variantOptionValues.label,
-    })
-    .from(itemVariantValues)
-    .innerJoin(variantOptions, eq(itemVariantValues.optionId, variantOptions.id))
-    .innerJoin(
-      variantOptionValues,
-      eq(itemVariantValues.optionValueId, variantOptionValues.id)
-    )
-    .where(inArray(itemVariantValues.itemId, uniqueItemIds))
-    .orderBy(asc(variantOptions.sortOrder), asc(variantOptionValues.sortOrder));
-
-  const byItemId = new Map<string, string[]>();
-  for (const row of rows) {
-    const labels = byItemId.get(row.itemId) ?? [];
-    labels.push(row.label);
-    byItemId.set(row.itemId, labels);
-  }
-  return byItemId;
-}
 
 type PlanningItemRecord = {
   id: string;
@@ -1032,17 +1002,19 @@ async function getPlanningItemsInTx(tx: Tx): Promise<PlanningItemRecord[]> {
     .where(and(isNull(items.deletedAt), isNotNull(items.familyId)))
     .orderBy(asc(items.name), asc(items.id));
 
-  const optionValuesByItemId = await getPlanningOptionValuesByItemIdInTx(
+  const displayByItemId = await getItemDisplayMetadataByIdInTx(
     tx,
     rows.map((row) => row.id),
   );
 
   return rows.map((row) => {
-    const optionValues = optionValuesByItemId.get(row.id) ?? [];
+    const display = displayByItemId.get(row.id);
+    const displayName = display?.displayName ?? row.name;
     return {
       ...row,
-      displayName: row.familyName ?? row.name,
-      displayAttrs: optionValues,
+      name: displayName,
+      displayName,
+      displayAttrs: display?.optionLabels ?? [],
     };
   });
 }
@@ -1281,33 +1253,47 @@ async function getPurchaseSupplyFactsInTx(tx: Tx): Promise<SupplyFact[]> {
       asc(purchaseOrderLines.id)
     );
 
-  return rows.map((row) => ({
-    id: `supply:purchase:${row.purchaseOrderLineId}`,
-    itemId: row.itemId,
-    supplyType: "purchase_order",
-    quantity: row.quantity,
-    expectedDate: row.expectedDate,
-    status: row.status,
-    reasonCodes: ["open_purchase_supply"],
-    sourceRefs: [
-      {
-        sourceType: "purchase_order",
-        sourceId: row.purchaseOrderId,
-        label: row.orderNumber,
-        date: row.expectedDate,
-      },
-      {
-        sourceType: "purchase_order_line",
-        sourceId: row.purchaseOrderLineId,
-        label: `${row.orderNumber} / ${row.itemName}`,
-        itemId: row.itemId,
-        quantity: row.quantity,
-        date: row.expectedDate,
-        parentSourceId: row.purchaseOrderId,
-      },
-    ],
-    explanation: `${row.orderNumber} from ${row.supplierName} has ${row.quantity} incoming.`,
-  }));
+  const displayByItemId = await getItemDisplayMetadataByIdInTx(
+    tx,
+    rows.map((row) => row.itemId)
+  );
+
+  return rows.map((row) => {
+    const display = displayByItemId.get(row.itemId);
+    const itemName = formatItemSnapshotDisplayName(
+      row.itemName,
+      display?.optionLabels ?? [],
+      [display?.masterName, display?.name]
+    );
+
+    return {
+      id: `supply:purchase:${row.purchaseOrderLineId}`,
+      itemId: row.itemId,
+      supplyType: "purchase_order" as const,
+      quantity: row.quantity,
+      expectedDate: row.expectedDate,
+      status: row.status,
+      reasonCodes: ["open_purchase_supply"] as const,
+      sourceRefs: [
+        {
+          sourceType: "purchase_order" as const,
+          sourceId: row.purchaseOrderId,
+          label: row.orderNumber,
+          date: row.expectedDate,
+        },
+        {
+          sourceType: "purchase_order_line" as const,
+          sourceId: row.purchaseOrderLineId,
+          label: `${row.orderNumber} / ${itemName}`,
+          itemId: row.itemId,
+          quantity: row.quantity,
+          date: row.expectedDate,
+          parentSourceId: row.purchaseOrderId,
+        },
+      ],
+      explanation: `${row.orderNumber} from ${row.supplierName} has ${row.quantity} incoming.`,
+    };
+  });
 }
 
 async function getManufacturingSupplyFactsInTx(tx: Tx): Promise<SupplyFact[]> {

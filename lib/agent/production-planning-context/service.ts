@@ -29,6 +29,7 @@ import {
   allocationQuantityString,
   toAllocationQuantity,
 } from "@/lib/inventory/allocation/format";
+import { getItemDisplayMetadataByIdInTx } from "@/lib/inventory/item-display";
 import { calculateIngredientPlannedQuantity, normalizeRecipeBasis } from "@/lib/manufacturing/consumption";
 import { buildPlanningSnapshotInTx } from "@/lib/planning/service";
 import type { PlanningSnapshot } from "@/lib/planning/types";
@@ -171,10 +172,6 @@ async function getShippedSalesQuantityByLineInTx(tx: Tx, salesOrderLineIds: stri
     .where(inArray(salesOrderLines.id, salesOrderLineIds));
 
   return new Map(rows.map((row) => [row.salesOrderLineId, toQuantity(row.quantity)]));
-}
-
-function itemDisplayName(row: { name: string; familyName: string | null }) {
-  return row.familyName ?? row.name;
 }
 
 function productionStatusForSalesLine(args: {
@@ -690,6 +687,10 @@ async function loadRelevantInventoryContextInTx(
     )
     .orderBy(asc(itemFamilies.name), asc(items.name), asc(items.id));
 
+  const displayByItemId = await getItemDisplayMetadataByIdInTx(
+    tx,
+    itemRows.map((row) => row.itemId)
+  );
   const planningRowsByItemId = new Map(
     params.snapshot.rows.map((row) => [row.item.id, row])
   );
@@ -772,7 +773,10 @@ async function loadRelevantInventoryContextInTx(
     const expectedQty = inventoryFact?.expectedQuantity ?? row.expectedQty;
     return {
       itemId: row.itemId,
-      itemName: itemDisplayName(row),
+      itemName:
+        displayByItemId.get(row.itemId)?.displayName ??
+        row.familyName ??
+        row.name,
       lotTrackingMode: row.lotTrackingMode === "untracked" ? "untracked" : "tracked",
       unitName: row.unitName,
       onHandQty,

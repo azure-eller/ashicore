@@ -600,7 +600,7 @@ export const salesOrderLines = salesSchema
       itemId: uuid("item_id")
         .notNull()
         .references(() => items.id),
-      itemName: varchar("item_name", { length: 255 }).notNull(),
+      itemName: text("item_name").notNull(),
       itemSku: varchar("item_sku", { length: 50 }),
       unitName: varchar("unit_name", { length: 50 }).notNull(),
       quantity: numeric("quantity", { precision: 12, scale: 4 }).notNull(),

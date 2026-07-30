@@ -241,9 +241,13 @@ soft-delete (`deletedAt`) only.
 ## Snapshots
 
 - orders store `supplierName`
-- lines store `itemName`, `itemSku`, purchase/stock unit names and factor, and tax rate details
+- lines store `itemName`, `itemSku`, purchase/stock unit names and factor, and tax rate details;
+  new saves snapshot the canonical variant display name
 - copied supplier/line details are stable while an order is untouched, but editing and
   saving the order refreshes them from current supplier/item/tax records
+- reads, emails, PDFs, planning supply, and accounting bill pushes append the
+  current assigned option suffix to legacy base-only line snapshots without
+  duplicating a suffix already present
 - materials used by active not received or partially received purchase orders cannot be soft-deleted from inventory
 - suppliers used by active not received or partially received purchase orders cannot be soft-deleted
 

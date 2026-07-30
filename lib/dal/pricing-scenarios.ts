@@ -22,6 +22,8 @@ import {
   type ProductUsageTerms,
 } from "@/lib/inventory/estimated-cost";
 import { resolveStockUnitCostFromDefaultPurchasePrice } from "@/lib/inventory/cost";
+import { formatItemSnapshotDisplayName } from "@/lib/inventory/display-name";
+import { getItemDisplayMetadataByIdInTx } from "@/lib/inventory/item-display";
 import { runIdempotentInventoryOperationInTx } from "@/lib/inventory/kernel";
 import {
   calculatePricingScenario,
@@ -136,7 +138,19 @@ async function resolveScenarioInputsInTx(tx: Tx, doc: PricingScenarioDoc) {
         .leftJoin(unitDefinitions, eq(unitDefinitions.id, items.unitDefinitionId))
         .where(inArray(items.id, itemIds))
     : [];
-  const itemsById = new Map(itemRows.map((row) => [row.id, row]));
+  const displayByItemId = await getItemDisplayMetadataByIdInTx(
+    tx,
+    itemRows.map((row) => row.id)
+  );
+  const itemsById = new Map(
+    itemRows.map((row) => [
+      row.id,
+      {
+        ...row,
+        name: displayByItemId.get(row.id)?.displayName ?? row.name,
+      },
+    ])
+  );
 
   const resourceRows = resourceIds.size
     ? await tx
@@ -566,7 +580,39 @@ async function getPricingScenarioRevisionInTx(
         eq(pricingScenarioRevisions.id, revisionId)
       )
     );
-  return revision ?? null;
+  if (!revision) return null;
+
+  const snapshot = pricingScenarioRevisionSnapshotSchema.parse(revision.snapshot);
+  const itemIds = snapshot.products.flatMap((product) => [
+    product.itemId,
+    ...product.materials.map((material) => material.itemId),
+  ]);
+  const displayByItemId = await getItemDisplayMetadataByIdInTx(tx, itemIds);
+  const repairName = (itemId: string, snapshotName: string) => {
+    const display = displayByItemId.get(itemId);
+    return display
+      ? formatItemSnapshotDisplayName(snapshotName, display.optionLabels, [
+          display.masterName,
+          display.name,
+          display.familyName,
+        ])
+      : snapshotName;
+  };
+
+  return {
+    ...revision,
+    snapshot: {
+      ...snapshot,
+      products: snapshot.products.map((product) => ({
+        ...product,
+        name: repairName(product.itemId, product.name),
+        materials: product.materials.map((material) => ({
+          ...material,
+          name: repairName(material.itemId, material.name),
+        })),
+      })),
+    },
+  };
 }
 
 export async function getPricingScenarioRevision(

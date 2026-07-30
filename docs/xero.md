@@ -37,7 +37,9 @@ Store setup/support copy, read `docs/xero-support-listing.md`.
   resolved supplier group, uses the selected bill-dialog account for all bill
   lines, and defaults that field from the configured purchase-bill account with
   legacy default-account fallback. Inventory lots and lot-tracking mode are
-  operational ERP state and are not sent to Xero.
+  operational ERP state and are not sent to Xero. Bill line descriptions use
+  canonical variant display names, repairing legacy base-only PO line snapshots
+  without duplicating an existing option suffix.
   Retry/adoption checks existing ACCPAY
   bills by supplier invoice number, but only links a match when Xero contact,
   reference, and subtotal match the ERP purchase order. The Xero retry cron

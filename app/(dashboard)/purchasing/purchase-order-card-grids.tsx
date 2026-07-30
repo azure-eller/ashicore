@@ -89,7 +89,7 @@ function PurchaseMaterialCell({
 
   return (
     <span className="block truncate">
-      {materialMap.get(data.itemId)?.name ?? data.itemId}
+      {materialMap.get(data.itemId)?.displayName ?? data.itemId}
     </span>
   );
 }

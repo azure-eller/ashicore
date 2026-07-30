@@ -258,7 +258,6 @@ export function PurchaseOrderCard({
     () =>
       materials.map((material) => ({
         ...material,
-        displayName: material.name,
         unitName: material.stockingUnitName,
       })),
     [materials],

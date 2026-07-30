@@ -22,6 +22,7 @@ import {
 import {
   withAuthedOrgContext,
 } from "@/lib/dal/auth";
+import { getItemDisplayMetadataByIdInTx } from "@/lib/inventory/item-display";
 import type {
   ItemType,
 } from "../types";
@@ -133,6 +134,8 @@ export async function getItemUsageHistory(
 
     if (!item) return null;
 
+    const displayByItemId = await getItemDisplayMetadataByIdInTx(tx, [item.id]);
+    const itemDisplayName = displayByItemId.get(item.id)?.displayName ?? item.name;
     const today = startOfUtcDay(new Date());
     const currentWeekStart = startOfUtcWeek(today);
     const bucketCount = Math.ceil(days / 7);
@@ -192,7 +195,7 @@ export async function getItemUsageHistory(
 
     return {
       itemId: item.id,
-      itemName: item.name,
+      itemName: itemDisplayName,
       itemType: item.itemType as ItemType,
       mode,
       unitName: item.unitName,

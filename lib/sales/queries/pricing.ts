@@ -11,6 +11,7 @@ import { measureObservedOperation } from "@/lib/observability/request-log";
 import type { InsertPricingSchedule, ResolveSalesLinePricingInput, UpdatePricingSchedule } from "@/lib/schemas/pricing-schedules";
 import type { PricingScheduleEditData, PricingScheduleItemOption, PricingScheduleRow, SalesLinePricingResult } from "../types";
 import { getEstimatedUnitCostsByItemIdInTx } from "@/lib/inventory/estimated-cost";
+import { getItemDisplayMetadataByIdInTx } from "@/lib/inventory/item-display";
 import { SalesError } from "./errors";
 import { type SalesItemValidationRow, getValidatedCustomerInTx, getValidatedSalesItemsInTx } from "./validation";
 import { ensureCustomerCategoryExistsInTx } from "./customer-categories";
@@ -724,11 +725,18 @@ export async function getPricingSchedules(): Promise<PricingScheduleRow[]> {
           string,
           Array<{ id: string; label: string }>
         >();
+        const displayByItemId = await getItemDisplayMetadataByIdInTx(
+          tx,
+          scheduleItemRows.map((item) => item.itemId),
+        );
         for (const item of scheduleItemRows) {
           const bucket = itemsByScheduleId.get(item.pricingScheduleId) ?? [];
           bucket.push({
             id: item.itemId,
-            label: item.familyName ? `${item.familyName} - ${item.itemName}` : item.itemName,
+            label:
+              displayByItemId.get(item.itemId)?.displayName ??
+              item.familyName ??
+              item.itemName,
           });
           itemsByScheduleId.set(item.pricingScheduleId, bucket);
         }

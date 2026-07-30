@@ -28,6 +28,10 @@ The planning service returns stable structured objects:
 - `PlanningRecommendation[]` with reason codes, source refs, warnings, and safe action payloads
 - `inputHash` as the staleness marker for actions
 
+Item labels use canonical variant display names. Purchase-supply facts repair
+legacy base-only line snapshots with the current assigned option suffix without
+changing the stored purchase order.
+
 Future agent tools should consume the snapshot and action payloads directly. They should not scrape raw sales, purchasing, manufacturing, or inventory tables.
 
 ## Production Downstream Demand

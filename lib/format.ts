@@ -1,4 +1,5 @@
 import type { InventoryDisposition } from "@/lib/db/schema";
+import { formatItemDisplayName } from "@/lib/inventory/display-name";
 import { isValidTimeZone } from "@/lib/time-zone";
 
 type CurrencyFormatOptions = {
@@ -629,8 +630,11 @@ export function formatVariantDisplayFromFamily(
   family: { name: string },
   optionValues: ReadonlyArray<{ valueLabel: string }>,
 ): string {
-  if (optionValues.length === 0) return family.name;
-  return `${family.name} / ${optionValues.map((value) => value.valueLabel).join(" / ")}`;
+  return formatItemDisplayName({
+    name: family.name,
+    familyName: family.name,
+    optionLabels: optionValues.map((value) => value.valueLabel),
+  });
 }
 
 export function escapeHtml(value: string): string {

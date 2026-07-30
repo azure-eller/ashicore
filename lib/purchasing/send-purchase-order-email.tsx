@@ -41,6 +41,8 @@ import type { SendPurchaseOrderEmail } from "@/lib/schemas/purchase-orders";
 import { DomainError } from "@/lib/errors/domain-error";
 import { groupPurchaseOrderByResolvedSupplier } from "@/lib/purchasing/resolved-supplier-groups";
 import { env } from "@/lib/env";
+import { formatItemSnapshotDisplayName } from "@/lib/inventory/display-name";
+import { getItemDisplayMetadataByIdInTx } from "@/lib/inventory/item-display";
 
 const additionalCostSuppliers = alias(
   suppliers,
@@ -128,6 +130,7 @@ async function loadPurchaseOrderEmailDataInTx(
   const lines = await tx
     .select({
       id: purchaseOrderLines.id,
+      itemId: purchaseOrderLines.itemId,
       itemName: purchaseOrderLines.itemName,
       itemSku: purchaseOrderLines.itemSku,
       purchaseUnitName: purchaseOrderLines.purchaseUnitName,
@@ -148,6 +151,10 @@ async function loadPurchaseOrderEmailDataInTx(
     .from(purchaseOrderLines)
     .where(eq(purchaseOrderLines.purchaseOrderId, orderId))
     .orderBy(purchaseOrderLines.sortOrder);
+  const displayByItemId = await getItemDisplayMetadataByIdInTx(
+    tx,
+    lines.map((line) => line.itemId),
+  );
   const deliveryLine = lines.find(
     (line) =>
       line.shipContactName ||
@@ -239,16 +246,23 @@ async function loadPurchaseOrderEmailDataInTx(
       shipPostcode: order.shipPostcode ?? deliveryLine?.shipPostcode ?? null,
       shipCountry: order.shipCountry ?? deliveryLine?.shipCountry ?? null,
     },
-    lines: lines.map((line) => ({
-      id: line.id,
-      itemName: line.itemName,
-      itemSku: line.itemSku,
-      purchaseUnitName: line.purchaseUnitName,
-      quantityOrdered: line.quantityOrdered,
-      unitCost: line.unitCost,
-      taxRatePercent: line.taxRatePercent,
-      lineTotal: line.lineTotal,
-    })),
+    lines: lines.map((line) => {
+      const display = displayByItemId.get(line.itemId);
+      return {
+        id: line.id,
+        itemName: formatItemSnapshotDisplayName(
+          line.itemName,
+          display?.optionLabels ?? [],
+          [display?.masterName, display?.name],
+        ),
+        itemSku: line.itemSku,
+        purchaseUnitName: line.purchaseUnitName,
+        quantityOrdered: line.quantityOrdered,
+        unitCost: line.unitCost,
+        taxRatePercent: line.taxRatePercent,
+        lineTotal: line.lineTotal,
+      };
+    }),
     additionalCosts: additionalCosts
       .filter((cost) => Number(cost.amount) !== 0)
       .map((cost) => ({

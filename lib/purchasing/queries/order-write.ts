@@ -424,7 +424,7 @@ export async function preparePurchaseOrderPayload(
     return {
       id: line.id,
       itemId: material.id,
-      itemName: material.name,
+      itemName: material.displayName,
       itemSku: material.sku,
       purchaseUnitName:
         (overrideUnitId ? purchaseUnitNameById.get(overrideUnitId) : null) ??

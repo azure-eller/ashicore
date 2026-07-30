@@ -234,7 +234,7 @@ export const purchaseOrderLines = purchasingSchema
       itemId: uuid("item_id")
         .notNull()
         .references(() => items.id),
-      itemName: varchar("item_name", { length: 255 }).notNull(),
+      itemName: text("item_name").notNull(),
       itemSku: varchar("item_sku", { length: 50 }),
       purchaseUnitName: varchar("purchase_unit_name", { length: 50 }).notNull(),
       stockingUnitName: varchar("stocking_unit_name", { length: 50 }).notNull(),

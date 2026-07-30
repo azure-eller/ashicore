@@ -18,6 +18,8 @@ import {
   persistAccountingDocumentPushFailure,
   persistAccountingDocumentPushSuccess,
 } from "@/lib/accounting/sync-state";
+import { formatItemSnapshotDisplayName } from "@/lib/inventory/display-name";
+import { getItemDisplayMetadataByIdInTx } from "@/lib/inventory/item-display";
 import type { CreatePurchaseBill } from "@/lib/schemas/purchase-orders";
 import {
   QuickBooksError,
@@ -160,6 +162,7 @@ async function loadPurchaseOrderForBillInTx(
 
   const lines = await tx
     .select({
+      itemId: purchaseOrderLines.itemId,
       itemName: purchaseOrderLines.itemName,
       itemSku: purchaseOrderLines.itemSku,
       taxRatePercent: purchaseOrderLines.taxRatePercent,
@@ -168,6 +171,21 @@ async function loadPurchaseOrderForBillInTx(
     .from(purchaseOrderLines)
     .where(eq(purchaseOrderLines.purchaseOrderId, orderId))
     .orderBy(purchaseOrderLines.sortOrder);
+  const displayByItemId = await getItemDisplayMetadataByIdInTx(
+    tx,
+    lines.map((line) => line.itemId),
+  );
+  const displayLines: LineForBill[] = lines.map(({ itemId, ...line }) => {
+    const display = displayByItemId.get(itemId);
+    return {
+      ...line,
+      itemName: formatItemSnapshotDisplayName(
+        line.itemName,
+        display?.optionLabels ?? [],
+        [display?.masterName, display?.name],
+      ),
+    };
+  });
 
   const additionalCosts = await tx
     .select({ amount: purchaseOrderAdditionalCosts.amount })
@@ -188,7 +206,7 @@ async function loadPurchaseOrderForBillInTx(
         null,
     },
     supplier,
-    lines,
+    lines: displayLines,
     additionalCosts,
   };
 }

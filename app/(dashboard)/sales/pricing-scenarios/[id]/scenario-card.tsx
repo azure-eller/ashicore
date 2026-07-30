@@ -587,7 +587,7 @@ export function PricingScenarioCard({
     : undefined;
   const selectedOption = productOptions.find((row) => row.id === selectedProductId);
   const selectedLabel =
-    selectedMeta?.name ?? selectedOption?.displayName ?? selectedOption?.name ?? "";
+    selectedOption?.displayName ?? selectedMeta?.name ?? selectedOption?.name ?? "";
   const productUnit = (selectedMeta?.unitName ?? "unit").toLowerCase();
   const selectedValues = selectedProductId
     ? draft.products.find((row) => row.itemId === selectedProductId)
@@ -728,7 +728,7 @@ export function PricingScenarioCard({
                 const result = resultByProductId.get(productId);
                 const option = productOptions.find((row) => row.id === productId);
                 const label =
-                  meta?.name ?? option?.displayName ?? option?.name ?? "New product";
+                  option?.displayName ?? meta?.name ?? option?.name ?? "New product";
                 const sellAtLabel =
                   result == null
                     ? ""

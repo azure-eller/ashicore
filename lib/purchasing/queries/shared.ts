@@ -21,6 +21,10 @@ import {
 import { ACCOUNTING_PROVIDER_XERO } from "@/lib/accounting/sync-state";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
+import {
+  getItemDisplayMetadataByIdInTx,
+} from "@/lib/inventory/item-display";
+import { formatItemSnapshotDisplayName } from "@/lib/inventory/display-name";
 import { alias } from "drizzle-orm/pg-core";
 import { PurchasingError } from "./errors";
 
@@ -33,6 +37,7 @@ type MaterialValidationRow = {
   id: string;
   itemType: string;
   name: string;
+  displayName: string;
   sku: string | null;
   stockingUnitName: string;
   purchaseUnitName: string | null;
@@ -65,7 +70,7 @@ export async function getValidatedPurchasableItemsInTx(tx: Tx, itemIds: string[]
     .select({
       id: items.id,
       itemType: sql<"material" | "product">`${items.itemType}`,
-      name: sql<string>`COALESCE(${itemFamilies.name}, ${items.name})`,
+      name: items.name,
       sku: items.sku,
       stockingUnitName: unitDefinitions.name,
       purchaseUnitName: sql<string | null>`(
@@ -102,8 +107,22 @@ export async function getValidatedPurchasableItemsInTx(tx: Tx, itemIds: string[]
       ),
     );
 
+  const displayByItemId = await getItemDisplayMetadataByIdInTx(
+    tx,
+    rows.map((row) => row.id),
+  );
   const itemMap = new Map(
-    rows.map((row) => [row.id, row as MaterialValidationRow]),
+    rows.map((row) => {
+      const display = displayByItemId.get(row.id);
+      return [
+        row.id,
+        {
+          ...row,
+          name: display?.masterName ?? row.name,
+          displayName: display?.displayName ?? row.name,
+        } as MaterialValidationRow,
+      ];
+    }),
   );
 
   if (itemMap.size !== uniqueIds.length) {
@@ -114,7 +133,7 @@ export async function getValidatedPurchasableItemsInTx(tx: Tx, itemIds: string[]
 }
 
 export async function getPurchaseOrderLinesInTx(tx: Tx, purchaseOrderId: string) {
-  return tx
+  const rows = await tx
     .select({
       id: purchaseOrderLines.id,
       itemId: purchaseOrderLines.itemId,
@@ -178,6 +197,23 @@ export async function getPurchaseOrderLinesInTx(tx: Tx, purchaseOrderId: string)
       asc(purchaseOrderLines.sortOrder),
       asc(purchaseOrderLines.createdAt),
     );
+
+  const displayByItemId = await getItemDisplayMetadataByIdInTx(
+    tx,
+    rows.map((row) => row.itemId),
+  );
+
+  return rows.map((row) => {
+    const display = displayByItemId.get(row.itemId);
+    return {
+      ...row,
+      itemName: formatItemSnapshotDisplayName(
+        row.itemName,
+        display?.optionLabels ?? [],
+        [display?.masterName, display?.name],
+      ),
+    };
+  });
 }
 
 export async function getPurchaseOrderAdditionalCostsInTx(

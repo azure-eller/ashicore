@@ -17,16 +17,22 @@ import {
   manufacturingOrders,
   organization,
   organizationOverheadSettings,
+  itemFamilies,
+  items,
+  itemVariantValues,
   pricingScenarioRevisions,
   pricingScenarios,
   salesOrderLines,
   salesOrders,
+  variantOptions,
+  variantOptionValues,
 } from "../../../lib/db/schema";
 import {
   classifyLines,
   computeOverhead,
   isUnresolvedType,
   isXeroReconnectStatus,
+  type OverheadAccountOverrides,
 } from "../../../lib/overhead/compute";
 import { parseProfitAndLoss } from "../../../lib/overhead/parse";
 import {
@@ -2660,9 +2666,10 @@ test.describe("pricing scenario document seam", () => {
   }) => {
     await setPricingSeamEntitlements(db, ["pricing_scenarios"]);
 
+    const materialName = `Seam Material ${pricingSeamTs}`;
     const material = await createItem({
       itemType: "material",
-      name: `Seam Material ${pricingSeamTs}`,
+      name: materialName,
       unitDefinitionId: getUnitId(),
       sku: `SEAM-MAT-${pricingSeamTs}`,
       category: `Seam ${pricingSeamTs}`,
@@ -2674,9 +2681,10 @@ test.describe("pricing scenario document seam", () => {
       bom: [],
     });
     expect(material.status).toBe(201);
+    const productName = `Seam Product ${pricingSeamTs}`;
     const product = await createItem({
       itemType: "product",
-      name: `Seam Product ${pricingSeamTs}`,
+      name: productName,
       unitDefinitionId: getUnitId(),
       sku: `SEAM-PROD-${pricingSeamTs}`,
       category: `Seam ${pricingSeamTs}`,
@@ -2747,6 +2755,78 @@ test.describe("pricing scenario document seam", () => {
       "baseline"
     );
 
+    const productFamilyId = randomUUID();
+    const productOptionId = randomUUID();
+    const productValueId = randomUUID();
+    const productVariantLabel = "20 litre";
+    await db.insert(itemFamilies).values({
+      id: productFamilyId,
+      organizationId: getOrgId(),
+      itemType: "product",
+      name: productName,
+      unitDefinitionId: getUnitId(),
+    });
+    await db.insert(variantOptions).values({
+      id: productOptionId,
+      organizationId: getOrgId(),
+      familyId: productFamilyId,
+      name: "Size",
+      code: `size-${pricingSeamTs}`,
+    });
+    await db.insert(variantOptionValues).values({
+      id: productValueId,
+      organizationId: getOrgId(),
+      optionId: productOptionId,
+      label: productVariantLabel,
+      code: `20-litre-${pricingSeamTs}`,
+    });
+    await db
+      .update(items)
+      .set({ familyId: productFamilyId })
+      .where(eq(items.id, productId));
+    await db.insert(itemVariantValues).values({
+      organizationId: getOrgId(),
+      itemId: productId,
+      optionId: productOptionId,
+      optionValueId: productValueId,
+    });
+
+    const materialFamilyId = randomUUID();
+    const materialOptionId = randomUUID();
+    const materialValueId = randomUUID();
+    const materialVariantLabel = "Fine";
+    await db.insert(itemFamilies).values({
+      id: materialFamilyId,
+      organizationId: getOrgId(),
+      itemType: "material",
+      name: materialName,
+      unitDefinitionId: getUnitId(),
+    });
+    await db.insert(variantOptions).values({
+      id: materialOptionId,
+      organizationId: getOrgId(),
+      familyId: materialFamilyId,
+      name: "Grade",
+      code: `grade-${pricingSeamTs}`,
+    });
+    await db.insert(variantOptionValues).values({
+      id: materialValueId,
+      organizationId: getOrgId(),
+      optionId: materialOptionId,
+      label: materialVariantLabel,
+      code: `fine-${pricingSeamTs}`,
+    });
+    await db
+      .update(items)
+      .set({ familyId: materialFamilyId })
+      .where(eq(items.id, material.body.id));
+    await db.insert(itemVariantValues).values({
+      organizationId: getOrgId(),
+      itemId: material.body.id,
+      optionId: materialOptionId,
+      optionValueId: materialValueId,
+    });
+
     // The scenario list must surface the latest committed revision number. A
     // correlated subquery returns NULL under RLS, so this reads it separately.
     const listAfterCommit = await pricingSeamFetch("/api/pricing-scenarios");
@@ -2771,6 +2851,20 @@ test.describe("pricing scenario document seam", () => {
       `/api/pricing-scenarios/${scenarioId}/revisions/${rev1.body.revision.id}`
     );
     expect(rev1After.body.revision.snapshot.products[0].result.sellAt).toBe("120.00");
+    expect(rev1After.body.revision.snapshot.products[0].name).toBe(
+      `${productName} / ${productVariantLabel}`,
+    );
+    expect(rev1After.body.revision.snapshot.products[0].materials[0].name).toBe(
+      `${materialName} / ${materialVariantLabel}`,
+    );
+    const [storedLegacyRevision] = await db
+      .select({ snapshot: pricingScenarioRevisions.snapshot })
+      .from(pricingScenarioRevisions)
+      .where(eq(pricingScenarioRevisions.id, rev1.body.revision.id));
+    expect(storedLegacyRevision.snapshot.products[0].name).toBe(productName);
+    expect(storedLegacyRevision.snapshot.products[0].materials[0].name).toBe(
+      materialName,
+    );
 
     const rev2 = await pricingSeamFetch(`/api/pricing-scenarios/${scenarioId}/revisions`, {
       method: "POST",
@@ -3019,28 +3113,33 @@ test.describe("overhead settings seam", () => {
 
     // Seed a derived rate directly (the compute path itself needs a live Xero
     // connection, which CI can't provide; this guards the persistence + read + RLS).
+    const seededSettings = {
+      overheadPercent: "30.0000",
+      periodStart: "2025-07-01",
+      periodEnd: "2026-06-30",
+      overheadPool: "60000.00",
+      revenueTotal: "200000.00",
+      derivation: {
+        periodStart: "2025-07-01",
+        periodEnd: "2026-06-30",
+        lines: [],
+        overheadPool: "60000.00",
+        revenueTotal: "200000.00",
+        overheadPercent: "30.00",
+      },
+      accountOverrides: {
+        "oh-2": "excluded",
+      } satisfies OverheadAccountOverrides,
+    };
     await db
       .insert(organizationOverheadSettings)
       .values({
         organizationId: getOrgId(),
-        overheadPercent: "30.0000",
-        periodStart: "2025-07-01",
-        periodEnd: "2026-06-30",
-        overheadPool: "60000.00",
-        revenueTotal: "200000.00",
-        derivation: {
-          periodStart: "2025-07-01",
-          periodEnd: "2026-06-30",
-          lines: [],
-          overheadPool: "60000.00",
-          revenueTotal: "200000.00",
-          overheadPercent: "30.00",
-        },
-        accountOverrides: { "oh-2": "excluded" },
+        ...seededSettings,
       })
       .onConflictDoUpdate({
         target: organizationOverheadSettings.organizationId,
-        set: { overheadPercent: "30.0000", updatedAt: new Date() },
+        set: { ...seededSettings, updatedAt: new Date() },
       });
 
     const read = await testFetch("/api/overhead-settings");

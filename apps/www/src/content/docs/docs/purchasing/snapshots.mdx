@@ -11,7 +11,7 @@ sidebar:
 
 import { Aside } from '@astrojs/starlight/components';
 
-A purchase order stores readable supplier and line details at save time. Those copied values let an untouched order keep the wording it had when it was written, but they are refreshed from the current supplier and item records when the order is edited and saved again.
+A purchase order stores readable supplier and line details at save time. Those copied values let an untouched order keep the wording it had when it was written, but they are refreshed from the current supplier and item records when the order is edited and saved again. A variant line includes the complete displayed name: family name followed by every assigned option value.
 
 ## The problem snapshots solve
 
@@ -27,6 +27,11 @@ Suppliers get renamed. Items get re-coded. Units get corrected. If orders pointe
 ## Snapshot vs. live reference
 
 An order still keeps the live link to its records, so it stays connected to the current supplier and item for navigation and reporting. The order also stores readable copies used on the order and in its calculations. Those copies are stable while the order is untouched, and refresh when the order is saved again.
+
+Older orders may have copied only a variant's family name. When Ashicore reads,
+emails, or exports one of those orders—or creates its accounting bill—it adds
+the variant's current assigned option suffix for clarity. It does not append the
+suffix again when the copied name already includes it.
 
 The editable grid labels active tax choices from current tax settings, and the supplier-facing PDF/email shows the tax percent. The saved line still carries the copied tax rate details used for order math.
 

@@ -107,6 +107,190 @@ test.describe("purchasing supply and receipt heartbeat", () => {
   const ts = Date.now();
   const unitId = getUnitId();
 
+  test("purchase orders preserve canonical variant identity from selection through snapshot", async ({
+    db,
+    page,
+  }) => {
+    const unique = `${Date.now()}-${randomUUID().slice(0, 8)}`;
+    const familyName = `Fast Bag Sticker ${"Long identity ".repeat(15)}${unique}`;
+    const variantLabel = `Bomb 50/50 ${"extended ".repeat(6)}`.trim();
+    const expectedDisplayName = `${familyName} / ${variantLabel}`;
+    expect(expectedDisplayName.length).toBeGreaterThan(255);
+
+    const material = await createItem({
+      itemType: "material",
+      name: familyName,
+      unitDefinitionId: unitId,
+      sku: `FAST-BAG-${unique}`,
+      category: `Fast Variant ${unique}`,
+      description: null,
+      defaultPurchasePrice: "4.25",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status).toBe(201);
+
+    const configResponse = await testFetch(
+      `/api/item-cards/${material.body.id}/variant-config`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          options: [
+            {
+              name: "Blend",
+              code: "blend",
+              values: [
+                { label: "Standard", code: "standard" },
+                { label: variantLabel, code: "bomb-50-50" },
+              ],
+            },
+          ],
+        }),
+      },
+    );
+    expect(configResponse.status, await configResponse.text()).toBe(200);
+
+    const generateResponse = await testFetch(
+      `/api/item-cards/${material.body.id}/variants/generate`,
+      {
+        method: "POST",
+        body: JSON.stringify({}),
+      },
+    );
+    expect(generateResponse.status, await generateResponse.text()).toBe(201);
+
+    const cardResponse = await testFetch(`/api/item-cards/${material.body.id}`);
+    expect(cardResponse.status).toBe(200);
+    const card = (await cardResponse.json()) as {
+      options: Array<{
+        id: string;
+        name: string;
+        values: Array<{ id: string; label: string }>;
+      }>;
+      variants: Array<{
+        id: string;
+        optionValues: Array<{ valueLabel: string }>;
+      }>;
+    };
+    const bombVariant = card.variants.find((variant) =>
+      variant.optionValues.some((value) => value.valueLabel === variantLabel),
+    );
+    const blendOption = card.options[0];
+    const standardValue = blendOption?.values.find(
+      (value) => value.label === "Standard",
+    );
+    expect(bombVariant?.id).toBeTruthy();
+    expect(blendOption?.id).toBeTruthy();
+    expect(standardValue?.id).toBeTruthy();
+
+    const disableUsedValueResponse = await testFetch(
+      `/api/item-cards/${material.body.id}/variant-config`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          options: [
+            {
+              id: blendOption!.id,
+              name: blendOption!.name,
+              values: [
+                {
+                  id: standardValue!.id,
+                  label: standardValue!.label,
+                },
+              ],
+            },
+          ],
+        }),
+      },
+    );
+    expect(
+      disableUsedValueResponse.status,
+      await disableUsedValueResponse.text(),
+    ).toBe(200);
+
+    await page.goto(`/purchasing/order?itemId=${bombVariant!.id}`);
+    const itemCell = editableGrid(page)
+      .locator('.ag-row[row-index="0"] .ag-cell[col-id="itemId"]')
+      .first();
+    await expect(itemCell).toBeVisible();
+    await expect(itemCell).toHaveText(expectedDisplayName);
+
+    await itemCell.click();
+    const pickerInput = page.getByPlaceholder("Search or create item");
+    await expect(pickerInput).toBeVisible();
+    await pickerInput.fill(variantLabel);
+    await expect(
+      page
+        .locator('[data-slot="combobox-item"]')
+        .filter({ hasText: expectedDisplayName })
+        .first(),
+    ).toBeVisible();
+    await pickerInput.press("Escape");
+
+    const supplier = await createSupplier({
+      name: `Fast Variant Supplier ${unique}`,
+    });
+    expect(supplier.status).toBe(201);
+    const order = await createPurchaseOrder({
+      supplierId: supplier.body.id,
+      lines: [
+        {
+          itemId: bombVariant!.id,
+          quantityOrdered: "2",
+          unitCost: "4.25",
+        },
+      ],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+
+    const [savedLine] = await db
+      .select({ itemName: purchaseOrderLines.itemName })
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.id, order.body.lines[0].id));
+    expect(savedLine.itemName).toBe(expectedDisplayName);
+
+    await page.goto(`/purchasing/order/${order.body.id}`);
+    const savedItemCell = editableGrid(page)
+      .locator('.ag-row[row-index="0"] .ag-cell[col-id="itemId"]')
+      .first();
+    await expect(savedItemCell).toHaveText(expectedDisplayName);
+
+    await db
+      .update(purchaseOrderLines)
+      .set({ itemName: familyName })
+      .where(eq(purchaseOrderLines.id, order.body.lines[0].id));
+    await page.reload();
+    await expect(savedItemCell).toHaveText(expectedDisplayName);
+
+    await db
+      .update(purchaseOrderLines)
+      .set({ itemName: expectedDisplayName })
+      .where(eq(purchaseOrderLines.id, order.body.lines[0].id));
+
+    const stockResponse = await testFetch(
+      `/api/items/${bombVariant!.id}/initial-stock`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          quantity: "1",
+          costPerUnit: "4.25",
+          occurredAt: new Date().toISOString(),
+          note: "canonical variant ledger search",
+        }),
+      },
+    );
+    expect(stockResponse.status, await stockResponse.text()).toBe(200);
+
+    await page.goto(
+      `/inventory/ledger?q=${encodeURIComponent(expectedDisplayName)}`,
+    );
+    await expect(
+      page.getByRole("link", { name: expectedDisplayName }),
+    ).toBeVisible();
+  });
+
   test("new purchase order waits for a supplier and complete material line before first autosave", async ({
     db,
     page,

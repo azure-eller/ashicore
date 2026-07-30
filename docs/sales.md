@@ -148,7 +148,8 @@ Invalid transitions:
 
 - orders store `customerName`
 - orders may link to a customer project/job with `customerProjectId`
-- lines store `itemName`, `itemSku`, and `unitName`
+- lines store `itemName`, `itemSku`, and `unitName`; `itemName` is the
+  canonical variant display name, including every assigned option value
 - lines store point-in-time pricing snapshots: list unit price, discount percent,
   suggested unit price, and pricing source
 - list/detail pages render snapshots so renamed or deleted records do not break history
@@ -215,7 +216,9 @@ current margin in one explicit unit context.
   the revision. Soft-deleting a scenario keeps its revisions. Material and
   labour snapshot rows include their derived `costPerUnit`; the reader defaults
   that field to `null` so revisions written before the worksheet added it remain
-  readable.
+  readable. Product and material labels use canonical variant display names;
+  legacy base-only revision labels gain their assigned option suffix at read
+  time without changing the immutable revision.
 - Scenario writes touch only the two scenario tables plus the idempotency
   ledger — never items, recipes, prices, inventory, orders, or accounting.
 

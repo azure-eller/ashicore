@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 export type InventoryItemComboboxOption = {
   id: string;
   name: string;
-  displayName?: string | null;
+  displayName: string;
   searchText?: string | null;
   sku?: string | null;
   itemType?: string | null;
@@ -41,7 +41,7 @@ export function inventoryItemSearchText(option: InventoryItemComboboxOption) {
 }
 
 export function inventoryItemDisplayText(option: InventoryItemComboboxOption) {
-  return option.displayName ?? option.name;
+  return option.displayName;
 }
 
 function itemTypeLabel(itemType: string) {
@@ -127,7 +127,7 @@ export function InventoryItemCombobox<TOption extends InventoryItemComboboxOptio
               <ComboboxItem key={id} value={id}>
                 <span className="min-w-0">
                   <span className="block truncate">
-                    {option?.displayName ?? option?.name ?? id}
+                    {option?.displayName ?? id}
                   </span>
                   {option && renderSecondary ? (
                     renderSecondary(option)

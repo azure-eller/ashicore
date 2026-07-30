@@ -170,6 +170,7 @@ Sales order lines follow the same replace-in-transaction pattern as BOM rows:
 - editing an eligible open order deletes all existing lines, then inserts the fresh set
 - deleting an order soft-deletes only the order row; the saved lines remain attached to that order for history
 - demand coverage ignores soft-deleted orders
+- item-name snapshots use unbounded text for canonical variant display names
 
 ### Manufacturing Orders
 
@@ -180,6 +181,8 @@ Manufacturing now uses a header/ingredient/batch/allocation split:
 - `manufacturing.manufacturing_order_batches` stores execution batches for batch-mode orders
 - `manufacturing.manufacturing_pick_allocations` stores the FIFO lot allocations captured at pick time
 - `salesOrderLineId` is stored as a plain UUID snapshot reference, not an FK, because sales-order edits replace line rows
+- product and ingredient name snapshots use unbounded text so the family name
+  plus every assigned variant option label is not truncated
 
 Draft manufacturing edits still replace ingredient rows in one transaction:
 
@@ -341,6 +344,8 @@ Purchasing uses the same header/line snapshot pattern as sales and manufacturing
 
 - `purchasing.purchase_orders` stores the order header, supplier snapshot, workflow state, and total
 - `purchasing.purchase_order_lines` stores copied material snapshots plus ordered, received, and cost fields
+- item-name snapshots use unbounded text for canonical variant display names;
+  reads may append assigned option labels to legacy base-only snapshots
 - editing an unreceived purchase order reconciles expected supply through the inventory kernel
 
 Status and inventory rules:
@@ -365,6 +370,8 @@ Stocktakes are inventory-native snapshot rows:
 
 - `inventory.stocktakes` stores the header, scope, and workflow state
 - `inventory.stocktake_items` stores copied item snapshots plus `expectedQty`, `countedQty`, `varianceQty`, and `appliedDeltaQty`
+- item-name snapshots use unbounded text for canonical variant display names;
+  reads may append assigned option labels to legacy base-only snapshots
 
 Workflow rules:
 

@@ -43,7 +43,7 @@ export const manufacturingOrders = manufacturingSchema
       // Stored as a plain UUID snapshot reference so sales-order edits can
       // replace line rows without being blocked by FK constraints.
       salesOrderLineId: uuid("sales_order_line_id"),
-      productName: varchar("product_name", { length: 255 }).notNull(),
+      productName: text("product_name").notNull(),
       productSku: varchar("product_sku", { length: 50 }),
       unitName: varchar("unit_name", { length: 50 }).notNull(),
       salesOrderNumber: varchar("sales_order_number", { length: 32 }),
@@ -131,7 +131,7 @@ export const manufacturingOrderIngredients = manufacturingSchema
       itemId: uuid("item_id")
         .notNull()
         .references(() => items.id),
-      itemName: varchar("item_name", { length: 255 }).notNull(),
+      itemName: text("item_name").notNull(),
       itemSku: varchar("item_sku", { length: 50 }),
       itemType: varchar("item_type", { length: 20 }).notNull(),
       unitName: varchar("unit_name", { length: 50 }).notNull(),

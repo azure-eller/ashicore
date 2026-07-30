@@ -84,6 +84,8 @@ Variant products use one identity model:
 - `inventory.item_families` owns the family/card name, category, description, and unit.
 - `inventory.variant_options` and `inventory.variant_option_values` define the option set.
 - `inventory.item_variant_values` assigns concrete option values to operational `items.id` rows.
-- user-facing variant titles are derived from the family name plus normalized option labels.
+- user-facing variant titles are derived from the family name plus every assigned
+  option label in configured option order, including disabled values that remain
+  assigned to an existing variant.
 
 Do not expose a freeform variant name in create or edit flows. Operational references keep using concrete `items.id` values.

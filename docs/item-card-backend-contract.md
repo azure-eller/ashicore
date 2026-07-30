@@ -23,6 +23,12 @@ Product/material cards live in `inventory.item_families`; operational variants l
 
 Legacy fake master rows are not returned.
 
+`displayName` is the canonical operator-facing item identity everywhere the app
+shows, searches, exports, or snapshots an item. It is the family name (or the
+standalone item name) followed by every assigned option value in option order,
+separated by ` / `. The raw `name` field is editable base data and must not be
+used as a presentation fallback for a variant.
+
 ## Card APIs
 
 `:itemId` is always a concrete operational `items.id`.
@@ -63,7 +69,8 @@ filled duplicate SKUs remain blocked by the database.
 
 Variant config updates are incremental. Removed unused options/values are hard
 deleted. Removed used options/values are disabled with `disabled_at` and remain
-available for historical display.
+available for historical display. Because those assignments remain part of the
+variant's identity, disabled option values remain in `displayName`.
 
 Deleting a variant blocks the last active variant in a card. Unused variants are
 hard-deleted with assignments; variants with historical references are

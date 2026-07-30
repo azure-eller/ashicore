@@ -25,6 +25,8 @@ import { ACCOUNTING_DOCUMENT_PURCHASE_ORDER, ACCOUNTING_DOCUMENT_PURCHASE_BILL, 
 import type { AccountingProvider } from "@/lib/accounting/constants";
 import { trimScale, trimScaleNullable } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
+import { formatItemSnapshotDisplayName } from "@/lib/inventory/display-name";
+import { getItemDisplayMetadataByIdInTx } from "@/lib/inventory/item-display";
 import { collectPurchaseReceiptRemainderInTx } from "@/lib/inventory/kernel";
 import { getTaxSettingsInTx } from "@/lib/dal/tax-settings";
 import type { Tx } from "@/lib/db/with-org-context";
@@ -186,11 +188,11 @@ export async function getPurchaseOrderMaterialOptions(): Promise<
   PurchaseOrderMaterialOption[]
 > {
   return withAuthedOrgContext(async (tx) => {
-    return tx
+    const rows = await tx
       .select({
         id: items.id,
         itemType: sql<"material" | "product">`${items.itemType}`,
-        name: sql<string>`COALESCE(${itemFamilies.name}, ${items.name})`,
+        name: items.name,
         sku: items.sku,
         stockingUnitName: unitDefinitions.name,
         purchaseUnitName: sql<string | null>`(
@@ -226,6 +228,20 @@ export async function getPurchaseOrderMaterialOptions(): Promise<
         and(inArray(items.itemType, ["material", "product"]), isNull(items.deletedAt))
       )
       .orderBy(asc(items.name));
+
+    const displayByItemId = await getItemDisplayMetadataByIdInTx(
+      tx,
+      rows.map((row) => row.id),
+    );
+
+    return rows.map((row) => {
+      const display = displayByItemId.get(row.id);
+      return {
+        ...row,
+        name: display?.masterName ?? row.name,
+        displayName: display?.displayName ?? row.name,
+      };
+    });
   });
 }
 
@@ -309,6 +325,7 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderListRow[]> {
           tx
             .select({
               purchaseOrderId: purchaseOrderLines.purchaseOrderId,
+              itemId: purchaseOrderLines.itemId,
               itemName: purchaseOrderLines.itemName,
               quantity: trimScale(purchaseOrderLines.quantityOrdered).as(
                 "quantity",
@@ -330,13 +347,25 @@ export async function getPurchaseOrders(): Promise<PurchaseOrderListRow[]> {
             .where(inArray(purchaseOrderAdditionalCosts.purchaseOrderId, orderIds)),
         ]);
 
+        const displayByItemId = await getItemDisplayMetadataByIdInTx(
+          tx,
+          lines.map((line) => line.itemId),
+        );
         const linesByOrderId = new Map<
           string,
           Array<{ itemName: string; quantity: string }>
         >();
         lines.forEach((line) => {
+          const display = displayByItemId.get(line.itemId);
           const bucket = linesByOrderId.get(line.purchaseOrderId) ?? [];
-          bucket.push({ itemName: line.itemName, quantity: line.quantity });
+          bucket.push({
+            itemName: formatItemSnapshotDisplayName(
+              line.itemName,
+              display?.optionLabels ?? [],
+              [display?.masterName, display?.name],
+            ),
+            quantity: line.quantity,
+          });
           linesByOrderId.set(line.purchaseOrderId, bucket);
         });
         const additionalCostTotalsByOrderId = new Map<string, number>();
@@ -716,6 +745,10 @@ export async function getPurchaseOrderDeleteImpact(
       .from(purchaseOrderLines)
       .where(eq(purchaseOrderLines.purchaseOrderId, id));
 
+    const displayByItemId = await getItemDisplayMetadataByIdInTx(
+      tx,
+      lineRows.flatMap((line) => (line.itemId ? [line.itemId] : [])),
+    );
     const remainder = await collectPurchaseReceiptRemainderInTx(tx, {
       organizationId: orgId,
       purchaseOrderId: id,
@@ -747,9 +780,14 @@ export async function getPurchaseOrderDeleteImpact(
       if (line.itemId == null) continue;
       const receivedQty = parseFloat(line.stockQuantityReceived ?? "0");
       if (receivedQty <= 0) continue;
+      const display = displayByItemId.get(line.itemId);
       const current = byItem.get(line.itemId) ?? {
         itemId: line.itemId,
-        itemName: line.itemName,
+        itemName: formatItemSnapshotDisplayName(
+          line.itemName,
+          display?.optionLabels ?? [],
+          [display?.masterName, display?.name],
+        ),
         stockingUnitName: line.stockingUnitName,
         receivedQty: 0,
       };

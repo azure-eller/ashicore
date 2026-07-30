@@ -59,7 +59,10 @@ Snapshot rows must keep:
 - `itemName`, `itemSku`, `itemType`, `unitName`
 - `expectedQty` as the stock snapshot when the stocktake is created
 
-This lets completed stocktakes stay readable after later item renames or soft deletes.
+New rows snapshot the canonical variant display name. Reads append the current
+assigned option suffix to legacy base-only names without duplicating an existing
+suffix. This lets completed stocktakes stay readable after later item renames or
+soft deletes while keeping the concrete variant identifiable.
 The live inventory truth remains the ledger and projections; `stocktake_items.expectedQty` is only the draft snapshot baseline.
 
 ## Workflow
