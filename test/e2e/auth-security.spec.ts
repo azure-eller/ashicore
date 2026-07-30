@@ -204,7 +204,7 @@ test.describe("Auth and security regressions", () => {
   const customerName = `Auth Guard Customer ${run}`;
   let orderId = "";
 
-  test("legacy orgs without units can create a product after adding a unit inline", async ({ page, db }) => {
+  test("legacy orgs without units receive a default unit and can create a product", async ({ page, db }) => {
     const activeUnits = await db
       .select({ id: unitDefinitions.id })
       .from(unitDefinitions)
@@ -220,34 +220,30 @@ test.describe("Auth and security regressions", () => {
           .where(inArray(unitDefinitions.id, activeUnitIds));
       }
 
-      await page.goto("/inventory/products");
-      await page.getByLabel("New Product").click();
-
+      await page.goto("/inventory/product");
       await expect(page).toHaveURL(/\/inventory\/product$/);
       await expect(page.getByRole("heading", { name: "New product" })).toBeVisible();
       await expect(page.getByLabel("Unit of measure")).toBeVisible();
 
+      const [defaultUnit] = await db
+        .select({ name: unitDefinitions.name })
+        .from(unitDefinitions)
+        .where(isNull(unitDefinitions.deletedAt));
+      expect(defaultUnit?.name).toBe("Each");
+
       await page.getByLabel("Product name").fill(legacyProductName);
       await page.getByLabel("Product name").blur();
 
-      await page.waitForTimeout(1_000);
-      const itemsBeforeUnit = await db
-        .select({ id: items.id })
-        .from(items)
-        .where(eq(items.name, legacyProductName));
-      expect(itemsBeforeUnit).toHaveLength(0);
-
-      await page.getByLabel("Unit of measure").click();
-      await page.getByRole("option", { name: /Create unit/ }).click();
-      await page.getByLabel("Unit name").fill(`Inline Unit ${run}`);
-      await page.getByRole("button", { name: "Create unit" }).click();
-
       await expect(page).toHaveURL(/\/inventory\/products\/[0-9a-f-]+$/);
-      const createdItems = await db
-        .select({ id: items.id })
-        .from(items)
-        .where(eq(items.name, legacyProductName));
-      expect(createdItems).toHaveLength(1);
+      await expect
+        .poll(async () => {
+          const createdItems = await db
+            .select({ id: items.id })
+            .from(items)
+            .where(eq(items.name, legacyProductName));
+          return createdItems.length;
+        })
+        .toBe(1);
     } finally {
       if (activeUnitIds.length > 0) {
         await db

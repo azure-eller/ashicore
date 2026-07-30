@@ -220,6 +220,13 @@ For detail routes, add a local `[id]/loading.tsx` per item type and point it at 
 
 Card body structure is static. Do not conditionally mount or unmount normal sections, tables, tabs, notes, or totals because a record is new, draft, empty, persisted, locked, or missing related data. Keep the section mounted and change only field values, disabled/read-only state, empty rows/messages, and save status. Dialogs, destructive confirmations, and transient error banners may still be conditional because they are overlays or feedback, not the card's structural body.
 
+Every `CardPage` has one shared vertical-scroll boundary. Keep the header and
+tab strip as fixed siblings, and render normal card content through
+`CardPageBody`; `CardTabs` already composes `CardPageBody` for its active panel.
+Do not recreate the body surface with a page-local overflow wrapper. This keeps
+long sections and dense grids reachable while preserving one layout architecture
+across tabbed and non-tabbed cards.
+
 **Button/form loading**: use `mutation.isPending`.
 
 ```tsx

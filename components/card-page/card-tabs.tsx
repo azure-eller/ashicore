@@ -3,6 +3,7 @@
 import { useEffect, useReducer, type MouseEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { CardPageBody } from "@/components/card-page/card-page";
 import { Spinner } from "@/components/ui/spinner";
 import { updateSearchParams } from "@/lib/routing/search-params";
 import { cn } from "@/lib/utils";
@@ -192,7 +193,7 @@ export function CardTabs({
         {caption ? <div className={styles.tabsCaption}>{caption}</div> : null}
       </nav>
 
-      <div className={styles.body}>
+      <CardPageBody>
         <section
           id={`card-tab-panel-${visibleTab}`}
           aria-labelledby={`card-tab-${visibleTab}`}
@@ -205,7 +206,7 @@ export function CardTabs({
             children ?? panels?.[renderedTab] ?? null
           )}
         </section>
-      </div>
+      </CardPageBody>
     </>
   );
 }
