@@ -153,6 +153,9 @@ export const BOM_QTY_PER_BATCH_TOOLTIP =
 export const BOM_QTY_PER_UNIT_TOOLTIP =
   "Component quantity required per finished unit.";
 
+export const BOM_ESTIMATED_CONTRIBUTION_TOOLTIP =
+  "This component's estimated cost contribution per finished output unit.";
+
 export const MATERIAL_COST_TOOLTIP = "Sum of actual ingredient costs.";
 
 export const OPERATIONS_COST_TOOLTIP =

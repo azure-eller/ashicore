@@ -35,7 +35,10 @@ import {
   getNestedFormErrorMessage,
   normalizeNullableTextValue,
 } from "@/lib/format";
+import { calculateEstimatedComponentContribution } from "@/lib/inventory/recipe-cost-preview";
+import type { RecipeBasis } from "@/lib/manufacturing/consumption";
 import { isPositiveNumberString } from "@/lib/schemas/shared";
+import { BOM_ESTIMATED_CONTRIBUTION_TOOLTIP } from "@/lib/tooltip-copy";
 import { cn } from "@/lib/utils";
 
 type AvailableComponent = {
@@ -44,6 +47,7 @@ type AvailableComponent = {
   displayName: string;
   itemType: string;
   unit: string;
+  estimatedUnitCost?: string | null;
 };
 
 type BomPayloadRow = {
@@ -56,10 +60,7 @@ type BomGridRow = BomPayloadRow & {
   clientRowId: string;
 };
 
-type BomColumnKey =
-  | "componentId"
-  | "quantity"
-  | "minimumLotAgeDays";
+type BomColumnKey = "componentId" | "quantity" | "minimumLotAgeDays";
 
 type BomErrorState = {
   gridError: string | null;
@@ -237,12 +238,14 @@ function RequirementsCell({
   data,
   rows,
   emitRowsChange,
+  readOnly,
 }: ICellRendererParams<BomGridRow> & {
   rows: BomGridRow[];
   emitRowsChange: (
     nextRows: BomGridRow[],
     change: EditableLineDataGridChange<BomGridRow>,
   ) => void;
+  readOnly: boolean;
 }) {
   const currentDays = normalizeMinimumLotAge(data?.minimumLotAgeDays);
   const [open, setOpen] = useState(false);
@@ -258,6 +261,19 @@ function RequirementsCell({
 
   if (!data) {
     return null;
+  }
+
+  if (readOnly) {
+    return (
+      <span
+        className={cn(
+          "block truncate px-(--space-3)",
+          summary === "None" && "text-[var(--color-ink-faint)]",
+        )}
+      >
+        {summary}
+      </span>
+    );
   }
 
   return (
@@ -412,10 +428,37 @@ function QuantityCell({
   );
 }
 
+function EstimatedMoneyCell({
+  value,
+}: {
+  value: string | null | undefined;
+}) {
+  const numeric = value == null ? Number.NaN : Number(value);
+
+  return (
+    <span className="flex min-w-0 items-center justify-end gap-(--space-2)">
+      <span
+        className={cn(
+          "truncate font-mono tabular-nums",
+          !Number.isFinite(numeric) && "text-[var(--color-ink-faint)]",
+        )}
+      >
+        {Number.isFinite(numeric) ? numeric.toFixed(5) : "—"}
+      </span>
+      <span className="shrink-0 text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+        USD
+      </span>
+    </span>
+  );
+}
+
 interface BomEditorProps {
   initialRows?: BomPayloadRow[];
   availableComponents: AvailableComponent[];
   quantityHeader?: string;
+  recipeBasis?: RecipeBasis;
+  outputQuantity?: string | null;
+  readOnly?: boolean;
   error?: unknown;
   onRowsChange?: (rows: BomPayloadRow[], meta: BomEditorChangeMeta) => void;
 }
@@ -424,6 +467,9 @@ export function BomEditor({
   initialRows,
   availableComponents,
   quantityHeader = "Qty used",
+  recipeBasis = "unit",
+  outputQuantity = "1",
+  readOnly = false,
   error,
   onRowsChange,
 }: BomEditorProps) {
@@ -478,93 +524,118 @@ export function BomEditor({
     () => {
       const nextColumns: LineField<BomGridRow>[] = [
         {
-        field: "componentId",
-        kind: "inventory-item",
-        headerName: "Component",
-        minWidth: 240,
-        flex: 1.4,
-        editable: true,
-        options: componentOptions,
-        placeholder: "Search items...",
-        emptyMessage: "No items found",
-        requiredMessage: "Component is required",
-        isRowBlank: isBlankBomRow,
-        getDraftRow: (row: BomGridRow, componentId: string) => ({
-          ...row,
-          componentId,
-        }),
-        showTypeBadge: true,
-        createLinks: [
-          {
-            href: "/inventory/product",
-            label: "Create product",
-          },
-          {
-            href: "/inventory/material",
-            label: "Create material",
-          },
-        ],
-        getSecondaryText: (component) =>
-          (component as AvailableComponent).unit,
-        cellRenderer: (params: ICellRendererParams<BomGridRow>) => (
-          <ComponentCell {...params} componentMap={componentMap} />
-        ),
-        cellClassRules: {
-          "erp-editable-grid-cell-error": hasError("componentId"),
-        },
-        tooltipValueGetter: errorTooltip("componentId"),
-      },
-      {
-        field: "quantity",
-        kind: "number",
-        headerName: quantityHeader,
-        minWidth: 156,
-        flex: 0.7,
-        editable: true,
-        getSuffix: (row) => getComponentUnit(row, componentMap),
-        getValidationErrors: (value, row) => {
-          const nextRow = {
+          field: "componentId",
+          kind: "inventory-item",
+          headerName: "Component",
+          minWidth: 240,
+          flex: 1.4,
+          editable: !readOnly,
+          options: componentOptions,
+          placeholder: "Search items...",
+          emptyMessage: "No items found",
+          requiredMessage: "Component is required",
+          isRowBlank: isBlankBomRow,
+          getDraftRow: (row: BomGridRow, componentId: string) => ({
             ...row,
-            quantity: normalizeTextCell(value),
-          };
-          if (isBlankBomRow(nextRow)) {
-            return null;
-          }
-          return isPositiveNumberString(nextRow.quantity ?? "")
-            ? null
-            : ["Quantity must be greater than 0"];
+            componentId,
+          }),
+          showTypeBadge: true,
+          createLinks: [
+            {
+              href: "/inventory/product",
+              label: "Create product",
+            },
+            {
+              href: "/inventory/material",
+              label: "Create material",
+            },
+          ],
+          getSecondaryText: (component) =>
+            (component as AvailableComponent).unit,
+          cellRenderer: (params: ICellRendererParams<BomGridRow>) => (
+            <ComponentCell {...params} componentMap={componentMap} />
+          ),
+          cellClassRules: {
+            "erp-editable-grid-cell-error": hasError("componentId"),
+          },
+          tooltipValueGetter: errorTooltip("componentId"),
         },
-        valueSetter: (params: ValueSetterParams<BomGridRow, string | null>) => {
-          params.data.quantity = normalizeTextCell(params.newValue);
-          return true;
+        {
+          field: "quantity",
+          kind: "number",
+          headerName: quantityHeader,
+          minWidth: 156,
+          flex: 0.7,
+          editable: !readOnly,
+          getSuffix: (row) => getComponentUnit(row, componentMap),
+          getValidationErrors: (value, row) => {
+            const nextRow = {
+              ...row,
+              quantity: normalizeTextCell(value),
+            };
+            if (isBlankBomRow(nextRow)) {
+              return null;
+            }
+            return isPositiveNumberString(nextRow.quantity ?? "")
+              ? null
+              : ["Quantity must be greater than 0"];
+          },
+          valueSetter: (params: ValueSetterParams<BomGridRow, string | null>) => {
+            params.data.quantity = normalizeTextCell(params.newValue);
+            return true;
+          },
+          cellRenderer: (params: ICellRendererParams<BomGridRow>) => (
+            <QuantityCell {...params} componentMap={componentMap} />
+          ),
+          rightAligned: true,
+          cellClassRules: {
+            "erp-editable-grid-cell-error": hasError("quantity"),
+          },
+          tooltipValueGetter: errorTooltip("quantity"),
         },
-        cellRenderer: (params: ICellRendererParams<BomGridRow>) => (
-          <QuantityCell {...params} componentMap={componentMap} />
-        ),
-        rightAligned: true,
-        cellClassRules: {
-          "erp-editable-grid-cell-error": hasError("quantity"),
+        {
+          colId: "estimatedContribution",
+          kind: "display",
+          headerName: "Cost",
+          headerTooltip: BOM_ESTIMATED_CONTRIBUTION_TOOLTIP,
+          minWidth: 152,
+          flex: 0.8,
+          rightAligned: true,
+          cellRenderer: ({ data }: ICellRendererParams<BomGridRow>) => {
+            const estimatedUnitCost = data?.componentId
+              ? (componentMap.get(data.componentId)?.estimatedUnitCost ?? null)
+              : null;
+            const contribution = data
+              ? calculateEstimatedComponentContribution({
+                  quantity: data.quantity,
+                  estimatedUnitCost,
+                  recipeBasis,
+                  outputQuantity,
+                })
+              : null;
+
+            return <EstimatedMoneyCell value={contribution} />;
+          },
         },
-        tooltipValueGetter: errorTooltip("quantity"),
-      },
-      {
-        field: "minimumLotAgeDays",
-        kind: "display",
-        headerName: "Requirements",
-        minWidth: 136,
-        flex: 0.65,
-        cellRenderer: (params: ICellRendererParams<BomGridRow>) => (
-          <RequirementsCell
-            {...params}
-            rows={rows}
-            emitRowsChange={emitRowsChange}
-          />
-        ),
-        cellClassRules: {
-          "erp-editable-grid-cell-error": hasError("minimumLotAgeDays"),
+        {
+          field: "minimumLotAgeDays",
+          kind: "display",
+          headerName: "Requirements",
+          minWidth: 136,
+          flex: 0.65,
+          cellRenderer: (params: ICellRendererParams<BomGridRow>) => (
+            <RequirementsCell
+              {...params}
+              rows={rows}
+              emitRowsChange={emitRowsChange}
+              readOnly={readOnly}
+            />
+          ),
+          cellClassRules: {
+            "erp-editable-grid-cell-error": hasError("minimumLotAgeDays"),
+          },
+          tooltipValueGetter: errorTooltip("minimumLotAgeDays"),
         },
-        tooltipValueGetter: errorTooltip("minimumLotAgeDays"),
-      },
       ];
 
       return nextColumns;
@@ -575,7 +646,10 @@ export function BomEditor({
       errorTooltip,
       emitRowsChange,
       hasError,
+      outputQuantity,
       quantityHeader,
+      readOnly,
+      recipeBasis,
       rows,
     ]
   );
@@ -588,6 +662,7 @@ export function BomEditor({
       createRow={() => createBlankGridRow()}
       onRowsChange={emitRowsChange}
       addLabel="Add ingredient"
+      readOnly={readOnly}
       emptyMessage="No ingredients yet."
       isBlankRow={isBlankRow}
       rowHasError={rowHasError}

@@ -139,11 +139,18 @@ Batch product setup stores `recipe_basis = 'batch'` on the BOM revision and `out
 
 MO creation snapshots concrete ingredient quantities on `manufacturing_order_ingredients`. Historical MOs should display and execute from the snapshot, not from the current product BOM.
 
-Estimated unit cost uses average per-output consumption. For batch recipes this is `line.quantity / bom.output_quantity`.
+Estimated component contribution uses average per-output consumption. For batch recipes this is `line.quantity / bom.output_quantity`.
 
 A product BOM cannot include the product itself as a component. Component
 quantities must be positive, and minimum lot-age constraints must be blank or a
 positive whole number of days.
+
+The product Recipe tab resolves current component cost rates for displayed BOM
+components and resolves newly selected components on demand. Row contributions
+and ingredient totals recalculate from unsaved quantities and batch yield using
+the same average per-output normalization. The product total combines that
+draft ingredient estimate with the current saved operation estimate; BOM
+revision history does not reconstruct historical component costs.
 
 ## Standard Operation Costs
 

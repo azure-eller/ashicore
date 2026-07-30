@@ -29,7 +29,7 @@ read_when:
 - `inventory:admin` is reserved for higher-risk inventory controls such as destructive item actions and unit definition management
 - Unlocked product BOMs use `inventory:operate`
 - Locked BOMs are flagged on the product item row and require `inventory:admin` to lock, unlock, or edit
-- Manufacturing admin may view locked BOMs in inventory detail views, but manufacturing execution is not blocked by BOM lock
+- Manufacturing admin may inspect locked BOM components and current estimated costs read-only in inventory detail views, but manufacturing execution is not blocked by BOM lock
 - Personal account settings are available to all authenticated members
 - Team management is governed by `owner` or `settings:admin`
 

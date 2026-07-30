@@ -40,6 +40,8 @@ used as a presentation fallback for a variant.
 - `POST /api/item-cards/:itemId/variants/generate-preview`
 - `POST /api/item-cards/:itemId/variants/generate`
 - `POST /api/item-cards/:itemId/bom-copy`
+- `GET /api/items/:itemId/estimated-unit-cost`
+- `GET /api/items/:itemId/recipe-tab`
 - `GET /api/items/:itemId/bom-revisions`
 - `POST /api/items/:itemId/bom-revisions`
 - `DELETE /api/item-cards/:itemId`
@@ -91,3 +93,24 @@ components, constraints, and explicitly submitted operation costs match the
 current revision, the route is an idempotent no-op: it returns the current
 `revisionId` and `revisionNumber` with `created: false` instead of appending a
 duplicate revision.
+
+## Recipe Tab Read Model
+
+`GET /api/items/:itemId/recipe-tab` returns the focused product's current BOM
+rows and revision metadata. When the member may view the BOM, component options
+already used by the current recipe include `estimatedUnitCost`, resolved from
+the same current estimated-cost graph used by item cards. The client reads a
+newly selected component's current rate from
+`GET /api/items/:itemId/estimated-unit-cost` rather than resolving every
+available catalog item when the tab opens. That endpoint returns
+`{ estimatedUnitCost: string | null }` for any existing item visible to an
+inventory operator, or `404` when the item does not exist. `null` means the
+current estimate cannot be resolved. The recipe-tab response also includes
+`hasOperationCosts`, which lets the client distinguish a recipe with no
+operations from one whose current operation estimate is unresolved.
+
+The client combines those component rates with draft quantities through the
+canonical recipe-basis normalization helper. It displays only each row's
+estimated contribution per finished output unit, not the underlying component
+rate. This is a current estimate only: BOM revision history does not expose
+historical component-cost snapshots.

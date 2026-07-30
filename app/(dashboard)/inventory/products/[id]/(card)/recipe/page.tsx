@@ -1,5 +1,10 @@
 import { redirect } from "next/navigation";
-import { getAvailableComponents, getBomComponents, getBomRevisionHistory } from "@/lib/inventory/queries/bom-read";
+import {
+  getAvailableComponents,
+  getBomComponents,
+  getBomOperationCosts,
+  getBomRevisionHistory,
+} from "@/lib/inventory/queries/bom-read";
 import { getItem } from "@/lib/inventory/queries/item-detail";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
 import {
@@ -47,11 +52,17 @@ export default async function ProductRecipePage({
     ? hasModuleAccess(context.assignedRoles, "inventory", "admin") &&
       canManageLockedBom(context.assignedRoles)
     : hasModuleAccess(context.assignedRoles, "inventory", "operate");
-  const [bomRows, availableComponents, bomRevisions] = await Promise.all([
-    canViewBom ? getBomComponents(focusItemId) : Promise.resolve([]),
-    getAvailableComponents(focusItemId),
-    canViewBom ? getBomRevisionHistory(focusItemId) : Promise.resolve([]),
-  ]);
+  const bomRows = canViewBom ? await getBomComponents(focusItemId) : [];
+  const [availableComponents, bomRevisions, operationCosts] =
+    await Promise.all([
+      getAvailableComponents(focusItemId, {
+        estimatedUnitCostItemIds: canViewBom
+          ? bomRows.map((row) => row.componentId)
+          : [],
+      }),
+      canViewBom ? getBomRevisionHistory(focusItemId) : Promise.resolve([]),
+      canViewBom ? getBomOperationCosts(focusItemId) : Promise.resolve([]),
+    ]);
   const currentRevision = bomRevisions.find((revision) => revision.isCurrent);
 
   return (
@@ -74,7 +85,9 @@ export default async function ProductRecipePage({
         displayName: component.displayName,
         itemType: component.itemType,
         unit: component.unit,
+        estimatedUnitCost: component.estimatedUnitCost,
       }))}
+      hasOperationCosts={operationCosts.length > 0}
       canViewBom={canViewBom}
       canEditProduct={canEditProduct}
       batchProductionLocked={batchAccess.locked}

@@ -153,6 +153,10 @@ export function ProductOperationsTab({
         queryClient.setQueryData(queryKeys.productTabs.production(activeFocusItemId), nextData);
         setProductionData(nextData);
         setRows(nextData.initialOperationCosts);
+        await queryClient.invalidateQueries({
+          queryKey: queryKeys.productTabs.recipeRoot,
+          refetchType: "none",
+        });
         await queryClient.invalidateQueries({ queryKey: queryKeys.itemCards.root });
       })();
     },

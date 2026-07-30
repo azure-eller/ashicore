@@ -51,6 +51,8 @@ const SETTINGS_ADMIN_ROLE =
   "access:matrix,member,settings:admin,sales:read";
 const SALES_ONLY_ROLE = "access:matrix,member,sales:read";
 const MANUFACTURING_ONLY_ROLE = "access:matrix,member,manufacturing:read";
+const LOCKED_BOM_VIEWER_ROLE =
+  "access:matrix,member,inventory:read,manufacturing:admin";
 const FULL_ADMIN_ROLE =
   "access:matrix,member,settings:admin,inventory:admin,sales:admin,manufacturing:admin,purchasing:admin";
 
@@ -202,6 +204,7 @@ test.describe("Auth and security regressions", () => {
   const materialName = `Auth Guard Material ${run}`;
   const productName = `Auth Guard Product ${run}`;
   const customerName = `Auth Guard Customer ${run}`;
+  let productId = "";
   let orderId = "";
 
   test("legacy orgs without units receive a default unit and can create a product", async ({ page, db }) => {
@@ -290,16 +293,91 @@ test.describe("Auth and security regressions", () => {
       ],
     });
     expect(productResult.status).toBe(201);
+    productId = productResult.body.id as string;
 
     const customerResult = await createCustomer({ name: customerName });
     expect(customerResult.status).toBe(201);
 
     orderId = await createConfirmedSalesOrder({
       customerId: customerResult.body.id,
-      itemId: productResult.body.id,
+      itemId: productId,
       quantity: "2",
       unitPrice: "15.00",
     });
+  });
+
+  test("locked recipe viewers can inspect costs without editing the BOM", async ({
+    page,
+  }) => {
+    const actor = await getTestMembership();
+    let locked = false;
+
+    try {
+      const lockResponse = await testFetch(`/api/items/${productId}/bom-lock`, {
+        method: "POST",
+        body: JSON.stringify({ locked: true }),
+      });
+      expect(lockResponse.status).toBe(200);
+      locked = true;
+
+      await authDb
+        .update(member)
+        .set({ role: LOCKED_BOM_VIEWER_ROLE })
+        .where(eq(member.id, actor.id));
+
+      await page.goto(`/inventory/products/${productId}/recipe`);
+      await expect(
+        page.getByRole("heading", { name: "Recipe / Bill of Materials" }),
+      ).toBeVisible();
+
+      const recipeGrid = page.locator(".ag-root").last();
+      const ingredientRow = recipeGrid.locator(".ag-row").filter({
+        hasText: materialName,
+      });
+      await expect(
+        ingredientRow.locator('.ag-cell[col-id="estimatedContribution"]'),
+      ).toContainText("1.50000");
+      const costRateResponse = await testFetch(
+        `/api/items/${productId}/estimated-unit-cost`,
+      );
+      expect(costRateResponse.status).toBe(403);
+      await expect(
+        page.getByRole("button", { name: "Save recipe" }),
+      ).toHaveCount(0);
+      await expect(page.getByText("Add ingredient")).toHaveCount(0);
+
+      const componentCell = ingredientRow.locator(
+        '.ag-cell[col-id="componentId"]',
+      );
+      const quantityCell = ingredientRow.locator('.ag-cell[col-id="quantity"]');
+      const requirementsCell = ingredientRow.locator(
+        '.ag-cell[col-id="minimumLotAgeDays"]',
+      );
+
+      await componentCell.click();
+      await quantityCell.click();
+      await expect(componentCell.locator("input")).toHaveCount(0);
+      await expect(quantityCell.locator("input")).toHaveCount(0);
+      await expect(requirementsCell.getByRole("button")).toHaveCount(0);
+      await requirementsCell.click();
+      await expect(page.getByText("Component requirements")).toHaveCount(0);
+    } finally {
+      await authDb
+        .update(member)
+        .set({ role: actor.role })
+        .where(eq(member.id, actor.id));
+
+      if (locked) {
+        const unlockResponse = await testFetch(
+          `/api/items/${productId}/bom-lock`,
+          {
+            method: "POST",
+            body: JSON.stringify({ locked: false }),
+          },
+        );
+        expect(unlockResponse.status).toBe(200);
+      }
+    }
   });
 
   test("manufacturing creation requires manufacturing write access", async () => {

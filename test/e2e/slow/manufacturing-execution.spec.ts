@@ -5,12 +5,21 @@ import {
   inventoryEvents,
   inventoryItemBalances,
   inventoryLotBalances,
+  items,
   lots,
   manufacturingOrderIngredients,
   manufacturingOrderOutputs,
   manufacturingOrders,
+  manufacturingResources,
 } from "../../../lib/db/schema";
-import { completeManufacturingOrder, testFetch, updateItem } from "../../helpers/api";
+import {
+  completeManufacturingOrder,
+  createItem,
+  getOrgId,
+  getUnitId,
+  testFetch,
+  updateItem,
+} from "../../helpers/api";
 import {
   createMaterialFixture,
   createReleasedManufacturingOrder,
@@ -25,11 +34,110 @@ test.describe("manufacturing execution operating story", () => {
   let productId: string;
   let orderId: string;
 
+  test("prices a saved batch recipe using its revision output", async ({
+    db,
+    page,
+  }) => {
+    const component = await createMaterialFixture({
+      name: "Batch recipe cost component",
+      stock: "20",
+      cost: "2.00",
+    });
+    const product = await createSellableProductFixture({
+      name: "Batch recipe cost product",
+      stock: "0",
+      price: "24.00",
+      bom: [{ componentId: component.id, quantity: "10" }],
+    });
+    const revisionResponse = await testFetch(
+      `/api/items/${product.id}/bom-revisions`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          recipeBasis: "batch",
+          expectedBatchYield: "10",
+          outputQuantity: "10",
+          bom: [{ componentId: component.id, quantity: "10" }],
+        }),
+      },
+    );
+    expect([200, 201]).toContain(revisionResponse.status);
+
+    await db
+      .update(items)
+      .set({ expectedBatchYield: "20" })
+      .where(eq(items.id, product.id));
+
+    await page.goto(`/inventory/products/${product.id}/recipe`);
+    const ingredientRow = page
+      .locator(".ag-root")
+      .last()
+      .locator(".ag-row")
+      .filter({ hasText: component.name });
+    await expect(
+      ingredientRow.locator('.ag-cell[col-id="estimatedContribution"]'),
+    ).toContainText("2.00000");
+    await expect(page.getByLabel("Output per batch")).toHaveValue("10");
+  });
+
+  test("keeps operation cost visible when a recipe has no ingredients", async ({
+    db,
+    page,
+  }) => {
+    const [resource] = await db
+      .insert(manufacturingResources)
+      .values({
+        organizationId: getOrgId(),
+        name: `Operation-only recipe resource ${Date.now()}`,
+        resourceType: "labor",
+        loadedCostPerHour: "12.000000",
+      })
+      .returning({ id: manufacturingResources.id });
+    const product = await createItem({
+      itemType: "product",
+      name: `Operation-only recipe ${Date.now()}`,
+      sellable: true,
+      unitDefinitionId: getUnitId(),
+      sku: `OPERATION-ONLY-${Date.now()}`,
+      category: "Slow Story",
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "20.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+      operationCosts: [
+        {
+          operationName: "Finish",
+          resourceId: resource.id,
+          costScalingMode: "per_output_unit",
+          crewSize: "1",
+          plannedMinutes: "15",
+          loadedCostPerHour: "12",
+        },
+      ],
+    });
+    expect(product.status).toBe(201);
+
+    await page.goto(`/inventory/products/${product.body.id}/recipe`);
+    await expect(page.getByText(/Estimated ingredient cost \//).locator(".."))
+      .toContainText("0.00000 USD");
+    await expect(page.getByText(/Current operation cost \//).locator(".."))
+      .toContainText("3.00000 USD");
+    await expect(page.getByText(/Estimated product cost \//).locator(".."))
+      .toContainText("3.00000 USD");
+  });
+
   test("creates BOM snapshot and releases ingredient demand", async ({ db, page }) => {
     const component = await createMaterialFixture({
       name: "Manufacturing Story Component",
       stock: "20",
       cost: "2.50",
+    });
+    const draftComponent = await createMaterialFixture({
+      name: "Manufacturing Story Draft Component",
+      stock: "20",
+      cost: "4.00",
     });
     componentId = component.id;
     const product = await createSellableProductFixture({
@@ -39,6 +147,80 @@ test.describe("manufacturing execution operating story", () => {
       bom: [{ componentId, quantity: "2" }],
     });
     productId = product.id;
+
+    await page.goto(`/inventory/products/${productId}/recipe`);
+    await expect(
+      page.getByRole("heading", { name: "Recipe / Bill of Materials" }),
+    ).toBeVisible();
+
+    const recipeGrid = page.locator(".ag-root").last();
+    const ingredientRow = recipeGrid.locator(".ag-row").filter({
+      hasText: component.name,
+    });
+    await expect(
+      ingredientRow.locator('.ag-cell[col-id="estimatedContribution"]'),
+    ).toContainText("5.00000");
+    const productCostRow = page
+      .getByText(/Estimated product cost \//)
+      .locator("..");
+    await expect(productCostRow).toContainText("5.00000 USD");
+
+    const quantityCell = ingredientRow.locator('.ag-cell[col-id="quantity"]');
+    await quantityCell.click();
+    const quantityInput = quantityCell.locator("input:visible");
+    await expect(quantityInput).toBeVisible();
+    await quantityInput.fill("3");
+    await quantityInput.press("Enter");
+
+    await expect(
+      ingredientRow.locator('.ag-cell[col-id="estimatedContribution"]'),
+    ).toContainText("7.50000");
+    await expect(productCostRow).toContainText("7.50000 USD");
+    await expect(productCostRow).toContainText("draft");
+    await expect(page.getByRole("button", { name: "Save recipe" })).toBeEnabled();
+
+    await page.getByRole("button", { name: "Add ingredient" }).click();
+    const draftRow = recipeGrid.locator('.ag-row[row-index="1"]');
+    await draftRow.locator('.ag-cell[col-id="componentId"]').click();
+    const componentSearch = page.getByPlaceholder("Search items...");
+    await componentSearch.fill(draftComponent.name);
+    await page
+      .locator('[data-slot="combobox-item"]')
+      .filter({ hasText: draftComponent.name })
+      .first()
+      .click();
+    const draftQuantityCell = draftRow.locator('.ag-cell[col-id="quantity"]');
+    await draftQuantityCell.click();
+    const draftQuantityInput = draftQuantityCell.locator("input:visible");
+    await draftQuantityInput.fill("1");
+    await draftQuantityInput.press("Enter");
+    await expect(
+      draftRow.locator('.ag-cell[col-id="estimatedContribution"]'),
+    ).toContainText("4.00000");
+    await expect(productCostRow).toContainText("11.50000 USD");
+
+    await draftRow.getByRole("button", { name: "Delete row" }).click();
+    await ingredientRow.getByRole("button", { name: "Delete row" }).click();
+    await expect(recipeGrid.locator(".ag-row")).toHaveCount(0);
+    await expect(productCostRow).toContainText("0.00000 USD");
+
+    page.once("dialog", (dialog) => void dialog.accept());
+    await page.reload();
+    await expect(
+      page
+        .locator(".ag-root")
+        .last()
+        .locator(".ag-row")
+        .filter({ hasText: component.name })
+        .locator('.ag-cell[col-id="estimatedContribution"]'),
+    ).toContainText("5.00000");
+    await expect(
+      page
+        .locator(".ag-root")
+        .last()
+        .locator(".ag-row")
+        .filter({ hasText: draftComponent.name }),
+    ).toHaveCount(0);
 
     orderId = await createReleasedManufacturingOrder({
       productId,

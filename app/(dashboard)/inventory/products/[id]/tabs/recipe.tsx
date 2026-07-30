@@ -29,6 +29,7 @@ import { ActiveVariantSelect } from "@/components/card-page/active-variant-selec
 import { CopyDialog } from "@/components/card-page/copy-bom-dialog";
 import { cardSaveMutationKey } from "@/components/card-page/card-save-status";
 import { useItemCardContext } from "@/components/card-page/item-card-focus-context";
+import { TotalsSummary } from "@/components/card-page/totals-summary";
 import { runCardAction } from "@/components/card-page/use-card-entity-actions";
 import {
   BomEditor,
@@ -36,6 +37,7 @@ import {
   type BomPayloadRow,
 } from "@/app/(dashboard)/inventory/bom-editor";
 import {
+  getEstimatedComponentUnitCost,
   getProductRecipeTabPayload,
   saveBomRevision,
   type ProductRecipeTabPayload,
@@ -47,6 +49,10 @@ import {
 } from "./bom-revision-history-sheet";
 import styles from "@/components/card-page/card-page.module.css";
 import { queryKeys } from "@/lib/client/query-keys";
+import {
+  calculateEstimatedIngredientCost,
+  calculateEstimatedProductCost,
+} from "@/lib/inventory/recipe-cost-preview";
 
 type AvailableComponent = {
   id: string;
@@ -54,6 +60,7 @@ type AvailableComponent = {
   displayName: string;
   itemType: string;
   unit: string;
+  estimatedUnitCost?: string | null;
 };
 
 export type ProductRecipeTabProps = {
@@ -65,6 +72,7 @@ export type ProductRecipeTabProps = {
   initialExpectedBatchYield: string | null;
   bomRevisions: BomRevisionHistoryEntry[];
   availableComponents: AvailableComponent[];
+  hasOperationCosts: boolean;
   canViewBom: boolean;
   canEditProduct: boolean;
   batchProductionLocked: boolean;
@@ -79,6 +87,7 @@ export function ProductRecipeTab({
   initialExpectedBatchYield,
   bomRevisions,
   availableComponents,
+  hasOperationCosts,
   canViewBom,
   canEditProduct,
   batchProductionLocked,
@@ -103,6 +112,7 @@ export function ProductRecipeTab({
     initialExpectedBatchYield,
     bomRevisions,
     availableComponents,
+    hasOperationCosts,
     canViewBom,
     canEditProduct,
   };
@@ -113,7 +123,7 @@ export function ProductRecipeTab({
     initialRecipeBasis,
   );
   const [expectedBatchYield, setExpectedBatchYield] = useState(
-    initialExpectedBatchYield ?? initialOutputQuantity,
+    initialOutputQuantity,
   );
   const [dirty, setDirty] = useState(false);
   const [copyToOpen, setCopyToOpen] = useState(false);
@@ -124,6 +134,89 @@ export function ProductRecipeTab({
   const editorResetKey = `${activeFocusItemId}:${recipeData?.initialBomRevisionId ?? "none"}`;
   const outputUnitName = card.family.unitName ?? "unit";
   const tabLoading = loadingVariantId === activeFocusItemId;
+  const estimatedUnitCostByComponentId = useMemo(
+    () =>
+      new Map(
+        recipeData.availableComponents.map((component) => [
+          component.id,
+          component.estimatedUnitCost ?? null,
+        ]),
+      ),
+    [recipeData.availableComponents],
+  );
+  useEffect(() => {
+    const unresolvedIds = [...new Set(rows.map((row) => row.componentId))]
+      .filter((itemId): itemId is string => Boolean(itemId))
+      .filter(
+        (itemId) =>
+          recipeData.availableComponents.find(
+            (component) => component.id === itemId,
+          )?.estimatedUnitCost === undefined,
+      );
+
+    if (unresolvedIds.length === 0) return;
+
+    const payloadFocusItemId = recipeData.focusItemId;
+    void Promise.allSettled(
+      unresolvedIds.map(async (itemId) => ({
+        itemId,
+        result: await queryClient.fetchQuery({
+          queryKey: queryKeys.productTabs.estimatedComponentCost(itemId),
+          queryFn: () => getEstimatedComponentUnitCost(itemId),
+          staleTime: 0,
+        }),
+      })),
+    ).then((settledCosts) => {
+      const resolvedCosts = settledCosts.flatMap((settledCost) =>
+        settledCost.status === "fulfilled" ? [settledCost.value] : [],
+      );
+      if (resolvedCosts.length === 0) return;
+
+      setRecipeData((current) => {
+        if (current.focusItemId !== payloadFocusItemId) return current;
+        const costByItemId = new Map(
+          resolvedCosts.map(({ itemId, result }) => [
+            itemId,
+            result.estimatedUnitCost,
+          ]),
+        );
+        return {
+          ...current,
+          availableComponents: current.availableComponents.map((component) =>
+            costByItemId.has(component.id)
+              ? {
+                  ...component,
+                  estimatedUnitCost: costByItemId.get(component.id) ?? null,
+                }
+              : component,
+          ),
+        };
+      });
+    });
+  }, [queryClient, recipeData.availableComponents, recipeData.focusItemId, rows]);
+  const estimatedIngredientsCost = useMemo(
+    () =>
+      calculateEstimatedIngredientCost({
+        rows,
+        estimatedUnitCostByComponentId,
+        recipeBasis,
+        outputQuantity:
+          recipeBasis === "batch" ? expectedBatchYield : "1",
+      }),
+    [
+      estimatedUnitCostByComponentId,
+      expectedBatchYield,
+      recipeBasis,
+      rows,
+    ],
+  );
+  const currentOperationsCost = recipeData.hasOperationCosts
+    ? (activeVariant?.operationsCost ?? null)
+    : "0";
+  const estimatedProductCost = calculateEstimatedProductCost({
+    ingredientsCost: estimatedIngredientsCost,
+    operationsCost: currentOperationsCost,
+  });
   const requireSavedProductCard = () =>
     runCardAction({
       flushPolicy: "requireSaved",
@@ -139,7 +232,7 @@ export function ProductRecipeTab({
     queryClient.fetchQuery({
       queryKey: queryKeys.productTabs.recipe(variantId),
       queryFn: () => getProductRecipeTabPayload(variantId),
-      staleTime: Infinity,
+      staleTime: 0,
     });
 
   const saveMutation = useMutation({
@@ -164,9 +257,11 @@ export function ProductRecipeTab({
         setRecipeData(nextData);
         setRows(nextData.initialBomRows);
         setRecipeBasis(nextData.initialRecipeBasis);
-        setExpectedBatchYield(
-          nextData.initialExpectedBatchYield ?? nextData.initialOutputQuantity,
-        );
+        setExpectedBatchYield(nextData.initialOutputQuantity);
+        await queryClient.invalidateQueries({
+          queryKey: queryKeys.productTabs.recipeRoot,
+          refetchType: "none",
+        });
         await queryClient.invalidateQueries({ queryKey: queryKeys.itemCards.root });
       })();
     },
@@ -248,9 +343,7 @@ export function ProductRecipeTab({
       setRecipeData(nextData);
       setRows(nextData.initialBomRows);
       setRecipeBasis(nextData.initialRecipeBasis);
-      setExpectedBatchYield(
-        nextData.initialExpectedBatchYield ?? nextData.initialOutputQuantity,
-      );
+      setExpectedBatchYield(nextData.initialOutputQuantity);
       setRevisionNote("");
       setSaveDialogOpen(false);
     } finally {
@@ -374,10 +467,7 @@ export function ProductRecipeTab({
                   if (!recipeData) return;
                   setRows(recipeData.initialBomRows);
                   setRecipeBasis(recipeData.initialRecipeBasis);
-                  setExpectedBatchYield(
-                    recipeData.initialExpectedBatchYield ??
-                      recipeData.initialOutputQuantity,
-                  );
+                  setExpectedBatchYield(recipeData.initialOutputQuantity);
                   setDirty(false);
                 }}
               >
@@ -409,23 +499,37 @@ export function ProductRecipeTab({
             key={editorResetKey}
             initialRows={recipeData.initialBomRows}
             availableComponents={recipeData.availableComponents}
-            quantityHeader={
-              recipeBasis === "batch" ? "Quantity per batch" : "Quantity per unit"
+            quantityHeader="Quantity"
+            recipeBasis={recipeBasis}
+            outputQuantity={
+              recipeBasis === "batch" ? expectedBatchYield : "1"
             }
+            readOnly={!recipeData.canEditProduct}
             onRowsChange={handleRowsChange}
             error={saveMutation.error}
           />
 
-          <div className={styles.totals}>
-            <span className={styles.lab}>Total cost</span>
-            <span>
-              <span className={styles.val}>
-                {activeVariant?.ingredientsCost == null
-                  ? "—"
-                  : Number(activeVariant.ingredientsCost).toFixed(5)}
-              </span>
-              <span className={styles.ccy}>USD</span>
-            </span>
+          <div className="flex justify-end border border-t-0 border-border bg-muted px-(--space-6) py-(--space-4)">
+            <TotalsSummary
+              rows={[
+                {
+                  label: `Estimated ingredient cost / ${outputUnitName}`,
+                  value: <EstimatedCostValue value={estimatedIngredientsCost} />,
+                  subValue: dirty ? "draft" : undefined,
+                },
+                {
+                  label: `Current operation cost / ${outputUnitName}`,
+                  value: <EstimatedCostValue value={currentOperationsCost} />,
+                },
+                {
+                  label: `Estimated product cost / ${outputUnitName}`,
+                  value: <EstimatedCostValue value={estimatedProductCost} />,
+                  subValue: dirty ? "draft" : undefined,
+                  rule: true,
+                  emphasis: "total",
+                },
+              ]}
+            />
           </div>
         </>
       )}
@@ -498,5 +602,17 @@ export function ProductRecipeTab({
         </>
       ) : null}
     </CardSection>
+  );
+}
+
+function EstimatedCostValue({ value }: { value: string | null }) {
+  const numeric = value == null ? Number.NaN : Number(value);
+
+  return Number.isFinite(numeric) ? (
+    <>
+      {numeric.toFixed(5)} <span>USD</span>
+    </>
+  ) : (
+    "—"
   );
 }

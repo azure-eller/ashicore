@@ -71,14 +71,14 @@ The app treats **item type** as a creation-time decision. The item-card UI can c
    The create form accepts an initial **stock** quantity. Later stock edits are treated as adjustments, not silent quantity rewrites. Use [Adjust stock](/docs/inventory/adjust-stock) when you are correcting physical inventory.
    </Aside>
 
-4. **For products, add manufacturing details and a recipe.** Products can carry a manufacturing mode, batch yield fields, operation costs, and BOM rows. Batch mode requires an expected batch yield. A valid recipe records components, lot-age constraints, and operation costs as BOM revision history. Manufacturing orders can swap a BOM component to another active variant in the same item family.
+4. **For products, add manufacturing details and a recipe.** Products can carry a manufacturing mode, batch yield fields, operation costs, and BOM rows. Batch mode requires an expected batch yield. A valid recipe records components, lot-age constraints, and operation costs as BOM revision history. The Recipe tab shows each ingredient's current estimated cost contribution per finished unit; manufacturing orders can swap a BOM component to another active variant in the same item family.
 
    <Frame title="<b>Premium Potting Mix</b> / Recipe">
      <Grid>
-       <thead><tr><th>Component</th><th class="num">Qty</th><th>Order swap</th></tr></thead>
+      <thead><tr><th>Component</th><th class="num">Quantity</th><th class="num">Cost</th><th>Requirements</th></tr></thead>
        <tbody>
-         <tr><td>Screened Compost</td><td class="num">0.5</td><td>-</td></tr>
-         <tr><td>Coir Pith</td><td class="num">0.3</td><td>same-family variant</td></tr>
+         <tr><td>Screened Compost</td><td class="num">0.5 yd3</td><td class="num">22.50000 USD</td><td>None</td></tr>
+         <tr><td>Coir Pith</td><td class="num">0.3 yd3</td><td class="num">9.60000 USD</td><td>30-day minimum age</td></tr>
        </tbody>
      </Grid>
    </Frame>

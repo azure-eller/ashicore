@@ -13,6 +13,7 @@ import Frame from '../../../../widgets/Frame.astro';
 import Field from '../../../../widgets/Field.astro';
 import Grid from '../../../../widgets/Grid.astro';
 import Button from '../../../../widgets/Button.astro';
+import Totals from '../../../../widgets/Totals.astro';
 
 Recipes belong to products. Use the product card **Recipe** tab for components and lot-age constraints; use the product card **Production** tab for operation costs.
 
@@ -39,18 +40,27 @@ Manufacturing orders use BOM revisions, but the UI does not expose a separate Ma
      </div>
    </Frame>
 
-2. **Add components.** Add each material component and the positive quantity needed for the recipe basis. A product cannot include itself as a component. Components are stored on the current BOM revision and later copied to manufacturing order ingredients.
+2. **Add ingredients and review their estimated costs.** Add each material or subassembly and the positive quantity needed for the recipe basis. A product cannot include itself as a component. Each row shows the component's estimated cost contribution to one finished output unit. For a batch recipe, Ashicore divides the batch quantity by the expected output before calculating that contribution.
 
-   <Frame title="<b>Components</b>">
-     <span slot="action"><Button variant="subtle">+ Add component</Button></span>
+   <Frame title="<b>Recipe / Bill of Materials</b>">
      <Grid>
-       <thead><tr><th>Component</th><th class="num">Quantity</th><th>Unit</th></tr></thead>
+       <thead><tr><th>Component</th><th class="num">Quantity</th><th class="num">Cost</th><th>Requirements</th></tr></thead>
        <tbody>
-         <tr><td>Screened Compost</td><td class="num">0.5</td><td>yd3</td></tr>
-         <tr><td>Coir Pith</td><td class="num">0.3</td><td>yd3</td></tr>
+         <tr><td>Screened Compost</td><td class="num">0.5 yd3</td><td class="num">22.50000 USD</td><td>None</td></tr>
+         <tr><td>Coir Pith</td><td class="num">0.3 yd3</td><td class="num">9.60000 USD</td><td>30-day minimum age</td></tr>
        </tbody>
      </Grid>
+     <div class="mk-pad mk-pad--top">
+       <Button variant="subtle">+ Add ingredient</Button>
+       <Totals rows={[
+         { label: "Estimated ingredient cost / yd3", value: "32.10000 USD" },
+         { label: "Current operation cost / yd3", value: "0.00000 USD" },
+         { label: "Estimated product cost / yd3", value: "32.10000 USD", grand: true },
+       ]} />
+     </div>
    </Frame>
+
+   Material rates use the current stock cost when available, then the converted default purchase price. A product used as an ingredient uses its current recipe and operation estimate. The underlying rate is used for the calculation but is not shown as another grid column. An em dash means Ashicore cannot resolve the current estimate. Changing a quantity or batch yield updates row contributions and the estimated ingredient and product totals immediately; you do not need to save the draft to inspect it. The operation row in the summary remains the current saved operation cost from the **Production** tab.
 
 3. **Add constraints.** Add a minimum lot-age rule in positive whole days when an ingredient must use lots old enough based on received date. If a component belongs to an item family, manufacturing orders can swap it to another active variant in that same family while planning; that swap is not configured on the recipe.
 
@@ -78,4 +88,8 @@ Manufacturing orders use BOM revisions, but the UI does not expose a separate Ma
 
 <Aside type="caution" title="Orders snapshot the current revision">
 Changing the recipe later creates a new revision for future manufacturing orders. Existing orders keep the components and operation costs they copied at creation.
+</Aside>
+
+<Aside type="note" title="Recipe history does not snapshot estimates">
+The cost column shows estimates from current item costs. Recipe history preserves the saved formula and operation inputs, but it does not store or display a historical component-cost snapshot.
 </Aside>

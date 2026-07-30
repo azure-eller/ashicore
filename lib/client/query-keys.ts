@@ -41,7 +41,10 @@ export const queryKeys = {
     byType: (itemType: string) => ["item-categories", itemType] as const,
   },
   productTabs: {
+    recipeRoot: ["product-recipe-tab"] as const,
     recipe: (variantId: string) => ["product-recipe-tab", variantId] as const,
+    estimatedComponentCost: (itemId: string) =>
+      ["product-recipe-tab", "estimated-component-cost", itemId] as const,
     production: (variantId: string) =>
       ["product-production-tab", variantId] as const,
   },

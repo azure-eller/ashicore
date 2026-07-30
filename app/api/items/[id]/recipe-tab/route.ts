@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { getAvailableComponents, getBomComponents, getBomRevisionHistory } from "@/lib/inventory/queries/bom-read";
+import {
+  getAvailableComponents,
+  getBomComponents,
+  getBomOperationCosts,
+  getBomRevisionHistory,
+} from "@/lib/inventory/queries/bom-read";
 import { getItem } from "@/lib/inventory/queries/item-detail";
 import { apiHandler, type RouteContext } from "@/lib/api/handler";
 import { jsonNotFound } from "@/lib/api/responses";
@@ -30,11 +35,17 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
     ? hasModuleAccess(context.assignedRoles, "inventory", "admin") &&
       canManageLockedBom(context.assignedRoles)
     : hasModuleAccess(context.assignedRoles, "inventory", "operate");
-  const [bomRows, availableComponents, bomRevisions] = await Promise.all([
-    canViewBom ? getBomComponents(id) : Promise.resolve([]),
-    getAvailableComponents(id),
-    canViewBom ? getBomRevisionHistory(id) : Promise.resolve([]),
-  ]);
+  const bomRows = canViewBom ? await getBomComponents(id) : [];
+  const [availableComponents, bomRevisions, operationCosts] =
+    await Promise.all([
+      getAvailableComponents(id, {
+        estimatedUnitCostItemIds: canViewBom
+          ? bomRows.map((row) => row.componentId)
+          : [],
+      }),
+      canViewBom ? getBomRevisionHistory(id) : Promise.resolve([]),
+      canViewBom ? getBomOperationCosts(id) : Promise.resolve([]),
+    ]);
   const currentRevision = bomRevisions.find((revision) => revision.isCurrent);
 
   return NextResponse.json({
@@ -58,7 +69,9 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
       displayName: component.displayName,
       itemType: component.itemType,
       unit: component.unit,
+      estimatedUnitCost: component.estimatedUnitCost,
     })),
+    hasOperationCosts: operationCosts.length > 0,
     canViewBom,
     canEditProduct,
   });

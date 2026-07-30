@@ -429,7 +429,9 @@ export type ProductRecipeTabPayload = {
     displayName: string;
     itemType: string;
     unit: string;
+    estimatedUnitCost?: string | null;
   }>;
+  hasOperationCosts: boolean;
   canViewBom: boolean;
   canEditProduct: boolean;
 };
@@ -475,6 +477,12 @@ export async function getProductRecipeTabPayload(
 ): Promise<ProductRecipeTabPayload> {
   const path = `/api/items/${variantId}/recipe-tab`;
   return request<ProductRecipeTabPayload>(path);
+}
+
+export async function getEstimatedComponentUnitCost(
+  itemId: string,
+): Promise<{ estimatedUnitCost: string | null }> {
+  return request(`/api/items/${itemId}/estimated-unit-cost`);
 }
 
 export async function getProductProductionTabPayload(

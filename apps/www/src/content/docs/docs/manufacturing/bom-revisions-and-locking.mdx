@@ -44,7 +44,9 @@ Recipe edits append a new revision instead of rewriting the old one. Each revisi
 
 ## Locking A BOM
 
-A product recipe can be locked to prevent normal edits. The product records whether it is locked, when it was locked, and who locked it. Unlocking is required before making a recipe change, and the change still creates a new revision.
+A product recipe can be locked to prevent normal edits. The product records whether it is locked, when it was locked, and who locked it. An authorized inventory administrator can edit or unlock it, and a recipe change still creates a new revision.
+
+Members allowed to inspect a locked recipe see the component grid and current estimated costs in read-only form. Ingredient selection, quantity editing, constraint controls, and row mutation actions remain unavailable until an authorized inventory administrator unlocks or edits the recipe.
 
 <Aside type="caution" title="Locking controls edits, not history">
 A locked formula stops quiet changes to a validated recipe. It does not replace revision history; every saved recipe change is still a new revision, while repeated saves of an unchanged payload are ignored.

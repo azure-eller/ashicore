@@ -30,6 +30,7 @@ import {
 import {
   getCurrentBomOperationCostsInTx,
 } from "@/lib/bom/operation-costs";
+import { getEstimatedRecipeCostSummariesByItemIdInTx } from "@/lib/inventory/estimated-cost";
 import { getActiveSiblingVariantsByItemIdInTx } from "@/lib/manufacturing/queries/shared";
 import { getVariantOptionValuesByItemIdInTx, formatNormalizedVariantDisplay, getBomViewPermissions, hasBomViewAccess, getBomParentVisibilityCondition } from "./shared";
 
@@ -196,7 +197,10 @@ export async function getUsedInParents(itemId: string) {
   });
 }
 
-export async function getAvailableComponents(excludeItemId?: string) {
+export async function getAvailableComponents(
+  excludeItemId?: string,
+  options: { estimatedUnitCostItemIds?: string[] } = {},
+) {
   return withAuthedOrgContext(async (tx) => {
     const conditions = [isNull(items.deletedAt), isNotNull(items.familyId)];
     if (excludeItemId) {
@@ -219,6 +223,21 @@ export async function getAvailableComponents(excludeItemId?: string) {
       tx,
       rows.map((row) => row.id),
     );
+    const estimatedUnitCostByItemId = new Map<string, string | null>();
+    if (options.estimatedUnitCostItemIds?.length) {
+      const requestedIds = new Set(options.estimatedUnitCostItemIds);
+      const costItemIds = rows
+        .map((row) => row.id)
+        .filter((itemId) => requestedIds.has(itemId));
+      const estimatedCostsByItemId =
+        await getEstimatedRecipeCostSummariesByItemIdInTx(tx, costItemIds);
+      for (const itemId of costItemIds) {
+        estimatedUnitCostByItemId.set(
+          itemId,
+          estimatedCostsByItemId.get(itemId)?.totalCost ?? null,
+        );
+      }
+    }
 
     return rows.map((row) => {
       const optionValues = optionValuesByItemId.get(row.id) ?? [];
@@ -232,7 +251,17 @@ export async function getAvailableComponents(excludeItemId?: string) {
         ),
         itemType: row.itemType,
         unit: row.unit,
+        estimatedUnitCost: estimatedUnitCostByItemId.get(row.id),
       };
     });
+  });
+}
+
+export async function getEstimatedComponentUnitCost(itemId: string) {
+  return withAuthedOrgContext(async (tx) => {
+    const costs = await getEstimatedRecipeCostSummariesByItemIdInTx(tx, [
+      itemId,
+    ]);
+    return costs.get(itemId)?.totalCost ?? null;
   });
 }
