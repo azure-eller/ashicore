@@ -33,6 +33,9 @@ type PurchaseOrderAdditionalCostPayloadRow = NonNullable<
 export type PurchaseOrderLineDraftRow = Omit<PurchaseOrderLinePayloadRow, "id"> & {
   id: string | null;
   clientRowId: string;
+  itemSku?: string | null;
+  supplierItemCode?: string | null;
+  internalBarcode?: string | null;
   quantityReceived?: string | null;
   stockQuantityReceived?: string | null;
 };
@@ -315,6 +318,9 @@ export function purchaseOrderEditDataToDraft(
         id: line.id ?? null,
         clientRowId: line.id ?? undefined,
         itemId: line.itemId,
+        itemSku: line.itemSku,
+        supplierItemCode: line.supplierItemCode,
+        internalBarcode: line.internalBarcode,
         quantityOrdered: line.quantityOrdered,
         quantityReceived: line.quantityReceived,
         stockQuantityReceived: line.stockQuantityReceived,
@@ -370,6 +376,9 @@ export function purchaseOrderDetailToDraft(
         id: line.id,
         clientRowId: line.id,
         itemId: line.itemId,
+        itemSku: line.itemSku,
+        supplierItemCode: line.supplierItemCode,
+        internalBarcode: line.internalBarcode,
         quantityOrdered: line.quantityOrdered,
         quantityReceived: line.quantityReceived,
         stockQuantityReceived: line.stockQuantityReceived,

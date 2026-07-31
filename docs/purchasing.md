@@ -243,6 +243,10 @@ soft-delete (`deletedAt`) only.
 - orders store `supplierName`
 - lines store `itemName`, `itemSku`, purchase/stock unit names and factor, and tax rate details;
   new saves snapshot the canonical variant display name
+- the editable material grid shows the current item or variant SKU beneath its
+  name and falls back to the line's `itemSku` snapshot when the current item is
+  unavailable; the Supplier item code and Internal barcode columns are live
+  item master data and show an em dash only when their value is empty
 - copied supplier/line details are stable while an order is untouched, but editing and
   saving the order refreshes them from current supplier/item/tax records
 - reads, emails, PDFs, planning supply, and accounting bill pushes append the

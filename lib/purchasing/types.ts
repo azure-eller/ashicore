@@ -39,6 +39,8 @@ export type PurchaseOrderMaterialOption = {
   name: string;
   displayName: string;
   sku: string | null;
+  supplierItemCode: string | null;
+  internalBarcode: string | null;
   stockingUnitName: string;
   purchaseUnitName: string | null;
   purchaseToStockFactor: string | null;
@@ -92,6 +94,8 @@ export type PurchaseOrderDetailLine = {
   itemId: string;
   itemName: string;
   itemSku: string | null;
+  supplierItemCode: string | null;
+  internalBarcode: string | null;
   lotTrackingMode: "tracked" | "untracked";
   purchaseUnitName: string;
   stockingUnitName: string;
@@ -257,6 +261,9 @@ export type PurchaseOrderEditData = {
   lines: Array<{
     id: string;
     itemId: string;
+    itemSku: string | null;
+    supplierItemCode: string | null;
+    internalBarcode: string | null;
     quantityOrdered: string;
     quantityReceived: string;
     stockQuantityReceived: string;

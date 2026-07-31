@@ -115,6 +115,9 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     const familyName = `Fast Bag Sticker ${"Long identity ".repeat(15)}${unique}`;
     const variantLabel = `Bomb 50/50 ${"extended ".repeat(6)}`.trim();
     const expectedDisplayName = `${familyName} / ${variantLabel}`;
+    const variantSku = `FAST-BAG-VARIANT-${unique}`;
+    const supplierItemCode = `FAST-SUPPLIER-${unique}`;
+    const internalBarcode = `FAST-INTERNAL-${unique}`;
     expect(expectedDisplayName.length).toBeGreaterThan(255);
 
     const material = await createItem({
@@ -185,6 +188,24 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     expect(blendOption?.id).toBeTruthy();
     expect(standardValue?.id).toBeTruthy();
 
+    const identifierResponse = await testFetch(
+      `/api/item-cards/${material.body.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          variants: [
+            {
+              id: bombVariant!.id,
+              sku: variantSku,
+              supplierItemCode,
+              internalBarcode,
+            },
+          ],
+        }),
+      },
+    );
+    expect(identifierResponse.status, await identifierResponse.text()).toBe(200);
+
     const disableUsedValueResponse = await testFetch(
       `/api/item-cards/${material.body.id}/variant-config`,
       {
@@ -215,7 +236,18 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       .locator('.ag-row[row-index="0"] .ag-cell[col-id="itemId"]')
       .first();
     await expect(itemCell).toBeVisible();
-    await expect(itemCell).toHaveText(expectedDisplayName);
+    await expect(itemCell).toContainText(expectedDisplayName);
+    await expect(itemCell).toContainText(variantSku);
+    await expect(
+      editableGrid(page)
+        .locator('.ag-row[row-index="0"] .ag-cell[col-id="supplierItemCode"]')
+        .first(),
+    ).toHaveText(supplierItemCode);
+    await expect(
+      editableGrid(page)
+        .locator('.ag-row[row-index="0"] .ag-cell[col-id="internalBarcode"]')
+        .first(),
+    ).toHaveText(internalBarcode);
 
     await itemCell.click();
     const pickerInput = page.getByPlaceholder("Search or create item");
@@ -246,23 +278,37 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     expect(order.status, JSON.stringify(order.body)).toBe(201);
 
     const [savedLine] = await db
-      .select({ itemName: purchaseOrderLines.itemName })
+      .select({
+        itemName: purchaseOrderLines.itemName,
+        itemSku: purchaseOrderLines.itemSku,
+      })
       .from(purchaseOrderLines)
       .where(eq(purchaseOrderLines.id, order.body.lines[0].id));
     expect(savedLine.itemName).toBe(expectedDisplayName);
+    expect(savedLine.itemSku).toBe(variantSku);
 
     await page.goto(`/purchasing/order/${order.body.id}`);
     const savedItemCell = editableGrid(page)
       .locator('.ag-row[row-index="0"] .ag-cell[col-id="itemId"]')
       .first();
-    await expect(savedItemCell).toHaveText(expectedDisplayName);
+    await expect(savedItemCell).toContainText(expectedDisplayName);
+    await expect(savedItemCell).toContainText(variantSku);
+
+    await db
+      .update(items)
+      .set({ sku: `UPDATED-${variantSku}` })
+      .where(eq(items.id, bombVariant!.id));
+    await page.reload();
+    await expect(savedItemCell).toContainText(variantSku);
+    await expect(savedItemCell).not.toContainText(`UPDATED-${variantSku}`);
 
     await db
       .update(purchaseOrderLines)
       .set({ itemName: familyName })
       .where(eq(purchaseOrderLines.id, order.body.lines[0].id));
     await page.reload();
-    await expect(savedItemCell).toHaveText(expectedDisplayName);
+    await expect(savedItemCell).toContainText(expectedDisplayName);
+    await expect(savedItemCell).toContainText(variantSku);
 
     await db
       .update(purchaseOrderLines)
@@ -289,6 +335,47 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     await expect(
       page.getByRole("link", { name: expectedDisplayName }),
     ).toBeVisible();
+
+    await db
+      .update(items)
+      .set({ supplierItemCode: null, internalBarcode: null })
+      .where(eq(items.id, bombVariant!.id));
+    await page.goto(`/purchasing/order/${order.body.id}`);
+    await expect(
+      editableGrid(page)
+        .locator('.ag-row[row-index="0"] .ag-cell[col-id="supplierItemCode"]')
+        .first(),
+    ).toHaveText("—");
+    await expect(
+      editableGrid(page)
+        .locator('.ag-row[row-index="0"] .ag-cell[col-id="internalBarcode"]')
+        .first(),
+    ).toHaveText("—");
+
+    await db
+      .update(items)
+      .set({
+        supplierItemCode,
+        internalBarcode,
+        deletedAt: new Date(),
+      })
+      .where(eq(items.id, bombVariant!.id));
+    await page.goto(`/purchasing/order/${order.body.id}`);
+    await expect(
+      editableGrid(page)
+        .locator('.ag-row[row-index="0"] .ag-cell[col-id="itemId"]')
+        .first(),
+    ).toContainText(variantSku);
+    await expect(
+      editableGrid(page)
+        .locator('.ag-row[row-index="0"] .ag-cell[col-id="supplierItemCode"]')
+        .first(),
+    ).toHaveText(supplierItemCode);
+    await expect(
+      editableGrid(page)
+        .locator('.ag-row[row-index="0"] .ag-cell[col-id="internalBarcode"]')
+        .first(),
+    ).toHaveText(internalBarcode);
   });
 
   test("new purchase order waits for a supplier and complete material line before first autosave", async ({

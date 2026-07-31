@@ -44,7 +44,9 @@ One row per item being ordered. An item can appear on an order only once.
 
 | Field | Set by | Description |
 |-------|--------|-------------|
-| Item | You | The material or product being purchased. Required. |
+| Item | You | The material or product being purchased. Required. Its SKU appears beneath its name when one is set. |
+| Supplier item code | Item | The selected item's current supplier-facing code. An em dash means the item has no supplier item code. |
+| Internal barcode | Item | The selected item's current internal barcode. An em dash means the item has no internal barcode. |
 | Quantity | You | How much to order, in the selected **UoM**. Required; can't drop below what's already received. |
 | UoM | You / item | The purchase unit for the line, such as Bag or Case. |
 | Price per unit | You | Price per purchase unit. Required. If received tracked stock from this order is still on hand, a later change to this cost revalues it. |

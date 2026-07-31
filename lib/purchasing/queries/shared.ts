@@ -139,6 +139,8 @@ export async function getPurchaseOrderLinesInTx(tx: Tx, purchaseOrderId: string)
       itemId: purchaseOrderLines.itemId,
       itemName: purchaseOrderLines.itemName,
       itemSku: purchaseOrderLines.itemSku,
+      supplierItemCode: items.supplierItemCode,
+      internalBarcode: items.internalBarcode,
       lotTrackingMode: sql<"tracked" | "untracked">`COALESCE(${itemFamilies.lotTrackingMode}, 'tracked')`,
       purchaseUnitName: purchaseOrderLines.purchaseUnitName,
       stockingUnitName: purchaseOrderLines.stockingUnitName,

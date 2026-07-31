@@ -194,6 +194,8 @@ export async function getPurchaseOrderMaterialOptions(): Promise<
         itemType: sql<"material" | "product">`${items.itemType}`,
         name: items.name,
         sku: items.sku,
+        supplierItemCode: items.supplierItemCode,
+        internalBarcode: items.internalBarcode,
         stockingUnitName: unitDefinitions.name,
         purchaseUnitName: sql<string | null>`(
           SELECT ${unitDefinitions.name}
@@ -677,6 +679,9 @@ export async function getEditablePurchaseOrder(
       lines: lines.map((line) => ({
         id: line.id,
         itemId: line.itemId,
+        itemSku: line.itemSku,
+        supplierItemCode: line.supplierItemCode,
+        internalBarcode: line.internalBarcode,
         quantityOrdered: line.quantityOrdered,
         quantityReceived: line.quantityReceived,
         stockQuantityReceived: line.stockQuantityReceived,

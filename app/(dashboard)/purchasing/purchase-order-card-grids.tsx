@@ -87,10 +87,39 @@ function PurchaseMaterialCell({
     return <span className="text-[var(--color-ink-faint)]">Search items...</span>;
   }
 
+  const material = materialMap.get(data.itemId);
+  const itemSku = data.itemSku ?? material?.sku;
+
   return (
-    <span className="block truncate">
-      {materialMap.get(data.itemId)?.displayName ?? data.itemId}
+    <span className="flex min-w-0 flex-col justify-center">
+      <span className="block truncate">
+        {material?.displayName ?? data.itemId}
+      </span>
+      {itemSku ? (
+        <span className="block truncate text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
+          {itemSku}
+        </span>
+      ) : null}
     </span>
+  );
+}
+
+function PurchaseItemIdentifierCell({
+  data,
+  materialMap,
+  field,
+}: ICellRendererParams<PurchaseOrderLineGridRow> & {
+  materialMap: Map<string, PurchaseOrderMaterialOption>;
+  field: "supplierItemCode" | "internalBarcode";
+}) {
+  const material = data?.itemId ? materialMap.get(data.itemId) : null;
+  const value = material ? material[field] : data?.[field];
+  const hasValue = value != null && value !== "";
+
+  return hasValue ? (
+    <span className="block truncate font-mono">{value}</span>
+  ) : (
+    <span className="text-[var(--color-ink-faint)]">—</span>
   );
 }
 
@@ -218,6 +247,9 @@ export function buildPurchaseOrderLineColumns({
         getDraftRow: (row: PurchaseOrderLineGridRow, itemId: string) => ({
           ...row,
           itemId,
+          itemSku: materialMap.get(itemId)?.sku ?? null,
+          supplierItemCode: materialMap.get(itemId)?.supplierItemCode ?? null,
+          internalBarcode: materialMap.get(itemId)?.internalBarcode ?? null,
         }),
         createLinks: [
           {
@@ -237,9 +269,12 @@ export function buildPurchaseOrderLineColumns({
           params: ValueSetterParams<PurchaseOrderLineGridRow, string | null>,
         ) => {
           const materialId = normalizeGridText(params.newValue);
+          const material = materialMap.get(materialId);
           params.data.itemId = materialId;
-          params.data.unitCost =
-            materialMap.get(materialId)?.defaultPurchasePrice ?? "0";
+          params.data.itemSku = material?.sku ?? null;
+          params.data.supplierItemCode = material?.supplierItemCode ?? null;
+          params.data.internalBarcode = material?.internalBarcode ?? null;
+          params.data.unitCost = material?.defaultPurchasePrice ?? "0";
           return true;
         },
         cellRenderer: (
@@ -256,7 +291,15 @@ export function buildPurchaseOrderLineColumns({
         headerName: "Supplier item code",
         minWidth: 160,
         flex: 0.8,
-        cellRenderer: () => <span className="text-[var(--color-ink-faint)]">—</span>,
+        cellRenderer: (
+          params: ICellRendererParams<PurchaseOrderLineGridRow>,
+        ) => (
+          <PurchaseItemIdentifierCell
+            {...params}
+            materialMap={materialMap}
+            field="supplierItemCode"
+          />
+        ),
       },
       {
         colId: "internalBarcode",
@@ -264,7 +307,15 @@ export function buildPurchaseOrderLineColumns({
         headerName: "Internal barcode",
         minWidth: 160,
         flex: 0.8,
-        cellRenderer: () => <span className="text-[var(--color-ink-faint)]">—</span>,
+        cellRenderer: (
+          params: ICellRendererParams<PurchaseOrderLineGridRow>,
+        ) => (
+          <PurchaseItemIdentifierCell
+            {...params}
+            materialMap={materialMap}
+            field="internalBarcode"
+          />
+        ),
       },
       {
         field: "quantityOrdered",

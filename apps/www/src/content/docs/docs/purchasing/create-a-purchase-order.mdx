@@ -58,17 +58,17 @@ You'll need at least one **supplier** and active items to buy. Items can carry a
      </div>
    </Frame>
 
-3. **Add material lines.** Choose **Add material** for each item you're ordering. Pick the item, enter **Quantity** in its **UoM** (for example, a 69 kg bag), and review **Price per unit**. The price prefills from the item's default purchase price (and its default tax rate) and stays editable. Ashicore converts to stocking units and can show the resulting **Landed cost** — the stock-unit cost your inventory is valued at.
+3. **Add material lines.** Choose **Add material** for each item you're ordering. Pick the item, enter **Quantity** in its **UoM** (for example, a 69 kg bag), and review **Price per unit**. The selected item's SKU stays visible beneath its name, while **Supplier item code** and **Internal barcode** show its current item details; an em dash means that detail is empty. The price prefills from the item's default purchase price (and its default tax rate) and stays editable. Ashicore converts to stocking units and can show the resulting **Landed cost** — the stock-unit cost your inventory is valued at.
 
    <Frame title="<b>Not received</b> · PO-1045 · Cooperativa del Huila">
      <span slot="action"><Button variant="subtle">+ Add material</Button></span>
      <Grid>
-       <thead><tr><th>Item</th><th class="num">Quantity</th><th>UoM</th><th class="num">Price per unit</th><th class="num">Total price</th><th class="num">Landed cost</th></tr></thead>
+       <thead><tr><th>Item</th><th>Supplier item code</th><th>Internal barcode</th><th class="num">Quantity</th><th>UoM</th><th class="num">Price per unit</th><th class="num">Total price</th><th class="num">Landed cost</th></tr></thead>
        <tbody>
-         <tr><td><span class="mk-name">Huila Green</span> <span class="mk-sku">RVS-GRN-HUILA</span></td><td class="num">12</td><td>Bag <span class="mk-sku">×69 kg</span></td><td class="num">$310.00</td><td class="num">$3,720.00</td><td class="num">$4.49</td></tr>
-         <tr><td><span class="mk-name">Yirgacheffe Green</span> <span class="mk-sku">RVS-GRN-YIRG</span></td><td class="num">8</td><td>Bag <span class="mk-sku">×60 kg</span></td><td class="num">$372.00</td><td class="num">$2,976.00</td><td class="num">$6.20</td></tr>
+         <tr><td><span class="mk-name">Huila Green</span> <span class="mk-sku">RVS-GRN-HUILA</span></td><td><span class="mk-sku">CH-HUILA-69</span></td><td><span class="mk-sku">00850123456789</span></td><td class="num">12</td><td>Bag <span class="mk-sku">×69 kg</span></td><td class="num">$310.00</td><td class="num">$3,720.00</td><td class="num">$4.49</td></tr>
+         <tr><td><span class="mk-name">Yirgacheffe Green</span> <span class="mk-sku">RVS-GRN-YIRG</span></td><td><span class="mk-sku">—</span></td><td><span class="mk-sku">00850987654321</span></td><td class="num">8</td><td>Bag <span class="mk-sku">×60 kg</span></td><td class="num">$372.00</td><td class="num">$2,976.00</td><td class="num">$6.20</td></tr>
        </tbody>
-       <tfoot><tr><td colspan="5">Material subtotal</td><td class="num">$6,696.00</td></tr></tfoot>
+       <tfoot><tr><td colspan="7">Material subtotal</td><td class="num">$6,696.00</td></tr></tfoot>
      </Grid>
    </Frame>
 
