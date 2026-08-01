@@ -76,11 +76,13 @@ function StepCheck() {
 export function OnboardingProgress({
   activeIndex,
   plan,
+  steps = ONBOARDING_STEPS,
   onNavigate,
   isNavigable,
 }: {
   activeIndex: number;
   plan?: BillingSelection;
+  steps?: readonly string[];
   onNavigate?: (index: number) => void;
   isNavigable?: (index: number) => boolean;
 }) {
@@ -93,7 +95,7 @@ export function OnboardingProgress({
         <LogoMark /> ashicore
       </span>
       <nav className="ob-stepper" aria-label="Onboarding progress">
-        {ONBOARDING_STEPS.map((label, index) => {
+        {steps.map((label, index) => {
           const state =
             index < activeIndex ? "is-done" : index === activeIndex ? "is-cur" : "";
           const inner = (
@@ -124,7 +126,7 @@ export function OnboardingProgress({
                   </span>
                 )}
               </span>
-              {index < ONBOARDING_STEPS.length - 1 ? (
+              {index < steps.length - 1 ? (
                 <span className={`ob-step-line ${index < activeIndex ? "is-done" : ""}`.trim()} />
               ) : null}
             </Fragment>

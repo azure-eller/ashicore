@@ -2,23 +2,19 @@ import type { ReactNode } from "react";
 import type { BillingSelection } from "@/lib/billing/plan-intent";
 import {
   OnboardingProgress,
-  onboardingStepIndex,
 } from "@/components/onboarding-stepper";
 import { OnboardingSplit } from "@/components/onboarding-rail";
 import { cn } from "@/lib/utils";
 
-type OnboardingAuthStep = "account" | "workspace" | "invite";
+type OnboardingAuthStep = "account" | "workspace";
 
-// The rail counts the 6 actionable steps; Done is the payoff and isn't shown here.
 const railStepByStep: Record<OnboardingAuthStep, number> = {
   account: 1,
   workspace: 2,
-  invite: 3,
 };
 const activeIndexByStep: Record<OnboardingAuthStep, number> = {
-  account: onboardingStepIndex("Account"),
-  workspace: onboardingStepIndex("Workspace"),
-  invite: onboardingStepIndex("Invite"),
+  account: 0,
+  workspace: 1,
 };
 
 export function OnboardingAuthShell({
@@ -43,9 +39,18 @@ export function OnboardingAuthShell({
         className,
       )}
     >
-      <OnboardingProgress activeIndex={activeIndexByStep[activeStep]} plan={plan} />
+      <OnboardingProgress
+        activeIndex={activeIndexByStep[activeStep]}
+        plan={plan}
+        steps={["Account", "Workspace"]}
+      />
       <div className="ob-stage ob-anim-fade">
-        <OnboardingSplit step={railStepByStep[activeStep]} guideTitle={guideTitle} guideLines={guideLines}>
+        <OnboardingSplit
+          step={railStepByStep[activeStep]}
+          total={2}
+          guideTitle={guideTitle}
+          guideLines={guideLines}
+        >
           {children}
         </OnboardingSplit>
       </div>

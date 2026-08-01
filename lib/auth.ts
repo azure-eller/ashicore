@@ -547,6 +547,15 @@ export const auth = betterAuth({
       });
     },
   },
+  socialProviders:
+    env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET
+      ? {
+          google: {
+            clientId: env.GOOGLE_CLIENT_ID,
+            clientSecret: env.GOOGLE_CLIENT_SECRET,
+          },
+        }
+      : undefined,
   emailVerification: {
     sendVerificationEmail: async ({ user, url }) => {
       const { sendAccountEmailVerificationEmail } = await import("@/lib/email/auth-emails");

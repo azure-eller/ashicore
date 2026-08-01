@@ -245,9 +245,9 @@ export function OrgSetupForm({
         </>
       }
       guideLines={[
-        "Just the basics about your shop.",
-        "This shapes your units, sites and defaults.",
-        "All of it is editable later.",
+        "Choose the name your team will recognize.",
+        "You can change it later.",
+        "Then you'll go straight to your workspace.",
       ]}
       className={className}
       {...props}
@@ -270,7 +270,7 @@ export function OrgSetupForm({
         <>
           <h1 className="ob-form-title ob-stagger">Choose your organization</h1>
           <p className="ob-form-sub ob-stagger">
-            We&apos;ll continue onboarding in the workspace you select.
+            Select the workspace you want to open.
           </p>
           {renderOrganizationPicker({
             buttonClassName: "ob-btn ob-btn--ghost ob-btn--block justify-start",

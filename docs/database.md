@@ -680,7 +680,9 @@ pnpm db:local:setup
 
 Worktrees still fall back to the repo-root `.env.local` for shared settings like auth secrets and app URLs, but they do **not** inherit `DATABASE_URL` or `DATABASE_URL_APP` from it. This prevents a new worktree from silently pointing migrations at a shared remote Neon branch.
 
-Cleanup flow after merge:
+Cleanup flow after a PR is merged or closed:
+
+First delete the matching Neon `preview/<git-branch>` branch. Never delete `production`, `vercel-dev`, a protected branch, or a preview for an open PR. Delete the preview before removing the worktree so the branch-to-preview mapping remains easy to verify.
 
 ```bash
 gh pr merge <pr> --merge
@@ -691,6 +693,8 @@ pnpm worktree:cleanup <branch>
 Run it from the repo root.
 
 Do not use `gh pr merge --delete-branch` from a feature worktree. GitHub CLI may try to delete or switch the local branch and fail because the repo root already holds the `main` worktree.
+
+For a closed, unmerged PR, verify that the PR is closed and no open PR uses its preview, then run `pnpm worktree:cleanup <branch> --force`; without `--force`, cleanup requires a merged PR.
 
 `pnpm worktree:cleanup <branch>`:
 

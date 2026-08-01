@@ -30,6 +30,23 @@ export function SignupForm({
   const [confirmPassword, setConfirmPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [googleLoading, setGoogleLoading] = useState(false)
+
+  async function handleGoogleSignIn() {
+    setError(null)
+    setGoogleLoading(true)
+    const { error } = await authClient.signIn.social({
+      provider: "google",
+      callbackURL: "/sales/orders",
+      newUserCallbackURL: orgSetupPathForBillingIntent(billingIntent),
+      errorCallbackURL: "/sign-up",
+    })
+
+    if (error) {
+      setError(error.message ?? "Google sign-in failed")
+      setGoogleLoading(false)
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -60,16 +77,25 @@ export function SignupForm({
         </>
       }
       guideLines={[
-        "First, your account — about a minute.",
-        "Then we read your files and build it for you.",
-        "You confirm everything before it's saved.",
+        "Create your account.",
+        "Name your organization.",
+        "Start using your workspace.",
       ]}
       {...props}
     >
       <h1 className="ob-form-title ob-stagger">Create your account</h1>
       <p className="ob-form-sub ob-stagger">
-        Start with your work email — we&apos;ll set up the rest together.
+        Enter your details, then name your organization.
       </p>
+      <button
+        type="button"
+        className="ob-btn ob-btn--ghost ob-btn--block"
+        disabled={googleLoading || loading}
+        onClick={handleGoogleSignIn}
+      >
+        {googleLoading ? "Opening Google…" : "Continue with Google"}
+      </button>
+      <p className="ob-form-fine">or continue with email</p>
       <form onSubmit={handleSubmit}>
         <div className="ob-form-stack">
           <label className="ob-field">
@@ -126,7 +152,7 @@ export function SignupForm({
           {error ? <p className="ob-form-error">{error}</p> : null}
         </div>
         <div className="ob-form-actions">
-          <button type="submit" className="ob-btn ob-btn--primary ob-btn--block" disabled={loading}>
+          <button type="submit" className="ob-btn ob-btn--primary ob-btn--block" disabled={loading || googleLoading}>
             {loading ? "Creating account…" : "Continue"}
           </button>
         </div>

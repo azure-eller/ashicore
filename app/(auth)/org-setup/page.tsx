@@ -46,10 +46,7 @@ export default async function Page({
     <OrgSetupForm
       organizations={organizations}
       billingIntent={intent ?? undefined}
-      // A brand-new owner (no orgs yet) always continues into onboarding; existing
-      // signed-in users only onboard when they explicitly carried a billing selection
-      // (preserves the existing-user redirect fix).
-      continueToOnboarding={intent != null || organizations.length === 0}
+      continueToOnboarding={false}
     />
   );
 }

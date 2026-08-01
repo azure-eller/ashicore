@@ -267,7 +267,7 @@ test.describe("Team access", () => {
     const orgName = `Fresh Org ${run}`;
     await page.getByLabel("Organization name").fill(orgName);
     await page.getByRole("button", { name: "Continue" }).click();
-    await page.waitForURL("**/onboarding?plan=trial");
+    await page.waitForURL("**/sales/orders");
 
     const [ownerUser] = await db.select().from(user).where(eq(user.email, orgOwnerEmail));
     expect(ownerUser).toBeTruthy();

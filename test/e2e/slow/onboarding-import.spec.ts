@@ -1,13 +1,11 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { test, expect } from "../fixtures";
-import { db } from "../../../lib/db";
 import {
   bomRevisionComponents,
   bomRevisions,
   customers,
   importFiles,
   importCommitRecords,
-  integrationConnections,
   inventoryEvents,
   items,
   onboardingSessions,
@@ -178,7 +176,7 @@ test.describe("onboarding import operating story", () => {
     });
   });
 
-  test("freshly-created owner reaches onboarding through the real route", async ({
+  test("disabled onboarding route sends owners to the workspace", async ({
     page,
   }) => {
     await page.context().clearCookies();
@@ -226,92 +224,7 @@ test.describe("onboarding import operating story", () => {
 
     const response = await page.goto("/onboarding?plan=free");
     expect(response?.status()).toBe(200);
-    await expect(page).toHaveURL(/\/onboarding/);
-    await expect(page.getByRole("heading", { name: "Invite your team" })).toBeVisible();
-    await expect(page.getByLabel("Choose billing plan")).toHaveCount(0);
-    await expect(page.getByText("Food & Bev")).toHaveCount(0);
-    await expect(page.getByText("Wholesale B2B")).toHaveCount(0);
-    await expect(page.getByText("Everything")).toHaveCount(0);
-
-    // The onboarding page creates its session client-side on mount, so wait for
-    // it to exist before patching it — otherwise the patch can race the create
-    // and 404 on cold loads where hydration lags the server-rendered heading.
-    await expect
-      .poll(async () => {
-        const current = await page.context().request.get(
-          `${baseUrl}/api/onboarding/session`,
-        );
-        if (current.status() !== 200) return null;
-        return (await current.json()).session;
-      }, { timeout: 30_000 })
-      .not.toBeNull();
-
-    const setConnectStep = await page.context().request.patch(
-      `${baseUrl}/api/onboarding/session`,
-      {
-        data: { status: "connecting", currentStep: "connect" },
-        headers: { Origin: baseUrl },
-      },
-    );
-    expect(setConnectStep.status()).toBe(200);
-
-    await page.goto("/onboarding?plan=free");
-    await expect(
-      page.getByRole("heading", { name: "Connect the tools you already use" }),
-    ).toBeVisible();
-    await expect(page.getByRole("link", { name: "Connect" }).first()).toHaveAttribute(
-      "href",
-      "/api/xero/connect?returnTo=onboarding",
-    );
-    await expect(page.locator('a[href="/api/quickbooks/connect?returnTo=onboarding"]')).toHaveCount(1);
-    await expect(page.locator('a[href="/settings/integrations"]')).toHaveCount(0);
-
-    // Once an accounting provider connects, the connect step shows it as
-    // connected, gates the other accounting tile (one accounting tool at a
-    // time), and surfaces its import section.
-    const tenantName = `Onboarding Tenant ${suffix}`;
-    try {
-      await db.transaction(async (tx) => {
-        await tx.execute(
-          sql`SELECT set_config('app.current_org_id', ${organizationId}, true)`,
-        );
-        await tx.insert(integrationConnections).values({
-          organizationId,
-          provider: "xero",
-          tenantId: `xero-${organizationId}`,
-          tenantName,
-          accessTokenCiphertext: "test-fake",
-          refreshTokenCiphertext: "test-fake",
-          tokenEncryptionKeyId: "test",
-          tokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
-        });
-      });
-
-      await page.goto("/onboarding?plan=free&integration=xero_connected");
-      await expect(
-        page.getByRole("heading", { name: "Connect the tools you already use" }),
-      ).toBeVisible();
-      await expect(page.getByText(tenantName)).toBeVisible();
-      await expect(page.getByText("Xero is already connected.")).toBeVisible();
-      await expect(
-        page.locator('a[href="/api/xero/connect?returnTo=onboarding"]'),
-      ).toHaveCount(0);
-      await expect(
-        page.locator('a[href="/api/quickbooks/connect?returnTo=onboarding"]'),
-      ).toHaveCount(0);
-      await expect(
-        page.getByRole("heading", { name: "Import from Xero" }),
-      ).toBeVisible();
-    } finally {
-      await db.transaction(async (tx) => {
-        await tx.execute(
-          sql`SELECT set_config('app.current_org_id', ${organizationId}, true)`,
-        );
-        await tx
-          .delete(integrationConnections)
-          .where(eq(integrationConnections.organizationId, organizationId));
-      });
-    }
+    await expect(page).toHaveURL(/\/sales\/orders$/);
   });
 
   test("reviewed import creates trading partners, item cards, opening stock, and a BOM", async ({

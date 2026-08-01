@@ -10,11 +10,17 @@ import {
   normalizeBillingIntent,
 } from "@/lib/billing/plan-intent";
 
+const ONBOARDING_ENABLED = false;
+
 export default async function OnboardingPage({
   searchParams,
 }: {
   searchParams: Promise<{ plan?: string; locations?: string; addons?: string }>;
 }) {
+  if (!ONBOARDING_ENABLED) {
+    redirect("/sales/orders");
+  }
+
   const context = await getAuthedMemberContext();
   const canImport =
     context.role === "owner" ||
@@ -26,9 +32,6 @@ export default async function OnboardingPage({
     redirect("/");
   }
 
-  // Pass the billing selection only when the URL actually carries it. On the Stripe
-  // return (`?checkout=success`) there is no plan param, so we leave it undefined
-  // and let the persisted onboarding session remain the source of truth.
   const params = await searchParams;
   const { plan } = params;
   const billingSelection = isBillingSelection(plan) ? plan : undefined;

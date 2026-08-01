@@ -2,7 +2,7 @@
 read_when:
   - Starting any code-changing work
   - Working alongside other agents in the repo
-  - Cleaning up after a PR merges
+  - Cleaning up after a PR merges or closes
   - Coordinating local Postgres across worktrees
 ---
 
@@ -85,9 +85,9 @@ The same preflight also fails local validation when:
 Use `ERP_ALLOW_UNSAFE_WORKTREE=1` only for explicit maintainer/root-maintenance
 work, never as a way to get a feature branch through validation.
 
-## Cleanup after merge
+## Cleanup after merge or closure
 
-After a PR merges, agents MUST run `pnpm worktree:cleanup <branch>` from the repo root to drop the local DB and remove the worktree.
+After a PR merges or closes, agents MUST delete its Neon `preview/<git-branch>` branch, then run `pnpm worktree:cleanup <branch>` from the repo root to drop the local DB and remove the worktree. Delete only the preview matching that PR: never delete `production`, `vercel-dev`, a protected branch, or a preview for an open PR.
 
 ```bash
 gh pr merge <pr> --merge
@@ -96,6 +96,8 @@ pnpm worktree:cleanup <branch>
 ```
 
 Do not use `gh pr merge --delete-branch` from a feature worktree. Merge first, then delete the remote branch and run `pnpm worktree:cleanup <branch>` separately from the repo root.
+
+For a closed, unmerged PR, confirm the PR is closed and its preview branch is not used by another open PR, then run `pnpm worktree:cleanup <branch> --force`; the command otherwise accepts only merged PRs.
 
 `pnpm worktree:cleanup <branch>`:
 
@@ -123,4 +125,4 @@ When multiple agents may be working in the repo:
 - `pnpm boot` — idempotent: starts local Postgres, migrates, ensures the test-org session, starts the dev server on a free port in the background (bound to `0.0.0.0` so an Android emulator/device can reach it), and writes `.tmp/agent-session.json` (`port`, `baseUrl`, `dbName`, `branch`, `commit`, `worktreePath`, `testOrgId`, `reviewOrgSlug`, `devServerPid`, `updatedAt`). Re-running reuses a healthy server and restarts it if the recorded commit/branch is stale. Never tears anything down.
 - `pnpm review <path> --slow <domains> [--validate build,lint,fast:sales] [--inventory] [--cached] [--domain <d>] [--docs-only]` — phased: refresh the dev server if stale (re-runs `pnpm boot`) → seed review org (live snapshot; fail-loud if `.vercel/.env.production.local` is missing, `--cached` reuses the last export and prints its provenance) → run declared validation → open the authenticated review browser at `<path>` → require a clean tree, then push + open the PR ready with a validation block → set `ci:slow:*` then `ci:ready`. Validation failure or a dirty tree stops at the PR step; data + browser are still prepared. A missing slow label is fatal unless `--docs-only` (→ `ci:slow:none`); path inference never decides labels.
 - `pnpm sandbox [path] [--fresh] [--cached]` — the **triage** start (vs `boot`'s clean start): runs `boot`, loads the live Paonia production copy into the review org (`test-paonia-soil-co`), and opens the authenticated review browser at `<path>` (default `/`). Idempotent — if the review org is already seeded it **preserves** that data and only refreshes the session; `--fresh` re-imports current production, `--cached` reuses the last export. Use it to browse real data, point the agent at fixes, and watch them hot-reload. Fixes land through the normal `pnpm review` finish — sandbox adds no PR path of its own.
-- Teardown: keep the worktree/DB/dev server until the PR merges. `pnpm worktree:cleanup <branch>` refuses unless the PR is `MERGED` (override with `--force`).
+- Teardown: keep the worktree/DB/dev server until the PR merges or closes. `pnpm worktree:cleanup <branch>` refuses unless the PR is `MERGED` (use `--force` after confirming an unmerged PR is closed).

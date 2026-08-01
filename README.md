@@ -141,7 +141,7 @@ Optional:
 - `DATABASE_URL_APP` is the app role. Use it for normal app runtime so RLS is actually exercised.
 - Default local dev is one shared local Postgres instance plus one database per worktree.
 - `pnpm db:local:setup` auto-starts local Postgres when needed, derives the database name from the current worktree folder, creates `app_user`, writes worktree-local DB URLs, and runs migrations.
-- Run `pnpm worktree:cleanup <branch>` from the repo root after merge. It drops that branch's local DB, removes the worktree, deletes the local branch when possible, and stops Docker Postgres when no linked worktrees remain.
+- After a PR is merged or closed, delete its matching Neon `preview/<git-branch>` branch before running `pnpm worktree:cleanup <branch>` from the repo root. Never delete `production`, `vercel-dev`, a protected branch, or a preview for an open PR. The cleanup command drops that branch's local DB, removes the worktree, deletes the local branch when possible, and stops Docker Postgres when no linked worktrees remain; use `--force` for a closed, unmerged PR.
 - Local Postgres data persists across `pnpm db:local:stop`. You do not need to reseed on each start.
 - If you already run Postgres locally, set `LOCAL_DB_ADMIN_URL` before `pnpm db:local:setup` and skip Docker.
 - Do not use `drizzle push`.

@@ -38,6 +38,7 @@ export function LoginForm({
   const [rememberMe, setRememberMe] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [googleLoading, setGoogleLoading] = useState(false)
 
   const successMessage =
     notice === "password-reset"
@@ -63,6 +64,22 @@ export function LoginForm({
     router.replace(next ?? DEFAULT_SIGN_IN_TARGET)
   }
 
+  async function handleGoogleSignIn() {
+    setError(null)
+    setGoogleLoading(true)
+    const { error } = await authClient.signIn.social({
+      provider: "google",
+      callbackURL: next ?? DEFAULT_SIGN_IN_TARGET,
+      newUserCallbackURL: "/org-setup",
+      errorCallbackURL: "/sign-in",
+    })
+
+    if (error) {
+      setError(error.message ?? "Google sign-in failed")
+      setGoogleLoading(false)
+    }
+  }
+
   return (
     <div className={cn("mx-auto flex w-full max-w-[460px] flex-col gap-6", className)} {...props}>
       <Card className="gap-0 py-0">
@@ -72,6 +89,18 @@ export function LoginForm({
           </CardTitle>
         </CardHeader>
         <CardContent className="p-(--space-10)">
+          <Button
+            type="button"
+            variant="outline"
+            className="mb-(--space-6) w-full"
+            disabled={googleLoading || loading}
+            onClick={handleGoogleSignIn}
+          >
+            {googleLoading ? "Opening Google…" : "Continue with Google"}
+          </Button>
+          <FieldDescription className="mb-(--space-6) text-center">
+            or continue with email
+          </FieldDescription>
           <form onSubmit={handleSubmit}>
             <FieldGroup>
               <Field>
@@ -122,7 +151,7 @@ export function LoginForm({
                 <FieldError>{error}</FieldError>
               )}
               <Field>
-                <Button type="submit" disabled={loading}>
+                <Button type="submit" disabled={loading || googleLoading}>
                   {loading ? "Signing in…" : "Login"}
                 </Button>
                 <FieldDescription className="text-center">

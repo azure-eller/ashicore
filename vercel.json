@@ -20,10 +20,6 @@
     {
       "path": "/api/internal/xero-signup-cleanup",
       "schedule": "0 2 * * *"
-    },
-    {
-      "path": "/api/internal/process-imports",
-      "schedule": "* * * * *"
     }
   ]
 }

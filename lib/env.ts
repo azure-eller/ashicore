@@ -29,6 +29,8 @@ const schema = z.object({
   BETTER_AUTH_ALLOWED_HOSTS: z.string().optional(),
   BETTER_AUTH_RATE_LIMIT_DISABLED: z.string().optional(),
   AUTH_MFA_DISABLED: z.string().optional(),
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
 
   // Deployment (Vercel-provided)
   VERCEL_ENV: z.string().optional(),

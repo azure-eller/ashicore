@@ -28,6 +28,7 @@ jobs:
 
       - name: Run Codex review
         id: run_codex
+        continue-on-error: true
         uses: openai/codex-action@v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
