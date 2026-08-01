@@ -625,6 +625,16 @@ pnpm dlx neonctl connection-string br-bitter-base-ai1tevx2 \
 
 Use `--role-name neondb_owner` only for migration/schema/operator work.
 
+### Neon preview branch policy
+
+Local Postgres is the default database for development and PR validation. Do
+not create or retain a Neon branch merely because a PR or Vercel preview exists.
+A temporary `preview/<git-branch>` branch is justified only while actively
+testing database migrations, schema compatibility, or Neon-specific behavior
+such as serverless connections, pooling, autosuspend, or cold starts. Delete it
+as soon as that testing pauses and always before worktree cleanup after the PR
+merges or closes. Preserve `production` and `vercel-dev`.
+
 Normal Vercel flow:
 
 ```bash
