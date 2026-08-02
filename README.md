@@ -133,7 +133,10 @@ Optional:
 - `BETTER_AUTH_ALLOWED_HOSTS`: comma-separated extra host patterns for LAN IPs or tunnel hosts. `localhost`, `127.0.0.1`, and `[::1]` on any port already work.
 - `TEST_BASE_URL`: overrides Playwright base URL
 - `PORT`: local fallback if you do not set an app URL
-- `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_RELEASE`: enable source-map upload and release tagging for Sentry
+- `SENTRY_AUTH_TOKEN`: enables source-map upload and remote-agent Sentry CLI access
+- `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_RELEASE`: configure Sentry source-map upload and release tagging
+- `VERCEL_TOKEN`: authenticates remote-agent Vercel CLI access and production env pulls
+- `NEON_API_KEY`: authenticates production-target verification and recovery checkpoints; use a project-scoped key
 
 ## Database Notes
 
@@ -188,6 +191,7 @@ pnpm worktree:cleanup <branch>
 pnpm db:local:start   # optional manual control
 pnpm db:local:stop
 pnpm db:generate
+pnpm ops:production-db -- --org-slug <slug> --sql-file <path>
 pnpm drizzle-kit migrate
 ```
 

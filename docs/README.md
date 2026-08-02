@@ -6,7 +6,7 @@ invisible. Read the relevant doc before working in its area.
 
 ## Architecture & data
 - [architecture.md](./architecture.md) — module map, layers, data flow, where logic belongs
-- [database.md](./database.md) — schema, migrations, DAL, RLS, roles, inventory verification
+- [database.md](./database.md) — schema, migrations, DAL, RLS, roles, guarded production data access
 - [api-patterns.md](./api-patterns.md) — API routes, mutations, handlers, query keys
 - [card-kernel.md](./card-kernel.md) — card pages, draft/auto-save lifecycle, bound fields
 - [item-card-backend-contract.md](./item-card-backend-contract.md) — item card API routes & response fields
@@ -46,7 +46,7 @@ invisible. Read the relevant doc before working in its area.
 - [xero-partner-readiness.md](./xero-partner-readiness.md) — Xero App Store / partner readiness
 - [xero-security-evidence.md](./xero-security-evidence.md) — Xero security evidence / key rotation
 - [xero-support-listing.md](./xero-support-listing.md) — Xero support listing content
-- [production-ops.md](./production-ops.md) — production launch, auth protection, observability
+- [production-ops.md](./production-ops.md) — production launch, agent CLI access, auth protection, observability
 - [paonia-current-seed.md](./paonia-current-seed.md) — refreshing Paonia seed data from production
 
 ## Observability

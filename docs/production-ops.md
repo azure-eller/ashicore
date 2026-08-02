@@ -8,6 +8,20 @@ read_when:
 
 # Production Operations
 
+## Agent CLI Access
+
+Repository skills route production incidents through the provider CLIs. Local
+operators authenticate once with `sentry auth login` and `vercel login`. Remote
+Claude or Codex agents receive `SENTRY_AUTH_TOKEN` and `VERCEL_TOKEN` from their
+secret store; never commit those values or copy them into prompts.
+
+The production triage targets are Sentry org `7050technologies` (web project
+`javascript-nextjs`) and Vercel project `erp`. The Vercel project `www` is only
+the public marketing/docs site. Prefer structured, bounded CLI output. Use
+`pnpm dlx sentry` and `pnpm dlx vercel@latest`; globally installed versions may
+predate their agent-oriented commands. Official Sentry or Vercel MCP may be used
+when already authenticated, but CLI is the portable default.
+
 ## Canonical App URL
 
 All auth-facing emails use one canonical app URL.

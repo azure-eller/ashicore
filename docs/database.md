@@ -592,6 +592,26 @@ or chat. When an operator task needs production data, load the URL from a local
 env file or from Vercel, print only the redacted database identity
 `host/database`, and verify the target by row counts before trusting it.
 
+For agent and operator SQL, use the guarded repo command instead of assembling
+the Vercel/env/psql sequence by hand:
+
+```bash
+pnpm ops:production-db -- --org-slug <slug> --sql-file /tmp/query.sql
+```
+
+It defaults to an `app_user` `READ ONLY` transaction, verifies the ERP Neon
+target, and sets the RLS organization context. Omit `--env-file` to pull the
+current Vercel production env into a temporary directory. Remote agents need
+`VERCEL_TOKEN`; control-plane verification and recovery checkpoints use a
+project-scoped `NEON_API_KEY`.
+
+After explicit approval, add `--write`; add `--verify-sql-file <path>` to check
+the committed result in a fresh read-only transaction. Approved operator escape
+hatches are `--owner`, `--no-transaction`, and `--skip-checkpoint`; the command
+makes these choices visible rather than trying to infer whether the SQL is
+appropriate. Writes attempt an expiring seven-day recovery branch before
+execution. Neon MCP must not connect to production.
+
 The production Neon account/project identity is:
 
 - Neon org: `org-aged-bread-93528894` (`7050technologies@gmail.com`)

@@ -24,6 +24,7 @@
     "paonia:data": "tsx scripts/paonia-data.ts",
     "load:paonia": "tsx scripts/paonia-data.ts",
     "ops:paonia-operation-costs": "tsx scripts/ops/paonia-operation-costs.ts",
+    "ops:production-db": "tsx scripts/ops/production-db.ts",
     "ops:split-multi-shipment-sales-orders": "tsx scripts/split-multi-shipment-sales-orders.ts",
     "rename:paonia-lots": "tsx scripts/rename-lots-to-dates.ts",
     "diff:projections": "tsx scripts/diff-projections.ts",
