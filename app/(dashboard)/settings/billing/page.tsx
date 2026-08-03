@@ -22,6 +22,7 @@ export default async function SettingsBillingPage({
   const initialData: BillingPageData = {
     ...billing,
     trialEndsAt: billing.trialEndsAt?.toISOString() ?? null,
+    skuLimitStartsAt: billing.skuLimitStartsAt.toISOString(),
     currentPeriodStart: billing.currentPeriodStart?.toISOString() ?? null,
     currentPeriodEnd: billing.currentPeriodEnd?.toISOString() ?? null,
     billingUsagePeriodStart: billing.billingUsagePeriodStart?.toISOString() ?? null,

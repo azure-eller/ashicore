@@ -12,7 +12,7 @@ import {
 
 export function SignupForm({
   billingIntent = {
-    selectedPlan: "trial",
+    selectedPlan: "free",
     locationCapacity: 1,
     addonLookupKeys: [],
   },

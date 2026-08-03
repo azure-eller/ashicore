@@ -1,14 +1,15 @@
 import "server-only";
 
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { organization } from "@/lib/db/schema";
+import { items, organization } from "@/lib/db/schema";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import { captureAppError } from "@/lib/observability/sentry";
 import {
   asBillingPlugins,
   asBillingAddonLookupKeys,
   asBillingInterval,
+  asEffectiveBillingPlan,
   asSalesOrderBand,
   type BillingAddonLookupKey,
   type BillingPlan,
@@ -37,6 +38,7 @@ function mapBillingState(row: {
   plan: string;
   status: string;
   trialEndsAt: Date | null;
+  skuLimitStartsAt: Date;
   billingInterval: string;
   salesOrderBand: string;
   locationCapacity: number;
@@ -46,12 +48,14 @@ function mapBillingState(row: {
   currentPeriodStart: Date | null;
   currentPeriodEnd: Date | null;
   entitlements: string[] | null;
+  betaFeatures: string[] | null;
   billingAddons: string[] | null;
 }): BillingState {
   return {
-    plan: row.plan as BillingPlan,
+    plan: asEffectiveBillingPlan(row.plan),
     status: row.status as BillingStatus,
     trialEndsAt: row.trialEndsAt,
+    skuLimitStartsAt: row.skuLimitStartsAt,
     billingInterval: asBillingInterval(row.billingInterval),
     salesOrderBand: asSalesOrderBand(row.salesOrderBand),
     locationCapacity: row.locationCapacity,
@@ -61,6 +65,7 @@ function mapBillingState(row: {
     currentPeriodStart: row.currentPeriodStart,
     currentPeriodEnd: row.currentPeriodEnd,
     entitlements: asBillingPlugins(row.entitlements),
+    betaFeatures: asBillingPlugins(row.betaFeatures),
     billingAddons: asBillingAddonLookupKeys(row.billingAddons),
   };
 }
@@ -93,6 +98,14 @@ export async function setOrgStripeCustomerId(orgId: string, stripeCustomerId: st
     .where(eq(organization.id, orgId));
 }
 
+export async function getActiveSkuCountByOrgId(orgId: string) {
+  const [row] = await db
+    .select({ count: sql<number>`COUNT(*)::int` })
+    .from(items)
+    .where(and(eq(items.organizationId, orgId), isNull(items.deletedAt)));
+  return Number(row?.count ?? 0);
+}
+
 export async function getBillingStateByOrgId(orgId: string) {
   const [row] = await db
     .select({
@@ -101,6 +114,7 @@ export async function getBillingStateByOrgId(orgId: string) {
       plan: organization.plan,
       status: organization.status,
       trialEndsAt: organization.trialEndsAt,
+      skuLimitStartsAt: organization.skuLimitStartsAt,
       billingInterval: organization.billingInterval,
       salesOrderBand: organization.salesOrderBand,
       locationCapacity: organization.locationCapacity,
@@ -110,6 +124,7 @@ export async function getBillingStateByOrgId(orgId: string) {
       currentPeriodStart: organization.currentPeriodStart,
       currentPeriodEnd: organization.currentPeriodEnd,
       entitlements: organization.entitlements,
+      betaFeatures: organization.betaFeatures,
       billingAddons: organization.billingAddons,
     })
     .from(organization)
@@ -127,6 +142,7 @@ export async function getOrgByStripeCustomerId(stripeCustomerId: string) {
       plan: organization.plan,
       status: organization.status,
       trialEndsAt: organization.trialEndsAt,
+      skuLimitStartsAt: organization.skuLimitStartsAt,
       billingInterval: organization.billingInterval,
       salesOrderBand: organization.salesOrderBand,
       locationCapacity: organization.locationCapacity,
@@ -136,6 +152,7 @@ export async function getOrgByStripeCustomerId(stripeCustomerId: string) {
       currentPeriodStart: organization.currentPeriodStart,
       currentPeriodEnd: organization.currentPeriodEnd,
       entitlements: organization.entitlements,
+      betaFeatures: organization.betaFeatures,
       billingAddons: organization.billingAddons,
     })
     .from(organization)

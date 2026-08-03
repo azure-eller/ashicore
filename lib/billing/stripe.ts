@@ -4,6 +4,7 @@ import Stripe from "stripe";
 import { getCanonicalAppUrl } from "@/lib/app-url";
 import {
   getBillingStateByOrgId,
+  getActiveSkuCountByOrgId,
   getOrgByStripeCustomerId,
   setOrgStripeCustomerId,
   updateOrgBillingState,
@@ -15,12 +16,14 @@ import {
   DEFAULT_LOCATION_CAPACITY,
   DEFAULT_SALES_ORDER_BAND,
   EXTRA_LOCATION_LOOKUP_KEY,
+  FREE_SKU_LIMIT,
   asBillingInterval,
   asSalesOrderBand,
   asBillingAddonLookupKeys,
   billingLineItemsForCoreSelection,
   canonicalRecurringLookupKey,
   getBillingOffer,
+  getSellableBillingOffer,
   getCorePlanSelection,
   pluginsFromLookupKeys,
   recurringLookupKeyForBillingInterval,
@@ -308,7 +311,7 @@ function coreIntervalFromLookupKeys(lookupKeys: string[]): BillingInterval {
 }
 
 function nextLookupKeysForOffer(currentLookupKeys: string[], lookupKey: string) {
-  const offer = getBillingOffer(lookupKey);
+  const offer = getSellableBillingOffer(lookupKey);
   if (!offer) {
     throw new BillingSubscriptionError("Unknown catalog item.");
   }
@@ -406,7 +409,7 @@ export async function changeSubscriptionOffer({
   lookupKey: string;
   idempotencyKey: string;
 }) {
-  const targetOffer = getBillingOffer(lookupKey);
+  const targetOffer = getSellableBillingOffer(lookupKey);
   if (!targetOffer) {
     throw new BillingSubscriptionError("Unknown catalog item.");
   }
@@ -675,8 +678,8 @@ function periodStartDate(subscription: Stripe.Subscription) {
     : null;
 }
 
-// Plugin entitlements survive past_due/unpaid (grace period — dunning handles
-// recovery); they drop only when the subscription is truly gone.
+// Recognized subscriptions remain Pro through past_due/unpaid while Stripe
+// dunning handles recovery; they become Free only when truly gone.
 const ENTITLED_SUBSCRIPTION_STATUSES: Stripe.Subscription.Status[] = [
   "active",
   "trialing",
@@ -765,19 +768,16 @@ function stateFromSubscription(subscription: Stripe.Subscription): {
     salesOrderBand: DEFAULT_SALES_ORDER_BAND,
     billingInterval: DEFAULT_BILLING_INTERVAL,
   };
-  const hasCore = coreSelection !== null;
   if (
     subscription.status === "active" ||
     subscription.status === "trialing" ||
     subscription.status === "paused"
   ) {
     return {
-      plan: hasCore ? "core" : "trial",
+      plan: "pro",
       status: "active",
       ...coreFields,
-      locationCapacity: hasCore
-        ? locationCapacityFromSubscription(subscription)
-        : DEFAULT_LOCATION_CAPACITY,
+      locationCapacity: locationCapacityFromSubscription(subscription),
       cancelAtPeriodEnd: Boolean(subscription.cancel_at_period_end),
       currentPeriodStart: periodStartDate(subscription),
       currentPeriodEnd: periodEndDate(subscription),
@@ -789,12 +789,10 @@ function stateFromSubscription(subscription: Stripe.Subscription): {
     subscription.status === "unpaid"
   ) {
     return {
-      plan: hasCore ? "core" : "trial",
+      plan: "pro",
       status: "past_due",
       ...coreFields,
-      locationCapacity: hasCore
-        ? locationCapacityFromSubscription(subscription)
-        : DEFAULT_LOCATION_CAPACITY,
+      locationCapacity: locationCapacityFromSubscription(subscription),
       cancelAtPeriodEnd: Boolean(subscription.cancel_at_period_end),
       currentPeriodStart: periodStartDate(subscription),
       currentPeriodEnd: periodEndDate(subscription),
@@ -803,12 +801,10 @@ function stateFromSubscription(subscription: Stripe.Subscription): {
 
   if (subscription.status === "incomplete") {
     return {
-      plan: "trial",
+      plan: "free",
       status: "past_due",
       ...coreFields,
-      locationCapacity: hasCore
-        ? locationCapacityFromSubscription(subscription)
-        : DEFAULT_LOCATION_CAPACITY,
+      locationCapacity: locationCapacityFromSubscription(subscription),
       cancelAtPeriodEnd: Boolean(subscription.cancel_at_period_end),
       currentPeriodStart: periodStartDate(subscription),
       currentPeriodEnd: periodEndDate(subscription),
@@ -816,8 +812,8 @@ function stateFromSubscription(subscription: Stripe.Subscription): {
   }
 
   return {
-    plan: "trial",
-    status: "canceled",
+    plan: "free",
+    status: "active",
     salesOrderBand: DEFAULT_SALES_ORDER_BAND,
     billingInterval: DEFAULT_BILLING_INTERVAL,
     locationCapacity: DEFAULT_LOCATION_CAPACITY,
@@ -878,16 +874,57 @@ export async function applySubscriptionState({
 
   const entitlements = entitlementsFromSubscription(subscription);
   const billingAddons = purchasedAddonsFromSubscription(subscription);
-  await updateOrgBillingState({
-    orgId: org.id,
-    stripeCustomerId,
-    stripeSubscriptionId: state.status === "canceled" ? null : subscription.id,
-    entitlements,
-    billingAddons,
-    ...state,
-  });
+  const hasRecognizedOffer = subscription.items.data.some((item) =>
+    item.price?.lookup_key ? getBillingOffer(item.price.lookup_key) !== null : false
+  );
+  if (
+    ENTITLED_SUBSCRIPTION_STATUSES.includes(subscription.status) &&
+    !hasRecognizedOffer
+  ) {
+    await sendFounderAlert({
+      kind: "subscription_attention",
+      subject: `Ashicore subscription has an unknown Stripe price: ${org.name}`,
+      idempotencyKey: `founder-alert-unknown-subscription-price-${subscription.id}`,
+      fields: [
+        { label: "Organization", value: org.name },
+        { label: "Organization ID", value: org.id },
+        { label: "Stripe customer ID", value: stripeCustomerId },
+        { label: "Subscription ID", value: subscription.id },
+        {
+          label: "Price lookup keys",
+          value: subscription.items.data
+            .map((item) => item.price?.lookup_key ?? item.price?.id ?? "unknown")
+            .join(", "),
+        },
+      ],
+    });
+  }
+  if (state.plan === "free" && subscription.status === "canceled") {
+    await downgradeOrgToFree({
+      org,
+      billingState: {
+        orgId: org.id,
+        stripeCustomerId,
+        stripeSubscriptionId: null,
+        entitlements,
+        billingAddons,
+        ...state,
+      },
+      alertKey: subscription.id,
+      subscriptionId: subscription.id,
+    });
+  } else {
+    await updateOrgBillingState({
+      orgId: org.id,
+      stripeCustomerId,
+      stripeSubscriptionId: state.plan === "free" ? null : subscription.id,
+      entitlements,
+      billingAddons,
+      ...state,
+    });
+  }
 
-  if (state.plan === "core" && state.status === "active") {
+  if (state.plan === "pro" && state.status === "active") {
     await sendFounderAlert({
       kind: "subscription_active",
       subject: `New Ashicore paid subscription: ${org.name}`,
@@ -920,6 +957,37 @@ export async function applySubscriptionState({
   }
 }
 
+async function downgradeOrgToFree({
+  org,
+  billingState,
+  alertKey,
+  subscriptionId,
+}: {
+  org: { id: string; name: string };
+  billingState: Parameters<typeof updateOrgBillingState>[0];
+  alertKey: string;
+  subscriptionId?: string;
+}) {
+  await updateOrgBillingState(billingState);
+
+  const skuCount = await getActiveSkuCountByOrgId(org.id);
+  if (skuCount <= FREE_SKU_LIMIT) return;
+
+  await sendFounderAlert({
+    kind: "subscription_attention",
+    subject: `Ashicore Pro ended above the Free SKU limit: ${org.name}`,
+    idempotencyKey: `founder-alert-over-limit-downgrade-${alertKey}`,
+    fields: [
+      { label: "Organization", value: org.name },
+      { label: "Organization ID", value: org.id },
+      { label: "Active SKUs", value: skuCount },
+      ...(subscriptionId
+        ? [{ label: "Subscription ID", value: subscriptionId }]
+        : []),
+    ],
+  });
+}
+
 export async function syncOrgBillingFromStripe(orgId: string) {
   const stripe = getStripeClient();
   const billing = await getBillingStateByOrgId(orgId);
@@ -950,17 +1018,21 @@ export async function syncOrgBillingFromStripe(orgId: string) {
   const subscription = active[0] ?? subscriptions.data[0];
 
   if (!subscription) {
-    await updateOrgBillingState({
-      orgId,
-      plan: "trial",
-      status: "canceled",
-      stripeCustomerId: billing.stripeCustomerId,
-      stripeSubscriptionId: null,
-      entitlements: [],
-      billingAddons: [],
-      cancelAtPeriodEnd: false,
-      currentPeriodStart: null,
-      currentPeriodEnd: null,
+    await downgradeOrgToFree({
+      org: billing,
+      billingState: {
+        orgId,
+        plan: "free",
+        status: "active",
+        stripeCustomerId: billing.stripeCustomerId,
+        stripeSubscriptionId: null,
+        entitlements: [],
+        billingAddons: [],
+        cancelAtPeriodEnd: false,
+        currentPeriodStart: null,
+        currentPeriodEnd: null,
+      },
+      alertKey: `customer-${billing.stripeCustomerId}`,
     });
     return getBillingStateByOrgId(orgId);
   }
@@ -1025,17 +1097,21 @@ export async function handleStripeWebhook(body: string, signature: string | null
     const customer = event.data.object;
     const org = await getOrgByStripeCustomerId(customer.id);
     if (org) {
-      await updateOrgBillingState({
-        orgId: org.id,
-        plan: "trial",
-        status: "canceled",
-        stripeCustomerId: null,
-        stripeSubscriptionId: null,
-        entitlements: [],
-        billingAddons: [],
-        cancelAtPeriodEnd: false,
-        currentPeriodStart: null,
-        currentPeriodEnd: null,
+      await downgradeOrgToFree({
+        org,
+        billingState: {
+          orgId: org.id,
+          plan: "free",
+          status: "active",
+          stripeCustomerId: null,
+          stripeSubscriptionId: null,
+          entitlements: [],
+          billingAddons: [],
+          cancelAtPeriodEnd: false,
+          currentPeriodStart: null,
+          currentPeriodEnd: null,
+        },
+        alertKey: `customer-${customer.id}`,
       });
     }
   }

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import {
   customers,
@@ -680,7 +680,7 @@ async function writeFailure(sessionId: string, message: string) {
 export async function approveImportSession(
   sessionId: string,
   // `previewHash` is the optimistic-concurrency guard for the interactive review
-  // approve (free path). The post-payment finalize commit (paid path) omits it —
+  // approve (Free path). The post-payment finalize commit (Pro path) omits it —
   // the stored package is the source of truth and is re-validated server-side.
   input: { previewHash?: string },
 ) {

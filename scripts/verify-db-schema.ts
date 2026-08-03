@@ -21,7 +21,46 @@ type ExpectedColumn = {
   columnDefaultIncludes?: string;
 };
 
+function normalizedDatabaseIdentity(connectionString: string) {
+  const url = new URL(connectionString);
+  return {
+    host: url.hostname.replace(/-pooler(?=\.)/, ""),
+    database: url.pathname.replace(/^\//, ""),
+  };
+}
+
+function assertRuntimeDatabaseMatchesMigrationDatabase(ownerUrl: string) {
+  const appUrl = process.env.DATABASE_URL_APP;
+  if (!appUrl) {
+    throw new Error(
+      "DATABASE_URL_APP is required in production mode so build and runtime database targets can be compared."
+    );
+  }
+
+  const owner = normalizedDatabaseIdentity(ownerUrl);
+  const app = normalizedDatabaseIdentity(appUrl);
+  if (owner.host !== app.host || owner.database !== app.database) {
+    throw new Error(
+      "DATABASE_URL and DATABASE_URL_APP target different databases. Refusing to verify a schema the deployed runtime will not use."
+    );
+  }
+}
+
 const expectedColumns: ExpectedColumn[] = [
+  {
+    schema: "system",
+    table: "organization",
+    column: "sku_limit_starts_at",
+    dataType: "timestamp with time zone",
+    isNullable: "NO",
+  },
+  {
+    schema: "system",
+    table: "organization",
+    column: "beta_features",
+    dataType: "jsonb",
+    isNullable: "NO",
+  },
   {
     schema: "settings",
     table: "tax_rates",
@@ -545,6 +584,9 @@ async function main() {
   const connectionString = explicitDatabaseUrl ?? process.env.DATABASE_URL;
   if (!connectionString) {
     throw new Error("DATABASE_URL is required for schema verification.");
+  }
+  if (productionMode) {
+    assertRuntimeDatabaseMatchesMigrationDatabase(connectionString);
   }
 
   const client = new Client({ connectionString });

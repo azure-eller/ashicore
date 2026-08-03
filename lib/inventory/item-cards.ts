@@ -40,6 +40,10 @@ import {
 } from "@/lib/schemas/item-cards";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import type { Tx } from "@/lib/db/with-org-context";
+import {
+  assertSkuCapacityInTx,
+  lockSkuCapacityOrgInTx,
+} from "@/lib/billing/sku-capacity";
 import { DomainError } from "@/lib/errors/domain-error";
 import {
   beginInventoryOperationInTx,
@@ -745,6 +749,7 @@ export async function cloneItemCard(
         payload: { sourceItemId },
       },
       async () => {
+        await lockSkuCapacityOrgInTx(tx, orgId);
         const sourceFamilyId = await resolveFamilyIdInTx(tx, sourceItemId);
         const [sourceFamily] = await tx
           .select()
@@ -762,6 +767,8 @@ export async function cloneItemCard(
         if (sourceVariants.length === 0) {
           throw new ItemCardError("Item card has no active variants to clone.", 409);
         }
+
+        await assertSkuCapacityInTx(tx, orgId, sourceVariants.length);
 
         const [clonedFamily] = await tx
           .insert(itemFamilies)
@@ -996,6 +1003,7 @@ export async function createItemCardInTx(
       payload: { data },
     },
     async () => {
+      await assertSkuCapacityInTx(tx, orgId, 1);
       const [family] = await tx
         .insert(itemFamilies)
         .values({
@@ -1305,6 +1313,7 @@ export async function createItemCardVariant(
         payload: { sourceItemId, data },
       },
       async () => {
+        await lockSkuCapacityOrgInTx(tx, orgId);
         const [source] = await tx
           .select()
           .from(items)
@@ -1317,6 +1326,8 @@ export async function createItemCardVariant(
           .from(itemFamilies)
           .where(and(eq(itemFamilies.id, source.familyId), isNull(itemFamilies.deletedAt)))
           .for("update");
+
+        await assertSkuCapacityInTx(tx, orgId, 1);
 
     const activeOptions = await tx
       .select({
@@ -1941,6 +1952,7 @@ export async function generateVariants(
   options?: { idempotencyKey?: string | null },
 ) {
   return withAuthedOrgContext(async (tx, orgId) => {
+    await lockSkuCapacityOrgInTx(tx, orgId);
     const familyId = await resolveFamilyIdInTx(tx, itemId);
     const replay = await beginInventoryOperationInTx<{ created: Array<{ id: string }> }>(tx, {
       organizationId: orgId,
@@ -2003,6 +2015,11 @@ export async function generateVariants(
       source.optionCombinationKey === "" && bareDefaultVariant.length === 0;
     const [promotedCombo, ...remainingCombos] =
       canPromoteSourceVariant && selected.length > 0 ? selected : [undefined, ...selected];
+    await assertSkuCapacityInTx(
+      tx,
+      orgId,
+      remainingCombos.filter((combo) => combo != null).length
+    );
     const [maxSortOrderRow] = await tx
       .select({ value: sql<number>`COALESCE(MAX(${items.sortOrder}), -1)::int` })
       .from(items)

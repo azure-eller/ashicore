@@ -1,19 +1,28 @@
-export const BILLING_PLANS = ["trial", "free", "core"] as const;
+export const BILLING_PLANS = ["trial", "free", "core", "pro"] as const;
 export const BILLING_STATUSES = ["active", "past_due", "canceled"] as const;
 export const BILLING_INTERVALS = ["monthly", "annual"] as const;
 export const SALES_ORDER_BANDS = ["starter", "growth", "pro", "scale"] as const;
 export const PRICED_SALES_ORDER_BANDS = ["starter", "growth", "pro"] as const;
 
 export type BillingPlan = (typeof BILLING_PLANS)[number];
+export type EffectiveBillingPlan = "free" | "pro";
 export type BillingStatus = (typeof BILLING_STATUSES)[number];
 export type BillingInterval = (typeof BILLING_INTERVALS)[number];
 export type SalesOrderBand = (typeof SALES_ORDER_BANDS)[number];
 export type PricedSalesOrderBand = (typeof PRICED_SALES_ORDER_BANDS)[number];
 
 export const DEFAULT_TRIAL_DAYS = 14;
+export const FREE_SKU_LIMIT = 30;
+export const FREE_SKU_GRACE_DAYS = 15;
+
+export function asEffectiveBillingPlan(plan: string): EffectiveBillingPlan {
+  return plan === "core" || plan === "pro" ? "pro" : "free";
+}
 export const DEFAULT_BILLING_INTERVAL: BillingInterval = "monthly";
 export const DEFAULT_SALES_ORDER_BAND: SalesOrderBand = "starter";
 export const DEFAULT_LOCATION_CAPACITY = 1;
+export const PRO_PLAN_LOOKUP_KEY = "pro_monthly" as const;
+export const PRO_MONTHLY_USD = 199;
 
 export const SALES_ORDER_BAND_LIMITS: Record<SalesOrderBand, number | null> = {
   starter: 100,
@@ -82,9 +91,8 @@ export const BILLING_PLUGIN_LABELS: Record<BillingPlugin, string> = {
   pricing_scenarios: "Pricing scenarios",
 };
 
-// Beta plugins are visible only to orgs holding the entitlement: locked for
-// everyone else regardless of shadow mode or grandfathering. They are not
-// sellable — no lookup key or catalog offer until they graduate.
+// Beta features are visible only to allowlisted organizations, independent of
+// their commercial plan. They are not sellable.
 export const BILLING_BETA_PLUGINS: readonly BillingPlugin[] = ["pricing_scenarios"];
 
 export const BILLING_COMMERCIAL_PLUGINS = BILLING_PLUGINS.filter(
@@ -301,34 +309,8 @@ export function normalizeCoreBillingSelection(
 export function billingLineItemsForCoreSelection(
   selection: CoreBillingSelection
 ): BillingLineItemSelection[] {
-  const normalized = normalizeCoreBillingSelection(selection);
-  const lineItems: BillingLineItemSelection[] = [
-    {
-      lookupKey: coreLookupKeyForSelection(normalized),
-      quantity: 1,
-    },
-  ];
-
-  const extraLocationQuantity =
-    normalized.locationCapacity - DEFAULT_LOCATION_CAPACITY;
-  if (extraLocationQuantity > 0) {
-    lineItems.push({
-      lookupKey: recurringLookupKeyForBillingInterval(
-        EXTRA_LOCATION_LOOKUP_KEY,
-        normalized.interval
-      ),
-      quantity: extraLocationQuantity,
-    });
-  }
-
-  for (const lookupKey of normalized.addonLookupKeys) {
-    lineItems.push({
-      lookupKey: recurringLookupKeyForBillingInterval(lookupKey, normalized.interval),
-      quantity: 1,
-    });
-  }
-
-  return lineItems;
+  void selection;
+  return [{ lookupKey: PRO_PLAN_LOOKUP_KEY, quantity: 1 }];
 }
 
 export function pluginsFromLookupKeys(
@@ -350,10 +332,8 @@ export function asBillingPlugins(values: string[] | null | undefined): BillingPl
   return BILLING_PLUGINS.filter((plugin) => values.includes(plugin));
 }
 
-// The sellable catalog. Display copy and prices live here; Stripe owns the
-// charging truth — prices are created with these lookup keys
-// (scripts/stripe-create-catalog.ts) and the webhook resolves them back to
-// plugins via BILLING_PRICE_LOOKUP_PLUGINS above.
+// The compatibility catalog retains legacy lookup metadata for rolling deploys.
+// STRIPE_BILLING_CATALOG below is the only catalog used to create new prices.
 export type BillingOfferKind =
   | "core"
   | "extra_location"
@@ -467,6 +447,15 @@ const RECURRING_ADDON_CATALOG: readonly BillingOffer[] = [
 ];
 
 export const BILLING_CATALOG: readonly BillingOffer[] = [
+  {
+    lookupKey: PRO_PLAN_LOOKUP_KEY,
+    kind: "core",
+    name: "Pro",
+    blurb: "The complete Ashicore ERP with unlimited SKUs.",
+    monthlyUsd: PRO_MONTHLY_USD,
+    plugins: [],
+    interval: "monthly",
+  },
   ...CORE_PLAN_CATALOG.map((selection) => ({
     lookupKey: selection.lookupKey,
     kind: "core" as const,
@@ -481,6 +470,10 @@ export const BILLING_CATALOG: readonly BillingOffer[] = [
 ];
 
 export const STRIPE_BILLING_CATALOG: readonly BillingOffer[] = [
+  BILLING_CATALOG[0],
+];
+
+const LEGACY_STRIPE_BILLING_CATALOG: readonly BillingOffer[] = [
   ...CORE_CATALOG,
   ...RECURRING_ADDON_CATALOG,
   ...RECURRING_ADDON_CATALOG.map((offer) => ({
@@ -492,13 +485,22 @@ export const STRIPE_BILLING_CATALOG: readonly BillingOffer[] = [
 ];
 
 export function getBillingOffer(lookupKey: string): BillingOffer | null {
+  return (
+    STRIPE_BILLING_CATALOG.find((offer) => offer.lookupKey === lookupKey) ??
+    LEGACY_STRIPE_BILLING_CATALOG.find((offer) => offer.lookupKey === lookupKey) ??
+    null
+  );
+}
+
+export function getSellableBillingOffer(lookupKey: string): BillingOffer | null {
   return STRIPE_BILLING_CATALOG.find((offer) => offer.lookupKey === lookupKey) ?? null;
 }
 
 export type BillingState = {
-  plan: BillingPlan;
+  plan: EffectiveBillingPlan;
   status: BillingStatus;
   trialEndsAt: Date | null;
+  skuLimitStartsAt: Date;
   billingInterval: BillingInterval;
   salesOrderBand: SalesOrderBand;
   locationCapacity: number;
@@ -508,6 +510,7 @@ export type BillingState = {
   currentPeriodStart: Date | null;
   currentPeriodEnd: Date | null;
   entitlements: BillingPlugin[];
+  betaFeatures: BillingPlugin[];
   billingAddons: BillingAddonLookupKey[];
 };
 
@@ -517,4 +520,5 @@ export type BillingOverview = BillingState & {
   skuCount: number;
   salesOrderCount: number;
   locationCount: number;
+  skuLimit: number | null;
 };

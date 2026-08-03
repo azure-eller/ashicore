@@ -49,12 +49,12 @@ export const POST = apiHandler(async (request) => {
     billingSelectionToCommercialSelection(normalizeBillingSelection(body.lookupKey));
 
   if (selection.mode !== "core") {
-    return jsonError("Checkout requires a Core billing selection.", 400);
+    return jsonError("Checkout requires the Pro plan.", 400);
   }
 
   const normalizedSelection = commercialSelectionFromInput(selection);
   if (normalizedSelection?.mode !== "core") {
-    return jsonError("Checkout requires a Core billing selection.", 400);
+    return jsonError("Checkout requires the Pro plan.", 400);
   }
 
   for (const lookupKey of normalizedSelection.addonLookupKeys ?? []) {

@@ -294,7 +294,7 @@ const organizationBillingSafetyPlugin = (): BetterAuthPlugin => ({
             .where(eq(schema.organization.id, organizationId))
             .limit(1);
 
-          if (org?.plan === "core" && org.status !== "canceled") {
+          if ((org?.plan === "core" || org?.plan === "pro") && org.status !== "canceled") {
             throw new APIError("BAD_REQUEST", {
               message:
                 "Cancel the organization's billing subscription before deleting this organization.",

@@ -30,7 +30,7 @@ export function OrgSetupForm({
   className,
   organizations,
   billingIntent = {
-    selectedPlan: "trial",
+    selectedPlan: "free",
     locationCapacity: 1,
     addonLookupKeys: [],
   },
@@ -54,7 +54,7 @@ export function OrgSetupForm({
       return
     }
 
-    // Trial and paid enter the same guided onboarding flow. For paid, payment
+    // Free and Pro enter the same guided onboarding flow. For Pro, payment
     // is collected within the flow (at the approve gate), not here.
     router.replace(`${NEW_ORG_ENTRY_PATH}?${billingIntentQueryString(billingIntent)}`)
   }, [billingIntent, continueToOnboarding, router])

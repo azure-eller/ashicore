@@ -13,7 +13,6 @@ import {
   accountingDocumentSyncs,
   customers,
   customerContacts,
-  billingUsageEvents,
   manufacturingOrders,
   organization,
   organizationOverheadSettings,
@@ -2039,17 +2038,6 @@ test.describe("sales demand and shipping heartbeat", () => {
         "This order has cancelled remaining items. Review the shipped quantities before sending an accounting invoice.",
     });
 
-    const usageRows = await db
-      .select({ id: billingUsageEvents.id })
-      .from(billingUsageEvents)
-      .where(
-        and(
-          eq(billingUsageEvents.organizationId, getOrgId()),
-          eq(billingUsageEvents.salesOrderId, order.body.id),
-          eq(billingUsageEvents.eventType, "sales_order_shipped")
-        )
-      );
-    expect(usageRows).toHaveLength(1);
   });
 
   test("cancel remaining rejects orders already pushed to accounting", async ({

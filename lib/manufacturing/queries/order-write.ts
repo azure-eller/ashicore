@@ -892,7 +892,7 @@ async function insertManufacturingOrderInTx(
   }
 ) {
   // Creating a new batch-mode MO is the batch_production workflow; in-flight
-  // batch MOs always execute and complete regardless of entitlement.
+  // Batch MOs always execute and complete; commercial access is unrestricted.
   if (values.manufacturingMode === "batch") {
     await assertFeatureAccessInTx(tx, orgId, "batch_production", {
       route: "POST /api/manufacturing-orders",

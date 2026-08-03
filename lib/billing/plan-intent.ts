@@ -4,10 +4,10 @@ import {
   asSalesOrderBand,
   DEFAULT_LOCATION_CAPACITY,
   normalizeCoreBillingSelection,
-  coreLookupKeyForSelection,
   getCorePlanSelection,
   getBillingOffer,
   pluginsFromLookupKeys,
+  PRO_PLAN_LOOKUP_KEY,
   type BillingAddonLookupKey,
   type CommercialBillingSelection,
   type BillingPlugin,
@@ -17,7 +17,7 @@ import {
 
 export type BillingSelection = "trial" | "free" | string;
 
-export const DEFAULT_BILLING_SELECTION: BillingSelection = "trial";
+export const DEFAULT_BILLING_SELECTION: BillingSelection = "free";
 
 export type BillingIntent = {
   selectedPlan: BillingSelection;
@@ -32,9 +32,10 @@ export const DEFAULT_BILLING_INTENT: BillingIntent = {
 };
 
 export function normalizeBillingSelection(value: unknown): BillingSelection {
-  if (value === "trial" || value === "free") return value;
-  if (value === "core") return coreLookupKeyForSelection();
-  if (value === "paid") return coreLookupKeyForSelection();
+  if (value === "trial" || value === "free") return "free";
+  if (value === "core" || value === "paid" || value === "pro") {
+    return PRO_PLAN_LOOKUP_KEY;
+  }
   if (typeof value === "string" && getBillingOffer(value)) return value;
   return DEFAULT_BILLING_SELECTION;
 }
@@ -50,7 +51,7 @@ export function isPaidBillingSelection(value: BillingSelection | null | undefine
 }
 
 export function billingSelectionLookupKey(value: BillingSelection | null | undefined) {
-  if (value === "core" || value === "paid") return coreLookupKeyForSelection();
+  if (value === "core" || value === "paid" || value === "pro") return PRO_PLAN_LOOKUP_KEY;
   if (typeof value === "string" && getBillingOffer(value)) return value;
   return null;
 }
@@ -189,7 +190,7 @@ export function selectionEntitlementsMet(
   const offer = lookupKey ? getBillingOffer(lookupKey) : null;
   if (offer == null || billing == null) return false;
   if (offer.kind === "core") {
-    return billing.plan === "core" && billing.status !== "canceled";
+    return (billing.plan === "core" || billing.plan === "pro") && billing.status !== "canceled";
   }
   return offer.plugins.every((plugin) => billing.entitlements.includes(plugin));
 }
@@ -209,7 +210,11 @@ export function billingIntentEntitlementsMet(
   const normalized = normalizeBillingIntent(intent ?? DEFAULT_BILLING_INTENT);
   const selection = billingIntentToCommercialSelection(normalized);
   if (selection.mode !== "core") return true;
-  if (!billing || billing.plan !== "core" || billing.status === "canceled") {
+  if (
+    !billing ||
+    (billing.plan !== "core" && billing.plan !== "pro") ||
+    billing.status === "canceled"
+  ) {
     return false;
   }
   if ((billing.locationCapacity ?? DEFAULT_LOCATION_CAPACITY) < normalized.locationCapacity) {

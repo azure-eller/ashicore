@@ -56,6 +56,7 @@ const schema = z.object({
   BILLING_ENTITLEMENTS_ENFORCED: z.string().optional(),
   BILLING_ENFORCED_PLUGINS: z.string().optional(),
   BILLING_ENFORCEMENT_LAUNCH_AT: z.string().optional(),
+  BILLING_SKU_LIMIT_ENFORCED: z.string().optional(),
 
   // File storage
   BLOB_READ_WRITE_TOKEN: z.string().optional(),

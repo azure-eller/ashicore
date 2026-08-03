@@ -816,8 +816,8 @@ export async function recordManufacturingOutput(
       );
     }
 
-    // Producing into a non-available disposition creates a blocked lot — the
-    // lot_tracking paid state. Recording output as available is always free.
+    // Producing into a non-available disposition creates a blocked lot and still
+    // passes through the compatibility access call.
     if (payload.outputDisposition !== "available") {
       await assertFeatureAccessInTx(tx, orgId, "lot_tracking", {
         route: "POST /api/manufacturing-orders/[id]/outputs",

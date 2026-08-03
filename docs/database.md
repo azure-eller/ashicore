@@ -564,15 +564,20 @@ or columns to `scripts/verify-db-schema.ts` when a missing object would break
 runtime code after deploy. After production deploys, run:
 
 ```bash
-DATABASE_URL=<production-owner-url> pnpm verify:production-schema
+DATABASE_URL=<production-owner-url> \
+DATABASE_URL_APP=<production-app-url> \
+pnpm verify:production-schema
 ```
 
 This is read-only. It verifies the latest repo migration is recorded in
 `drizzle.__drizzle_migrations` and checks critical tables/columns, including the
-tax settings objects and purchase-order repair columns/table. Vercel runs this
-after `pnpm drizzle-kit migrate` and before `next build`, so a migration that
-Drizzle skips because production has a newer ledger row blocks deployment instead
-of shipping runtime code against a missing table.
+tax settings objects and purchase-order repair columns/table. It also requires
+the owner and app URLs to name the same host and database (pooled and direct
+variants are treated as the same host), so deployment cannot verify one database
+and run against another. Vercel runs this after `pnpm drizzle-kit migrate` and
+before `next build`, so a migration that Drizzle skips because production has a
+newer ledger row blocks deployment instead of shipping runtime code against a
+missing table.
 
 PR CI also runs `pnpm verify:production-migration-order` when the repository has
 a `PRODUCTION_DATABASE_URL` secret configured. Without that secret, deployment

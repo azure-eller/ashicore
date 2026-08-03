@@ -8,7 +8,7 @@ read_when:
 # Planning
 
 > **Dormant / legacy — not wired into the product UI.** There is no planning
-> page or nav entry, and planning is excluded from the billing plugin set. The
+> page or nav entry, and planning has no commercial or beta access gate. The
 > service (`lib/planning/*`) and `/api/planning/*` routes still exist and are
 > tested, but no web surface consumes them. Do not build new UI on this or
 > propose planning features without checking with the owner first. (The agent's

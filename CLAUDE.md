@@ -86,7 +86,7 @@ This file is a constitution + map. Deep reference lives in `docs/` — read the 
 | ERP agent reactivation / overhead | `docs/erp-agent.md` |
 | MRP-lite planning | `docs/planning.md` |
 | Auth, roles, team invites | `docs/auth-team.md` |
-| Billing plugins, feature gates, enforcement | `docs/billing.md` |
+| Free/Pro billing, SKU capacity, beta access | `docs/billing.md` |
 | Production launch, auth protection, observability | `docs/production-ops.md` |
 | Sentry triage, autofix, vocabulary | `docs/observability/sentry-triage.md` |
 | Xero App Store / partner readiness | `docs/xero-partner-readiness.md` |

@@ -35,7 +35,7 @@
     if (signupStart || signupPath === '/sign-up') {
       const url = new URL(href, window.location.origin);
       trackEvent('signup_started', {
-        plan: url.searchParams.get('plan') === 'paid' ? 'paid' : 'free',
+        plan: url.searchParams.get('plan') === 'pro' ? 'pro' : 'free',
         source: link.dataset.analyticsPlacement || 'public-site',
       });
     }

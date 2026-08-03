@@ -72,20 +72,22 @@ Founder alerts are optional but required before actively marketing paid signup:
 - use a comma-separated list when multiple recipients should be notified
 - alert delivery failures are logged and must not block signup, checkout, or Stripe webhooks
 
-## Billing, Trial, And Paid Signup
+## Free And Pro Billing
 
-Production paid checkout and bucket-adjustment retries require live-mode
-configuration on the ERP Vercel project:
+Production Pro checkout requires live-mode configuration on the ERP Vercel project:
 
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 - `STRIPE_CATALOG_READY=1`
 - `STRIPE_LIVE_MODE=1`
-- `BILLING_ADJUSTMENTS_SECRET` or `CRON_SECRET`
+
+The legacy adjustment drain also requires `BILLING_ADJUSTMENTS_SECRET` or
+`CRON_SECRET` until contract cleanup. `BILLING_SKU_LIMIT_ENFORCED` is optional;
+leave it unset for enforcement or set it to `0` only for an incident rollback.
 
 Stripe setup checklist:
 
-1. Create the live catalog prices: `STRIPE_SECRET_KEY=sk_live_... pnpm tsx scripts/stripe-create-catalog.ts` (idempotent; keys every price by lookup key — no price IDs to record; batches lookup-key discovery at Stripe's 10-key limit). This includes Core monthly and annual sales-order bands, graduated monthly and annual extra-location tiers, and monthly/annual plugin/package add-ons.
+1. Create the live `pro_monthly` $199 price: `STRIPE_SECRET_KEY=sk_live_... pnpm tsx scripts/stripe-create-catalog.ts`. The script is idempotent and resolves the price by lookup key.
 2. Create a live webhook endpoint for `https://ashicore.app/api/stripe/webhook`.
 3. Subscribe the webhook to:
    - `checkout.session.completed`
@@ -93,24 +95,24 @@ Stripe setup checklist:
    - `customer.subscription.updated`
    - `customer.subscription.deleted`
    - `customer.deleted`
-5. Set `STRIPE_WEBHOOK_SECRET` from the live endpoint signing secret.
-6. Set `STRIPE_SECRET_KEY` to the live restricted or secret key used by the ERP app.
+4. Set `STRIPE_WEBHOOK_SECRET` from the live endpoint signing secret.
+5. Set `STRIPE_SECRET_KEY` to the live restricted or secret key used by the ERP app.
+6. Preview the legacy subscription move: `STRIPE_SECRET_KEY=sk_live_... pnpm tsx scripts/stripe-migrate-subscriptions-to-pro.ts`. Review every listed subscription and resolve every `MANUAL REVIEW` subscription, which the script intentionally skips, then rerun with `--apply`. Same-interval changes preserve renewal dates, create no prorations, and charge $199 at the next renewal. Schedule interval-changing subscriptions at their current period end in Stripe so they cannot rebill immediately.
 7. Set `STRIPE_LIVE_MODE=1`.
 8. Set `STRIPE_CATALOG_READY=1` only after the live catalog script succeeds.
 9. Redeploy the ERP project after env changes.
 
 Verification before marketing paid signup:
 
-- Vercel production env lists all Stripe and cron vars above.
-- `STRIPE_CORE_PRICE_ID` is ignored by the app and should not be used for launch verification.
-- `/settings/billing` shows trial status, Core upgrade, usage counts, and plugin catalog for a trial organization.
-- A live-mode Core checkout reaches Stripe Checkout from the deployed ERP app.
-- Returning from checkout leaves the org on `plan=core` with the purchased sales-order band, billing interval, location capacity, purchased add-on lookup keys, and derived plugin entitlements after the webhook is processed.
-- Final shipping and short-closing partially shipped orders record current-period billing usage. Crossing a Core bucket queues one pending `billingPeriodAdjustments` row and creates one idempotent Stripe invoice item on a subscription-scoped automatic invoice for the full-period bucket delta; sales shipment and short-close must still succeed if Stripe is temporarily unavailable.
-- Bucket adjustment charges queue only for orgs created on or after `BILLING_ENFORCEMENT_LAUNCH_AT`; before launch, usage is recorded but adjustment charging stays in shadow.
-- `/api/internal/billing-adjustments` is configured in Vercel cron and authorized by `BILLING_ADJUSTMENTS_SECRET` or `CRON_SECRET`, so pending bucket adjustments retry with backoff even if the customer does not ship another order that period; repeated Stripe failures mark the row `failed`.
+- Vercel production env lists the Stripe vars above.
+- `/settings/billing` shows Free, active SKU usage, the grace end, and one Pro upgrade.
+- A live-mode Pro checkout contains exactly one `pro_monthly` item and organization metadata.
+- Returning from checkout leaves the org on `plan=pro`; a completed cancellation returns it to active Free without changing its SKU-limit date.
+- Free can use every released workflow and every location; only new active SKU creation is capacity-checked.
+- Existing legacy subscription prices continue projecting Pro until their Stripe items are migrated.
+- `BILLING_SKU_LIMIT_ENFORCED=0` is the temporary fail-open control for SKU-cap rollout only.
 - Vercel Runtime Logs show no `Stripe billing is not configured.` errors.
-- Founder alert email arrives for checkout start and subscription activation when `ASHICORE_ALERT_EMAILS` is set.
+- Founder alert email arrives for checkout start, subscription activation, and an over-30 downgrade when `ASHICORE_ALERT_EMAILS` is set.
 
 Use the launch checker to verify required production env names and public-site
 analytics markup:
@@ -292,9 +294,11 @@ tsx scripts/repair-planning-references.ts --org-slug paonia-soil-company
 tsx scripts/repair-planning-references.ts --org-slug paonia-soil-company --apply
 ```
 
-## Billing Adjustments Cron
+## Legacy Billing Adjustments Drain
 
-Bucket adjustment billing has a scheduled production retry path.
+The old bucket-adjustment retry path remains temporarily only to drain rows
+created before Free/Pro launched. New shipments do not create usage events or
+adjustments.
 
 Route:
 
@@ -312,7 +316,7 @@ Schedule:
 
 Behavior:
 
-- the route finds organizations with due `pending` bucket adjustments
+- before contract cleanup, verify the route finds no due `pending` adjustments
 - each org is processed under its RLS context
 - Stripe invoices are created as subscription-scoped drafts, then the adjustment invoice item is attached and the invoice is finalized for automatic collection
-- failed Stripe send attempts back off, then become `failed` after repeated attempts
+- remove the route, cron, tables, and adjustment secret only after pending and failed rows have been reviewed

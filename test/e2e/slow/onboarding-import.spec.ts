@@ -658,7 +658,7 @@ test.describe("onboarding import operating story", () => {
     expect(created?.id).toBeTruthy();
   });
 
-  test("package intent holds commit until catalog entitlements land; free imports are unmetered", async ({
+  test("Free import grace is unlimited, then the SKU cap is atomic until Pro", async ({
     page,
     db,
   }) => {
@@ -721,8 +721,8 @@ test.describe("onboarding import operating story", () => {
       });
     }
 
-    // SKUs are unmetered: a free-intent import of 51 items previews clean.
-    await freshOrg("freecap");
+    // A new Free organization can import beyond 30 during setup grace.
+    const freeOrg = await freshOrg("freecap");
     const freeSession = await uploadImport("free");
     const overCap = await patchPackage(
       freeSession,
@@ -736,45 +736,45 @@ test.describe("onboarding import operating story", () => {
       ),
     ).toBe(false);
     expect(overBody.preview.blockingIssueCount).toBe(0);
+    const graceApprove = await req.post(
+      `${baseUrl}/api/onboarding/imports/${freeSession}/approve`,
+      { headers, data: { previewHash: overBody.preview.hash } },
+    );
+    expect(graceApprove.status()).toBe(200);
+    expect((await graceApprove.json()).commitSummary.items).toBe(51);
 
-    // Package intent: nothing commits until the org has the selected catalog entitlements.
-    const paidOrg = await freshOrg("paidcommit");
-    const paidSession = await uploadImport("package_soil_landscape");
-    const cleanPkg = productsPackage(1, `PCAP-${suffix}`);
-    const patched = await patchPackage(paidSession, cleanPkg);
+    // Once grace ends, an over-limit import writes nothing.
+    await db
+      .update(organization)
+      .set({ skuLimitStartsAt: new Date("2020-01-01T00:00:00Z") })
+      .where(eq(organization.id, freeOrg));
+    const blockedSession = await uploadImport("free");
+    const blockedSku = `BLOCKED-${suffix}`;
+    const cleanPkg = productsPackage(1, blockedSku);
+    const patched = await patchPackage(blockedSession, cleanPkg);
     expect(patched.status()).toBe(200);
     const patchedBody = await patched.json();
     expect(patchedBody.preview.blockingIssueCount).toBe(0);
 
-    // Approve is refused before payment (nothing is written to the DB).
-    const earlyApprove = await req.post(
-      `${baseUrl}/api/onboarding/imports/${paidSession}/approve`,
+    const blockedApprove = await req.post(
+      `${baseUrl}/api/onboarding/imports/${blockedSession}/approve`,
       { headers, data: { previewHash: patchedBody.preview.hash } },
     );
-    expect(earlyApprove.status()).toBe(402);
+    expect(blockedApprove.status()).toBe(402);
+    const blockedRows = await db
+      .select({ id: items.id })
+      .from(items)
+      .where(eq(items.sku, `${blockedSku}-0`));
+    expect(blockedRows).toHaveLength(0);
 
-    // Legacy paid plan state is not enough without the package entitlements.
+    // The same validated import commits after upgrading to Pro.
     await db
       .update(organization)
-      .set({ plan: "core", status: "active", entitlements: [] })
-      .where(eq(organization.id, paidOrg));
-
-    const stalePlanFinalize = await req.post(
-      `${baseUrl}/api/onboarding/imports/${paidSession}/finalize`,
-      { headers, data: {} },
-    );
-    expect(stalePlanFinalize.status()).toBe(402);
-
-    // Once the selected package entitlements land, finalize commits.
-    await db
-      .update(organization)
-      .set({
-        entitlements: ["batch_production", "multi_location", "wholesale_pricing"],
-      })
-      .where(eq(organization.id, paidOrg));
+      .set({ plan: "pro", status: "active" })
+      .where(eq(organization.id, freeOrg));
 
     const finalize = await req.post(
-      `${baseUrl}/api/onboarding/imports/${paidSession}/finalize`,
+      `${baseUrl}/api/onboarding/imports/${blockedSession}/finalize`,
       { headers, data: {} },
     );
     expect(finalize.status()).toBe(200);

@@ -560,7 +560,7 @@ export function OnboardingImportPage({
   const finalizeStartedRef = useRef(false);
   const [flowStep, setFlowStep] = useState<FlowStep>("invite");
   const [billingSelection, setBillingSelection] = useState<BillingSelection>(() =>
-    normalizeBillingSelection(initialBillingIntent?.selectedPlan ?? plan ?? "trial"),
+    normalizeBillingSelection(initialBillingIntent?.selectedPlan ?? plan ?? "free"),
   );
   const [billingLocationCapacity, setBillingLocationCapacity] = useState(() =>
     normalizeBillingIntent(initialBillingIntent).locationCapacity,
@@ -582,7 +582,7 @@ export function OnboardingImportPage({
   const [commitSummary, setCommitSummary] = useState<Record<string, number> | null>(null);
   const [committed, setCommitted] = useState(false);
   const [onboardingReady, setOnboardingReady] = useState(false);
-  // The approve gate: paid selections pay here; trial commits directly.
+  // The approve gate: Pro pays here; Free commits directly.
   // Null = no dialog.
   const [approveDialog, setApproveDialog] = useState<null | "pay">(null);
   const [finalizing, setFinalizing] = useState(false);
@@ -711,8 +711,8 @@ export function OnboardingImportPage({
     onError: (error) => setMessage(error instanceof Error ? error.message : String(error)),
   });
 
-  // Paid path: open Stripe checkout from the approve gate. On return the finalize
-  // effect commits the (now-paid) import.
+  // Pro path: open Stripe checkout from the approve gate. On return the finalize
+  // effect commits the import after Pro activation.
   const checkoutMutation = useMutation({
     mutationFn: () =>
       apiJson<{ url?: string }>("/api/billing/checkout", {
@@ -737,7 +737,7 @@ export function OnboardingImportPage({
     onError: (error) => setMessage(error instanceof Error ? error.message : String(error)),
   });
 
-  // Paid path: commit the import once the org has actually paid. Retries a few
+  // Pro path: commit the import once the org has actually paid. Retries a few
   // times to absorb webhook lag between the Stripe redirect and the plan flip.
   const finalizeMutation = useMutation({
     retry: 6,
@@ -830,8 +830,8 @@ export function OnboardingImportPage({
     }
   }, [flowStep, sessionId, reviewPackage, fetchImport]);
 
-  // Returning from a successful Stripe checkout (paid path): commit the now-paid
-  // import. (`onMutate` flips the finalizing flag; the cancel case is derived in
+  // Returning from a successful Stripe checkout (Pro path): commit the import.
+  // (`onMutate` flips the finalizing flag; the cancel case is derived in
   // render, so this effect performs no synchronous state updates.)
   useEffect(() => {
     if (searchParams.get("checkout") !== "success" || !onboardingReady) return;
@@ -1067,15 +1067,15 @@ export function OnboardingImportPage({
     approveMutation.mutate();
   }
 
-  // From the pay dialog: drop back to trial instead of paying.
-  async function switchToTrial() {
-    setBillingSelection("trial");
+  // From the pay dialog: continue on Free instead of paying.
+  async function switchToFree() {
+    setBillingSelection("free");
     setBillingLocationCapacity(1);
     setBillingAddonLookupKeys([]);
     setApproveDialog(null);
     try {
       await progressMutation.mutateAsync({
-        selectedPlan: "trial",
+        selectedPlan: "free",
         selectedLocationCapacity: 1,
         selectedAddonLookupKeys: [],
       });
@@ -1675,7 +1675,7 @@ export function OnboardingImportPage({
           {approveDialog === "pay" ? (
             <>
               <DialogHeader>
-                <DialogTitle>Start with {selectedOffer?.name ?? "paid plugins"}</DialogTitle>
+                <DialogTitle>Start {selectedOffer?.name ?? "Pro"}</DialogTitle>
                 <DialogDescription>
                   {selectedOffer?.name ?? "Your selection"} is $
                   {selectedOffer?.monthlyUsd ?? 0}/mo. You&apos;ll
@@ -1687,10 +1687,10 @@ export function OnboardingImportPage({
                 <Button
                   type="button"
                   variant="ghost"
-                  onClick={switchToTrial}
+                  onClick={switchToFree}
                   disabled={checkoutMutation.isPending}
                 >
-                  Switch to trial
+                  Continue on Free
                 </Button>
                 <Button
                   type="button"

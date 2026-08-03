@@ -19,7 +19,7 @@ invisible. Read the relevant doc before working in its area.
 - [stocktakes.md](./stocktakes.md) — stocktakes, reconciliation
 - [notifications.md](./notifications.md) — notifications, push, FCM
 - [auth-team.md](./auth-team.md) — auth, roles, module guards, team invites
-- [billing.md](./billing.md) — trial, Core capacity, usage buckets, plugins, enforcement
+- [billing.md](./billing.md) — Free/Pro plans, SKU capacity, Stripe projection, beta access
 - [planning.md](./planning.md) — MRP-lite planning service (**dormant — no UI surface**)
 
 ## Design & UI

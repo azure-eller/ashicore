@@ -2862,35 +2862,49 @@ test.describe("inventory mutation kernel heartbeat", () => {
     await freshPage.close();
   });
 
-  test("item creation is unmetered: a free-plan org far past 50 SKUs keeps creating", async ({
+  test("expired Free blocks item creation once the org has 30 active SKUs", async ({
     db,
   }) => {
     const id = randomUUID().slice(0, 8);
     const orgId = readTestEnv().TEST_ORG_ID;
+    const [originalOrg] = await db
+      .select({ plan: organization.plan, skuLimitStartsAt: organization.skuLimitStartsAt })
+      .from(organization)
+      .where(eq(organization.id, orgId));
+    const [{ count }] = await db
+      .select({ count: sql<number>`COUNT(*)::int` })
+      .from(items)
+      .where(and(eq(items.organizationId, orgId), sql`${items.deletedAt} IS NULL`));
 
-    await db.update(organization).set({ plan: "free" }).where(eq(organization.id, orgId));
+    await db
+      .update(organization)
+      .set({ plan: "free", skuLimitStartsAt: new Date("2020-01-01T00:00:00Z") })
+      .where(eq(organization.id, orgId));
 
-    const probes = await db
-      .insert(items)
-      .values(
-        Array.from({ length: 51 }, (_, index) => ({
-          organizationId: orgId,
-          name: `Sku Meter Probe ${id} ${index}`,
-          sku: `SKU-METER-${id}-${index}`,
-          itemType: "material" as const,
-          unitDefinitionId: unitId,
-          safetyStock: "0",
-          defaultPurchasePrice: "1",
-          currentStockUnitCost: "1",
-          defaultSellingPrice: null,
-          sellable: false,
-          manufacturingMode: "discrete" as const,
-        })),
-      )
-      .returning({ id: items.id });
+    const missingCapacity = Math.max(0, 30 - Number(count));
+    const probes = missingCapacity
+      ? await db
+          .insert(items)
+          .values(
+            Array.from({ length: missingCapacity }, (_, index) => ({
+              organizationId: orgId,
+              name: `Sku Meter Probe ${id} ${index}`,
+              sku: `SKU-METER-${id}-${index}`,
+              itemType: "material" as const,
+              unitDefinitionId: unitId,
+              safetyStock: "0",
+              defaultPurchasePrice: "1",
+              currentStockUnitCost: "1",
+              defaultSellingPrice: null,
+              sellable: false,
+              manufacturingMode: "discrete" as const,
+            })),
+          )
+          .returning({ id: items.id })
+      : [];
 
     try {
-      const created = await createItem({
+      const blocked = await createItem({
         itemType: "material",
         name: `Sku Meter Probe Final ${id}`,
         unitDefinitionId: unitId,
@@ -2904,13 +2918,168 @@ test.describe("inventory mutation kernel heartbeat", () => {
         safetyStock: "0",
         bom: [],
       });
-      expect(created.status).toBe(201);
+      expect(blocked.status).toBe(402);
+      expect(blocked.body).toMatchObject({
+        error: "Free includes up to 30 active SKUs. Start Pro for unlimited SKUs.",
+        billing: { dimension: "skus", limit: 30, requested: 1 },
+      });
     } finally {
       await db
         .update(items)
         .set({ deletedAt: new Date() })
         .where(inArray(items.id, probes.map((probe) => probe.id)));
-      await db.update(organization).set({ plan: "core" }).where(eq(organization.id, orgId));
+      await db
+        .update(organization)
+        .set({
+          plan: originalOrg.plan,
+          skuLimitStartsAt: originalOrg.skuLimitStartsAt,
+        })
+        .where(eq(organization.id, orgId));
+    }
+  });
+
+  test("concurrent item-card creation routes share one deadlock-safe capacity lock", async ({
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    let probeIds: string[] = [];
+    const [originalOrg] = await db
+      .select({ plan: organization.plan, skuLimitStartsAt: organization.skuLimitStartsAt })
+      .from(organization)
+      .where(eq(organization.id, orgId));
+
+    try {
+      await db.update(organization).set({ plan: "pro" }).where(eq(organization.id, orgId));
+      const product = await createItem({
+        itemType: "product",
+        name: `Fast SKU Lock ${unique}`,
+        sellable: true,
+        unitDefinitionId: unitId,
+        sku: `FAST-SKU-LOCK-${unique}`,
+        category: "Fast SKU Lock",
+        description: null,
+        defaultPurchasePrice: null,
+        defaultSellingPrice: "10.00",
+        stock: "0",
+        safetyStock: "0",
+        bom: [],
+      });
+      expect(product.status).toBe(201);
+      const itemId = product.body.id as string;
+
+      const configResponse = await testFetch(`/api/item-cards/${itemId}/variant-config`, {
+        method: "PUT",
+        body: JSON.stringify({
+          options: [
+            {
+              name: "Size",
+              values: [{ label: "Small" }, { label: "Medium" }, { label: "Large" }],
+            },
+          ],
+        }),
+      });
+      expect(configResponse.status).toBe(200);
+      const configured = await configResponse.json();
+      const option = configured.options[0] as {
+        id: string;
+        values: Array<{ id: string }>;
+      };
+
+      const [{ count }] = await db
+        .select({ count: sql<number>`COUNT(*)::int` })
+        .from(items)
+        .where(and(eq(items.organizationId, orgId), sql`${items.deletedAt} IS NULL`));
+      const missingCapacity = Math.max(0, 30 - Number(count));
+      const probes = missingCapacity
+        ? await db
+            .insert(items)
+            .values(
+              Array.from({ length: missingCapacity }, (_, index) => ({
+                organizationId: orgId,
+                name: `Fast SKU Lock Probe ${unique} ${index}`,
+                sku: `FAST-SKU-LOCK-PROBE-${unique}-${index}`,
+                itemType: "material" as const,
+                unitDefinitionId: unitId,
+                safetyStock: "0",
+                defaultPurchasePrice: "1",
+                currentStockUnitCost: "1",
+                defaultSellingPrice: null,
+                sellable: false,
+                manufacturingMode: "discrete" as const,
+              })),
+            )
+            .returning({ id: items.id })
+        : [];
+      probeIds = probes.map((probe) => probe.id);
+
+      await db
+        .update(organization)
+        .set({ plan: "free", skuLimitStartsAt: new Date("2020-01-01T00:00:00Z") })
+        .where(eq(organization.id, orgId));
+
+      const createPayload = {
+        itemType: "product",
+        name: `Fast SKU Lock Blocked ${unique}`,
+        category: "Fast SKU Lock",
+        description: null,
+        unitDefinitionId: unitId,
+        defaultSupplierId: null,
+        purchaseUnitDefinitionId: null,
+        purchaseToStockFactor: null,
+        sku: `FAST-SKU-LOCK-BLOCKED-${unique}`,
+        sellable: true,
+        defaultSellingPrice: "10.00",
+        defaultPurchasePrice: null,
+        currentStockUnitCost: null,
+        registeredBarcode: null,
+        internalBarcode: null,
+        supplierItemCode: null,
+        defaultLeadTimeDays: null,
+        minimumOrderQuantity: null,
+        lotTrackingMode: "tracked",
+      };
+      const responses = await Promise.all([
+        testFetch("/api/item-cards", {
+          method: "POST",
+          headers: { "Idempotency-Key": `fast-sku-lock-create-${unique}` },
+          body: JSON.stringify(createPayload),
+        }),
+        testFetch(`/api/item-cards/${itemId}/clone`, {
+          method: "POST",
+          headers: { "Idempotency-Key": `fast-sku-lock-clone-${unique}` },
+        }),
+        testFetch(`/api/item-cards/${itemId}/variant`, {
+          method: "POST",
+          headers: { "Idempotency-Key": `fast-sku-lock-variant-${unique}` },
+          body: JSON.stringify({
+            optionValueIdsByOptionId: { [option.id]: option.values[0].id },
+            sku: `FAST-SKU-LOCK-VARIANT-${unique}`,
+          }),
+        }),
+        testFetch(`/api/item-cards/${itemId}/variants/generate`, {
+          method: "POST",
+          headers: { "Idempotency-Key": `fast-sku-lock-generate-${unique}` },
+          body: JSON.stringify({}),
+        }),
+      ]);
+
+      expect(responses.map((response) => response.status)).toEqual([402, 402, 402, 402]);
+      const bodies = await Promise.all(responses.map((response) => response.json()));
+      expect(bodies.map((body) => body.billing.requested)).toEqual([1, 1, 1, 2]);
+    } finally {
+      if (probeIds.length > 0) {
+        await db
+          .update(items)
+          .set({ deletedAt: new Date() })
+          .where(inArray(items.id, probeIds));
+      }
+      await db
+        .update(organization)
+        .set({
+          plan: originalOrg.plan,
+          skuLimitStartsAt: originalOrg.skuLimitStartsAt,
+        })
+        .where(eq(organization.id, orgId));
     }
   });
 

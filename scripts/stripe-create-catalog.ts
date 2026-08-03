@@ -7,8 +7,7 @@
 // Run once against test mode, then once against live before launch. After the
 // target Stripe account has all catalog prices, set STRIPE_CATALOG_READY=1 for
 // that deployment. The webhook projects subscriptions back to app billing state
-// and plugin entitlements by lookup key, so no price IDs need to be recorded
-// anywhere.
+// by lookup key, so no price IDs need to be recorded anywhere.
 import Stripe from "stripe";
 import {
   EXTRA_LOCATION_LOOKUP_KEY,

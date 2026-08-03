@@ -2,7 +2,7 @@ import type { AppRole, DerivedAccessPresetKey, ModuleAccessMap } from "@/lib/aut
 import type {
   BillingAddonLookupKey,
   BillingInterval,
-  BillingPlan,
+  EffectiveBillingPlan,
   BillingPlugin,
   BillingStatus,
   SalesOrderBand,
@@ -81,9 +81,10 @@ export type AgentAccessPageData = {
 };
 
 export type BillingPageData = {
-  plan: BillingPlan;
+  plan: EffectiveBillingPlan;
   status: BillingStatus;
   trialEndsAt: string | null;
+  skuLimitStartsAt: string;
   billingInterval: BillingInterval;
   salesOrderBand: SalesOrderBand;
   locationCapacity: number;
@@ -99,6 +100,7 @@ export type BillingPageData = {
   skuCount: number;
   salesOrderCount: number;
   locationCount: number;
+  skuLimit: number | null;
   billingConfigured: boolean;
   checkoutConfigured: boolean;
 };

@@ -22,7 +22,7 @@ import { env } from "@/lib/env";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// Paid path: commit the staged import once the org has actually paid. Reached when
+// Pro path: commit the staged import once the org has actually paid. Reached when
 // the user returns from Stripe checkout at the end of onboarding.
 export const POST = apiHandler(async (request: Request, context: unknown) => {
   const member = await assertOnboardingImportAccess(request.headers);
@@ -39,8 +39,8 @@ export const POST = apiHandler(async (request: Request, context: unknown) => {
     });
   }
 
-  // Require the selected catalog entitlements before committing. The Stripe webhook
-  // normally grants them; pull directly in case the redirect beat the webhook.
+  // Require Pro activation before committing. The Stripe webhook normally projects
+  // it; pull directly in case the redirect beat the webhook.
   const onboarding = await getCurrentOnboardingSession();
   const billingIntent = normalizeBillingIntent({
     selectedPlan: onboarding?.selectedPlan,

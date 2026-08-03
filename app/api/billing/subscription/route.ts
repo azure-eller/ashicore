@@ -16,7 +16,7 @@ import {
   BILLING_ADDON_LOOKUP_KEYS,
   BILLING_INTERVALS,
   PRICED_SALES_ORDER_BANDS,
-  getBillingOffer,
+  getSellableBillingOffer,
 } from "@/lib/billing/types";
 import { commercialSelectionFromInput } from "@/lib/billing/plan-intent";
 
@@ -50,7 +50,7 @@ export const POST = apiHandler(async (request) => {
 
   try {
     if (input.action === "change_offer") {
-      if (!getBillingOffer(input.lookupKey)) {
+      if (!getSellableBillingOffer(input.lookupKey)) {
         return jsonError("Unknown catalog item.", 400);
       }
 

@@ -32,6 +32,7 @@ import {
 import {
   withAuthedOrgContext,
 } from "@/lib/dal/auth";
+import { assertSkuCapacityInTx } from "@/lib/billing/sku-capacity";
 import {
   beginInventoryOperationInTx,
   deriveInventoryIdempotencyKey,
@@ -639,6 +640,8 @@ export async function createItemWithLot(
     if (replay.replayed) {
       return replay.result;
     }
+
+    await assertSkuCapacityInTx(tx, orgId, 1);
 
     const normalizedCurrentStockUnitCost =
       data.itemType === "material"

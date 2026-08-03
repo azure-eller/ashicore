@@ -7,23 +7,19 @@ import { captureAppError } from "@/lib/observability/sentry";
 import { getBillingUsageInTx } from "./usage";
 import {
   asBillingInterval,
+  asEffectiveBillingPlan,
   asBillingPlugins,
   asBillingAddonLookupKeys,
   asSalesOrderBand,
   BILLING_BETA_PLUGINS,
   DEFAULT_TRIAL_DAYS,
+  FREE_SKU_LIMIT,
   featureUpgradeMessage,
   BILLING_PLUGIN_LABELS,
-  type BillingPlan,
   type BillingOverview,
   type BillingPlugin,
   type BillingStatus,
 } from "./types";
-import { env } from "@/lib/env";
-
-function billingEnforcementEnabled() {
-  return env.BILLING_ENTITLEMENTS_ENFORCED !== "0";
-}
 
 export class FeatureEntitlementError extends DomainError<{
   billing: { plugin: BillingPlugin };
@@ -53,27 +49,6 @@ export class BillingCapacityError extends DomainError<{
       extra: { billing: { dimension, limit } },
     });
   }
-}
-
-// Plugins listed here enforce 402s; everything else runs in shadow mode
-// (would-be denials are logged, nothing blocks). Both are unset by default.
-function enforcedPlugins(): Set<string> {
-  return new Set(
-    (env.BILLING_ENFORCED_PLUGINS ?? "")
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean)
-  );
-}
-
-// Orgs created before this instant are grandfathered: never blocked, only
-// shadow-logged. Unset means every org is exempt — enforcement cannot fire
-// anywhere until launch sets it.
-function enforcementLaunchAt(): Date | null {
-  const raw = env.BILLING_ENFORCEMENT_LAUNCH_AT?.trim();
-  if (!raw) return null;
-  const parsed = new Date(raw);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 export type FeatureAccess = {
@@ -132,11 +107,15 @@ export async function getFeatureAccessInTx(
   orgId: string,
   plugin: BillingPlugin
 ): Promise<FeatureAccess> {
+  if (!BILLING_BETA_PLUGINS.includes(plugin)) {
+    return { entitled: true, locked: false, grandfathered: false };
+  }
+
   const [org] = await tx
     .select({
       name: organization.name,
       entitlements: organization.entitlements,
-      createdAt: organization.createdAt,
+      betaFeatures: organization.betaFeatures,
     })
     .from(organization)
     .where(eq(organization.id, orgId))
@@ -146,22 +125,11 @@ export async function getFeatureAccessInTx(
     throw new Error("Active organization not found for entitlement check.");
   }
 
-  const entitled = asBillingPlugins(org.entitlements).includes(plugin);
-  if (BILLING_BETA_PLUGINS.includes(plugin)) {
-    return { entitled, locked: !entitled, grandfathered: false, orgName: org.name };
-  }
-  if (entitled || !billingEnforcementEnabled()) {
-    return { entitled, locked: false, grandfathered: false, orgName: org.name };
-  }
-
-  const launchAt = enforcementLaunchAt();
-  const grandfathered = launchAt == null || org.createdAt < launchAt;
-  return {
-    entitled,
-    locked: !grandfathered && enforcedPlugins().has(plugin),
-    grandfathered,
-    orgName: org.name,
-  };
+  const entitled = [
+    ...asBillingPlugins(org.entitlements),
+    ...asBillingPlugins(org.betaFeatures),
+  ].includes(plugin);
+  return { entitled, locked: !entitled, grandfathered: false, orgName: org.name };
 }
 
 export type FeatureAccessResult = {
@@ -187,10 +155,6 @@ function monthUsagePeriod(now = new Date()) {
   return { start, end };
 }
 
-function trialActive(org: { plan: string; trialEndsAt: Date | null; createdAt: Date }) {
-  return org.plan === "trial" && effectiveTrialEndsAt(org) > new Date();
-}
-
 export async function assertFeatureAccessInTx(
   tx: Tx,
   orgId: string,
@@ -198,23 +162,8 @@ export async function assertFeatureAccessInTx(
   context?: { route?: string }
 ): Promise<FeatureAccessResult> {
   let access: FeatureAccess;
-  let shadowDenial = false;
-
   try {
     access = await getFeatureAccessInTx(tx, orgId, plugin);
-
-    if (!access.entitled && !access.locked && billingEnforcementEnabled()) {
-      shadowDenial = true;
-      console.warn(
-        "[billing-shadow-denial]",
-        JSON.stringify({
-          orgId,
-          plugin,
-          route: context?.route ?? null,
-          grandfathered: access.grandfathered,
-        })
-      );
-    }
   } catch (error) {
     // Fail open: a billing bug must never block a customer's operations.
     captureAppError(error, {
@@ -245,7 +194,7 @@ export async function assertFeatureAccessInTx(
     throw new FeatureEntitlementError(plugin);
   }
 
-  return { allowed: true, entitled: access.entitled, shadowDenial, failedOpen: false };
+  return { allowed: true, entitled: access.entitled, shadowDenial: false, failedOpen: false };
 }
 
 export async function getBillingOverviewInTx(
@@ -257,6 +206,7 @@ export async function getBillingOverviewInTx(
       plan: organization.plan,
       status: organization.status,
       trialEndsAt: organization.trialEndsAt,
+      skuLimitStartsAt: organization.skuLimitStartsAt,
       createdAt: organization.createdAt,
       billingInterval: organization.billingInterval,
       salesOrderBand: organization.salesOrderBand,
@@ -268,6 +218,7 @@ export async function getBillingOverviewInTx(
       currentPeriodStart: organization.currentPeriodStart,
       currentPeriodEnd: organization.currentPeriodEnd,
       entitlements: organization.entitlements,
+      betaFeatures: organization.betaFeatures,
     })
     .from(organization)
     .where(eq(organization.id, orgId))
@@ -288,9 +239,10 @@ export async function getBillingOverviewInTx(
   });
 
   return {
-    plan: org.plan as BillingPlan,
+    plan: asEffectiveBillingPlan(org.plan),
     status: org.status as BillingStatus,
     trialEndsAt: effectiveTrialEndsAt(org),
+    skuLimitStartsAt: org.skuLimitStartsAt,
     billingInterval: asBillingInterval(org.billingInterval),
     salesOrderBand: asSalesOrderBand(org.salesOrderBand),
     locationCapacity: org.locationCapacity,
@@ -302,37 +254,10 @@ export async function getBillingOverviewInTx(
     billingUsagePeriodStart: usagePeriod.start,
     billingUsagePeriodEnd: usagePeriod.end,
     entitlements: asBillingPlugins(org.entitlements),
+    betaFeatures: asBillingPlugins(org.betaFeatures),
     billingAddons: asBillingAddonLookupKeys(org.billingAddons),
     ...usage,
-  };
-}
-
-async function getOrgBillingCapacityInTx(tx: Tx, orgId: string) {
-  const [org] = await tx
-    .select({
-      name: organization.name,
-      plan: organization.plan,
-      status: organization.status,
-      trialEndsAt: organization.trialEndsAt,
-      createdAt: organization.createdAt,
-      salesOrderBand: organization.salesOrderBand,
-      locationCapacity: organization.locationCapacity,
-      entitlements: organization.entitlements,
-    })
-    .from(organization)
-    .where(eq(organization.id, orgId))
-    .limit(1);
-
-  if (!org) {
-    throw new Error("Active organization not found for billing capacity check.");
-  }
-
-  return {
-    ...org,
-    salesOrderBand: asSalesOrderBand(org.salesOrderBand),
-    entitlements: asBillingPlugins(org.entitlements),
-    trialEndsAt: effectiveTrialEndsAt(org),
-    trialActive: trialActive(org),
+    skuLimit: asEffectiveBillingPlan(org.plan) === "pro" ? null : FREE_SKU_LIMIT,
   };
 }
 
@@ -341,39 +266,10 @@ export async function assertSalesOrderCapacityInTx(
   orgId: string,
   context?: { route?: string }
 ) {
-  try {
-    const org = await getOrgBillingCapacityInTx(tx, orgId);
-    if (!billingEnforcementEnabled() || org.trialActive || org.plan === "core") {
-      return { allowed: true as const, failedOpen: false };
-    }
-    const launchAt = enforcementLaunchAt();
-    if (launchAt == null || org.createdAt < launchAt) {
-      console.warn(
-        "[billing-shadow-denial]",
-        JSON.stringify({
-          orgId,
-          dimension: "sales_orders",
-          route: context?.route ?? null,
-          grandfathered: true,
-        })
-      );
-      return { allowed: true as const, failedOpen: false };
-    }
-
-    throw new BillingCapacityError(
-      "Start Core to keep creating sales orders.",
-      "trial",
-      null
-    );
-  } catch (error) {
-    if (error instanceof BillingCapacityError) throw error;
-    captureAppError(error, {
-      source: "billing_capacity",
-      operation: "sales_orders",
-      route: context?.route,
-    });
-    return { allowed: true as const, failedOpen: true };
-  }
+  void tx;
+  void orgId;
+  void context;
+  return { allowed: true as const, failedOpen: false };
 }
 
 export async function assertLocationCapacityInTx(
@@ -381,41 +277,8 @@ export async function assertLocationCapacityInTx(
   orgId: string,
   context?: { route?: string }
 ) {
-  try {
-    const org = await getOrgBillingCapacityInTx(tx, orgId);
-    const usage = await getBillingUsageInTx(tx, orgId);
-    if (!billingEnforcementEnabled() || org.trialActive) {
-      return { allowed: true as const, failedOpen: false };
-    }
-    if (org.plan === "core" && usage.locationCount < org.locationCapacity) {
-      return { allowed: true as const, failedOpen: false };
-    }
-    const launchAt = enforcementLaunchAt();
-    const grandfathered = launchAt == null || org.createdAt < launchAt;
-    if (grandfathered || !enforcedPlugins().has("multi_location")) {
-      console.warn(
-        "[billing-shadow-denial]",
-        JSON.stringify({
-          orgId,
-          dimension: "locations",
-          route: context?.route ?? null,
-          grandfathered,
-        })
-      );
-      return { allowed: true as const, failedOpen: false };
-    }
-    throw new BillingCapacityError(
-      `Your plan includes ${org.locationCapacity} active location${org.locationCapacity === 1 ? "" : "s"}. Increase location capacity to add another site.`,
-      "locations",
-      org.locationCapacity
-    );
-  } catch (error) {
-    if (error instanceof BillingCapacityError) throw error;
-    captureAppError(error, {
-      source: "billing_capacity",
-      operation: "locations",
-      route: context?.route,
-    });
-    return { allowed: true as const, failedOpen: true };
-  }
+  void tx;
+  void orgId;
+  void context;
+  return { allowed: true as const, failedOpen: false };
 }

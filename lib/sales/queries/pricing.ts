@@ -337,9 +337,7 @@ export async function getPricingScheduleLookupForProductsInTx(
   >,
   customerCategoryId: string | null
 ): Promise<PricingScheduleLookup> {
-  // Computation gate: schedule-based resolution is the wholesale_pricing paid
-  // behavior. Locked orgs get standard pricing on new lines; existing lines
-  // keep their pricing snapshots.
+  // Compatibility access call: schedule-based pricing is included on both plans.
   const access = await getFeatureAccessInTx(tx, orgId, "wholesale_pricing");
   if (access.locked) {
     return { schedules: [], breaksByScheduleId: new Map() };

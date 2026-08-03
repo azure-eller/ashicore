@@ -18,6 +18,7 @@ import {
 } from "@/lib/db/schema";
 import { db } from "@/lib/db";
 import { withOrgContext, type Tx } from "@/lib/db/with-org-context";
+import { assertSkuCapacityInTx } from "@/lib/billing/sku-capacity";
 import { normalizeAddressFields } from "@/lib/addresses";
 import {
   ACCOUNTING_PROVIDER_XERO,
@@ -503,6 +504,7 @@ async function getOrCreateItemInTx(
     cleanString(line.itemCode) ??
     "Imported accounting material";
   const defaultPurchasePrice = normalizeNumberValue(line.unitAmount) ?? "0";
+  await assertSkuCapacityInTx(tx, orgId, 1);
   const [created] = await tx
     .insert(items)
     .values({

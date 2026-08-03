@@ -114,9 +114,12 @@ export const organization = systemSchema.table(
     slug: text("slug").notNull().unique(),
     logo: text("logo"),
     timeZone: text("time_zone").notNull().default("America/Denver"),
-    plan: varchar("plan", { length: 20 }).notNull().default("trial"),
+    plan: varchar("plan", { length: 20 }).notNull().default("free"),
     status: varchar("status", { length: 20 }).notNull().default("active"),
     trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
+    skuLimitStartsAt: timestamp("sku_limit_starts_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now() + interval '15 days'`),
     billingInterval: varchar("billing_interval", { length: 20 }).notNull().default("monthly"),
     salesOrderBand: varchar("sales_order_band", { length: 20 }).notNull().default("starter"),
     locationCapacity: integer("location_capacity").notNull().default(1),
@@ -127,6 +130,7 @@ export const organization = systemSchema.table(
     currentPeriodStart: timestamp("current_period_start", { withTimezone: true }),
     currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
     entitlements: jsonb("entitlements").$type<string[]>().notNull().default([]),
+    betaFeatures: jsonb("beta_features").$type<string[]>().notNull().default([]),
     createdAt: timestamp("created_at").notNull(),
     metadata: text("metadata"),
   },
@@ -135,7 +139,7 @@ export const organization = systemSchema.table(
     uniqueIndex("organization_stripe_customer_id_uidx")
       .on(table.stripeCustomerId)
       .where(sql`stripe_customer_id IS NOT NULL`),
-    check("organization_plan_check", sql`plan IN ('trial', 'free', 'core')`),
+    check("organization_plan_check", sql`plan IN ('trial', 'free', 'core', 'pro')`),
     check("organization_status_check", sql`status IN ('active', 'past_due', 'canceled')`),
     check("organization_billing_interval_check", sql`billing_interval IN ('monthly', 'annual')`),
     check("organization_sales_order_band_check", sql`sales_order_band IN ('starter', 'growth', 'pro', 'scale')`),

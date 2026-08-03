@@ -20,6 +20,7 @@ import {
   normalizeProviderNumeric,
 } from "@/lib/accounting/providers/common";
 import type { Tx } from "@/lib/db/with-org-context";
+import { assertSkuCapacityInTx } from "@/lib/billing/sku-capacity";
 import { withOrgContext } from "@/lib/db/with-org-context";
 import { trimScaleNullable } from "@/lib/db/numeric";
 import { getItemDisplayMetadataByIdInTx } from "@/lib/inventory/item-display";
@@ -948,6 +949,7 @@ async function createItemFromCandidateInTx(
     cleanString(candidate.xeroItemCode) ??
     "Imported Xero item";
   const defaultPurchasePrice = candidate.latestUnitCost ?? candidate.xeroItemUnitPrice;
+  await assertSkuCapacityInTx(tx, orgId, 1);
   const [created] = await tx
     .insert(items)
     .values({

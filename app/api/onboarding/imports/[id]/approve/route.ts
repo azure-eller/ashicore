@@ -30,8 +30,8 @@ export const POST = apiHandler(async (request: Request, context: unknown) => {
   const { id } = await (context as RouteContext).params;
   const data = await parseJsonBody(request, approveImportSessionSchema);
 
-  // Paid intent commits only after payment, via the finalize route. Refuse the
-  // direct commit here unless the org is genuinely paid (so nothing is written
+  // Pro intent commits only after payment, via the finalize route. Refuse the
+  // direct commit here unless the org is genuinely Pro (so nothing is written
   // to the DB before the user has paid).
   const onboarding = await getCurrentOnboardingSession();
   if (isPaidBillingSelection(onboarding?.selectedPlan)) {
@@ -50,7 +50,7 @@ export const POST = apiHandler(async (request: Request, context: unknown) => {
     }
   }
 
-  // Free-trial intent (or already-entitled org): commit now.
+  // Free intent (or an already-Pro org): commit now.
   const result = await approveImportSession(id, data);
   if (env.BLOB_READ_WRITE_TOKEN) {
     await deletePrivateBlobsIfConfigured(result.storageKeysToDelete);

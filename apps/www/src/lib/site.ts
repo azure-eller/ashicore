@@ -11,8 +11,6 @@ export const SIGN_IN_URL = import.meta.env.DEV
 export const SIGN_UP_URL = import.meta.env.DEV
   ? `${APP_ORIGIN}/sign-up`
   : "/sign-up";
-export const SOIL_LANDSCAPE_SIGN_UP_URL = `${SIGN_UP_URL}?plan=package_soil_landscape`;
-export const EVERYTHING_SIGN_UP_URL = `${SIGN_UP_URL}?plan=everything`;
 
 export const navItems = [
   { label: "Pricing", href: "/pricing" },

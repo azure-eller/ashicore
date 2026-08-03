@@ -170,8 +170,8 @@ Invalid transitions:
 
 ## Pricing Scenarios (beta)
 
-`/sales/pricing-scenarios` is a costing workspace gated by the
-`pricing_scenarios` beta plugin (see `docs/billing.md` → Beta plugins). A
+`/sales/pricing-scenarios` is a costing workspace gated by the independent
+`pricing_scenarios` beta allowlist (see `docs/billing.md` → Beta features). A
 scenario is a card-kernel document (autosave, versioned saves, standard
 duplicate/soft-delete) holding a product selection plus **sparse overrides**:
 per-leaf-item material price / inbound freight, per-resource labor
@@ -277,7 +277,7 @@ and each percentage must stay below 100.
 ### Pricing scenario API
 
 All routes require Sales module access and the `pricing_scenarios` beta
-entitlement. Create, duplicate, and revision-commit requests also require an
+allowlist. Create, duplicate, and revision-commit requests also require an
 `Idempotency-Key` header.
 
 | Route | Behaviour |
@@ -293,7 +293,7 @@ entitlement. Create, duplicate, and revision-commit requests also require an
 
 ### Overhead settings API
 
-All routes require the `pricing_scenarios` beta entitlement. `GET` requires
+All routes require the `pricing_scenarios` beta allowlist. `GET` requires
 Sales read access; `POST` and `PUT` require Sales operate access. Mutation
 bodies are `{ periodStart, periodEnd, overrides }`, where dates are valid
 `YYYY-MM-DD` values with `periodStart <= periodEnd`, and `overrides` maps Xero

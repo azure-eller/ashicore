@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { Alert02Icon, CreditCardIcon, RefreshIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field";
@@ -14,16 +14,10 @@ import {
   SettingsQuietRow,
 } from "@/components/settings-panel";
 import { apiJson } from "@/lib/client/api";
-import {
-  BILLING_CATALOG,
-  type BillingOffer,
-  type BillingPlugin,
-} from "@/lib/billing/types";
+import { PRO_MONTHLY_USD, PRO_PLAN_LOOKUP_KEY } from "@/lib/billing/types";
 import type { BillingPageData } from "./types";
 
-type BillingActionResponse = {
-  url?: string;
-};
+type BillingActionResponse = { url?: string };
 
 function formatDate(value: string | null) {
   if (!value) return null;
@@ -32,109 +26,6 @@ function formatDate(value: string | null) {
     day: "numeric",
     year: "numeric",
   }).format(new Date(value));
-}
-
-function formatUsageWindow(start: string | null, end: string | null) {
-  if (!start) return "this period";
-
-  const startDate = new Date(start);
-  if (Number.isNaN(startDate.getTime())) return "this period";
-
-  const endDate = end ? new Date(new Date(end).getTime() - 1) : null;
-  if (!endDate || Number.isNaN(endDate.getTime())) {
-    return `since ${formatDate(start) ?? "this period"}`;
-  }
-
-  const startMonth = startDate.getUTCMonth();
-  const endMonth = endDate.getUTCMonth();
-  const startYear = startDate.getUTCFullYear();
-  const endYear = endDate.getUTCFullYear();
-  const fullDate = new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-
-  if (startMonth !== endMonth || startYear !== endYear) {
-    return `${fullDate.format(startDate)}-${fullDate.format(endDate)}`;
-  }
-
-  const month = new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    timeZone: "UTC",
-  }).format(startDate);
-  return `${month} ${startDate.getUTCDate()}-${endDate.getUTCDate()}, ${startYear}`;
-}
-
-function formatUsageCount(data: BillingPageData, showWindow: boolean) {
-  const orderLabel = data.salesOrderCount === 1 ? "order" : "orders";
-  const windowLabel = showWindow
-    ? `in ${formatUsageWindow(
-        data.billingUsagePeriodStart,
-        data.billingUsagePeriodEnd
-      )}`
-    : "this period";
-  return `${data.salesOrderCount} shipped ${orderLabel} ${windowLabel}`;
-}
-
-function offerIncluded(offer: BillingOffer, entitlements: BillingPlugin[]) {
-  if (offer.kind === "core") return false;
-  return offer.plugins.every((plugin) => entitlements.includes(plugin));
-}
-
-// The display name for what the org currently has: Everything beats an exact
-// package match beats a list of plugin names beats Free trial.
-function describeCurrentPlan(data: BillingPageData) {
-  const entitlements = data.entitlements;
-  if (data.plan === "trial") return "Free trial";
-  const everything = BILLING_CATALOG.find((offer) => offer.kind === "everything");
-  if (everything && everything.plugins.every((p) => entitlements.includes(p))) {
-    return data.plan === "core" ? `Core + ${everything.name}` : everything.name;
-  }
-  const exactPackage = BILLING_CATALOG.find(
-    (offer) =>
-      offer.kind === "package" &&
-      offer.plugins.length === entitlements.length &&
-      offer.plugins.every((p) => entitlements.includes(p))
-  );
-  if (exactPackage) return data.plan === "core" ? `Core + ${exactPackage.name}` : exactPackage.name;
-  const addOns = BILLING_CATALOG.filter(
-    (offer) => offer.kind === "plugin" && offerIncluded(offer, entitlements)
-  )
-    .map((offer) => offer.name)
-    .join(" · ");
-  if (data.plan === "core") return addOns ? `Core + ${addOns}` : "Core";
-  return addOns || "Free trial";
-}
-
-function PlanStatusBadge({ data }: { data: BillingPageData }) {
-  if (data.cancelAtPeriodEnd) {
-    return <Badge variant="warning">Ends at period end</Badge>;
-  }
-  if (data.status === "past_due") {
-    return <Badge variant="destructive">Payment past due</Badge>;
-  }
-  if (data.status === "canceled") {
-    return <Badge variant="secondary">Canceled</Badge>;
-  }
-  return (
-    <Badge variant="success">
-      <span className="size-(--space-3) bg-current" />
-      Active
-    </Badge>
-  );
-}
-
-function OfferPrice({ offer }: { offer: BillingOffer }) {
-  return (
-    <span className="font-mono text-[length:var(--text-xs)] text-[var(--color-ink-soft)]">
-      <span className="text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
-        ${offer.monthlyUsd}
-      </span>
-      /mo
-    </span>
-  );
 }
 
 export function BillingSection({
@@ -147,25 +38,18 @@ export function BillingSection({
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(checkoutSuccess);
   const [pending, setPending] = useState<string | null>(null);
+  const hasSubscription = Boolean(initialData.stripeSubscriptionId);
   const periodEnd = formatDate(initialData.currentPeriodEnd);
-  const trialEnd = formatDate(initialData.trialEndsAt);
-  const entitlements = initialData.entitlements;
-  const hasSubscription =
-    Boolean(initialData.stripeSubscriptionId) && initialData.status !== "canceled";
-  const coreStarterOffer = BILLING_CATALOG.find(
-    (offer) =>
-      offer.kind === "core" &&
-      offer.salesOrderBand === "starter" &&
-      offer.interval === "monthly"
-  );
+  const graceEnd = formatDate(initialData.skuLimitStartsAt);
+  const isGraceActive =
+    initialData.plan === "free" &&
+    new Date(initialData.skuLimitStartsAt).getTime() > Date.now();
+  const overLimit = initialData.skuLimit != null && initialData.skuCount > initialData.skuLimit;
 
   const runBillingAction = useCallback(
-    async (
-      action: "portal" | "resync" | "cancel_at_period_end" | "resume"
-    ) => {
+    async (action: "portal" | "resync" | "cancel_at_period_end" | "resume") => {
       setError(null);
       setPending(action);
-
       try {
         const response =
           action === "portal" || action === "resync"
@@ -184,7 +68,6 @@ export function BillingSection({
           window.location.assign(response.url);
           return;
         }
-
         window.location.reload();
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : "Billing request failed.");
@@ -196,24 +79,17 @@ export function BillingSection({
     []
   );
 
-  const startCheckout = useCallback(async (lookupKey: string) => {
+  const startPro = useCallback(async () => {
     setError(null);
-    setPending(lookupKey);
-
+    setPending(PRO_PLAN_LOOKUP_KEY);
     try {
       const response = await apiJson<BillingActionResponse>("/api/billing/checkout", {
         method: "POST",
-        idempotencyKey: `billing-checkout-${lookupKey}`,
-        body: { lookupKey },
+        idempotencyKey: `billing-checkout-${PRO_PLAN_LOOKUP_KEY}`,
+        body: { lookupKey: PRO_PLAN_LOOKUP_KEY },
         fallbackError: "Checkout failed.",
       });
-
-      if (response.url) {
-        window.location.assign(response.url);
-        return;
-      }
-
-      window.location.reload();
+      if (response.url) window.location.assign(response.url);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Checkout failed.");
     } finally {
@@ -221,83 +97,19 @@ export function BillingSection({
     }
   }, []);
 
-  const changeOffer = useCallback(async (lookupKey: string) => {
-    setError(null);
-    setPending(lookupKey);
-
-    try {
-      await apiJson<BillingActionResponse>("/api/billing/subscription", {
-        method: "POST",
-        idempotencyKey: `billing-change-${lookupKey}`,
-        body: { action: "change_offer", lookupKey },
-        fallbackError: "Subscription change failed.",
-      });
-
-      window.location.reload();
-    } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : "Subscription change failed."
-      );
-    } finally {
-      setPending(null);
-    }
-  }, []);
-
   useEffect(() => {
     if (!checkoutSuccess) return;
-
     const timeout = window.setTimeout(() => {
       window.location.replace("/settings/billing");
     }, 2500);
-
     return () => window.clearTimeout(timeout);
   }, [checkoutSuccess]);
-
-  const renewal = initialData.cancelAtPeriodEnd
-    ? `ends ${periodEnd ?? "at period end"}`
-    : periodEnd
-      ? `renews ${periodEnd}`
-      : null;
-
-  const offerAction = (offer: BillingOffer) => {
-    if (offerIncluded(offer, entitlements)) {
-      return <Badge variant="success">Included</Badge>;
-    }
-    if (hasSubscription) {
-      return (
-        <div className="flex items-center gap-(--space-5)">
-          <OfferPrice offer={offer} />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void changeOffer(offer.lookupKey)}
-            disabled={!initialData.checkoutConfigured || pending != null}
-          >
-            {offer.kind === "plugin" ? "Add" : "Switch"}
-          </Button>
-        </div>
-      );
-    }
-    return (
-      <div className="flex items-center gap-(--space-5)">
-        <OfferPrice offer={offer} />
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void startCheckout(offer.lookupKey)}
-          disabled={!initialData.checkoutConfigured || pending != null}
-        >
-          Add
-        </Button>
-      </div>
-    );
-  };
 
   return (
     <div className="flex flex-col gap-(--space-8)">
       <SettingsPageHeader
         title="Billing"
-        sub="Plugins for your Ashicore workspace. Invoices and payment methods are managed in Stripe."
+        sub="Free includes the complete ERP for up to 30 active SKUs. Pro removes the SKU limit."
         action={
           hasSubscription ? (
             <Button
@@ -315,15 +127,11 @@ export function BillingSection({
         {isProcessing ? (
           <SettingsBlock>
             <div className="flex items-start gap-(--space-4) text-[length:var(--text-sm)]">
-              <HugeiconsIcon
-                icon={RefreshIcon}
-                className="mt-(--space-1) size-(--space-7)"
-                strokeWidth={2}
-              />
+              <HugeiconsIcon icon={RefreshIcon} className="mt-(--space-1) size-(--space-7)" />
               <div>
                 <div className="font-medium">Payment processing</div>
                 <div className="mt-(--space-1) text-[var(--color-ink-faint)]">
-                  Stripe is confirming the subscription. This page will refresh shortly.
+                  Stripe is confirming Pro. This page will refresh shortly.
                 </div>
               </div>
             </div>
@@ -336,15 +144,11 @@ export function BillingSection({
               <HugeiconsIcon
                 icon={Alert02Icon}
                 className="mt-(--space-1) size-(--space-7) text-[var(--status-danger-ink)]"
-                strokeWidth={2}
               />
               <div>
-                <div className="font-medium">
-                  Subscription ends {periodEnd ?? "at period end"}
-                </div>
+                <div className="font-medium">Pro ends {periodEnd ?? "at period end"}</div>
                 <div className="mt-(--space-1) text-[var(--color-ink-faint)]">
-                  You keep all current data; paid plugin workflows pause when the
-                  subscription ends.
+                  Your data and workflows stay available. Free prevents adding more SKUs when more than 30 are active.
                 </div>
               </div>
             </div>
@@ -357,91 +161,75 @@ export function BillingSection({
               <HugeiconsIcon
                 icon={Alert02Icon}
                 className="mt-(--space-1) size-(--space-7) text-[var(--status-danger-ink)]"
-                strokeWidth={2}
               />
               <div>
                 <div className="font-medium">Payment needs attention</div>
                 <div className="mt-(--space-1) text-[var(--color-ink-faint)]">
-                  Update the payment method in Stripe to avoid an involuntary downgrade.
+                  Pro remains available while Stripe retries payment.
                 </div>
               </div>
             </div>
           </SettingsBlock>
         ) : null}
 
-        {error ? (
-          <SettingsBlock>
-            <FieldError>{error}</FieldError>
-          </SettingsBlock>
-        ) : null}
+        {error ? <SettingsBlock><FieldError>{error}</FieldError></SettingsBlock> : null}
 
         <SettingsBlock>
           <div className="flex min-w-0 flex-col gap-(--space-4)">
-            <div className="flex min-w-0 flex-wrap items-center justify-between gap-(--space-5)">
-              <div className="flex min-w-0 items-center gap-(--space-5)">
-                <span className="text-[length:var(--text-xl)] leading-[var(--leading-xl)] font-semibold tracking-[var(--tracking-tight)] text-[var(--color-ink)]">
-                  {describeCurrentPlan(initialData)}
+            <div className="flex flex-wrap items-center justify-between gap-(--space-5)">
+              <div className="flex items-center gap-(--space-5)">
+                <span className="text-[length:var(--text-xl)] font-semibold tracking-[var(--tracking-tight)]">
+                  {initialData.plan === "pro" ? "Pro" : "Free"}
                 </span>
-                {hasSubscription || initialData.status === "past_due" ? (
-                  <PlanStatusBadge data={initialData} />
-                ) : null}
+                <Badge variant={initialData.status === "past_due" ? "destructive" : "success"}>
+                  {initialData.status === "past_due" ? "Payment past due" : "Active"}
+                </Badge>
               </div>
               {hasSubscription ? (
-                <div className="flex items-center gap-(--space-3)">
-                  {initialData.cancelAtPeriodEnd ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void runBillingAction("resume")}
-                      disabled={!initialData.billingConfigured || pending != null}
-                    >
-                      Resume
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => void runBillingAction("cancel_at_period_end")}
-                      disabled={!initialData.billingConfigured || pending != null}
-                    >
-                      Cancel renewal
-                    </Button>
-                  )}
-                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void runBillingAction(initialData.cancelAtPeriodEnd ? "resume" : "cancel_at_period_end")}
+                  disabled={!initialData.billingConfigured || pending != null}
+                >
+                  {initialData.cancelAtPeriodEnd ? "Resume" : "Cancel renewal"}
+                </Button>
               ) : null}
             </div>
             <span className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-              {initialData.plan === "trial"
-                ? `Trial${trialEnd ? ` ends ${trialEnd}` : ""} · ${initialData.skuCount} SKUs · ${formatUsageCount(initialData, false)} · ${initialData.locationCount}/${initialData.locationCapacity} locations`
-                : [
-                    `${initialData.salesOrderBand} order band · ${formatUsageCount(initialData, true)}`,
-                    `${initialData.locationCount}/${initialData.locationCapacity} locations`,
-                    `Unlimited SKUs · ${initialData.skuCount} in use`,
-                    renewal,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
+              {initialData.plan === "pro"
+                ? `Unlimited SKUs · ${initialData.skuCount} active${periodEnd ? ` · renews ${periodEnd}` : ""}`
+                : `${initialData.skuCount}/30 active SKUs${isGraceActive && graceEnd ? ` · unlimited creation until ${graceEnd}` : ""}`}
             </span>
+            {overLimit ? (
+              <span className="text-[length:var(--text-xs)] text-[var(--status-danger-ink)]">
+                Existing SKUs remain usable, but new SKUs require Pro or reducing the active catalog to 30.
+              </span>
+            ) : null}
           </div>
         </SettingsBlock>
       </SettingsCard>
 
-      {initialData.plan !== "core" && coreStarterOffer ? (
+      {initialData.plan === "free" ? (
         <SettingsCard>
           <SettingsBlock>
             <SettingsQuietRow
-              title="Core"
-              sub="Full ERP with unlimited users, SKUs, integrations, and the starter sales-order band."
+              title="Pro"
+              sub="The complete Ashicore ERP with unlimited SKUs, users, integrations, and locations."
               action={
                 <div className="flex items-center gap-(--space-5)">
-                  <OfferPrice offer={coreStarterOffer} />
+                  <span className="font-mono text-[length:var(--text-xs)] text-[var(--color-ink-soft)]">
+                    <span className="text-[length:var(--text-sm)] font-semibold text-[var(--color-ink)]">
+                      ${PRO_MONTHLY_USD}
+                    </span>/mo
+                  </span>
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => void startCheckout(coreStarterOffer.lookupKey)}
+                    onClick={() => void startPro()}
                     disabled={!initialData.checkoutConfigured || pending != null}
                   >
-                    Start Core
+                    Start Pro
                   </Button>
                 </div>
               }
@@ -449,66 +237,6 @@ export function BillingSection({
           </SettingsBlock>
         </SettingsCard>
       ) : null}
-
-      <SettingsCard>
-        <SettingsBlock>
-          <div className="text-[length:var(--text-sm)] font-medium">Plugins</div>
-          <div className="mt-(--space-1) text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-            Add a single workflow when you need it.
-          </div>
-        </SettingsBlock>
-        {BILLING_CATALOG.filter((offer) => offer.kind === "plugin").map((offer) => (
-          <SettingsBlock key={offer.lookupKey}>
-            <SettingsQuietRow
-              title={offer.name}
-              sub={offer.blurb}
-              action={offerAction(offer)}
-            />
-          </SettingsBlock>
-        ))}
-      </SettingsCard>
-
-      <SettingsCard>
-        <SettingsBlock>
-          <div className="text-[length:var(--text-sm)] font-medium">Packages</div>
-          <div className="mt-(--space-1) text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-            Three plugins picked for your kind of operation, or everything at once.
-          </div>
-        </SettingsBlock>
-        {BILLING_CATALOG.filter((offer) => offer.kind === "package" || offer.kind === "everything").map((offer) => (
-          <SettingsBlock key={offer.lookupKey}>
-            <SettingsQuietRow
-              title={offer.name}
-              sub={offer.blurb}
-              action={offerAction(offer)}
-            />
-          </SettingsBlock>
-        ))}
-        {hasSubscription ? (
-          <SettingsBlock>
-            <div className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-              Subscription changes apply in Stripe immediately. Cancellations take
-              effect at the end of the current billing period.
-            </div>
-          </SettingsBlock>
-        ) : null}
-      </SettingsCard>
-
-      <SettingsCard>
-        <SettingsBlock>
-          <SettingsQuietRow
-            title="Advantage"
-            sub="Multi-site operations, custom roles and onboarding support. No self-serve upgrade yet — talk to us."
-            action={
-              <Button variant="outline" size="sm" asChild>
-                <a href="mailto:support@ashicore.app?subject=Ashicore%20Advantage">
-                  Contact sales
-                </a>
-              </Button>
-            }
-          />
-        </SettingsBlock>
-      </SettingsCard>
 
       <SettingsFootnote>
         Plan out of date?{" "}
