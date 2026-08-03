@@ -8,27 +8,15 @@ Public marketing/docs live in Astro at `apps/www` and deploy to Vercel project `
 
 Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui (radix-nova / stone), TanStack Query, react-hook-form, Zod, Better Auth, pnpm.
 
-## Principles
-
-**1. Build for decades.** This codebase will outlive the request. Pick the right architecture even when a hack would close the ticket. Fix root causes, not symptoms. Temporary workarounds tend to survive. If one is truly necessary, name it, isolate it, and track its removal — otherwise fix the root cause.
-
-**2. Less is the default.** Less code, less UI text, fewer abstractions, fewer comments, fewer features. Do what was asked, not what's adjacent. If you can remove it without losing meaning, remove it.
-
-**3. Reuse before you create.** Before writing a helper, component, validator, data access pattern, business rule, or workflow, check what already exists. New patterns tax every future agent. Business logic belongs in the domain layer (DAL/API), not in pages or components.
-
-**4. Verify with reality.** Types compile and tests can pass while the feature is broken. Before claiming done, build, lint, test — and for UI changes, use the feature in a browser.
-
-**5. Caution near destruction and shared state.** Anything that could lose work, mutate shared rows, bypass isolation, or affect other agents needs care. Ask before destructive, irreversible, or scope-expanding actions. Never bypass a safety check to make a problem go away.
-
 ## Hard rules
 
-These are non-negotiable repo rules. They are repeated here because violating them is expensive, even when the principles already imply them.
+These are non-negotiable repo rules. Violating them is expensive.
 
 - **Start in a workflow.** Before touching code, pick a mode and follow its skill: **feature-workflow** (build/change/fix, or working from a spec or ticket — starts with `pnpm boot`) or **sandbox-workflow** (live triage on a production-copy: tweak a page, reproduce an issue, "see it change as I go" — starts with `pnpm sandbox`, never `pnpm boot`, which has an empty org with no data). If the mode is genuinely ambiguous, ask first. **One mode per session: once started, don't switch or open a second worktree/dev env** — make any new change in the worktree you're already in and land it with `pnpm review` (need live data mid-feature? run `pnpm sandbox` in place).
 - **Worktrees for code changes.** Never edit on `main` or in the repo root checkout unless explicitly asked. `pnpm lint` and `pnpm build` run a preflight that fetches `origin/main`, blocks stale branches, blocks local `main`, and blocks a repo-root checkout that is not `main`. Keep the worktree/DB/dev server until the PR merges or closes; clean up only after.
 - **Neon previews are opt-in.** Use local Postgres by default. Create or retain a Neon `preview/<git-branch>` only when actively testing migration/schema changes or Neon-specific behavior such as serverless connections, pooling, autosuspend, or cold starts; delete an automatically created preview immediately when the PR does not need it. Delete every preview when testing pauses or the PR merges/closes, before worktree cleanup. Never delete `production` or `vercel-dev`.
 - **Env secrets.** Shared secrets live in Vercel env; worktree `.env.local` is not authoritative and should contain only per-worktree local overrides like database URLs.
-- **DAL only.** Never import `db` directly in pages, components, or API routes.
+- **DAL only.** Never import `db` directly in pages, components, or API routes. Business logic belongs in the domain layer, not in pages or components.
 - **RLS on new tables.** New org-scoped tables need `.enableRLS()` + org-isolation `pgPolicy` in Drizzle, plus `FORCE ROW LEVEL SECURITY` in migration SQL.
 - **Migrations.** Use `pnpm db:generate` + `pnpm drizzle-kit migrate`. Never use `drizzle push`. Generate migrations from fresh `origin/main`.
 - **API routes for mutations.** No server actions.
@@ -37,6 +25,7 @@ These are non-negotiable repo rules. They are repeated here because violating th
 - **Icons.** HugeIcons only. Never Lucide.
 - **Design tokens.** Use shadcn semantic color classes and app raw tokens for spacing/sizing/type/radius. App-wide runtime token values live only in `app/styles/theme.css`; docs explain intent and must not duplicate raw token values. Never hardcode Tailwind colors.
 - **Testing model.** Playwright only — no Vitest, unit tests, or mocking frameworks unless explicitly asked. Scratch-first: drive each change red→green with a throwaway suite in `test/e2e/scratch/`, distill the essential invariant into fast/slow, then delete the scratch suite before the PR. Fast tests guard one listed mutation seam; slow tests are operating stories, not bug archives. UI changes also get a throwaway screenshot pass. Details: `docs/testing.md`, `docs/ui-review-checklist.md`.
+- **Ask before destruction.** Anything that could lose work, mutate shared rows, bypass isolation, or affect other agents needs sign-off first.
 - **No `git add .` / `git add -A`.** Stage specific files.
 - **Never `--no-verify`.** Never bypass hooks or safety checks without explicit ask.
 
