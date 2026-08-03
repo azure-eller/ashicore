@@ -7,7 +7,10 @@ import { getGitTopLevel } from "./local-db";
 import {
   currentBranch,
   currentCommit,
+  isAgentDevServerAlive,
   readAgentSession,
+  startAgentSessionLease,
+  touchAgentSession,
 } from "./agent-session";
 import { seedReviewOrg } from "./seed-review-org";
 
@@ -163,7 +166,11 @@ async function main() {
 
   // Stale dev server: silently refresh via up's idempotent restart so you always
   // eyeball current code, then re-read the refreshed session.
-  if (session.commit !== currentCommit() || session.branch !== currentBranch()) {
+  if (
+    !isAgentDevServerAlive(session) ||
+    session.commit !== currentCommit() ||
+    session.branch !== currentBranch()
+  ) {
     console.log(
       `Dev server was stale (${session.branch}@${session.commit.slice(0, 7)} → ${currentBranch()}@${currentCommit().slice(0, 7)}); refreshing via 'pnpm boot'...`
     );
@@ -171,6 +178,9 @@ async function main() {
     session = readAgentSession();
     if (!session) throw new Error("Lost agent session after refresh.");
   }
+  session = touchAgentSession();
+  if (!session) throw new Error("Lost agent session while recording review activity.");
+  startAgentSessionLease();
 
   // Phase 1: prepare review data (independent of validation outcome).
   await seedReviewOrg({ baseUrl: session.baseUrl, cached, log: console.log });

@@ -13,7 +13,7 @@ Next.js (App Router), Drizzle ORM, Neon Postgres, shadcn/ui (radix-nova / stone)
 These are non-negotiable repo rules. Violating them is expensive.
 
 - **Start in a workflow.** Before touching code, pick a mode and follow its skill: **feature-workflow** (build/change/fix, or working from a spec or ticket — starts with `pnpm boot`) or **sandbox-workflow** (live triage on a production-copy: tweak a page, reproduce an issue, "see it change as I go" — starts with `pnpm sandbox`, never `pnpm boot`, which has an empty org with no data). If the mode is genuinely ambiguous, ask first. **One mode per session: once started, don't switch or open a second worktree/dev env** — make any new change in the worktree you're already in and land it with `pnpm review` (need live data mid-feature? run `pnpm sandbox` in place).
-- **Worktrees for code changes.** Never edit on `main` or in the repo root checkout unless explicitly asked. `pnpm lint` and `pnpm build` run a preflight that fetches `origin/main`, blocks stale branches, blocks local `main`, and blocks a repo-root checkout that is not `main`. Keep the worktree/DB/dev server until the PR merges or closes; clean up only after.
+- **Worktrees for code changes.** Never edit on `main` or in the repo root checkout unless explicitly asked. `pnpm lint` and `pnpm build` run a preflight that fetches `origin/main`, blocks stale branches, blocks local `main`, and blocks a repo-root checkout that is not `main`. Keep the worktree, DB, and dev-server session until the PR merges or closes; the running server may be reaped while idle. Clean up only after.
 - **Neon previews are opt-in.** Use local Postgres by default. Create or retain a Neon `preview/<git-branch>` only when actively testing migration/schema changes or Neon-specific behavior such as serverless connections, pooling, autosuspend, or cold starts; delete an automatically created preview immediately when the PR does not need it. Delete every preview when testing pauses or the PR merges/closes, before worktree cleanup. Never delete `production` or `vercel-dev`.
 - **Env secrets.** Shared secrets live in Vercel env; worktree `.env.local` is not authoritative and should contain only per-worktree local overrides like database URLs.
 - **DAL only.** Never import `db` directly in pages, components, or API routes. Business logic belongs in the domain layer, not in pages or components.
@@ -33,6 +33,7 @@ These are non-negotiable repo rules. Violating them is expensive.
 
 - `pnpm dev` — start dev server
 - `pnpm boot` — start/resume worktree dev env (DB, migrate, session, background server)
+- `pnpm servers` — inspect worktree dev-server status, memory, URL, and idle age
 - `pnpm test:scratch` — run the throwaway per-change scratch suite
 - `pnpm review <path> --slow <domains>` — validate, seed review data, open browser, open PR
 - `pnpm sandbox [path]` — triage start: dev server + live Paonia production copy + authenticated browser

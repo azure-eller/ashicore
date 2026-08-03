@@ -14,6 +14,7 @@ export interface AgentSession {
   testOrgId: string;
   reviewOrgSlug: string;
   devServerPid: number;
+  devServerStartTime: string;
   updatedAt: string;
 }
 
@@ -37,6 +38,40 @@ export function readAgentSession(): AgentSession | null {
 export function writeAgentSession(session: AgentSession): void {
   fs.mkdirSync(path.dirname(AGENT_SESSION_PATH), { recursive: true });
   fs.writeFileSync(AGENT_SESSION_PATH, JSON.stringify(session, null, 2));
+}
+
+export function touchAgentSession(
+  expected?: Pick<AgentSession, "devServerPid" | "devServerStartTime">
+): AgentSession | null {
+  const session = readAgentSession();
+  if (!session) return null;
+  if (
+    expected &&
+    (session.devServerPid !== expected.devServerPid ||
+      session.devServerStartTime !== expected.devServerStartTime)
+  ) {
+    return session;
+  }
+  const refreshed = { ...session, updatedAt: new Date().toISOString() };
+  writeAgentSession(refreshed);
+  return refreshed;
+}
+
+export function startAgentSessionLease(): () => void {
+  const session = readAgentSession();
+  if (!session) return () => {};
+  const expected = {
+    devServerPid: session.devServerPid,
+    devServerStartTime: session.devServerStartTime,
+  };
+  touchAgentSession(expected);
+  const leaseDir = path.resolve(path.dirname(AGENT_SESSION_PATH), "agent-session-leases");
+  const leasePath = path.join(leaseDir, `${process.pid}.json`);
+  const startTime = processStartTime(process.pid);
+  if (!startTime) return () => {};
+  fs.mkdirSync(leaseDir, { recursive: true });
+  fs.writeFileSync(leasePath, JSON.stringify({ pid: process.pid, startTime }));
+  return () => fs.rmSync(leasePath, { force: true });
 }
 
 export function getFreePort(): Promise<number> {
@@ -85,4 +120,21 @@ export function isPidAlive(pid: number): boolean {
   } catch {
     return false;
   }
+}
+
+export function processStartTime(pid: number): string | null {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+    const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+    return fields[19] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function isAgentDevServerAlive(session: AgentSession): boolean {
+  return (
+    typeof session.devServerStartTime === "string" &&
+    processStartTime(session.devServerPid) === session.devServerStartTime
+  );
 }

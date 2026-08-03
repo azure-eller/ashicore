@@ -60,7 +60,10 @@ pnpm boot
 
 `pnpm boot` installs dependencies when needed, prepares the worktree-local
 database, runs migrations, creates the test session, starts the dev server on a
-free port, and writes `.tmp/agent-session.json`.
+free port, and writes `.tmp/agent-session.json`. Worktree servers stop after 30
+minutes without workflow activity; `pnpm boot`, Playwright, and review workflows
+resume the current server as needed. Run `pnpm servers` to inspect every
+worktree server's status, memory, URL, and idle age.
 
 4. For live triage against the Paonia production-copy data, use sandbox mode
    instead of boot:
@@ -110,7 +113,8 @@ pnpm db:local:setup
 pnpm dev
 ```
 
-Playwright requires the dev server to be running first.
+Local Playwright commands start or resume the worktree dev environment through
+`pnpm boot` when its server is not running.
 
 ## Environment Variables
 
@@ -137,6 +141,7 @@ Optional:
 - `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_RELEASE`: configure Sentry source-map upload and release tagging
 - `VERCEL_TOKEN`: authenticates remote-agent Vercel CLI access and production env pulls
 - `NEON_API_KEY`: authenticates production-target verification and recovery checkpoints; use a project-scoped key
+- `ERP_DEV_IDLE_MINUTES`: sets the idle timeout when the repo-wide dev-server reaper starts (30 minutes by default)
 
 ## Database Notes
 

@@ -1,11 +1,29 @@
+import { execFileSync } from "node:child_process";
 import { defineConfig } from "@playwright/test";
 import { loadWorktreeEnv } from "./scripts/load-worktree-env";
+import {
+  isAgentDevServerAlive,
+  readAgentSession,
+  touchAgentSession,
+} from "./scripts/agent-session";
 import {
   TEST_STORAGE_STATE_PATH,
   resolveBaseUrl,
 } from "./test/helpers/test-env";
 
 loadWorktreeEnv();
+
+// Idle servers are intentionally stopped. Local Playwright commands revive the
+// current worktree transparently before baseURL is resolved.
+if (!process.env.CI) {
+  const session = readAgentSession();
+  if (!session || !isAgentDevServerAlive(session)) {
+    console.log("Dev server is not running; restarting it via 'pnpm boot'...");
+    execFileSync("pnpm", ["boot"], { stdio: "inherit" });
+  } else {
+    touchAgentSession();
+  }
+}
 
 // Prefer the live `pnpm boot` dev server (free port) over the legacy :3000.
 const baseURL = resolveBaseUrl();

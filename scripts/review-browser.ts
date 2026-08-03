@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { chromium, type Cookie } from "@playwright/test";
 import { getGitTopLevel } from "./local-db";
-import { isPidAlive } from "./agent-session";
+import { isPidAlive, startAgentSessionLease } from "./agent-session";
 import { REVIEW_STORAGE_STATE_PATH } from "../test/helpers/test-env";
 
 const root = getGitTopLevel();
@@ -39,6 +39,7 @@ async function killPrevious() {
 }
 
 async function main() {
+  startAgentSessionLease();
   const targetPath = process.argv[2] ?? "/";
   const baseUrl = process.env.REVIEW_BASE_URL;
   if (!baseUrl) throw new Error("REVIEW_BASE_URL is required.");

@@ -12,6 +12,7 @@ import {
   getFreePort,
   isPidAlive,
   isServerHealthy,
+  processStartTime,
   readAgentSession,
   writeAgentSession,
 } from "./agent-session";
@@ -104,6 +105,17 @@ function startDevServer(port: number): number {
   return child.pid;
 }
 
+function isLegacyServerOwnedByWorktree(session: AgentSession): boolean {
+  if (typeof session.devServerStartTime === "string" || session.worktreePath !== root) {
+    return false;
+  }
+  try {
+    return fs.realpathSync(`/proc/${session.devServerPid}/cwd`) === fs.realpathSync(root);
+  } catch {
+    return false;
+  }
+}
+
 async function main() {
   // 1. Worktree safety.
   execFileSync("pnpm", ["preflight"], { cwd: root, stdio: "inherit" });
@@ -130,6 +142,11 @@ async function main() {
   const reusable =
     existing &&
     existing.worktreePath === root &&
+    processStartTime(existing.devServerPid) === existing.devServerStartTime &&
+    (await isServerHealthy(existing.baseUrl));
+  const legacyReusable =
+    existing &&
+    isLegacyServerOwnedByWorktree(existing) &&
     isPidAlive(existing.devServerPid) &&
     (await isServerHealthy(existing.baseUrl));
 
@@ -138,7 +155,7 @@ async function main() {
     pid = existing.devServerPid;
     console.log(`Reusing healthy dev server on ${baseUrl} (pid ${pid}).`);
   } else {
-    if (reusable) {
+    if (reusable || legacyReusable) {
       console.log(
         `Dev server (pid ${existing!.devServerPid}) is on stale ${existing!.branch}@${existing!.commit.slice(0, 7)}; restarting for ${branch}@${commit.slice(0, 7)}.`
       );
@@ -176,9 +193,20 @@ async function main() {
     testOrgId: result.organizationId,
     reviewOrgSlug: REVIEW_ORG_SLUG,
     devServerPid: pid,
+    devServerStartTime: processStartTime(pid) ?? (() => {
+      throw new Error("Could not record dev server process identity.");
+    })(),
     updatedAt: new Date().toISOString(),
   };
   writeAgentSession(session);
+
+  // One repo-wide process reaps servers that no workflow has used recently.
+  // Starting it is idempotent, so every boot can safely ensure it is present.
+  execFileSync(
+    "pnpm",
+    ["exec", "tsx", "scripts/dev-servers.ts", "--ensure-reaper"],
+    { cwd: root, stdio: "inherit" }
+  );
 
   console.log("");
   console.log(`Dev env ready at ${baseUrl}`);

@@ -11,12 +11,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { EMAIL_OUTBOX_DIR, EMAIL_OUTBOX_MODE_FLAG } from "../lib/email/outbox";
+import { startAgentSessionLease } from "../scripts/agent-session";
 import { ensureTestAccount } from "./helpers/test-account-setup";
 import { resolveBaseUrl } from "./helpers/test-env";
 
 const BASE_URL = resolveBaseUrl();
 
 export default async function setup() {
+  const releaseSession = startAgentSessionLease();
   fs.rmSync(EMAIL_OUTBOX_DIR, { recursive: true, force: true });
   fs.mkdirSync(path.dirname(EMAIL_OUTBOX_MODE_FLAG), { recursive: true });
   fs.writeFileSync(EMAIL_OUTBOX_MODE_FLAG, "1");
@@ -25,6 +27,8 @@ export default async function setup() {
     baseUrl: BASE_URL,
     log: (message) => console.log(`\n  ${message}\n`),
   });
+
+  return releaseSession;
 }
 
 // Test data is isolated by RLS — no cleanup needed.

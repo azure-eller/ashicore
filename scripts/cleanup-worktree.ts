@@ -132,9 +132,9 @@ async function main() {
     process.exit(1);
   }
 
-  // Stop the boot dev server before tearing down — it is kept alive until merge,
-  // so otherwise this detached Next process would keep running from a removed cwd
-  // against a dropped database.
+  // Stop any live boot dev server before tearing down so a recently active
+  // detached Next process cannot keep running from a removed cwd against a
+  // dropped database.
   const sessionFile = resolve(targetPath, ".tmp", "agent-session.json");
   if (existsSync(sessionFile)) {
     try {
