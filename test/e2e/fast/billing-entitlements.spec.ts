@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import Stripe from "stripe";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { expect, test } from "../fixtures";
@@ -29,6 +30,10 @@ import { withOrgContext } from "../../../lib/db/with-org-context";
 import { getBaseUrl, getOrgId } from "../../helpers/api";
 
 const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? "";
+const FREE_GRACE_BACKFILL_SQL = readFileSync(
+  "drizzle/0183_free_grace_backfill.sql",
+  "utf8",
+);
 
 function subscriptionEventBody({
   customerId,
@@ -122,6 +127,67 @@ test("legacy public plan selections normalize to Free or Pro", () => {
   expect(
     billingIntentToCommercialSelection(normalizeBillingIntent({ plan: "pro" }))
   ).toMatchObject({ mode: "core" });
+});
+
+test("unbilled legacy paid organizations enter Free grace without touching billed Pro", async ({
+  db,
+}) => {
+  const orgId = getOrgId();
+  const [original] = await db
+    .select({
+      plan: organization.plan,
+      status: organization.status,
+      stripeSubscriptionId: organization.stripeSubscriptionId,
+      skuLimitStartsAt: organization.skuLimitStartsAt,
+    })
+    .from(organization)
+    .where(eq(organization.id, orgId));
+
+  try {
+    const graceEnd = new Date("2026-08-18T22:18:43Z");
+    await db
+      .update(organization)
+      .set({
+        plan: "core",
+        status: "active",
+        stripeSubscriptionId: null,
+        skuLimitStartsAt: graceEnd,
+      })
+      .where(eq(organization.id, orgId));
+    await db.execute(sql.raw(FREE_GRACE_BACKFILL_SQL));
+
+    const [free] = await db
+      .select({
+        plan: organization.plan,
+        status: organization.status,
+        stripeSubscriptionId: organization.stripeSubscriptionId,
+        skuLimitStartsAt: organization.skuLimitStartsAt,
+      })
+      .from(organization)
+      .where(eq(organization.id, orgId));
+    expect(free).toMatchObject({
+      plan: "free",
+      status: "active",
+      stripeSubscriptionId: null,
+      skuLimitStartsAt: graceEnd,
+    });
+
+    await db
+      .update(organization)
+      .set({ plan: "pro", stripeSubscriptionId: "sub_paid" })
+      .where(eq(organization.id, orgId));
+    await db.execute(sql.raw(FREE_GRACE_BACKFILL_SQL));
+    const [paid] = await db
+      .select({ plan: organization.plan, stripeSubscriptionId: organization.stripeSubscriptionId })
+      .from(organization)
+      .where(eq(organization.id, orgId));
+    expect(paid).toEqual({ plan: "pro", stripeSubscriptionId: "sub_paid" });
+  } finally {
+    await db
+      .update(organization)
+      .set(original)
+      .where(eq(organization.id, orgId));
+  }
 });
 
 test("only the Pro catalog offer is sellable", () => {
