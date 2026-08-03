@@ -6,5 +6,6 @@ UPDATE "system"."organization"
 SET "beta_features" = CASE
   WHEN "entitlements" @> '["pricing_scenarios"]'::jsonb THEN '["pricing_scenarios"]'::jsonb
   ELSE '[]'::jsonb
-END;--> statement-breakpoint ALTER TABLE "system"."organization" DROP CONSTRAINT IF EXISTS "organization_plan_check";--> statement-breakpoint
+END;--> statement-breakpoint
+ALTER TABLE "system"."organization" DROP CONSTRAINT IF EXISTS "organization_plan_check";--> statement-breakpoint
 ALTER TABLE "system"."organization" ADD CONSTRAINT "organization_plan_check" CHECK (plan IN ('trial', 'free', 'core', 'pro'));
