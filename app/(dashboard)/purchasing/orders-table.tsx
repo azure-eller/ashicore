@@ -26,6 +26,7 @@ import type { PurchaseOrderDetail, PurchaseOrderListRow } from "@/lib/purchasing
 import { queryKeys } from "@/lib/client/query-keys";
 import { apiJson } from "@/lib/client/api";
 import { useApiMutation } from "@/lib/client/use-api-mutation";
+import { openGeneratedPdf } from "@/lib/client/generated-pdf";
 
 const ACCOUNTING_NOT_CONNECTED_MESSAGE =
   "Connect accounting software before creating supplier bills.";
@@ -326,6 +327,18 @@ export function OrdersTable({
   initialData: PurchaseOrderListRow[];
 }) {
   const columns = useMemo(() => createColumns(), []);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const generatePdf = (
+    rows: PurchaseOrderListRow[],
+    disposition: "inline" | "attachment",
+  ) => {
+    setPdfError(null);
+    void openGeneratedPdf(
+      "/api/purchase-orders/pdf",
+      { ids: rows.map((row) => row.id), template: "purchase-order" },
+      disposition,
+    ).catch((error) => setPdfError(error instanceof Error ? error.message : "Failed to generate PDF."));
+  };
 
   return (
     <ERPDataGridList
@@ -338,6 +351,11 @@ export function OrdersTable({
       addHref="/purchasing/order"
       addAriaLabel="New Purchase Order"
       emptyMessage="No purchase orders yet."
+      toolbarContent={pdfError ? <p role="alert" className="text-sm text-destructive">{pdfError}</p> : null}
+      selectedActions={[
+        { label: "Print selected purchase orders", onSelect: (rows) => generatePdf(rows, "inline") },
+        { label: "Download selected purchase orders PDF", onSelect: (rows) => generatePdf(rows, "attachment") },
+      ]}
       deleteAction={{
         endpoint: "/api/purchase-orders",
         invalidateQueryKeys: [queryKeys.purchaseOrders.root],

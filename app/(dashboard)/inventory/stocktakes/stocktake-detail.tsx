@@ -984,8 +984,25 @@ export function StocktakeDetail({
                   disabled: cloneMutation.isPending,
                 },
                 {
-                  label: "Print",
-                  onClick: () => window.print(),
+                  label:
+                    stocktake.status === "completed"
+                      ? "Print reconciliation report"
+                      : "Print blind count sheet",
+                  href:
+                    stocktake.status === "completed"
+                      ? `/api/stocktakes/${stocktake.id}/pdf?template=reconciliation-report&disposition=inline`
+                      : `/api/stocktakes/${stocktake.id}/pdf?template=count-sheet&disposition=inline`,
+                  target: "_blank" as const,
+                },
+                {
+                  label:
+                    stocktake.status === "completed"
+                      ? "Download reconciliation PDF"
+                      : "Download count sheet PDF",
+                  href:
+                    stocktake.status === "completed"
+                      ? `/api/stocktakes/${stocktake.id}/pdf?template=reconciliation-report&disposition=attachment`
+                      : `/api/stocktakes/${stocktake.id}/pdf?template=count-sheet&disposition=attachment`,
                 },
                 ...(canEditCounts
                   ? [

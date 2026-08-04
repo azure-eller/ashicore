@@ -135,6 +135,7 @@ async function loadPurchaseOrderEmailDataInTx(
       itemSku: purchaseOrderLines.itemSku,
       purchaseUnitName: purchaseOrderLines.purchaseUnitName,
       quantityOrdered: purchaseOrderLines.quantityOrdered,
+      quantityReceived: purchaseOrderLines.quantityReceived,
       unitCost: purchaseOrderLines.unitCost,
       taxRatePercent: purchaseOrderLines.taxRatePercent,
       lineTotal: purchaseOrderLines.lineSubtotal,
@@ -258,6 +259,7 @@ async function loadPurchaseOrderEmailDataInTx(
         itemSku: line.itemSku,
         purchaseUnitName: line.purchaseUnitName,
         quantityOrdered: line.quantityOrdered,
+        quantityReceived: line.quantityReceived,
         unitCost: line.unitCost,
         taxRatePercent: line.taxRatePercent,
         lineTotal: line.lineTotal,
@@ -399,6 +401,7 @@ export async function renderPurchaseOrderPdfBuffer(
   orgId: string,
   orderId: string,
   groupKey?: string | null,
+  template: "purchase-order" | "request-for-quote" | "put-away-list" = "purchase-order",
 ) {
   const data = await withOrgContext(orgId, async (tx) =>
     loadPurchaseOrderEmailDataInTx(tx, orderId),
@@ -412,13 +415,40 @@ export async function renderPurchaseOrderPdfBuffer(
     : null;
   if (!group) return null;
 
+  return renderPurchaseOrderGroupPdfBuffer(data, group, template);
+}
+
+export async function renderPurchaseOrderPdfBuffers(
+  orgId: string,
+  orderId: string,
+  template: "purchase-order" | "request-for-quote" | "put-away-list" = "purchase-order",
+) {
+  const data = await withOrgContext(orgId, async (tx) =>
+    loadPurchaseOrderEmailDataInTx(tx, orderId),
+  );
+  if (!data) return null;
+  const groups = buildEmailGroups(data);
+  if (!groups.length) return null;
+
+  return Promise.all(
+    groups.map((group) =>
+      renderPurchaseOrderGroupPdfBuffer(data, group, template),
+    ),
+  );
+}
+
+async function renderPurchaseOrderGroupPdfBuffer(
+  data: PurchaseOrderEmailData,
+  group: ReturnType<typeof buildEmailGroups>[number],
+  template: "purchase-order" | "request-for-quote" | "put-away-list",
+) {
   const buffer = await renderToBuffer(
     <PurchaseOrderDocument
       order={group.order}
       lines={group.lines}
       additionalCosts={group.additionalCosts}
       organizationName={data.organizationName}
-      variant={group.isAdditionalCost ? "costs" : "standard"}
+      template={group.isAdditionalCost ? "costs" : template}
     />,
   );
   const safeOrderNumber =
@@ -520,7 +550,7 @@ export async function sendPurchaseOrderEmail(params: {
           lines={group.lines}
           additionalCosts={group.additionalCosts}
           organizationName={data.organizationName}
-          variant={group.isAdditionalCost ? "costs" : "standard"}
+          template={group.isAdditionalCost ? "costs" : "purchase-order"}
         />,
       );
       const safeOrderNumber =

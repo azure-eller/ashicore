@@ -31,6 +31,7 @@ import { StocktakeStatusBadge } from "./status-badge";
 import { CreateStocktakeDialog } from "./create-stocktake-dialog";
 import { CloneStocktakeReasonDialog } from "./clone-stocktake-reason-dialog";
 import { queryKeys } from "@/lib/client/query-keys";
+import { openGeneratedPdf } from "@/lib/client/generated-pdf";
 import {
   formatCloneSkippedItemsWarning,
   formatScope,
@@ -119,6 +120,20 @@ const columns: ColDef<StocktakeListRow>[] = [
 ];
 
 export function StocktakesTable({ initialData }: { initialData: StocktakeListRow[] }) {
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const generatePdf = (
+    rows: StocktakeListRow[],
+    template: "count-sheet" | "reconciliation-report",
+    disposition: "inline" | "attachment",
+  ) => {
+    setPdfError(null);
+    void openGeneratedPdf(
+      "/api/stocktakes/pdf",
+      { ids: rows.map((row) => row.id), template },
+      disposition,
+    ).catch((error) => setPdfError(error instanceof Error ? error.message : "Failed to generate PDF."));
+  };
+
   return (
     <ERPDataGridList
       rows={initialData}
@@ -128,7 +143,30 @@ export function StocktakesTable({ initialData }: { initialData: StocktakeListRow
       queryErrorMessage="Failed to fetch stocktakes"
       searchAriaLabel="Search stocktakes"
       actions={<CreateStocktakeDialog />}
+      toolbarContent={pdfError ? <p role="alert" className="text-sm text-destructive">{pdfError}</p> : null}
       emptyMessage="No stocktakes yet."
+      selectedActions={[
+        {
+          label: "Print selected count sheets",
+          onSelect: (rows) => generatePdf(rows, "count-sheet", "inline"),
+          disabled: (rows) => rows.some((row) => row.status === "completed"),
+        },
+        {
+          label: "Download selected count sheets PDF",
+          onSelect: (rows) => generatePdf(rows, "count-sheet", "attachment"),
+          disabled: (rows) => rows.some((row) => row.status === "completed"),
+        },
+        {
+          label: "Print selected reconciliation reports",
+          onSelect: (rows) => generatePdf(rows, "reconciliation-report", "inline"),
+          disabled: (rows) => rows.some((row) => row.status !== "completed"),
+        },
+        {
+          label: "Download selected reconciliation PDF",
+          onSelect: (rows) => generatePdf(rows, "reconciliation-report", "attachment"),
+          disabled: (rows) => rows.some((row) => row.status !== "completed"),
+        },
+      ]}
       deleteAction={{
         endpoint: "/api/stocktakes",
         invalidateQueryKeys: [queryKeys.stocktakes.root],

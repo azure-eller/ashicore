@@ -30,6 +30,7 @@ invisible. Read the relevant doc before working in its area.
 - [ui-patterns.md](./ui-patterns.md) — composition patterns: forms, tables, cards, dialogs, status, icons, loading
 - [ui-review-checklist.md](./ui-review-checklist.md) — UI screenshot review rubric
 - [inventory-visuals.md](./inventory-visuals.md) — inventory status/stock visual components
+- [printing.md](./printing.md) — server-rendered operational PDFs, variants, and bulk output
 - [operator-docs-authoring-guide.md](./operator-docs-authoring-guide.md) — authoring operator docs (`apps/www`, `/docs`): Starlight hub-and-spoke, the inline doc UI kit, public/private altitude split
 
 ## Forms

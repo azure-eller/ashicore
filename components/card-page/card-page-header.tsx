@@ -33,6 +33,7 @@ export type CardHeaderAction = {
   label: string;
   onClick?: () => void;
   href?: string;
+  target?: "_blank";
   disabled?: boolean;
   tooltip?: string | null;
   destructive?: boolean;
@@ -174,7 +175,7 @@ function HeaderActionButton({ action }: { action: CardHeaderAction }) {
       {action.disabled ? (
         action.label
       ) : (
-        <Link href={action.href} prefetch={false}>
+        <Link href={action.href} prefetch={false} target={action.target}>
           {action.label}
         </Link>
       )}
@@ -283,7 +284,7 @@ function MenuActionItem({ action }: { action: CardHeaderAction }) {
   if (action.href) {
     return (
       <DropdownMenuItem asChild disabled={action.disabled}>
-        <Link href={action.href} prefetch={false}>
+        <Link href={action.href} prefetch={false} target={action.target}>
           {action.label}
         </Link>
       </DropdownMenuItem>

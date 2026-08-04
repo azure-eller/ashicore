@@ -1605,9 +1605,11 @@ test.describe("sales demand and shipping heartbeat", () => {
       await page.getByRole("button", { name: "More actions" }).click();
       await page.getByRole("menuitem", { name: "Send invoice to QuickBooks" }).click();
 
-      await expect(page.getByRole("alert")).toHaveText(
-        "Order number must be 32 characters or fewer",
-      );
+      await expect(
+        page.getByRole("alert").filter({
+          hasText: "Order number must be 32 characters or fewer",
+        }),
+      ).toHaveText("Order number must be 32 characters or fewer");
       expect(pushCalls).toBe(0);
     });
   });

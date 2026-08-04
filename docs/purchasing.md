@@ -284,6 +284,13 @@ new receipt; eligible tracked stock received earlier from the order is revalued 
 the same append-only landed-cost path. A receipt when the remainder is already negative
 hard-errors.
 
+## Printable documents
+
+Purchase orders use the shared server-rendered document workflow described in
+`docs/printing.md`. The card offers purchase order, request-for-quote, and cumulative received-inventory
+variants; Print previews inline and Download PDF returns an attachment. Selected
+orders on the list are combined into one PDF.
+
 ## Expected Supply Projection
 
 Expected supply is now modeled through the inventory kernel:

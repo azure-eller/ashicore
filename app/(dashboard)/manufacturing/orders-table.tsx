@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { GridApi, ICellRendererParams } from "ag-grid-community";
-import { Add01Icon, Delete02Icon } from "@hugeicons/core-free-icons";
+import { Add01Icon, Delete02Icon, MoreVerticalIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { apiJson } from "@/lib/client/api";
 import { usePersistentViewState } from "@/lib/client/use-persistent-view-state";
@@ -26,6 +26,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuLabel,
+  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { StatusBlock } from "@/components/ui/status-block";
@@ -48,6 +49,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { formatDate, formatQuantity } from "@/lib/format";
 import { compareDocumentNumbers } from "@/lib/document-number-format";
+import { openGeneratedPdf } from "@/lib/client/generated-pdf";
 import {
   getIngredientsDisplayState,
   getProductionDisplayState,
@@ -304,6 +306,7 @@ export function OrdersTable({
   const [resourceFilter, setResourceFilter] = useState(ALL_RESOURCES_FILTER);
   const [searchValue, setSearchValue, urlQuery] = useGridSearchParam();
   const [selectedOrders, setSelectedOrders] = useState<ManufacturingOrderListRow[]>([]);
+  const [pdfError, setPdfError] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [hasActiveSort, setHasActiveSort] = useState(false);
   const [ordersPreference, setOrdersPreference] = usePersistentViewState({
@@ -591,6 +594,14 @@ export function OrdersTable({
     },
   });
   const selectedCount = selectedOrders.length;
+  const generateSelectedPdf = (disposition: "inline" | "attachment") => {
+    setPdfError(null);
+    void openGeneratedPdf(
+      "/api/manufacturing-orders/pdf",
+      { ids: selectedOrders.map((order) => order.id), template: "manufacturing-order" },
+      disposition,
+    ).catch((error) => setPdfError(error instanceof Error ? error.message : "Failed to generate PDF."));
+  };
 
   return (
     <>
@@ -625,13 +636,16 @@ export function OrdersTable({
           reorderMutation.mutate(orderedRows);
         }}
         toolbarContent={
-          <WorkflowStatusFilter
-            value={statusFilter}
-            openCount={openCount}
-            doneCount={doneCount}
-            ariaLabel="Filter manufacturing orders by status"
-            onValueChange={setStatusFilter}
-          />
+          <>
+            <WorkflowStatusFilter
+              value={statusFilter}
+              openCount={openCount}
+              doneCount={doneCount}
+              ariaLabel="Filter manufacturing orders by status"
+              onValueChange={setStatusFilter}
+            />
+            {pdfError ? <p role="alert" className="text-sm text-destructive">{pdfError}</p> : null}
+          </>
         }
         actions={
           <>
@@ -657,6 +671,18 @@ export function OrdersTable({
               <HugeiconsIcon icon={Delete02Icon} className="h-4 w-4" aria-hidden />
               <SelectionCountBadge count={selectedCount} />
             </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" size="icon" disabled={selectedCount === 0} aria-label={`Document actions (${selectedCount} selected)`} className="relative">
+                  <HugeiconsIcon icon={MoreVerticalIcon} className="h-4 w-4" aria-hidden />
+                  <SelectionCountBadge count={selectedCount} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => generateSelectedPdf("inline")}>Print selected manufacturing orders</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => generateSelectedPdf("attachment")}>Download selected manufacturing orders PDF</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button asChild aria-label="New Order">
               <Link href="/manufacturing/order">
                 <HugeiconsIcon icon={Add01Icon} data-icon="inline-start" />

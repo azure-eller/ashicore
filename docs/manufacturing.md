@@ -380,3 +380,10 @@ Inventory items cannot be soft-deleted if they are used by an active manufacturi
 - any ingredient row on an open order blocks delete
 
 Done or deleted manufacturing orders rely on snapshots for history, so item deletion may proceed once no active manufacturing order references the item.
+
+## Printable documents
+
+Manufacturing orders use the server-rendered workflow in `docs/printing.md` for
+costed and cost-free orders, operator notes, partial-progress orders, and pick lists.
+Pick lists include only ingredients with remaining demand and show planned source lots
+or unassigned shortages. Selected orders are combined into one PDF.

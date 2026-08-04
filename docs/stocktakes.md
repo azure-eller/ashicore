@@ -157,3 +157,9 @@ Stocktake completion reuses the inventory kernel and reconciles the available bu
 Hot-path reads after completion come from `inventory_item_balances` and `inventory_lot_balances`, not by replaying the stocktake rows themselves.
 
 Draft stocktakes block item soft deletion. Completed and deleted stocktakes do not.
+
+## Printable documents
+
+Stocktakes use the server-rendered workflow in `docs/printing.md`. Open stocktakes
+produce blind count sheets; completed stocktakes produce reconciliation reports.
+Bulk actions require every selected record to support the chosen document.

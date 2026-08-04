@@ -1548,8 +1548,23 @@ export function PurchaseOrderCard({
             ...(savedOrderId
               ? [
                   {
-                    label: "Print",
-                    onClick: () => window.print(),
+                    label: "Print purchase order",
+                    href: `/api/purchase-orders/${savedOrderId}/pdf?template=purchase-order&disposition=inline`,
+                    target: "_blank" as const,
+                  },
+                  {
+                    label: "Download purchase order PDF",
+                    href: `/api/purchase-orders/${savedOrderId}/pdf?template=purchase-order&disposition=attachment`,
+                  },
+                  {
+                    label: "Print request for quote",
+                    href: `/api/purchase-orders/${savedOrderId}/pdf?template=request-for-quote&disposition=inline`,
+                    target: "_blank" as const,
+                  },
+                  {
+                    label: "Print received inventory summary",
+                    href: `/api/purchase-orders/${savedOrderId}/pdf?template=put-away-list&disposition=inline`,
+                    target: "_blank" as const,
                   },
                 ]
               : []),

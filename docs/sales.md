@@ -405,3 +405,12 @@ Implementation rule:
 - sales shipping validates demand-specific queue coverage in the transaction,
   then consumes physical stock through linked-output/FIFO execution rules
 - sales must never persist soft planning claims or bypass the inventory kernel
+
+## Printable documents
+
+Sales orders use the server-rendered workflow in `docs/printing.md`, including
+priced order variants and packing-list variants. Open-order packing lists show the
+remaining quantity; completed-order packing lists show the shipped quantity. Planned
+lot tracing is available only for open orders because it is pick guidance, not shipment
+history; requests for a traced completed-order packing list are rejected. Selected
+orders are combined into one PDF for print preview or download.

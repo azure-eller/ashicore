@@ -166,13 +166,7 @@ export function SupplierCard({
         menuActions={
           isDraft || readOnly
             ? []
-            : [
-                {
-                  label: "Print",
-                  onClick: () => window.print(),
-                },
-                ...(actions.deleteAction ? [actions.deleteAction] : []),
-              ]
+            : [...(actions.deleteAction ? [actions.deleteAction] : [])]
         }
       />
       <CardPageBody>

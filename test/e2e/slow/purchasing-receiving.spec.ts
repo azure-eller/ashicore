@@ -13,11 +13,14 @@ import {
   createItem,
   createPurchaseOrder,
   createSupplier,
+  getBaseUrl,
+  getSessionCookie,
   receivePurchaseOrder,
   testFetch,
   updateItem,
 } from "../../helpers/api";
 import { TEST_ACCOUNT_EMAIL } from "../../helpers/test-account";
+import { PDFDocument } from "pdf-lib";
 import { createMaterialFixture, expectResponse, unitId } from "./story-helpers";
 
 test.describe("purchasing receiving operating story", () => {
@@ -273,6 +276,51 @@ test.describe("purchasing receiving operating story", () => {
       .from(purchaseOrders)
       .where(eq(purchaseOrders.id, orderId));
     expect(order.status).toBe("received");
+  });
+
+  test("previews, downloads, and combines complete purchase order documents", async ({ page }) => {
+    const attachment = await testFetch(
+      `/api/purchase-orders/${orderId}/pdf?template=purchase-order&disposition=attachment`,
+    );
+    expect(attachment.status).toBe(200);
+    expect(attachment.headers.get("content-type")).toContain("application/pdf");
+    expect(attachment.headers.get("content-disposition")).toMatch(/^attachment;/);
+
+    for (const template of ["request-for-quote", "put-away-list"] as const) {
+      const variant = await testFetch(
+        `/api/purchase-orders/${orderId}/pdf?template=${template}&disposition=inline`,
+      );
+      expect(variant.status).toBe(200);
+      expect(variant.headers.get("content-disposition")).toMatch(/^inline;/);
+    }
+
+    const bulk = await fetch(`${getBaseUrl()}/api/purchase-orders/pdf`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: getSessionCookie(),
+        Origin: getBaseUrl(),
+      },
+      body: JSON.stringify({
+        ids: [orderId, orderId],
+        template: "purchase-order",
+        disposition: "attachment",
+      }),
+    });
+    expect(bulk.status).toBe(200);
+    expect((await PDFDocument.load(await bulk.arrayBuffer())).getPageCount()).toBe(2);
+
+    await page.goto(`/purchasing/orders/${orderId}`);
+    await page.getByRole("button", { name: "More actions" }).click();
+    await expect(page.getByRole("menuitem", { name: "Print purchase order" })).toHaveAttribute(
+      "target",
+      "_blank",
+    );
+    await expect(page.getByRole("menuitem", { name: "Download purchase order PDF" })).toHaveAttribute(
+      "href",
+      `/api/purchase-orders/${orderId}/pdf?template=purchase-order&disposition=attachment`,
+    );
+    expect(orderNumber).toBeTruthy();
   });
 });
 

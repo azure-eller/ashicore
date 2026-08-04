@@ -22,6 +22,7 @@ import {
   Delete02Icon,
   Sorting05Icon,
   Tick02Icon,
+  MoreVerticalIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -35,6 +36,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { openGeneratedPdf } from "@/lib/client/generated-pdf";
 import { StatusDetailMenuTable } from "@/components/status-detail-menu-table";
 import { FulfillmentStatusBlock } from "@/components/fulfillment-status-block";
 import {
@@ -717,6 +725,7 @@ function OrdersTableContent({
     useState<SalesWorkflowFilterValue>("open");
   const [searchValue, setSearchValue, urlQuery] = useGridSearchParam();
   const [selectedOrders, setSelectedOrders] = useState<SalesOrderListRow[]>([]);
+  const [pdfError, setPdfError] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [hasActiveSort, setHasActiveSort] = useState(false);
   const [activePanel, setActivePanel] = useState<SalesOrderPanelState | null>(
@@ -1113,6 +1122,14 @@ function OrdersTableContent({
     },
   });
   const selectedCount = selectedOrders.length;
+  const generateSelectedPdf = (disposition: "inline" | "attachment") => {
+    setPdfError(null);
+    void openGeneratedPdf(
+      "/api/sales-orders/pdf",
+      { ids: selectedOrders.map((order) => order.id), template: "sales-order" },
+      disposition,
+    ).catch((error) => setPdfError(error instanceof Error ? error.message : "Failed to generate PDF."));
+  };
   const clearSort = () => {
     gridApiRef.current?.applyColumnState({
       defaultState: { sort: null },
@@ -1139,13 +1156,16 @@ function OrdersTableContent({
         suppressMoveWhenRowDragging
         relaxResizableMaxWidth
         toolbarContent={
-          <WorkflowStatusFilter
-            value={statusFilter}
-            openCount={openCount}
-            doneCount={doneCount}
-            ariaLabel="Filter sales orders by workflow"
-            onValueChange={handleStatusFilterChange}
-          />
+          <>
+            <WorkflowStatusFilter
+              value={statusFilter}
+              openCount={openCount}
+              doneCount={doneCount}
+              ariaLabel="Filter sales orders by workflow"
+              onValueChange={handleStatusFilterChange}
+            />
+            {pdfError ? <p role="alert" className="text-sm text-destructive">{pdfError}</p> : null}
+          </>
         }
         actions={
           <>
@@ -1170,6 +1190,18 @@ function OrdersTableContent({
               <HugeiconsIcon icon={DatabaseExportIcon} data-icon="inline-start" />
               Export
             </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="secondary" size="icon" disabled={selectedCount === 0} aria-label={`Document actions (${selectedCount} selected)`} className="relative">
+                  <HugeiconsIcon icon={MoreVerticalIcon} aria-hidden />
+                  <SelectionCountBadge count={selectedCount} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => generateSelectedPdf("inline")}>Print selected sales orders</DropdownMenuItem>
+                <DropdownMenuItem onClick={() => generateSelectedPdf("attachment")}>Download selected sales orders PDF</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button
               type="button"
               variant="danger"

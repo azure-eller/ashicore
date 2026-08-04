@@ -363,7 +363,41 @@ export function OrderCard({
                 },
               ]
             : []),
-          ...(!isDraft ? [{ label: "Print", onClick: () => window.print() }] : []),
+          ...(!isDraft
+            ? [
+                {
+                  label: "Print sales order",
+                  href: `/api/sales-orders/${order.id}/pdf?template=sales-order&disposition=inline`,
+                  target: "_blank" as const,
+                },
+                {
+                  label: "Download sales order PDF",
+                  href: `/api/sales-orders/${order.id}/pdf?template=sales-order&disposition=attachment`,
+                },
+                {
+                  label: "Print sales order with statuses",
+                  href: `/api/sales-orders/${order.id}/pdf?template=sales-order-with-statuses&disposition=inline`,
+                  target: "_blank" as const,
+                },
+                {
+                  label: "Print sales order without discounts",
+                  href: `/api/sales-orders/${order.id}/pdf?template=sales-order-without-discounts&disposition=inline`,
+                  target: "_blank" as const,
+                },
+                {
+                  label: "Print packing list",
+                  href: `/api/sales-orders/${order.id}/pdf?template=packing-list&disposition=inline`,
+                  target: "_blank" as const,
+                },
+                ...(order.status !== "done"
+                  ? [{
+                      label: "Print packing list with planned lot tracing",
+                      href: `/api/sales-orders/${order.id}/pdf?template=packing-list-with-tracing&disposition=inline`,
+                      target: "_blank" as const,
+                    }]
+                  : []),
+              ]
+            : []),
           ...(!isDraft && xeroInvoiceSetupStatus === "ready"
             ? [
                 {

@@ -10,15 +10,20 @@ import { formatDate, formatPrice } from "@/lib/format";
 
 const styles = StyleSheet.create({
   page: {
-    padding: 36,
+    paddingTop: 94,
+    paddingHorizontal: 36,
+    paddingBottom: 54,
     fontSize: 10,
     fontFamily: "Helvetica",
     color: "#111111",
   },
   header: {
+    position: "absolute",
+    top: 30,
+    left: 36,
+    right: 36,
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 18,
   },
   title: {
     fontSize: 18,
@@ -32,10 +37,13 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   divider: {
+    position: "absolute",
+    top: 76,
+    left: 36,
+    right: 36,
     borderBottomWidth: 1,
     borderBottomColor: "#cccccc",
     borderBottomStyle: "solid",
-    marginBottom: 14,
   },
   twoCol: {
     flexDirection: "row",
@@ -73,7 +81,14 @@ const styles = StyleSheet.create({
     borderBottomStyle: "solid",
   },
   colItem: { flex: 1 },
-  colQty: { width: 82, paddingRight: 8, textAlign: "right" },
+  colQty: {
+    width: 82,
+    maxWidth: 82,
+    flexShrink: 0,
+    paddingLeft: 4,
+    paddingRight: 8,
+    textAlign: "right",
+  },
   colPrice: { width: 72, paddingRight: 8, textAlign: "right" },
   colTax: { width: 48, paddingRight: 8, textAlign: "right" },
   colTotal: { width: 82, textAlign: "right" },
@@ -114,10 +129,17 @@ export type PurchaseOrderPdfLine = {
   itemSku: string | null;
   purchaseUnitName: string;
   quantityOrdered: string;
+  quantityReceived?: string;
   unitCost: string;
   taxRatePercent: string;
   lineTotal: string;
 };
+
+export type PurchaseOrderDocumentTemplate =
+  | "purchase-order"
+  | "request-for-quote"
+  | "put-away-list"
+  | "costs";
 
 export type PurchaseOrderPdfAdditionalCost = {
   costType: string;
@@ -171,7 +193,7 @@ function formatCostType(value: string) {
 }
 
 function formatQuantityUnit(quantity: string, unit: string) {
-  return `${formatQuantity(quantity)} ${unit}`.trim();
+  return [formatQuantity(quantity), unit].filter(Boolean).join("\n");
 }
 
 export function PurchaseOrderDocument({
@@ -179,13 +201,13 @@ export function PurchaseOrderDocument({
   lines,
   additionalCosts = [],
   organizationName,
-  variant = "standard",
+  template = "purchase-order",
 }: {
   order: PurchaseOrderPdf;
   lines: PurchaseOrderPdfLine[];
   additionalCosts?: PurchaseOrderPdfAdditionalCost[];
   organizationName: string;
-  variant?: "standard" | "costs";
+  template?: PurchaseOrderDocumentTemplate;
 }) {
   const supplierLines = [
     order.supplierName,
@@ -212,7 +234,14 @@ export function PurchaseOrderDocument({
     ? order.orderedAt.toLocaleDateString("en-US")
     : "\u2014";
   const printedDisplay = new Date().toISOString().slice(0, 10);
-  const title = `Purchase order: ${order.orderNumber}`;
+  const title =
+    template === "request-for-quote"
+      ? `Request for quote: ${order.orderNumber}`
+      : template === "put-away-list"
+        ? `Received inventory summary: ${order.orderNumber}`
+        : `Purchase order: ${order.orderNumber}`;
+  const showPrices = template === "purchase-order" || template === "costs";
+  const showStandardLines = template !== "costs";
 
   return (
     <Document
@@ -221,7 +250,7 @@ export function PurchaseOrderDocument({
       subject={`Purchase order ${order.orderNumber}`}
     >
       <Page size="LETTER" style={styles.page}>
-        <View style={styles.header}>
+        <View style={styles.header} fixed>
           <View>
             <Text style={styles.title}>
               {title}
@@ -233,7 +262,34 @@ export function PurchaseOrderDocument({
           </View>
         </View>
 
-        <View style={styles.divider} />
+        <View style={styles.divider} fixed />
+
+        <View style={styles.header} fixed>
+          <View>
+            <Text
+              style={styles.title}
+              render={({ pageNumber, totalPages }) =>
+                pageNumber === totalPages ? title : ""
+              }
+            />
+          </View>
+          <View style={styles.meta}>
+            <Text
+              style={styles.metaLine}
+              render={({ pageNumber, totalPages }) =>
+                pageNumber === totalPages ? `PO date: ${orderedDisplay}` : ""
+              }
+            />
+            <Text
+              style={styles.metaLine}
+              render={({ pageNumber, totalPages }) =>
+                pageNumber === totalPages
+                  ? `Expected arrival: ${formatDate(order.expectedDate)}`
+                  : ""
+              }
+            />
+          </View>
+        </View>
 
         <View style={styles.twoCol}>
           <View style={styles.col}>
@@ -270,19 +326,22 @@ export function PurchaseOrderDocument({
           </View>
         </View>
 
-        {variant === "standard" ? (
+        {showStandardLines ? (
           <>
-            <View style={styles.tableHeader}>
+            <View style={styles.tableHeader} fixed>
               <Text style={styles.colItem}>Item</Text>
               <Text style={styles.colQty}>Quantity</Text>
-              <Text style={styles.colPrice}>Unit price</Text>
-              <Text style={styles.colTotal}>Total</Text>
-              <Text style={styles.colTax}>Tax</Text>
+              {template === "put-away-list" ? (
+                <Text style={styles.colQty}>Received</Text>
+              ) : null}
+              {showPrices ? <Text style={styles.colPrice}>Unit price</Text> : null}
+              {showPrices ? <Text style={styles.colTotal}>Total</Text> : null}
+              {showPrices ? <Text style={styles.colTax}>Tax</Text> : null}
               <Text style={styles.colExpected}>Exp. arrival</Text>
             </View>
 
             {lines.map((line, index) => (
-              <View key={index} style={styles.tableRow}>
+              <View key={index} style={styles.tableRow} wrap={false}>
                 <View style={styles.colItem}>
                   <Text>{line.itemName}</Text>
                   {line.itemSku ? (
@@ -294,13 +353,24 @@ export function PurchaseOrderDocument({
                 <Text style={styles.colQty}>
                   {formatQuantityUnit(line.quantityOrdered, line.purchaseUnitName)}
                 </Text>
-                <Text style={styles.colPrice}>
-                  {formatPrice(line.unitCost) ?? line.unitCost}
-                </Text>
-                <Text style={styles.colTotal}>
-                  {formatPrice(line.lineTotal) ?? line.lineTotal}
-                </Text>
-                <Text style={styles.colTax}>{formatPercent(line.taxRatePercent)}</Text>
+                {template === "put-away-list" ? (
+                  <Text style={styles.colQty}>
+                    {formatQuantityUnit(line.quantityReceived ?? "0", line.purchaseUnitName)}
+                  </Text>
+                ) : null}
+                {showPrices ? (
+                  <Text style={styles.colPrice}>
+                    {formatPrice(line.unitCost) ?? line.unitCost}
+                  </Text>
+                ) : null}
+                {showPrices ? (
+                  <Text style={styles.colTotal}>
+                    {formatPrice(line.lineTotal) ?? line.lineTotal}
+                  </Text>
+                ) : null}
+                {showPrices ? (
+                  <Text style={styles.colTax}>{formatPercent(line.taxRatePercent)}</Text>
+                ) : null}
                 <Text style={styles.colExpected}>
                   {formatDate(order.expectedDate)}
                 </Text>
@@ -309,13 +379,13 @@ export function PurchaseOrderDocument({
           </>
         ) : null}
 
-        {additionalCosts.length > 0 ? (
+        {showPrices && additionalCosts.length > 0 ? (
           <View style={styles.section}>
             <Text style={styles.colLabel}>
-              {variant === "standard" ? "Other items" : "Items"}
+              {template === "purchase-order" ? "Other items" : "Items"}
             </Text>
             {additionalCosts.map((cost, index) => (
-              <View key={index} style={styles.tableRow}>
+              <View key={index} style={styles.tableRow} wrap={false}>
                 <Text style={styles.colItem}>
                   {cost.reference
                     ? `${formatCostType(cost.costType)} - ${cost.reference}`
@@ -329,7 +399,7 @@ export function PurchaseOrderDocument({
           </View>
         ) : null}
 
-        <View style={styles.totals}>
+        {showPrices ? <View style={styles.totals} wrap={false}>
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Subtotal</Text>
             <Text>{formatPrice(order.subtotalAmount) ?? order.subtotalAmount}</Text>
@@ -344,7 +414,7 @@ export function PurchaseOrderDocument({
               {formatPrice(order.totalAmount) ?? order.totalAmount}
             </Text>
           </View>
-        </View>
+        </View> : null}
 
         {order.deliveryInstructions ? (
           <View style={styles.section}>

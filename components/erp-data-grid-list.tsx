@@ -139,6 +139,8 @@ function ERPDataGridListInner<TData extends { id: string }>({
         ? action.disabled(selectedRows)
         : action.disabled === true
     );
+  const selectedRowsCanBeDeleted =
+    !deleteAction?.isRowSelectable || selectedRows.every(deleteAction.isRowSelectable);
   const deleteMutation = useMutation({
     mutationFn: async (ids: string[]) => {
       if (!deleteAction) return;
@@ -236,7 +238,7 @@ function ERPDataGridListInner<TData extends { id: string }>({
             type="button"
             variant="destructive"
             size="icon"
-            disabled={selectedCount === 0 || deleteMutation.isPending}
+            disabled={selectedCount === 0 || deleteMutation.isPending || !selectedRowsCanBeDeleted}
             className="relative"
             aria-label={
               selectedCount > 0
@@ -276,6 +278,7 @@ function ERPDataGridListInner<TData extends { id: string }>({
       selectedRows,
       selectionActions,
       selectedCount,
+      selectedRowsCanBeDeleted,
     ]
   );
 
@@ -291,7 +294,7 @@ function ERPDataGridListInner<TData extends { id: string }>({
         toolbarContent={toolbarContent}
         actions={gridActions}
         enableRowSelection={Boolean(deleteAction) || selectionActions.length > 0}
-        isRowSelectable={deleteAction?.isRowSelectable}
+        isRowSelectable={hasSelectionMenu ? undefined : deleteAction?.isRowSelectable}
         onSelectionChange={(rows) => {
           selectedRowsRef.current = rows;
           setSelectedRows(rows);

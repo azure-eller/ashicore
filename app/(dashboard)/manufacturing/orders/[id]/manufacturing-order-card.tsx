@@ -181,8 +181,35 @@ export function ManufacturingOrderCard({
             ? [
                 ...(actions.duplicateAction ? [actions.duplicateAction] : []),
                 {
-                  label: "Print",
-                  onClick: () => window.print(),
+                  label: "Print manufacturing order",
+                  href: `/api/manufacturing-orders/${order.id}/pdf?template=manufacturing-order&disposition=inline`,
+                  target: "_blank" as const,
+                },
+                {
+                  label: "Download manufacturing order PDF",
+                  href: `/api/manufacturing-orders/${order.id}/pdf?template=manufacturing-order&disposition=attachment`,
+                },
+                {
+                  label: "Print manufacturing order without costs",
+                  href: `/api/manufacturing-orders/${order.id}/pdf?template=manufacturing-order-without-costs&disposition=inline`,
+                  target: "_blank" as const,
+                },
+                {
+                  label: "Print operator notes sheet",
+                  href: `/api/manufacturing-orders/${order.id}/pdf?template=manufacturing-order-notes&disposition=inline`,
+                  target: "_blank" as const,
+                },
+                ...(order.startedAt
+                  ? [{
+                      label: "Print partial-progress order",
+                      href: `/api/manufacturing-orders/${order.id}/pdf?template=manufacturing-order-partial&disposition=inline`,
+                      target: "_blank" as const,
+                    }]
+                  : []),
+                {
+                  label: "Print pick list",
+                  href: `/api/manufacturing-orders/${order.id}/pdf?template=pick-list&disposition=inline`,
+                  target: "_blank" as const,
                 },
                 ...(actions.deleteAction ? [actions.deleteAction] : []),
               ]

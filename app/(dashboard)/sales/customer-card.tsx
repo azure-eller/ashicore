@@ -359,13 +359,7 @@ export function CustomerCard({
         menuActions={
           isDraft || readOnly
             ? []
-            : [
-                {
-                  label: "Print",
-                  onClick: () => window.print(),
-                },
-                ...(actions.deleteAction ? [actions.deleteAction] : []),
-              ]
+            : [...(actions.deleteAction ? [actions.deleteAction] : [])]
         }
       />
 
@@ -645,4 +639,3 @@ function HeaderMetaPill({
     </DropdownMenu>
   );
 }
-

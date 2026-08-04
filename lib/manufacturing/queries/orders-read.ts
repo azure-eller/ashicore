@@ -16,7 +16,7 @@ import { demandQueueCoverageKey, getDemandQueueCoverageByDemandKeyForItemsInTx }
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import type { ManufacturingBatchStatus, ManufacturingLotStrategy, ManufacturingOrderStatus, ManufacturingPickStatus } from "@/lib/schemas/manufacturing-orders";
 import type { ManufacturingOrderDetail, ManufacturingOrderEditData, ManufacturingOrderListRow, ManufacturingIngredientReadiness, ManufacturingPickProgressStatus, ManufacturingProductOption, ManufacturingSalesOrderOption, ManufacturingSalesOrderPreview, ManufacturingSalesLineOption } from "../types";
-import { type ExecutionIngredientRow, aggregateBatchIngredients, getBatchPickProgressStatus, getBatchRowsInTx, getExecutionLotAllocationsByIngredientInTx, getExecutionLotAllocationsByItemId, getIngredientConstraintsByIdInTx, getTemplateIngredientsInTx, toIngredientDetail, withIngredientLotTrackingModesInTx } from "./execution-state";
+import { type ExecutionIngredientRow, aggregateBatchIngredients, getBatchPickProgressStatus, getBatchRowsInTx, getExecutionLotAllocationsByIngredientInTx, getExecutionLotAllocationsByItemId, getExecutionLotPickPlansByIngredientInTx, getIngredientConstraintsByIdInTx, getTemplateIngredientsInTx, toIngredientDetail, withIngredientLotTrackingModesInTx } from "./execution-state";
 import { type IngredientProgressRow, canonicalItemName, effectiveManufacturingPriorityRankSql, getActiveSiblingVariantsByItemIdInTx, getManufacturingItemDisplayMetadataInTx, getPickProgressStatus, getRemainingQuantityNumber, sumNumericStrings } from "./shared";
 
 type EditableManufacturingIngredientSnapshotRow = {
@@ -1166,6 +1166,17 @@ export async function getManufacturingOrder(
         })),
       }))
     );
+    const lotPickPlansByIngredientId =
+      await getExecutionLotPickPlansByIngredientInTx(
+        tx,
+        orgId,
+        displayedDetailIngredients
+      );
+    const displayedDetailIngredientsWithLotGuidance =
+      displayedDetailIngredients.map((ingredient) => ({
+        ...ingredient,
+        lotPickPlan: lotPickPlansByIngredientId.get(ingredient.id) ?? [],
+      }));
 
     const producedLots =
       batches.length > 0
@@ -1228,7 +1239,7 @@ export async function getManufacturingOrder(
                 pickedQuantity: ingredient.pickedQuantity,
               }))
             ),
-      ingredients: displayedDetailIngredients,
+      ingredients: displayedDetailIngredientsWithLotGuidance,
       operationCosts,
       batches,
       producedLots,
