@@ -77,6 +77,7 @@ export type PurchaseOrderDraftController = {
   ) => void;
   flush: () => Promise<FlushOutcome>;
   resetToSaved: () => void;
+  adoptServerResult: (detail: PurchaseOrderDetail) => void;
 };
 
 const QUICK_FLUSH_DELAY_MS = 150;
@@ -518,6 +519,13 @@ export function usePurchaseOrderDraftController({
     },
     [update],
   );
+  const adoptServerResult = useCallback(
+    (detail: PurchaseOrderDetail) => {
+      const draft = handleDetail(detail);
+      kernel.adoptServerDoc(draft);
+    },
+    [handleDetail, kernel],
+  );
 
   return useMemo(
     () => ({
@@ -541,8 +549,16 @@ export function usePurchaseOrderDraftController({
       replaceAdditionalCosts,
       flush: kernel.flush,
       resetToSaved: kernel.resetToServer,
+      adoptServerResult,
     }),
-    [kernel, orderId, patchHeader, replaceAdditionalCosts, replaceLines],
+    [
+      adoptServerResult,
+      kernel,
+      orderId,
+      patchHeader,
+      replaceAdditionalCosts,
+      replaceLines,
+    ],
   );
 }
 

@@ -63,8 +63,26 @@ These are the only moves the system allows. Anything not listed is blocked to pr
 | Receive the rest | <Pill status="partial" /> | <Pill status="received" /> | Completes the remaining lines. |
 | Add a line / increase a quantity | <Pill status="received" /> | <Pill status="partial" /> | Reopens the remainder. |
 | Delete | <span class="po-tok po-tok--muted">Any status</span> | <span class="po-tok po-tok--muted">Removed</span> | Releases expected supply; received stock still on hand is removed from stock. |
-| Reduce below received | <span class="po-tok po-tok--muted">—</span> | <span class="po-tok po-tok--no">Blocked</span> | A quantity can't drop under what's already received. |
+| Correct below received | <Pill status="partial" /> or <Pill status="received" /> | Receiving progress recalculated | Shows how much available stock will be removed and how much used quantity remains in history before you confirm. |
 | Remove a received line | <span class="po-tok po-tok--muted">—</span> | <span class="po-tok po-tok--no">Blocked</span> | Receipt history must be preserved. |
+
+## Correct a received quantity
+
+If the supplier shipped fewer units than were recorded, edit the line's quantity
+to the correct positive total. When that total is below the quantity already
+received, Ashicore pauses autosave and shows an impact confirmation:
+
+- stock from that receipt that is still available is removed
+- stock already used or moved to Blocked or Rejected stays in permanent history; available stock remains correctable after a location transfer
+- the line's ordered and received totals are corrected together
+- landed costs and order totals are recalculated
+- a bill already synced to your accounting provider is flagged for review
+
+Confirm only after checking those quantities. The original receipt is never
+erased; the correction is added to the inventory audit trail. Set a higher
+quantity normally when you are ordering more—the new remainder becomes expected
+supply and a completed order returns to <Pill status="partial" />. A corrected
+quantity must remain greater than zero; removing a received line is still blocked.
 
 ## What happens when you delete an order?
 

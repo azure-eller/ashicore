@@ -20,6 +20,8 @@ const INVENTORY_LOCK_SPECS: Record<InventoryOperationName, SourceLockSpec | null
   receivePurchaseStock: { table: "purchase_orders", required: true },
   revaluePurchaseLandedCost: { table: "purchase_orders", required: true },
   reversePurchaseReceipts: { table: "purchase_orders", required: true },
+  correctPurchaseReceiptQuantity: { table: "purchase_orders", required: true },
+  correctPurchaseOrderQuantity: { table: "purchase_orders", required: true },
   recordSalesDemand: { table: "sales_orders", required: true },
   releaseSalesDemand: { table: "sales_orders", required: true },
   consumeForShipment: { table: "sales_orders", required: true },

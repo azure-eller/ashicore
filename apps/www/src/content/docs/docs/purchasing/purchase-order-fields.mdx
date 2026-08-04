@@ -47,11 +47,11 @@ One row per item being ordered. An item can appear on an order only once.
 | Item | You | The material or product being purchased. Required. Its SKU appears beneath its name when one is set. |
 | Supplier item code | Item | The selected item's current supplier-facing code. An em dash means the item has no supplier item code. |
 | Internal barcode | Item | The selected item's current internal barcode. An em dash means the item has no internal barcode. |
-| Quantity | You | How much to order, in the selected **UoM**. Required; can't drop below what's already received. |
+| Quantity | You | How much to order, in the selected **UoM**. Required and greater than zero. Increasing it after receipt adds expected supply; reducing it below received opens an impact confirmation. |
 | UoM | You / item | The purchase unit for the line, such as Bag or Case. |
 | Price per unit | You | Price per purchase unit. Required. If received tracked stock from this order is still on hand, a later change to this cost revalues it. |
 | Tax | You | The tax applied to the line. Defaults to your organization's purchase tax rate. |
-| Received | System | Shown in the receive dialog, not the edit grid. Starts at zero and only rises. |
+| Received | System | Shown in the receive dialog, not the edit grid. Starts at zero and rises as stock is received. A confirmed quantity correction can lower it while preserving the original receipt history. |
 | Landed cost | Derived | What one **stocking unit** actually costs, once the purchase price, the unit conversion, and any distributed additional costs are folded in. This is the value your inventory carries. |
 | Total price | Derived | Quantity × price per unit, before line tax. |
 

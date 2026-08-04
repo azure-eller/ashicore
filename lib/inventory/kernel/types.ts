@@ -8,6 +8,8 @@ export const INVENTORY_OPERATION_NAMES = [
   "receivePurchaseStock",
   "revaluePurchaseLandedCost",
   "reversePurchaseReceipts",
+  "correctPurchaseReceiptQuantity",
+  "correctPurchaseOrderQuantity",
   "recordSalesDemand",
   "releaseSalesDemand",
   "consumeForShipment",

@@ -81,6 +81,18 @@ export const queryKeys = {
     receive: (orderId: string) => ["purchase-orders", orderId, "receive"] as const,
     deletePreview: (orderId: string) =>
       ["purchase-orders", orderId, "delete-preview"] as const,
+    quantityCorrectionPreview: (
+      orderId: string,
+      lineId: string,
+      quantityOrdered: string,
+    ) =>
+      [
+        "purchase-orders",
+        orderId,
+        "quantity-correction-preview",
+        lineId,
+        quantityOrdered,
+      ] as const,
   },
   manufacturingOrders: {
     root: ["manufacturing-orders"] as const,

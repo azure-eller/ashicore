@@ -597,6 +597,55 @@ test.describe("editable freight revaluation after receipt", () => {
     await page.keyboard.press("Escape");
   });
 
+  test("buyer corrects a received quantity and confirms the inventory impact", async ({
+    db,
+    page,
+  }) => {
+    await page.goto(`/purchasing/order/${orderId}`);
+    const quantityCell = page.locator('.ag-cell[col-id="quantityOrdered"]').first();
+    await quantityCell.click();
+    const editor = page.locator(".ag-cell-inline-editing input").first();
+    await expect(editor).toBeVisible();
+    await editor.fill("2");
+    await editor.press("Enter");
+
+    const dialog = page.getByRole("alertdialog");
+    await expect(dialog).toContainText("Correct received quantity?");
+    await expect(dialog).toContainText(/6 .* still on hand will be removed/);
+    await expect(dialog).toContainText(
+      /2 .* already used or otherwise no longer on hand will stay in history/,
+    );
+    await dialog.getByRole("button", { name: "Correct quantity" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.getByText("Saved", { exact: true })).toBeVisible();
+
+    await expect.poll(async () => {
+      const [line] = await db
+        .select({
+          quantityOrdered: purchaseOrderLines.quantityOrdered,
+          quantityReceived: purchaseOrderLines.quantityReceived,
+        })
+        .from(purchaseOrderLines)
+        .where(eq(purchaseOrderLines.id, lineId));
+      return `${line.quantityOrdered}/${line.quantityReceived}`;
+    }).toBe("2.0000/2.0000");
+
+    const [lot] = await db
+      .select({ quantity: inventoryLotBalances.quantity })
+      .from(inventoryLotBalances)
+      .where(eq(inventoryLotBalances.lotId, lotId));
+    expect(lot.quantity).toBe("0.0000");
+
+    const auditEvents = await db
+      .select({ id: inventoryEvents.id })
+      .from(inventoryEvents)
+      .where(and(
+        eq(inventoryEvents.referenceId, orderId),
+        eq(inventoryEvents.eventType, "purchase_receipt_correction"),
+      ));
+    expect(auditEvents).toHaveLength(1);
+  });
+
   test("freight edits save for untracked received material but skip v1 revaluation", async ({ db }) => {
     const created = await createItem({
       itemType: "material",

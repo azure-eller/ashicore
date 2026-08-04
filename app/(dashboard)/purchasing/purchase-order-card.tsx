@@ -69,7 +69,19 @@ import type {
   PurchaseOrderMaterialOption,
   PurchaseOrderTaxRateOption,
   SupplierOption,
+  PurchaseOrderDetail,
+  PurchaseOrderQuantityCorrectionImpact,
 } from "@/lib/purchasing/types";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { SupplierSelect } from "./supplier-select";
 import {
   PurchaseBillDialog,
@@ -178,6 +190,10 @@ export function PurchaseOrderCard({
     : "/purchasing/orders";
   const [formError, setFormError] = useState<string | null>(null);
   const [fileActionError, setFileActionError] = useState<string | null>(null);
+  const [quantityCorrection, setQuantityCorrection] = useState<{
+    lineId: string;
+    quantityOrdered: string;
+  } | null>(null);
   const savedOrderIdRef = useRef<string | null>(initialData?.id ?? null);
   const [savedOrderId, setSavedOrderId] = useState<string | null>(
     initialData?.id ?? null,
@@ -548,10 +564,87 @@ export function PurchaseOrderCard({
   );
   const handleLineRowsChange = useCallback(
     (rows: PurchaseOrderLineGridRow[]) => {
+      const correctionRow = rows.find((row) => {
+        const current = draftValues.lines.find(
+          (line) => line.clientRowId === row.clientRowId,
+        );
+        const nextQuantity = Number(row.quantityOrdered);
+        const receivedQuantity = Number(current?.quantityReceived ?? 0);
+        return (
+          row.id != null &&
+          Number.isFinite(nextQuantity) &&
+          nextQuantity > 0 &&
+          nextQuantity < receivedQuantity
+        );
+      });
+      if (correctionRow?.id && correctionRow.quantityOrdered) {
+        const savedLine = latestSavedPurchaseOrderDraftRef.current.lines.find(
+          (line) => line.id === correctionRow.id,
+        );
+        purchaseOrderController.replaceLines(
+          rows.map((row) =>
+            row.id === correctionRow.id && savedLine
+              ? { ...row, quantityOrdered: savedLine.quantityOrdered }
+              : row,
+          ),
+        );
+        setQuantityCorrection({
+          lineId: correctionRow.id,
+          quantityOrdered: correctionRow.quantityOrdered,
+        });
+        return;
+      }
       purchaseOrderController.replaceLines(rows);
     },
-    [purchaseOrderController],
+    [draftValues.lines, purchaseOrderController],
   );
+
+  const quantityCorrectionQuery = useQuery({
+    queryKey: queryKeys.purchaseOrders.quantityCorrectionPreview(
+      savedOrderId ?? "__draft__",
+      quantityCorrection?.lineId ?? "__none__",
+      quantityCorrection?.quantityOrdered ?? "",
+    ),
+    queryFn: () =>
+      apiJson<PurchaseOrderQuantityCorrectionImpact>(
+        `/api/purchase-orders/${savedOrderId}/quantity-correction-preview?lineId=${encodeURIComponent(quantityCorrection!.lineId)}&quantityOrdered=${encodeURIComponent(quantityCorrection!.quantityOrdered)}`,
+        { fallbackError: "Failed to check the quantity correction." },
+      ),
+    enabled: savedOrderId != null && quantityCorrection != null,
+  });
+  const quantityCorrectionMutation = useMutation({
+    mutationKey: [
+      "purchase-order-action",
+      savedOrderId ?? "__draft__",
+      "quantity-correction",
+    ],
+    mutationFn: async () => {
+      if (!savedOrderId || !quantityCorrection) {
+        throw new Error("Save the purchase order before correcting quantity.");
+      }
+      await flushPurchaseOrderOrThrow(
+        "Save current changes before correcting quantity.",
+      );
+      return apiJson<{
+        order: PurchaseOrderDetail;
+        impact: PurchaseOrderQuantityCorrectionImpact;
+      }>(`/api/purchase-orders/${savedOrderId}/quantity-correction`, {
+        method: "POST",
+        idempotencyKey: `purchase-order-quantity-correction:${crypto.randomUUID()}`,
+        body: {
+          lineId: quantityCorrection.lineId,
+          quantityOrdered: quantityCorrection.quantityOrdered,
+          expectedVersion: latestSavedPurchaseOrderDraftRef.current.version,
+        },
+        fallbackError: "Failed to correct purchase order quantity.",
+      });
+    },
+    onSuccess: ({ order }) => {
+      purchaseOrderController.adoptServerResult(order);
+      setQuantityCorrection(null);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.root });
+    },
+  });
   const createLineRow = useCallback(
     () => createPurchaseOrderLineRow({ taxRateId: defaultTaxRate?.id ?? null }),
     [defaultTaxRate],
@@ -2108,6 +2201,85 @@ export function PurchaseOrderCard({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <AlertDialog
+        open={quantityCorrection != null}
+        onOpenChange={(open) => {
+          if (!open && !quantityCorrectionMutation.isPending) {
+            setQuantityCorrection(null);
+            quantityCorrectionMutation.reset();
+          }
+        }}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Correct received quantity?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {quantityCorrectionQuery.isPending ? (
+                <>Checking stock received on this line…</>
+              ) : quantityCorrectionQuery.isError ? (
+                <>{quantityCorrectionQuery.error.message}</>
+              ) : quantityCorrectionQuery.data ? (
+                <>
+                  <span className="block">
+                    Change {quantityCorrectionQuery.data.itemName} from{" "}
+                    {quantityCorrectionQuery.data.quantityReceivedBefore} to{" "}
+                    {quantityCorrectionQuery.data.quantityOrdered}{" "}
+                    {quantityCorrectionQuery.data.purchaseUnitName} received.
+                  </span>
+                  <span className="mt-(--space-3) block">
+                    {quantityCorrectionQuery.data.stockQuantityToRemove}{" "}
+                    {quantityCorrectionQuery.data.stockingUnitName} still on hand
+                    will be removed.
+                  </span>
+                  {Number(
+                    quantityCorrectionQuery.data.stockQuantityKeptInHistory,
+                  ) > 0 ? (
+                    <span className="mt-(--space-3) block">
+                      {quantityCorrectionQuery.data.stockQuantityKeptInHistory}{" "}
+                      {quantityCorrectionQuery.data.stockingUnitName} already used
+                      or otherwise no longer on hand will stay in history.
+                    </span>
+                  ) : null}
+                  {quantityCorrectionQuery.data.billSynced ? (
+                    <span className="mt-(--space-3) block">
+                      The accounting-provider bill is not changed automatically.
+                    </span>
+                  ) : null}
+                  <span className="mt-(--space-3) block">
+                    Original receipt history is preserved. This correction cannot
+                    be undone automatically.
+                  </span>
+                </>
+              ) : null}
+              {quantityCorrectionMutation.error ? (
+                <span className="mt-(--space-3) block text-destructive">
+                  {quantityCorrectionMutation.error.message}
+                </span>
+              ) : null}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={quantityCorrectionMutation.isPending}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={
+                quantityCorrectionQuery.data == null ||
+                quantityCorrectionMutation.isPending
+              }
+              onClick={(event) => {
+                event.preventDefault();
+                quantityCorrectionMutation.mutate();
+              }}
+            >
+              {quantityCorrectionMutation.isPending
+                ? "Correcting…"
+                : "Correct quantity"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

@@ -55,6 +55,7 @@ export async function getLockedPurchaseOrderInTx(tx: Tx, id: string) {
       status: purchaseOrders.status,
       type: purchaseOrders.type,
       version: purchaseOrders.version,
+      receivedAt: purchaseOrders.receivedAt,
     })
     .from(purchaseOrders)
     .where(and(eq(purchaseOrders.id, id), isNull(purchaseOrders.deletedAt)))

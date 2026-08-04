@@ -984,6 +984,23 @@ export async function updatePurchaseOrder(
       );
     }
 
+    const nextReceivedState = prepared.preparedLines.map((line) => {
+      const existingLine = existingLineByItemId.get(line.itemId);
+      return {
+        ordered: parseFloat(line.stockQuantityOrdered),
+        received: parseFloat(existingLine?.stockQuantityReceived ?? "0"),
+      };
+    });
+    const allReceived = nextReceivedState.every(
+      (line) => line.received >= line.ordered,
+    );
+    const anyReceived = nextReceivedState.some((line) => line.received > 0);
+    const nextStatus = allReceived
+      ? "received"
+      : anyReceived
+        ? "partial"
+        : "not_received";
+
     await tx
       .update(purchaseOrders)
       .set({
@@ -1004,28 +1021,9 @@ export async function updatePurchaseOrder(
         taxAmount: prepared.taxAmount,
         totalAmount: prepared.totalAmount,
         version: sql`${purchaseOrders.version} + 1`,
-        status:
-          order.status === "received" &&
-          prepared.preparedLines.some((line) => {
-            const existingLine = existingLineByItemId.get(line.itemId);
-            return (
-              parseFloat(line.stockQuantityOrdered) >
-              parseFloat(existingLine?.stockQuantityReceived ?? "0")
-            );
-          })
-            ? "partial"
-            : undefined,
+        status: nextStatus,
         receivedAt:
-          order.status === "received" &&
-          prepared.preparedLines.some((line) => {
-            const existingLine = existingLineByItemId.get(line.itemId);
-            return (
-              parseFloat(line.stockQuantityOrdered) >
-              parseFloat(existingLine?.stockQuantityReceived ?? "0")
-            );
-          })
-            ? null
-            : undefined,
+          nextStatus === "received" ? order.receivedAt ?? new Date() : null,
         updatedAt: new Date(),
       })
       .where(eq(purchaseOrders.id, id));

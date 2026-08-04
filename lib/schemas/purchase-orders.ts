@@ -318,6 +318,18 @@ export const receivePurchaseOrderSchema = z
 
 export type ReceivePurchaseOrder = z.infer<typeof receivePurchaseOrderSchema>;
 
+export const purchaseOrderQuantityCorrectionSchema = z.object({
+  lineId: z.string().uuid(),
+  quantityOrdered: z
+    .string()
+    .trim()
+    .refine(isPositiveNumberString, "Quantity must be greater than 0"),
+  expectedVersion: expectedVersionSchema,
+});
+export type PurchaseOrderQuantityCorrection = z.infer<
+  typeof purchaseOrderQuantityCorrectionSchema
+>;
+
 const purchaseBillGroupSchema = z.object({
   groupKey: z.string().trim().min(1),
   include: z.boolean().optional(),

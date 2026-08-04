@@ -10,8 +10,10 @@ import {
   attachmentFiles,
   inventoryEvents,
   inventoryExpectedSummary,
+  itemFamilies,
   inventoryItemBalances,
   inventoryLotBalances,
+  inventoryLocations,
   items,
   notifications,
   purchaseOrderAdditionalCosts,
@@ -1671,7 +1673,7 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     ]);
   });
 
-  test("purchase order autosave keeps failed server-validation edits recoverable", async ({
+  test("purchase order quantity correction cancellation keeps later edits recoverable", async ({
     page,
     db,
   }) => {
@@ -1716,9 +1718,12 @@ test.describe("purchasing supply and receipt heartbeat", () => {
 
     await page.goto(`/purchasing/order/${order.body.id}`);
     await editGridCell(page, "quantityOrdered", "4");
-    await expect(
-      page.getByText("Ordered quantity cannot be less than quantity already received."),
-    ).toBeVisible({ timeout: 15_000 });
+    const correctionDialog = page.getByRole("alertdialog");
+    await expect(correctionDialog).toContainText("Correct received quantity?", {
+      timeout: 15_000,
+    });
+    await correctionDialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(correctionDialog).toBeHidden();
 
     const [afterFailedSave] = await db
       .select({ quantityOrdered: purchaseOrderLines.quantityOrdered })
@@ -4216,5 +4221,353 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       .from(purchaseOrders)
       .where(eq(purchaseOrders.id, order.body.id));
     expect(po?.deletedAt).not.toBeNull();
+  });
+
+  test("received quantity corrections remove available stock and retain consumed history", async ({ db }) => {
+    const unique = randomUUID().slice(0, 8);
+    const material = await createItem({
+      itemType: "material",
+      name: `Correction material ${unique}`,
+      unitDefinitionId: getUnitId(),
+      sku: `PO-CORR-${unique}`,
+      category: "Purchasing correction",
+      description: null,
+      defaultPurchasePrice: "5",
+      defaultSellingPrice: null,
+      lotTrackingMode: "tracked",
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    const supplier = await createSupplier({ name: `Correction supplier ${unique}` });
+    const order = await createPurchaseOrder({
+      supplierId: supplier.body.id,
+      lines: [{ itemId: material.body.id, quantityOrdered: "10", unitCost: "5" }],
+    });
+    const lineId = order.body.lines[0].id as string;
+    expect((await receivePurchaseOrder(order.body.id, {
+      lines: [{ lineId, quantityReceived: "10" }],
+    })).status).toBe(200);
+
+    const lots = (await (await testFetch(`/api/items/${material.body.id}/lots`)).json()) as Array<{ id: string }>;
+    expect((await testFetch(`/api/items/${material.body.id}/stock-adjustments`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "data_correction",
+        lots: [{ lotId: lots[0].id, newQuantity: "6" }],
+      }),
+    })).status).toBe(200);
+    const blocked = await testFetch(
+      `/api/items/${material.body.id}/lots/${lots[0].id}/disposition`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          action: "block",
+          fromDisposition: "available",
+          quantity: "2",
+          notes: "Hold during tracked PO correction test",
+        }),
+      },
+    );
+    expect(blocked.status, await blocked.text()).toBe(200);
+
+    const preview = await testFetch(
+      `/api/purchase-orders/${order.body.id}/quantity-correction-preview?lineId=${lineId}&quantityOrdered=2`,
+    );
+    expect(preview.status, await preview.text()).toBe(200);
+    expect(await preview.json()).toMatchObject({
+      lineId,
+      quantityOrdered: "2",
+      quantityReceivedBefore: "10",
+      stockQuantityToRemove: "4",
+      stockQuantityKeptInHistory: "4",
+    });
+
+    const idempotencyKey = randomUUID();
+    const request = {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: JSON.stringify({
+        lineId,
+        quantityOrdered: "2",
+        expectedVersion: order.body.version,
+      }),
+    };
+    const corrected = await testFetch(`/api/purchase-orders/${order.body.id}/quantity-correction`, request);
+    expect(corrected.status, await corrected.text()).toBe(200);
+    const replay = await testFetch(`/api/purchase-orders/${order.body.id}/quantity-correction`, request);
+    expect(replay.status, await replay.text()).toBe(200);
+
+    const [line] = await db
+      .select({ quantityOrdered: purchaseOrderLines.quantityOrdered, quantityReceived: purchaseOrderLines.quantityReceived })
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.id, lineId));
+    expect(line).toMatchObject({ quantityOrdered: "2.0000", quantityReceived: "2.0000" });
+
+    const [balance] = await db
+      .select({ onHandQty: inventoryItemBalances.onHandQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, material.body.id));
+    expect(balance.onHandQty).toBe("2.0000");
+
+    const correctionEvents = await db
+      .select({ eventType: inventoryEvents.eventType })
+      .from(inventoryEvents)
+      .where(and(
+        eq(inventoryEvents.organizationId, getOrgId()),
+        eq(inventoryEvents.referenceId, order.body.id),
+        eq(inventoryEvents.eventType, "purchase_receipt_correction"),
+      ));
+    expect(correctionEvents).toHaveLength(1);
+
+    const reversalEvents = await db
+      .select({ quantity: inventoryEvents.quantity })
+      .from(inventoryEvents)
+      .where(and(
+        eq(inventoryEvents.organizationId, getOrgId()),
+        eq(inventoryEvents.referenceId, order.body.id),
+        eq(inventoryEvents.eventSubtype, "purchase_receipt_quantity_correction"),
+      ));
+    expect(reversalEvents).toHaveLength(1);
+    expect(Number(reversalEvents[0].quantity)).toBe(4);
+  });
+
+  test("untracked quantity corrections preserve stock from later receipts", async ({ db }) => {
+    const unique = randomUUID().slice(0, 8);
+    const material = await createItem({
+      itemType: "material",
+      name: `Untracked correction material ${unique}`,
+      unitDefinitionId: getUnitId(),
+      sku: `PO-UCORR-${unique}`,
+      category: "Purchasing correction",
+      description: null,
+      defaultPurchasePrice: "5",
+      defaultSellingPrice: null,
+      lotTrackingMode: "untracked",
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    const [materialRow] = await db
+      .select({ familyId: items.familyId })
+      .from(items)
+      .where(eq(items.id, material.body.id));
+    await db
+      .update(itemFamilies)
+      .set({ lotTrackingMode: "untracked" })
+      .where(eq(itemFamilies.id, materialRow.familyId!));
+    const supplier = await createSupplier({ name: `Untracked correction supplier ${unique}` });
+    const firstOrder = await createPurchaseOrder({
+      supplierId: supplier.body.id,
+      lines: [{ itemId: material.body.id, quantityOrdered: "10", unitCost: "5" }],
+    });
+    const firstLineId = firstOrder.body.lines[0].id as string;
+    expect((await receivePurchaseOrder(firstOrder.body.id, {
+      lines: [{ lineId: firstLineId, quantityReceived: "10" }],
+    })).status).toBe(200);
+
+    expect((await testFetch(`/api/items/${material.body.id}/stock-adjustments`, {
+      method: "POST",
+      body: JSON.stringify({
+        reason: "data_correction",
+        newQuantity: "0",
+      }),
+    })).status).toBe(200);
+
+    const secondOrder = await createPurchaseOrder({
+      supplierId: supplier.body.id,
+      lines: [{ itemId: material.body.id, quantityOrdered: "10", unitCost: "5" }],
+    });
+    const secondLineId = secondOrder.body.lines[0].id as string;
+    expect((await receivePurchaseOrder(secondOrder.body.id, {
+      lines: [{ lineId: secondLineId, quantityReceived: "10" }],
+    })).status).toBe(200);
+
+    const preview = await testFetch(
+      `/api/purchase-orders/${firstOrder.body.id}/quantity-correction-preview?lineId=${firstLineId}&quantityOrdered=2`,
+    );
+    expect(preview.status, await preview.text()).toBe(200);
+    expect(await preview.json()).toMatchObject({
+      stockQuantityToRemove: "0",
+      stockQuantityKeptInHistory: "8",
+    });
+
+    const corrected = await testFetch(
+      `/api/purchase-orders/${firstOrder.body.id}/quantity-correction`,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": randomUUID() },
+        body: JSON.stringify({
+          lineId: firstLineId,
+          quantityOrdered: "2",
+          expectedVersion: firstOrder.body.version,
+        }),
+      },
+    );
+    expect(corrected.status, await corrected.text()).toBe(200);
+
+    const [balance] = await db
+      .select({ onHandQty: inventoryItemBalances.onHandQty })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, material.body.id));
+    expect(balance.onHandQty).toBe("10.0000");
+  });
+
+  test("untracked quantity corrections preserve receipt stock moved to blocked", async ({ db }) => {
+    const unique = randomUUID().slice(0, 8);
+    const material = await createItem({
+      itemType: "material",
+      name: `Untracked blocked correction ${unique}`,
+      unitDefinitionId: getUnitId(),
+      sku: `PO-UCORR-BLOCK-${unique}`,
+      category: "Purchasing correction",
+      description: null,
+      defaultPurchasePrice: "5",
+      defaultSellingPrice: null,
+      lotTrackingMode: "untracked",
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    const [materialRow] = await db
+      .select({ familyId: items.familyId })
+      .from(items)
+      .where(eq(items.id, material.body.id));
+    await db
+      .update(itemFamilies)
+      .set({ lotTrackingMode: "untracked" })
+      .where(eq(itemFamilies.id, materialRow.familyId!));
+    const supplier = await createSupplier({ name: `Blocked correction supplier ${unique}` });
+    const order = await createPurchaseOrder({
+      supplierId: supplier.body.id,
+      lines: [{ itemId: material.body.id, quantityOrdered: "10", unitCost: "5" }],
+    });
+    const lineId = order.body.lines[0].id as string;
+    expect((await receivePurchaseOrder(order.body.id, {
+      lines: [{ lineId, quantityReceived: "10" }],
+    })).status).toBe(200);
+    const blocked = await testFetch(
+      `/api/items/${material.body.id}/disposition`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          action: "block",
+          fromDisposition: "available",
+          quantity: "4",
+          notes: "Hold during PO correction test",
+        }),
+      },
+    );
+    expect(blocked.status, await blocked.text()).toBe(200);
+
+    const preview = await testFetch(
+      `/api/purchase-orders/${order.body.id}/quantity-correction-preview?lineId=${lineId}&quantityOrdered=2`,
+    );
+    expect(preview.status, await preview.text()).toBe(200);
+    expect(await preview.json()).toMatchObject({
+      stockQuantityToRemove: "6",
+      stockQuantityKeptInHistory: "2",
+    });
+
+    const corrected = await testFetch(`/api/purchase-orders/${order.body.id}/quantity-correction`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        lineId,
+        quantityOrdered: "2",
+        expectedVersion: order.body.version,
+      }),
+    });
+    expect(corrected.status, await corrected.text()).toBe(200);
+    const [balance] = await db
+      .select({ onHandQty: sql<string>`sum(${inventoryItemBalances.onHandQty})` })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, material.body.id));
+    expect(balance.onHandQty).toBe("4.0000");
+  });
+
+  test("untracked quantity corrections follow receipt stock across locations", async ({ db }) => {
+    const unique = randomUUID().slice(0, 8);
+    const material = await createItem({
+      itemType: "material",
+      name: `Untracked transferred correction ${unique}`,
+      unitDefinitionId: getUnitId(),
+      sku: `PO-UCORR-XFER-${unique}`,
+      category: "Purchasing correction",
+      description: null,
+      defaultPurchasePrice: "5",
+      defaultSellingPrice: null,
+      lotTrackingMode: "untracked",
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    const [materialRow] = await db
+      .select({ familyId: items.familyId })
+      .from(items)
+      .where(eq(items.id, material.body.id));
+    await db
+      .update(itemFamilies)
+      .set({ lotTrackingMode: "untracked" })
+      .where(eq(itemFamilies.id, materialRow.familyId!));
+    const supplier = await createSupplier({ name: `Transfer correction supplier ${unique}` });
+    const order = await createPurchaseOrder({
+      supplierId: supplier.body.id,
+      lines: [{ itemId: material.body.id, quantityOrdered: "10", unitCost: "5" }],
+    });
+    const lineId = order.body.lines[0].id as string;
+    expect((await receivePurchaseOrder(order.body.id, {
+      lines: [{ lineId, quantityReceived: "10" }],
+    })).status).toBe(200);
+    const [defaultLocation] = await db
+      .select({ id: inventoryLocations.id })
+      .from(inventoryLocations)
+      .where(and(
+        eq(inventoryLocations.organizationId, getOrgId()),
+        eq(inventoryLocations.isDefault, true),
+      ));
+    const [otherLocation] = await db
+      .insert(inventoryLocations)
+      .values({
+        organizationId: getOrgId(),
+        name: `Correction transfer ${unique}`,
+        code: `po-corr-${unique}`,
+        isDefault: false,
+      })
+      .returning({ id: inventoryLocations.id });
+    const transferred = await testFetch("/api/inventory/transfers", {
+      method: "POST",
+      body: JSON.stringify({
+        fromLocationId: defaultLocation.id,
+        toLocationId: otherLocation.id,
+        lines: [{ itemId: material.body.id, quantity: "4" }],
+      }),
+    });
+    expect(transferred.status, await transferred.text()).toBe(201);
+
+    const preview = await testFetch(
+      `/api/purchase-orders/${order.body.id}/quantity-correction-preview?lineId=${lineId}&quantityOrdered=2`,
+    );
+    expect(preview.status, await preview.text()).toBe(200);
+    expect(await preview.json()).toMatchObject({
+      stockQuantityToRemove: "8",
+      stockQuantityKeptInHistory: "0",
+    });
+
+    const corrected = await testFetch(`/api/purchase-orders/${order.body.id}/quantity-correction`, {
+      method: "POST",
+      headers: { "Idempotency-Key": randomUUID() },
+      body: JSON.stringify({
+        lineId,
+        quantityOrdered: "2",
+        expectedVersion: order.body.version,
+      }),
+    });
+    expect(corrected.status, await corrected.text()).toBe(200);
+    const [balance] = await db
+      .select({ onHandQty: sql<string>`sum(${inventoryItemBalances.onHandQty})` })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, material.body.id));
+    expect(balance.onHandQty).toBe("2.0000");
   });
 });

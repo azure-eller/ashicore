@@ -132,6 +132,21 @@ export type PurchaseOrderDetailLine = {
   updatedAt: Date;
 };
 
+export type PurchaseOrderQuantityCorrectionImpact = {
+  purchaseOrderId: string;
+  lineId: string;
+  itemName: string;
+  purchaseUnitName: string;
+  stockingUnitName: string;
+  quantityOrderedBefore: string;
+  quantityReceivedBefore: string;
+  quantityOrdered: string;
+  stockQuantityToCorrect: string;
+  stockQuantityToRemove: string;
+  stockQuantityKeptInHistory: string;
+  billSynced: boolean;
+};
+
 export type PurchaseOrderAdditionalCost = {
   id: string;
   costType: PurchaseOrderAdditionalCostType;

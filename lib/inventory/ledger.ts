@@ -82,6 +82,7 @@ const NON_DELTA_EVENT_TYPES: ReadonlySet<InventoryEventType> = new Set([
   "stocktake_verification",
   "cost_basis_change",
   "landed_cost_revaluation",
+  "purchase_receipt_correction",
   "quality_disposition_change",
 ]);
 
@@ -108,6 +109,7 @@ const EVENT_LABELS: Record<InventoryEventType, string> = {
   expected_release: "Expected supply release",
   cost_basis_change: "Cost basis change",
   landed_cost_revaluation: "Landed cost revaluation",
+  purchase_receipt_correction: "Purchase receipt correction",
   stocktake_verification: "Stocktake verification",
 };
 
@@ -134,6 +136,7 @@ const SUMMARY_ACTIONS: Record<InventoryEventType, string> = {
   expected_release: "released expected supply for",
   cost_basis_change: "updated cost basis for",
   landed_cost_revaluation: "revalued landed cost for",
+  purchase_receipt_correction: "corrected received quantity for",
   stocktake_verification: "verified stocktake count for",
 };
 

@@ -69,7 +69,7 @@ Only <Pill status="not_received" /> or <Pill status="partial" /> orders can be r
    </div>
 
    <Aside type="caution" title="Receiving is positive-only">
-   You can receive another partial batch while the order is <Pill status="partial" />, but you can't "un-receive." Once the order is fully <Pill status="received" />, add a line or increase a quantity first to reopen a remainder, then receive the new quantity. Received lines can't be removed because receipt history must be preserved. To back out the whole order, delete it — stock still on hand is removed and used quantities keep their history ([details](/docs/purchasing/the-po-lifecycle#what-happens-when-you-delete-an-order)).
+   You can receive another partial batch while the order is <Pill status="partial" />, but receiving never accepts a negative quantity. Once the order is fully <Pill status="received" />, add a line or increase a quantity first to reopen a remainder, then receive the new quantity. If the received total was recorded incorrectly, edit the line to the correct positive quantity and review what will leave stock and stay in history before confirming ([details](/docs/purchasing/the-po-lifecycle#correct-a-received-quantity)). Received lines still can't be removed.
    </Aside>
 
 </Steps>

@@ -80,8 +80,8 @@ provider. It is not the target purchasing workflow.
   conversion set
 - bulk import previews provider POs and applies checked rows
 - unmatched provider suppliers/materials may be created during manual import
-- imported POs update while unreceived; received rows still cannot be reduced
-  below received quantity
+- imported POs update while unreceived; imports never invoke the operator-only
+  received-quantity correction workflow
 - re-import preserves a locally assigned additional-cost supplier and
   distribution method when one old and one incoming cost match exactly on type,
   trimmed reference, and numeric amount; after exact matches are consumed, it
@@ -185,7 +185,7 @@ Update rules:
 - `partial` orders may be edited, received, or deleted; already received lines cannot be removed
 - `received` orders may be edited or deleted; increasing quantity or adding lines moves the
   order back to `partial`, while landed-cost changes revalue eligible received
-  stock
+  stock. Reducing below received quantity requires the explicit correction flow.
 - delete is allowed at any status; deleting a `partial`/`received` order first
   reverses the on-hand remainder of its receipts (see Deleting below)
 
@@ -203,8 +203,39 @@ Valid transitions:
 
 Invalid transitions:
 
-- reduce ordered quantity below already received quantity
+- reduce ordered quantity below already received quantity through ordinary autosave
 - remove received purchase order lines
+
+## Correcting received quantities
+
+The quantity cell remains editable after partial or full receipt. Ordinary edits
+at or above the received quantity use the normal version-guarded autosave path:
+an increase represents additional material ordered, adds the new remainder to
+expected supply, and moves a fully received order back to `partial`.
+
+An edit below the received quantity is a correction, not a negative receipt.
+The card first calls
+`GET /api/purchase-orders/[id]/quantity-correction-preview` and presents the
+physical and historical impact. Confirmation posts the positive target quantity
+to `POST /api/purchase-orders/[id]/quantity-correction` with `expectedVersion`
+and an idempotency key. The correction runs atomically and:
+
+- sets both ordered and received purchase quantities to the corrected target
+- removes at most the still-on-hand remainder of that line's receipts through
+  compensating `manual_adjustment_decrease` events with subtype
+  `purchase_receipt_quantity_correction`
+- preserves original `purchase_receipt` events and any quantity already
+  consumed or moved to a non-available disposition; available receipt stock
+  remains attributable when transferred between locations
+- records one zero-quantity `purchase_receipt_correction` audit event containing
+  the requested, removed, and retained-history quantities
+- recalculates landed costs, totals, expected supply, and PO status; a synced
+  accounting bill is marked pending and the dialog warns the operator
+
+The target must remain greater than zero. Removing a line is a separate workflow
+and remains blocked once it has receipts. For untracked material, removal is
+capped at `min(received by this PO, shared bucket on hand)` so another source's
+stock is never made negative.
 
 ## Deleting
 
@@ -313,7 +344,8 @@ Every consequence of acting on a purchase order, the invariant it protects, and 
 | Invariant | Spec | Covered? |
 |-----------|------|----------|
 | Creation adds the full ordered quantity to expected supply in stocking units; no stock created | `purchasing-receiving.spec.ts` | Yes |
-| Editing an ordered quantity re-derives expected supply; cannot drop below received quantity | `purchasing-receiving.spec.ts` | Yes |
+| Ordinary ordered-quantity edits re-derive expected supply; increases above received represent more ordered material | `purchasing-receiving.spec.ts` | Yes |
+| A confirmed below-received correction removes only available receipt stock across locations, preserves consumed/non-available history and unrelated untracked receipts, updates ordered/received quantities together, and is idempotent | `purchasing-receiving.spec.ts`; `purchasing-supply-and-receipt.spec.ts` (fast) | Yes |
 | Receive writes tracked lots or untracked bucket entries, releases matching expected supply, in one transaction (both-or-neither) | `purchasing-receiving.spec.ts` | Yes |
 | Partial receipt: only received part becomes stock; remainder stays expected | `purchasing-receiving.spec.ts` | Yes |
 | Full receipt: last remainder becomes stock; status Received; expected fully released | `purchasing-receiving.spec.ts` | Yes |

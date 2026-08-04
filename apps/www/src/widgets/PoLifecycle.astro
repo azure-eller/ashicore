@@ -62,7 +62,6 @@ const NODES = [
         { ok: true, text: "Edit lines, quantities, and costs" },
         { ok: true, text: "Receive stock (full or partial)" },
         { ok: true, text: "Delete — releases the expected supply" },
-        { ok: false, text: "Reduce a quantity below what's already received" },
       ],
       trans: [
         { label: "receive some", to: "partial" },
@@ -76,6 +75,7 @@ const NODES = [
       actions: [
         { ok: true, text: "Edit and receive the remaining lines" },
         { ok: true, text: "Edit a cost — revalues the stock still on hand" },
+        { ok: true, text: "Correct a received quantity after reviewing its impact" },
         { ok: true, text: "Delete — removes on-hand received stock, keeps used history" },
         { ok: false, text: "Remove an already-received line" },
       ],
@@ -91,8 +91,8 @@ const NODES = [
       actions: [
         { ok: true, text: "Edit a line price or by-value cost (revalues on-hand stock)" },
         { ok: true, text: "Add a line or increase a quantity → reopens to Partially Received" },
+        { ok: true, text: "Correct a received quantity after reviewing its impact" },
         { ok: true, text: "Delete — removes on-hand received stock, keeps used history" },
-        { ok: false, text: "Reduce a quantity below what's received" },
       ],
       trans: [
         { label: "add line / increase qty", to: "partial" },

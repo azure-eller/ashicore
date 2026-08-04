@@ -760,14 +760,39 @@ type PurchaseReceiptRemainder = {
   }>;
 };
 
+const STOCK_INCREASE_EVENT_TYPES = new Set([
+  "opening_balance",
+  "purchase_receipt",
+  "manufacturing_output",
+  "manual_adjustment_increase",
+  "stocktake_gain",
+  "manufacturing_variance_gain",
+  "unpick_restock",
+  "transfer_in",
+]);
+
+const STOCK_DECREASE_EVENT_TYPES = new Set([
+  "manual_adjustment_decrease",
+  "stocktake_loss",
+  "sales_consumption",
+  "manufacturing_ingredient_consumption",
+  "manufacturing_variance_loss",
+  "quality_scrap",
+  "transfer_out",
+]);
+
 // The current on-hand remainder of a purchase order's receipts. Tracked
 // receipts create one lot per receive line, so a receipt lot's live balance is
-// exactly the un-consumed remainder. Untracked receipts share the internal
-// bucket with every other source, so the removable remainder is capped at
-// min(received by this order, bucket on hand) per location.
+// exactly the un-consumed remainder. Untracked receipt provenance is replayed
+// FIFO within each shared internal bucket.
 export async function collectPurchaseReceiptRemainderInTx(
   tx: Tx,
-  params: { organizationId: string; purchaseOrderId: string },
+  params: {
+    organizationId: string;
+    purchaseOrderId: string;
+    itemId?: string;
+    purchaseOrderLineId?: string;
+  },
   options: { forUpdate?: boolean } = {}
 ): Promise<PurchaseReceiptRemainder> {
   const receiptRows = await tx
@@ -783,7 +808,13 @@ export async function collectPurchaseReceiptRemainderInTx(
         eq(inventoryEvents.organizationId, params.organizationId),
         eq(inventoryEvents.eventType, "purchase_receipt"),
         eq(inventoryEvents.referenceType, "purchase_order"),
-        eq(inventoryEvents.referenceId, params.purchaseOrderId)
+        eq(inventoryEvents.referenceId, params.purchaseOrderId),
+        ...(params.itemId ? [eq(inventoryEvents.itemId, params.itemId)] : []),
+        ...(params.purchaseOrderLineId
+          ? [
+              sql`${inventoryEvents.metadata}->>'purchaseOrderLineId' = ${params.purchaseOrderLineId}`,
+            ]
+          : [])
       )
     );
 
@@ -858,6 +889,7 @@ export async function collectPurchaseReceiptRemainderInTx(
     )
   )) {
     if (untrackedItemIds.has(row.itemId)) continue;
+    if (row.disposition !== DEFAULT_DISPOSITION) continue;
     const remainingReceived = trackedReceivedByLot.get(row.lotId) ?? 0;
     if (remainingReceived <= 0) continue;
     const quantity = Math.min(
@@ -877,38 +909,302 @@ export async function collectPurchaseReceiptRemainderInTx(
     );
   }
 
-  const untrackedReceived = new Map<
-    string,
-    { itemId: string; lotId: string; locationId: string; receivedQty: number }
-  >();
-  for (const receipt of receipts) {
-    if (!untrackedItemIds.has(receipt.itemId)) continue;
-    const key = `${receipt.itemId}:${receipt.locationId}`;
-    const current = untrackedReceived.get(key) ?? {
-      itemId: receipt.itemId,
-      lotId: receipt.lotId,
-      locationId: receipt.locationId,
-      receivedQty: 0,
-    };
-    current.receivedQty = roundQuantity(
-      current.receivedQty + parseFloat(receipt.quantity)
-    );
-    untrackedReceived.set(key, current);
-  }
   const untracked: PurchaseReceiptRemainder["untracked"] = [];
-  for (const entry of untrackedReceived.values()) {
-    const onHand = balanceRows
+  const untrackedLedgerRows =
+    untrackedItemIds.size === 0
+      ? []
+      : await tx
+          .select({
+            id: inventoryEvents.id,
+            parentEventId: inventoryEvents.parentEventId,
+            itemId: inventoryEvents.itemId,
+            lotId: inventoryEvents.lotId,
+            locationId: inventoryEvents.locationId,
+            eventType: inventoryEvents.eventType,
+            eventSubtype: inventoryEvents.eventSubtype,
+            quantity: inventoryEvents.quantity,
+            disposition: inventoryEvents.disposition,
+            fromDisposition: inventoryEvents.fromDisposition,
+            toDisposition: inventoryEvents.toDisposition,
+            referenceType: inventoryEvents.referenceType,
+            referenceId: inventoryEvents.referenceId,
+            occurredAt: inventoryEvents.occurredAt,
+            metadata: inventoryEvents.metadata,
+          })
+          .from(inventoryEvents)
+          .where(
+            and(
+              eq(inventoryEvents.organizationId, params.organizationId),
+              inArray(inventoryEvents.itemId, [...untrackedItemIds]),
+              inArray(inventoryEvents.lotId, lotIds),
+            ),
+          );
+
+  const untrackedBuckets = [
+    ...new Map(
+      receipts
+        .filter((receipt) => untrackedItemIds.has(receipt.itemId))
+        .map((receipt) => [
+          `${receipt.itemId}:${receipt.lotId}`,
+          { itemId: receipt.itemId, lotId: receipt.lotId },
+        ]),
+    ).values(),
+  ];
+  for (const entry of untrackedBuckets) {
+    type Layer = { target: boolean; quantity: number };
+    const layersByBucket = new Map<string, Layer[]>();
+    const movedByTransferOutEvent = new Map<string, Layer[]>();
+    const bucket = (locationId: string, disposition: InventoryDisposition) => {
+      const key = `${locationId}:${disposition}`;
+      const current = layersByBucket.get(key) ?? [];
+      layersByBucket.set(key, current);
+      return current;
+    };
+    const take = (
+      layers: Layer[],
+      quantity: number,
+      targetsOnly = false,
+    ): Layer[] => {
+      let remaining = quantity;
+      const taken: Layer[] = [];
+      for (const layer of layers) {
+        if (remaining <= 0) break;
+        if (targetsOnly && !layer.target) continue;
+        const consumed = Math.min(remaining, layer.quantity);
+        if (consumed <= 0) continue;
+        layer.quantity = roundQuantity(layer.quantity - consumed);
+        remaining = roundQuantity(remaining - consumed);
+        taken.push({ target: layer.target, quantity: consumed });
+      }
+      return taken;
+    };
+    const rows = untrackedLedgerRows
       .filter(
         (row) =>
           row.itemId === entry.itemId &&
-          row.locationId === entry.locationId &&
-          row.disposition === DEFAULT_DISPOSITION
+          row.lotId === entry.lotId,
       )
-      .reduce((sum, row) => roundQuantity(sum + parseFloat(row.quantity)), 0);
-    untracked.push({ ...entry, onHandQty: Math.min(entry.receivedQty, onHand) });
+      .sort(
+        (left, right) => {
+          const occurred = left.occurredAt.getTime() - right.occurredAt.getTime();
+          if (occurred !== 0) return occurred;
+          if (right.parentEventId === left.id) return -1;
+          if (left.parentEventId === right.id) return 1;
+          return left.id.localeCompare(right.id);
+        },
+      );
+
+    for (const row of rows) {
+      const quantity = roundQuantity(parseFloat(row.quantity));
+      if (row.eventType === "quality_disposition_change") {
+        const fromDisposition = (row.fromDisposition ?? DEFAULT_DISPOSITION) as InventoryDisposition;
+        const toDisposition = (row.toDisposition ?? DEFAULT_DISPOSITION) as InventoryDisposition;
+        const moved = take(bucket(row.locationId, fromDisposition), quantity);
+        bucket(row.locationId, toDisposition).push(...moved);
+        continue;
+      }
+      if (row.eventType === "transfer_in") {
+        const disposition = (row.toDisposition ?? row.disposition ?? DEFAULT_DISPOSITION) as InventoryDisposition;
+        const moved = row.parentEventId
+          ? movedByTransferOutEvent.get(row.parentEventId) ?? []
+          : [];
+        bucket(row.locationId, disposition).push(...moved);
+        continue;
+      }
+      if (STOCK_INCREASE_EVENT_TYPES.has(row.eventType)) {
+        const disposition = (row.toDisposition ?? row.disposition ?? DEFAULT_DISPOSITION) as InventoryDisposition;
+        bucket(row.locationId, disposition).push({
+          target:
+            row.eventType === "purchase_receipt" &&
+            row.referenceType === "purchase_order" &&
+            row.referenceId === params.purchaseOrderId &&
+            (!params.purchaseOrderLineId ||
+              row.metadata?.purchaseOrderLineId === params.purchaseOrderLineId),
+          quantity,
+        });
+        continue;
+      }
+      if (!STOCK_DECREASE_EVENT_TYPES.has(row.eventType)) continue;
+      const disposition = (row.fromDisposition ?? row.disposition ?? DEFAULT_DISPOSITION) as InventoryDisposition;
+      const targetsOnly =
+        row.eventSubtype === "purchase_receipt_quantity_correction" &&
+        row.referenceType === "purchase_order" &&
+        row.referenceId === params.purchaseOrderId &&
+        (!params.purchaseOrderLineId ||
+          row.metadata?.purchaseOrderLineId === params.purchaseOrderLineId);
+      const taken = take(
+        bucket(row.locationId, disposition),
+        quantity,
+        targetsOnly,
+      );
+      if (row.eventType === "transfer_out") {
+        movedByTransferOutEvent.set(row.id, taken);
+      }
+    }
+
+    for (const [key, layers] of layersByBucket) {
+      const separator = key.lastIndexOf(":");
+      const locationId = key.slice(0, separator);
+      const disposition = key.slice(separator + 1);
+      if (disposition !== DEFAULT_DISPOSITION) continue;
+      const onHandQty = layers
+        .filter((layer) => layer.target)
+        .reduce((sum, layer) => roundQuantity(sum + layer.quantity), 0);
+      if (onHandQty <= 0) continue;
+      untracked.push({
+        ...entry,
+        locationId,
+        receivedQty: onHandQty,
+        onHandQty,
+      });
+    }
   }
 
   return { itemIds, tracked, untracked };
+}
+
+export async function correctPurchaseReceiptQuantityInTx(
+  tx: Tx,
+  params: {
+    organizationId: string;
+    purchaseOrderId: string;
+    purchaseOrderLineId: string;
+    itemId: string;
+    stockQuantityToCorrect: number;
+    quantityOrderedBefore: string;
+    quantityReceivedBefore: string;
+    quantityCorrected: string;
+    actorUserId?: string | null;
+    idempotencyKey?: string | null;
+  },
+) {
+  const replay = await beginInventoryOperationInTx<{
+    auditEventId: string;
+    reversalEventIds: string[];
+    stockQuantityRemoved: string;
+    stockQuantityKeptInHistory: string;
+  }>(tx, {
+    organizationId: params.organizationId,
+    operationName: "correctPurchaseReceiptQuantity",
+    idempotencyKey: params.idempotencyKey ?? null,
+    payload: params,
+  });
+  if (replay.replayed) return replay.result;
+
+  await lockSourceDocumentInTx(
+    tx,
+    "correctPurchaseReceiptQuantity",
+    params.purchaseOrderId,
+  );
+  const remainder = await collectPurchaseReceiptRemainderInTx(
+    tx,
+    {
+      organizationId: params.organizationId,
+      purchaseOrderId: params.purchaseOrderId,
+      itemId: params.itemId,
+      purchaseOrderLineId: params.purchaseOrderLineId,
+    },
+    { forUpdate: true },
+  );
+  const removable = roundQuantity(
+    remainder.tracked.reduce((sum, row) => sum + row.quantity, 0) +
+      remainder.untracked.reduce((sum, row) => sum + row.onHandQty, 0),
+  );
+  const targetRemoval = Math.min(
+    roundQuantity(params.stockQuantityToCorrect),
+    removable,
+  );
+  const kept = roundQuantity(params.stockQuantityToCorrect - targetRemoval);
+  const location = await getDefaultInventoryLocationInTx(
+    tx,
+    params.organizationId,
+  );
+  const [audit] = await insertInventoryEventsInTx(tx, [
+    {
+      organizationId: params.organizationId,
+      locationId: location.id,
+      eventType: "purchase_receipt_correction",
+      eventSubtype: "purchase_quantity_correction",
+      itemId: params.itemId,
+      quantity: "0",
+      referenceType: "purchase_order",
+      referenceId: params.purchaseOrderId,
+      actorUserId: params.actorUserId ?? null,
+      idempotencyKey: deriveInventoryIdempotencyKey(
+        params.idempotencyKey,
+        "audit",
+      ),
+      metadata: {
+        purchaseOrderLineId: params.purchaseOrderLineId,
+        quantityOrderedBefore: params.quantityOrderedBefore,
+        quantityReceivedBefore: params.quantityReceivedBefore,
+        quantityCorrected: params.quantityCorrected,
+        stockQuantityRequested: normalizeNumeric(params.stockQuantityToCorrect),
+        stockQuantityRemoved: normalizeNumeric(targetRemoval),
+        stockQuantityKeptInHistory: normalizeNumeric(kept),
+      },
+    },
+  ]);
+
+  let remaining = targetRemoval;
+  const reversalEventIds: string[] = [];
+  const candidates = [
+    ...remainder.tracked.map((row) => ({
+      ...row,
+      available: row.quantity,
+      key: `${row.lotId}:${row.locationId}:${row.disposition}`,
+    })),
+    ...remainder.untracked.map((row) => ({
+      itemId: row.itemId,
+      lotId: row.lotId,
+      locationId: row.locationId,
+      disposition: DEFAULT_DISPOSITION as InventoryDisposition,
+      available: row.onHandQty,
+      key: `${row.lotId}:${row.locationId}:untracked`,
+    })),
+  ].sort((left, right) => right.key.localeCompare(left.key));
+
+  for (const row of candidates) {
+    const quantity = Math.min(remaining, row.available);
+    if (quantity <= 0) continue;
+    const { eventId } = await decrementExistingLotStockInTx(tx, {
+      organizationId: params.organizationId,
+      locationId: row.locationId,
+      itemId: row.itemId,
+      lotId: row.lotId,
+      quantity,
+      eventType: "manual_adjustment_decrease",
+      eventSubtype: "purchase_receipt_quantity_correction",
+      referenceType: "purchase_order",
+      referenceId: params.purchaseOrderId,
+      actorUserId: params.actorUserId ?? null,
+      idempotencyKey: deriveInventoryIdempotencyKey(
+        params.idempotencyKey,
+        `remove:${row.key}`,
+      ),
+      disposition: row.disposition,
+      metadata: {
+        purchaseOrderLineId: params.purchaseOrderLineId,
+        correctionEventId: audit.id,
+      },
+    });
+    reversalEventIds.push(eventId);
+    remaining = roundQuantity(remaining - quantity);
+  }
+
+  const result = {
+    auditEventId: audit.id,
+    reversalEventIds,
+    stockQuantityRemoved: normalizeNumeric(targetRemoval),
+    stockQuantityKeptInHistory: normalizeNumeric(kept),
+  };
+  await finishInventoryOperationInTx(tx, {
+    organizationId: params.organizationId,
+    idempotencyKey: params.idempotencyKey ?? null,
+    firstEventId: audit.id,
+    result,
+  });
+  return result;
 }
 
 // Compensating removal of a purchase order's un-consumed receipt remainder,
