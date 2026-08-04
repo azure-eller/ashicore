@@ -289,6 +289,8 @@ function createColumns(): ColDef<PurchaseOrderListRow>[] {
     {
       field: "totalAmount",
       headerName: "Total",
+      // Money right-aligns so decimal points stack down the column.
+      type: "numericColumn",
       width: 130,
       comparator: (left, right) =>
         parseFloat(String(left ?? "0")) - parseFloat(String(right ?? "0")),

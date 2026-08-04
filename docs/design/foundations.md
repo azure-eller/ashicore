@@ -23,7 +23,15 @@ Use readable density by default. The system intentionally favors more rows and l
 
 Use shared height and spacing tokens from [app/styles/theme.css](../../app/styles/theme.css). Do not tune row height, toolbar height, or input height per page unless a new shared token or component variant is warranted.
 
-The current scale is deliberately larger than the small-canvas handoff while keeping the same proportions. Do not shrink type, icons, nav, or table rows locally to recover the older compact density.
+The current scale is deliberately roomier than the prototypes. Do not shrink type, icons, nav, or table rows locally to recover the older compact density.
+
+Design handoffs specify literal 1:1 pixel values for a 1440px screen. Their preview renders are scaled down to fit a small pane; that is a preview artifact, not the design's scale. Do not multiply handoff values by a correction factor — see [ADR 0003](decisions/0003-token-grid.md).
+
+## Grid
+
+Spacing, height, and leading tokens sit on a 4px rhythm; 2px and 6px are the only spacing sub-steps, reserved for hairlines and tight insets. Type sizes stay at least 8% apart, because two sizes closer than that are perceptually identical while still breaking alignment.
+
+`pnpm verify:design-grid` runs inside `pnpm lint` and fails on any off-grid token. When a component needs a size, take it from a token rather than a literal, so it inherits the rhythm.
 
 ## Color Semantics
 

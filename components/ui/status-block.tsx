@@ -120,8 +120,10 @@ function StatusBlockContent({
           footer
             ? "relative inline-flex min-w-0 flex-1 items-center px-(--space-5)"
             : isFramed
-              ? "inline-flex items-center px-(--space-6) py-[8px]"
-              : "inline-flex items-center px-[9px] py-(--space-3)",
+              ? "inline-flex items-center px-(--space-6) py-(--space-4)"
+              // Explicit on-grid height: without it the chip is content-sized
+              // and lands at 25px, one pixel off every control beside it.
+              : "inline-flex h-(--height-chip) items-center px-(--space-4)",
         )}
       >
         <span className="inline-flex min-w-0 items-center">

@@ -17,6 +17,12 @@ import {
 
 export const unitId = getUnitId();
 
+// Ash stories drive the real model provider. When the account has no credits or
+// no key, the provider's own message is what lands in the chat transcript, so
+// match the wordings it actually emits rather than a single fixed phrase.
+export const PROVIDER_UNAVAILABLE =
+  /exceeded your current quota|check your plan and billing details|no credits remaining|add credits to continue|insufficient_quota|missing credentials.*OPENAI_API_KEY/i;
+
 export function uniqueName(prefix: string) {
   return `${prefix} ${Date.now()} ${Math.floor(Math.random() * 10000)}`;
 }

@@ -158,41 +158,44 @@
   --font-body: var(--font-sans);
   --font-display: var(--font-app-display), "Space Grotesk", system-ui, sans-serif;
   --font-mono: var(--font-app-mono), "Space Grotesk", system-ui, sans-serif;
-  /* Type scale: full-screen scale dialed down ~0.82x from the handoff push so
-     the table cell reads at 16px; everything else scales proportionally. */
-  --text-3xs: 10.5px;
+  /* Type scale: eight steps, each at least 8% from its neighbour so a size
+     change reads as hierarchy rather than as inconsistency. Sizes below that
+     threshold are perceptually identical (13.5 vs 14 is 3.7%) but still break
+     alignment, which is what made the old fourteen-value scale read as mush.
+     Distinct sizes: 11 / 12 / 13 / 14.5 / 16 / 19 / 23 / 29. */
+  --text-3xs: 11px;
   --text-2xs: 11px;
   --text-label: 11px;
   --leading-2xs: 16px;
   --text-xs: 12px;
-  --leading-xs: 17px;
+  --leading-xs: 16px;
   --text-status: 13px;
   --text-card-label: var(--text-status);
   --text-card-header: var(--text-status);
-  --text-card-title: 21px;
+  --text-card-title: 23px;
   --text-grid-header: var(--text-status);
-  --text-sm: 13.5px;
+  --text-sm: 13px;
   --leading-sm: 20px;
-  --text-ui: 14px;
+  --text-ui: 14.5px;
   --text-base: 14.5px;
-  --leading-base: 21px;
-  --text-control: 15px;
+  --leading-base: 20px;
+  --text-control: 14.5px;
   --text-card-caption: var(--text-control);
   --text-grid-control: var(--text-control);
   --text-grid-mono: var(--text-control);
-  --text-md: 15.5px;
-  --leading-md: 23px;
+  --text-md: 16px;
+  --leading-md: 24px;
   --text-card-control-mono: var(--text-md);
   --text-grid-number: var(--text-md);
   --text-table: 16px;
   --text-card-control: var(--text-table);
   --text-grid-cell: var(--text-table);
   --text-lg: 19px;
-  --leading-lg: 27px;
+  --leading-lg: 28px;
   --text-xl: 23px;
-  --leading-xl: 31px;
+  --leading-xl: 32px;
   --text-2xl: 29px;
-  --leading-2xl: 37px;
+  --leading-2xl: 36px;
   --weight-regular: 400;
   --weight-medium: 500;
   --weight-semibold: 600;
@@ -202,40 +205,44 @@
   --tracking-wide: 0.04em;
   --tracking-caps: 0.05em;
 
-  /* Spacing + icon scale (icons size off --space-N): scaled ~1.25x so icons,
-     gaps, and paddings grow with the larger type to match handoff proportions. */
+  /* Spacing + icon scale (icons size off --space-N). Strict 4px rhythm; 2px and
+     6px are the only sub-steps, reserved for hairlines and tight insets. Every
+     value here is on-grid — see the note on the type scale above. */
   --space-0: 0;
   --space-1: 2px;
   --space-2: 4px;
   --space-3: 6px;
   --space-4: 8px;
-  --space-5: 11px;
+  --space-5: 12px;
   --space-6: 12px;
-  --space-7: 15px;
+  --space-7: 16px;
   --space-8: 16px;
   --space-10: 20px;
   --space-12: 24px;
-  --space-16: 33px;
-  --space-20: 41px;
-  --space-24: 49px;
+  --space-16: 32px;
+  --space-20: 40px;
+  --space-24: 48px;
 
-  --height-row-dense: 43px;
+  /* Control and row heights, all on the 4px grid so chips, buttons, inputs and
+     rows share one horizontal rhythm and align against each other. */
+  --height-row-dense: 44px;
   --height-row-comfy: 52px;
-  --height-toolbar: 57px;
+  --height-toolbar: 56px;
   --height-subnav: 52px;
   --height-nav: 64px;
-  --height-statusbar: 43px;
-  --height-input-sm: 31px;
-  --height-input-md: 43px;
+  --height-statusbar: 44px;
+  --height-chip: 24px;
+  --height-input-sm: 32px;
+  --height-input-md: 44px;
   --height-input-lg: 52px;
   --height-header-control: 36px;
-  --height-menu-item: 35px;
-  --height-grid-action-control: 41px;
+  --height-menu-item: 36px;
+  --height-grid-action-control: 40px;
   --height-grid-toolbar-control: 44px;
-  --height-topnav-control: 43px;
-  --height-card-table-header: 35px;
-  --height-card-table-row: 43px;
-  --height-framed-table-header: 39px;
+  --height-topnav-control: 44px;
+  --height-card-table-header: 36px;
+  --height-card-table-row: 44px;
+  --height-framed-table-header: 40px;
   --height-framed-table-row: 48px;
 
   --shadow-none: none;

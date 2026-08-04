@@ -21,7 +21,12 @@ import {
 } from "../../helpers/api";
 import { TEST_ACCOUNT_EMAIL } from "../../helpers/test-account";
 import { PDFDocument } from "pdf-lib";
-import { createMaterialFixture, expectResponse, unitId } from "./story-helpers";
+import {
+  createMaterialFixture,
+  expectResponse,
+  PROVIDER_UNAVAILABLE,
+  unitId,
+} from "./story-helpers";
 
 test.describe("purchasing receiving operating story", () => {
   test.describe.configure({ mode: "serial" });
@@ -57,7 +62,16 @@ test.describe("purchasing receiving operating story", () => {
     );
     await composer.press("Enter");
 
-    await expect(page.getByText("Staged · not applied")).toBeVisible({ timeout: 120_000 });
+    const stagedProposal = page.getByText("Staged · not applied");
+    const providerUnavailable = page.getByText(PROVIDER_UNAVAILABLE);
+    await expect(stagedProposal.or(providerUnavailable)).toBeVisible({
+      timeout: 120_000,
+    });
+    test.info().skip(
+      await providerUnavailable.isVisible(),
+      "OpenAI is unavailable for the real-agent purchasing story.",
+    );
+    await expect(stagedProposal).toBeVisible();
 
     const beforeApprove = await db
       .select({ id: purchaseOrders.id })

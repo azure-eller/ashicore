@@ -257,7 +257,7 @@ test.describe("Team access", () => {
     await page.getByLabel("Work email").fill(orgOwnerEmail);
     await page.getByLabel(/^Password$/).fill(orgOwnerPassword);
     await page.getByLabel(/^Confirm Password$/).fill(orgOwnerPassword);
-    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
     await page.waitForURL((url) =>
       ["/two-factor", "/org-setup"].includes(url.pathname)
     );
@@ -266,7 +266,7 @@ test.describe("Team access", () => {
 
     const orgName = `Fresh Org ${run}`;
     await page.getByLabel("Organization name").fill(orgName);
-    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByRole("button", { name: "Continue", exact: true }).click();
     await page.waitForURL("**/sales/orders");
 
     const [ownerUser] = await db.select().from(user).where(eq(user.email, orgOwnerEmail));

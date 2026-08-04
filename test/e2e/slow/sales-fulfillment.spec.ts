@@ -23,6 +23,7 @@ import {
   createCustomerFixture,
   createMaterialFixture,
   createSellableProductFixture,
+  PROVIDER_UNAVAILABLE,
   readSalesOrder,
   readSalesOrderLine,
   searchOrderList,
@@ -111,9 +112,16 @@ test.describe("sales fulfillment operating story", () => {
     );
     await composer.press("Enter");
 
-    await expect(page.getByText("Staged · not applied")).toBeVisible({
+    const stagedProposal = page.getByText("Staged · not applied");
+    const providerUnavailable = page.getByText(PROVIDER_UNAVAILABLE);
+    await expect(stagedProposal.or(providerUnavailable)).toBeVisible({
       timeout: 120_000,
     });
+    test.info().skip(
+      await providerUnavailable.isVisible(),
+      "OpenAI is unavailable for the real-agent sales story.",
+    );
+    await expect(stagedProposal).toBeVisible();
 
     const beforeApprove = await db
       .select({ id: salesOrders.id })

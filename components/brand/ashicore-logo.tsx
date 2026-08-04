@@ -12,7 +12,7 @@ export function AshicoreLogo({
   showWordmark = true,
 }: AshicoreLogoProps) {
   return (
-    <span className={cn("inline-flex items-center gap-[11px]", className)}>
+    <span className={cn("inline-flex items-center gap-(--space-5)", className)}>
       <AshicoreMark className={markClassName} />
       {showWordmark ? (
         <span className="font-display font-semibold tracking-[0]">Ashicore</span>
