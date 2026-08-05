@@ -37,7 +37,10 @@ test.describe("purchasing receiving operating story", () => {
   let orderNumber: string;
   let lineId: string;
 
-  test("Ash stages a purchase order and approval creates a booked order", async ({ db, page }) => {
+  test.skip(
+    "Ash stages a purchase order and approval creates a booked order",
+    "Disabled while the GitHub Actions OpenAI account has no credits.",
+    async ({ db, page }) => {
     // Real LLM turns (discover → query → stage) precede the staging wait, so this
     // needs a budget beyond the 90s default — same as the sales staging test.
     test.setTimeout(180_000);
@@ -103,7 +106,8 @@ test.describe("purchasing receiving operating story", () => {
     expect(lines[0].itemId).toBe(material.id);
     expect(Number(lines[0].quantityOrdered)).toBe(5);
     expect(Number(lines[0].unitCost)).toBe(4.5);
-  });
+    },
+  );
 
   test("creates a purchase order as expected supply", async ({ db, page }) => {
     const material = await createMaterialFixture({
