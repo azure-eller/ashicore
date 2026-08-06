@@ -120,8 +120,17 @@ export type MarketingActivityMetadata = {
   promptVersion: string;
   corpusVersion: string;
   gmailMessageId?: string;
+  gmailRfcMessageId?: string;
   gmailThreadId?: string;
   followUpMessageId?: string;
+  followUpRfcMessageId?: string;
+  followUpSubject?: string;
+  followUpBody?: string;
+  followUpEvaluatorVerdict?: {
+    verdict: "pass" | "rewrite";
+    reasons: string[];
+    offendingPhrases: string[];
+  };
   replyMessageId?: string;
   replyMessageIds?: string[];
   replyOutcome?: (typeof MARKETING_REPLY_OUTCOMES)[number];

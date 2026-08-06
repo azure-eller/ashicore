@@ -260,6 +260,29 @@ async function loadCandidate(orgId: string, contactId: string) {
   });
 }
 
+async function contactCanReceiveMarketing(
+  orgId: string,
+  contactId: string,
+  email: string,
+) {
+  return withOrgContext(orgId, async (tx) => {
+    const [contact] = await tx
+      .select({ id: customerContacts.id })
+      .from(customerContacts)
+      .innerJoin(customers, eq(customers.id, customerContacts.customerId))
+      .where(
+        and(
+          eq(customerContacts.id, contactId),
+          eq(customerContacts.email, email),
+          isNull(customerContacts.deletedAt),
+          isNull(customerContacts.outreachSuppressedAt),
+          isNull(customers.deletedAt),
+        ),
+      );
+    return Boolean(contact);
+  });
+}
+
 function complianceFooter() {
   const senderName = env.MARKETING_SENDER_NAME?.trim();
   const postalAddress = env.MARKETING_POSTAL_ADDRESS?.trim();
@@ -498,6 +521,22 @@ async function processCandidate(args: {
     }
 
     let sent: Awaited<ReturnType<typeof sendGmailMessage>>;
+    if (
+      !(await contactCanReceiveMarketing(
+        args.orgId,
+        candidate.id,
+        recipientEmail,
+      ))
+    ) {
+      await markContact({
+        orgId: args.orgId,
+        experimentId: args.experiment.id,
+        contactId: args.contactId,
+        leaseId: args.leaseId,
+        patch: { status: "skipped", reason: "Contact is no longer eligible for outreach." },
+      });
+      return "skipped" as const;
+    }
     try {
       sent = await sendGmailMessage({
         orgId: args.orgId,
@@ -514,6 +553,7 @@ async function processCandidate(args: {
               ...deliveryMetadata,
               deliveryStatus: "sent",
               gmailMessageId: sent.id,
+              gmailRfcMessageId: sent.rfcMessageId,
               gmailThreadId: sent.threadId,
             },
             updatedAt: new Date(),
@@ -695,7 +735,7 @@ async function sendDueFollowUps(args: {
       return row;
     });
     const metadata = activity?.marketingMetadata;
-    if (!metadata?.gmailThreadId || !metadata.gmailMessageId) continue;
+    if (!metadata?.gmailThreadId || !metadata.gmailRfcMessageId) continue;
     const draft = await generateMarketingFollowUp({
       recipient: candidate.name,
       originalSubject: metadata.subject,
@@ -713,6 +753,17 @@ async function sendDueFollowUps(args: {
     if (verdict.verdict !== "pass") continue;
     const active = await loadActiveExperiment(args.orgId);
     if (!active || active.id !== args.experiment.id) break;
+    if (
+      !(await contactCanReceiveMarketing(args.orgId, contactId, recipientEmail))
+    ) {
+      await markContact({
+        orgId: args.orgId,
+        experimentId: args.experiment.id,
+        contactId,
+        patch: { status: "skipped", reason: "Contact is no longer eligible for outreach." },
+      });
+      continue;
+    }
     let sent: Awaited<ReturnType<typeof sendGmailMessage>>;
     try {
       sent = await sendGmailMessage({
@@ -722,7 +773,7 @@ async function sendDueFollowUps(args: {
         text: draft.body,
         idempotencyKey: `marketing:${args.experiment.id}:${contactId}:follow-up`,
         threadId: metadata.gmailThreadId,
-        inReplyTo: metadata.gmailMessageId,
+        inReplyTo: metadata.gmailRfcMessageId,
       });
     } catch (error) {
       await pauseForDeliveryFailure({
@@ -737,7 +788,14 @@ async function sendDueFollowUps(args: {
       tx
         .update(customerActivities)
         .set({
-          marketingMetadata: { ...metadata, followUpMessageId: sent.id },
+          marketingMetadata: {
+            ...metadata,
+            followUpMessageId: sent.id,
+            followUpRfcMessageId: sent.rfcMessageId,
+            followUpSubject: draft.subject,
+            followUpBody: draft.body,
+            followUpEvaluatorVerdict: verdict,
+          },
           updatedAt: new Date(),
         })
         .where(eq(customerActivities.id, activity.id)),

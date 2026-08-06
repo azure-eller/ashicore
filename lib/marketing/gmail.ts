@@ -283,7 +283,7 @@ export async function sendGmailMessage(args: {
         if (error.code !== "EEXIST") throw error;
       },
     );
-    return { id: stableId, threadId: value.threadId };
+    return { id: stableId, threadId: value.threadId, rfcMessageId: stableId };
   }
 
   const { accessToken, mailbox } = await activeAccessToken(args.orgId);
@@ -291,9 +291,9 @@ export async function sendGmailMessage(args: {
     messages?: Array<{ id: string; threadId: string }>;
   }>(accessToken, `/messages?q=${encodeURIComponent(`rfc822msgid:${stableId}`)}`);
   if (existing.messages?.[0]) {
-    return existing.messages[0];
+    return { ...existing.messages[0], rfcMessageId: stableId };
   }
-  return gmailFetch<{ id: string; threadId: string }>(accessToken, "/messages/send", {
+  const sent = await gmailFetch<{ id: string; threadId: string }>(accessToken, "/messages/send", {
     method: "POST",
     body: JSON.stringify({
       raw: base64Url(
@@ -309,6 +309,7 @@ export async function sendGmailMessage(args: {
       threadId: args.threadId,
     }),
   });
+  return { ...sent, rfcMessageId: stableId };
 }
 
 function decodeBody(payload: {
