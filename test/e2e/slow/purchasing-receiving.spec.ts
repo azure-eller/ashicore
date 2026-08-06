@@ -37,7 +37,8 @@ test.describe("purchasing receiving operating story", () => {
   let orderNumber: string;
   let lineId: string;
 
-  test.skip("Ash stages a purchase order and approval creates a booked order", async ({ db, page }) => {
+  test("Ash stages a purchase order and approval creates a booked order", async ({ db, page }) => {
+    test.info().skip(true, "CI OpenAI credits are temporarily unavailable");
     test.setTimeout(180_000);
 
     const material = await createMaterialFixture({

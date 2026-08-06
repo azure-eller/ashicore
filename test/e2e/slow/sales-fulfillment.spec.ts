@@ -86,10 +86,11 @@ test.describe("sales fulfillment operating story", () => {
   let orderId: string;
   let orderNumber: string;
 
-  test.skip("Ash stages a sales order proposal and approval commits the edited draft", async ({
+  test("Ash stages a sales order proposal and approval commits the edited draft", async ({
     db,
     page,
   }) => {
+    test.info().skip(true, "CI OpenAI credits are temporarily unavailable");
     test.setTimeout(180_000);
 
     const customer = await createCustomerFixture({
