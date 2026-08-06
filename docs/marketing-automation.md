@@ -112,6 +112,8 @@ metadata records supplied evidence, generated and final copy, evaluator
 verdicts, model/prompt/corpus versions, Gmail IDs, and reply outcome.
 
 The completion report records sent, delivered, bounced, positive replies,
-valid-delivery rate, and qualified-positive-reply rate. It stores one bounded
-learning and proposes one changed variable; it never launches the next
-experiment. Opens are not a reward signal.
+valid-delivery rate, and positive-reply rate among valid deliveries. It stores
+one bounded learning and proposes one changed variable; it never launches the
+next experiment. The experiment completes only after every contact is terminal
+and seven days have passed since the last initial or follow-up send. Opens are
+not a reward signal.
