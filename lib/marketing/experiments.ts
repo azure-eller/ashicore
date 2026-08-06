@@ -24,6 +24,8 @@ function initialState(config: MarketingExperimentConfig) {
           status: "pending" as const,
           processingLeaseId: null,
           processingLeaseExpiresAt: null,
+          followUpLeaseId: null,
+          followUpLeaseExpiresAt: null,
           activityId: null,
           sentAt: null,
           followUpSentAt: null,
