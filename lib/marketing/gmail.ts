@@ -202,13 +202,20 @@ async function activeAccessToken(orgId: string) {
         refresh_token: refreshToken,
       }),
     );
-    const encrypted = encryptGoogleToken(refreshed.access_token!);
+    const encryptedAccess = encryptGoogleToken(refreshed.access_token!);
+    const encryptedRefresh = encryptGoogleToken(
+      refreshed.refresh_token ?? refreshToken,
+    );
+    if (encryptedAccess.keyId !== encryptedRefresh.keyId) {
+      throw new DomainError("Google token encryption key changed during refresh.", 500);
+    }
     const tokenExpiresAt = new Date(Date.now() + (refreshed.expires_in ?? 3_600) * 1_000);
     await tx
       .update(marketingMailboxes)
       .set({
-        accessTokenCiphertext: encrypted.ciphertext,
-        tokenEncryptionKeyId: encrypted.keyId,
+        accessTokenCiphertext: encryptedAccess.ciphertext,
+        refreshTokenCiphertext: encryptedRefresh.ciphertext,
+        tokenEncryptionKeyId: encryptedAccess.keyId,
         tokenExpiresAt,
         updatedAt: new Date(),
       })
