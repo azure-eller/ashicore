@@ -811,7 +811,7 @@ async function prepareCreateIngredientsInTx(
       const recipeBasis = normalizeRecipeBasis(row.recipeBasis);
 
       return {
-        bomRevisionComponentId: row.id,
+        bomRevisionComponentId: row.bomRevisionComponentId,
         itemId: selected.itemId,
         itemName: selected.itemName,
         itemSku: selected.itemSku,
@@ -950,7 +950,7 @@ async function prepareCreateIngredientsFromBomInTx(
       const recipeBasis = normalizeRecipeBasis(row.recipeBasis);
 
       return {
-        bomRevisionComponentId: row.id,
+        bomRevisionComponentId: row.bomRevisionComponentId,
         itemId: row.itemId,
         itemName: row.itemName,
         itemSku: row.itemSku,

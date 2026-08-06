@@ -51,9 +51,6 @@ import {
 import {
   calculatePlannedOperationCost,
 } from "@/lib/manufacturing/operation-costs";
-import {
-  derivePurchaseToStockFactor,
-} from "@/lib/units-of-measure";
 import { InventoryError } from "./errors";
 
 export type BomInputRow = {

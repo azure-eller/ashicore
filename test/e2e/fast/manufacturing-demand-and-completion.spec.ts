@@ -2738,11 +2738,13 @@ test.describe("manufacturing demand and completion heartbeat", () => {
 
   test("BOM alternate quantity is server-owned, and swapping is allowed until the ingredient is picked", async ({
     db,
+    page,
   }) => {
     const unique = randomUUID().slice(0, 8);
+    const baseName = `Alt Base ${unique}`;
     const base = await createItem({
       itemType: "material",
-      name: `Alt Base ${unique}`,
+      name: baseName,
       unitDefinitionId: unitId,
       sku: `ALT-BASE-${unique}`,
       category: `Alt Qty ${ts}`,
@@ -2820,6 +2822,7 @@ test.describe("manufacturing demand and completion heartbeat", () => {
     const [created] = await db
       .select({
         id: manufacturingOrderIngredients.id,
+        bomRevisionComponentId: manufacturingOrderIngredients.bomRevisionComponentId,
         itemId: manufacturingOrderIngredients.itemId,
         quantityPerUnit: manufacturingOrderIngredients.quantityPerUnit,
       })
@@ -2849,6 +2852,17 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       .from(manufacturingOrderIngredients)
       .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
     expect(swapped).toMatchObject({ itemId: base.body.id, quantityPerUnit: "12.0000" });
+
+    const evidenceDir = process.env.NO_MISTAKES_EVIDENCE_DIR;
+    if (evidenceDir) {
+      await page.goto(`/manufacturing/orders/${orderId}`);
+      await expect(page.getByText(baseName, { exact: false }).first()).toBeVisible();
+      await fs.mkdir(evidenceDir, { recursive: true });
+      await page.screenshot({
+        path: path.join(evidenceDir, "bom-alternate-unpicked-swap.png"),
+        fullPage: true,
+      });
+    }
 
     const picked = await testFetch(
       `/api/manufacturing-orders/${orderId}/ingredients/${created.id}/pick`,
