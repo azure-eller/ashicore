@@ -23,6 +23,7 @@ import {
   createCustomerFixture,
   createMaterialFixture,
   createSellableProductFixture,
+  PROVIDER_UNAVAILABLE,
   readSalesOrder,
   readSalesOrderLine,
   searchOrderList,
@@ -84,6 +85,69 @@ test.describe("sales fulfillment operating story", () => {
   let customerId: string;
   let orderId: string;
   let orderNumber: string;
+
+  test.skip("Ash stages a sales order proposal and approval commits the edited draft", async ({
+    db,
+    page,
+  }) => {
+    test.setTimeout(180_000);
+
+    const customer = await createCustomerFixture({
+      name: "Ash Sales Approval Customer",
+      email: "ash-sales-approval@example.com",
+    });
+    const product = await createSellableProductFixture({
+      name: "Ash Sales Approval Product",
+      price: "24.00",
+    });
+
+    await page.goto("/sales/orders");
+    await page.getByRole("button", { name: "Open Ash assistant" }).click();
+
+    const composer = page.locator("#dashboard-agent-chat-sheet textarea");
+    await composer.fill(
+      `Create a sales order for the customer "${customer.name}" with 3 units of the product "${product.name}". Use the query tool to find their ids first, then propose the order. Do not ask me to confirm.`
+    );
+    await composer.press("Enter");
+
+    const stagedProposal = page.getByText("Staged · not applied");
+    const providerUnavailable = page.getByText(PROVIDER_UNAVAILABLE);
+    await expect(stagedProposal.or(providerUnavailable)).toBeVisible({
+      timeout: 120_000,
+    });
+    test.info().skip(
+      await providerUnavailable.isVisible(),
+      "OpenAI is unavailable for the real-agent sales story.",
+    );
+    await expect(stagedProposal).toBeVisible();
+
+    const beforeApprove = await db
+      .select({ id: salesOrders.id })
+      .from(salesOrders)
+      .where(eq(salesOrders.customerId, customer.id));
+    expect(beforeApprove).toHaveLength(0);
+
+    await page.getByRole("button", { name: "Review", exact: true }).click();
+    await expect(page.getByText("Review changes")).toBeVisible();
+
+    await page.getByLabel(new RegExp(`Quantity for ${product.name}`)).fill("5");
+    await page.getByRole("button", { name: /Approve/ }).click();
+    await expect(page.getByText("Sales order created")).toBeVisible({ timeout: 30_000 });
+
+    const orders = await db
+      .select({ id: salesOrders.id })
+      .from(salesOrders)
+      .where(eq(salesOrders.customerId, customer.id));
+    expect(orders).toHaveLength(1);
+
+    const lines = await db
+      .select({ itemId: salesOrderLines.itemId, quantity: salesOrderLines.quantity })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, orders[0].id));
+    expect(lines).toHaveLength(1);
+    expect(lines[0].itemId).toBe(product.id);
+    expect(Number(lines[0].quantity)).toBe(5);
+  });
 
   test("creates customer context and sales demand without consuming stock", async ({ db, page }) => {
     const component = await createMaterialFixture({
