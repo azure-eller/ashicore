@@ -711,16 +711,40 @@ async function sendDueFollowUps(args: {
   now: Date;
   limit: number;
 }) {
-  const state = marketingExperimentStateSchema.parse(args.experiment.state);
-  const due = Object.entries(state.contactProgress)
-    .filter(([, row]) =>
-      row.status === "sent" &&
-      row.outcome == null &&
-      row.followUpSentAt == null &&
-      row.sentAt != null &&
-      args.now.getTime() - new Date(row.sentAt).getTime() >= FOLLOW_UP_AFTER_MS,
-    )
-    .slice(0, args.limit);
+  const leaseId = randomUUID();
+  const leaseExpiresAt = new Date(args.now.getTime() + PROCESSING_LEASE_MS).toISOString();
+  const due = await withOrgContext(args.orgId, async (tx) => {
+    const [row] = await tx
+      .select({ state: marketingExperiments.state, status: marketingExperiments.status })
+      .from(marketingExperiments)
+      .where(eq(marketingExperiments.id, args.experiment.id))
+      .for("update");
+    if (!row || row.status !== "active") return [];
+    const state = marketingExperimentStateSchema.parse(row.state);
+    const claimed = Object.entries(state.contactProgress)
+      .filter(([, progress]) =>
+        progress.status === "sent" &&
+        progress.outcome == null &&
+        progress.followUpSentAt == null &&
+        progress.sentAt != null &&
+        args.now.getTime() - new Date(progress.sentAt).getTime() >= FOLLOW_UP_AFTER_MS &&
+        (!progress.followUpLeaseExpiresAt ||
+          new Date(progress.followUpLeaseExpiresAt).getTime() <= args.now.getTime()),
+      )
+      .slice(0, args.limit);
+    for (const [contactId, progress] of claimed) {
+      state.contactProgress[contactId] = {
+        ...progress,
+        followUpLeaseId: leaseId,
+        followUpLeaseExpiresAt: leaseExpiresAt,
+      };
+    }
+    await tx
+      .update(marketingExperiments)
+      .set({ state, updatedAt: new Date() })
+      .where(eq(marketingExperiments.id, args.experiment.id));
+    return claimed;
+  });
   const corpus = await assertMarketingCorpusReady();
   let sentTotal = 0;
   for (const [contactId, progress] of due) {
@@ -753,6 +777,12 @@ async function sendDueFollowUps(args: {
     if (verdict.verdict !== "pass") continue;
     const active = await loadActiveExperiment(args.orgId);
     if (!active || active.id !== args.experiment.id) break;
+    const activeProgress = marketingExperimentStateSchema.parse(active.state).contactProgress[contactId];
+    if (
+      activeProgress?.followUpLeaseId !== leaseId ||
+      !activeProgress.followUpLeaseExpiresAt ||
+      new Date(activeProgress.followUpLeaseExpiresAt).getTime() <= Date.now()
+    ) continue;
     if (
       !(await contactCanReceiveMarketing(args.orgId, contactId, recipientEmail))
     ) {
@@ -764,13 +794,14 @@ async function sendDueFollowUps(args: {
       });
       continue;
     }
+    const body = `${draft.body}${complianceFooter()}`;
     let sent: Awaited<ReturnType<typeof sendGmailMessage>>;
     try {
       sent = await sendGmailMessage({
         orgId: args.orgId,
         to: recipientEmail,
         subject: draft.subject,
-        text: draft.body,
+        text: body,
         idempotencyKey: `marketing:${args.experiment.id}:${contactId}:follow-up`,
         threadId: metadata.gmailThreadId,
         inReplyTo: metadata.gmailRfcMessageId,
@@ -793,7 +824,7 @@ async function sendDueFollowUps(args: {
             followUpMessageId: sent.id,
             followUpRfcMessageId: sent.rfcMessageId,
             followUpSubject: draft.subject,
-            followUpBody: draft.body,
+            followUpBody: body,
             followUpEvaluatorVerdict: verdict,
           },
           updatedAt: new Date(),
@@ -804,7 +835,7 @@ async function sendDueFollowUps(args: {
       orgId: args.orgId,
       experimentId: args.experiment.id,
       contactId,
-      patch: { followUpSentAt },
+      patch: { followUpSentAt, followUpLeaseId: null, followUpLeaseExpiresAt: null },
       lastSentAt: followUpSentAt,
     });
     sentTotal += 1;

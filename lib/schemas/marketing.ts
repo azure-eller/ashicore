@@ -45,6 +45,8 @@ export const marketingContactProgressSchema = z.object({
   processingLeaseExpiresAt: z.string().datetime().nullable().default(null),
   activityId: z.string().uuid().nullable().default(null),
   sentAt: z.string().datetime().nullable().default(null),
+  followUpLeaseId: z.string().uuid().nullable().default(null),
+  followUpLeaseExpiresAt: z.string().datetime().nullable().default(null),
   followUpSentAt: z.string().datetime().nullable().default(null),
   outcome: z.enum(MARKETING_REPLY_OUTCOMES).nullable().default(null),
   reason: z.string().nullable().default(null),

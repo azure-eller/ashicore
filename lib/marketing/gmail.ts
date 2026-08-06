@@ -312,17 +312,21 @@ export async function sendGmailMessage(args: {
   return { ...sent, rfcMessageId: stableId };
 }
 
-function decodeBody(payload: {
+type GmailMessagePart = {
   body?: { data?: string };
-  parts?: Array<{ mimeType?: string; body?: { data?: string }; parts?: unknown[] }>;
-}): string {
-  const direct = payload.body?.data;
-  if (direct) return Buffer.from(direct, "base64url").toString("utf8");
-  for (const part of payload.parts ?? []) {
-    if (part.mimeType === "text/plain" && part.body?.data) {
-      return Buffer.from(part.body.data, "base64url").toString("utf8");
-    }
+  mimeType?: string;
+  parts?: GmailMessagePart[];
+};
+
+function decodeBody(payload: GmailMessagePart): string {
+  if (payload.mimeType === "text/plain" && payload.body?.data) {
+    return Buffer.from(payload.body.data, "base64url").toString("utf8");
   }
+  for (const part of payload.parts ?? []) {
+    const text = decodeBody(part);
+    if (text) return text;
+  }
+  if (payload.body?.data) return Buffer.from(payload.body.data, "base64url").toString("utf8");
   return "";
 }
 
@@ -376,7 +380,7 @@ export async function readNewGmailMessages(orgId: string) {
         payload: {
           headers?: Array<{ name: string; value: string }>;
           body?: { data?: string };
-          parts?: Array<{ mimeType?: string; body?: { data?: string } }>;
+          parts?: GmailMessagePart[];
         };
       }>(accessToken, `/messages/${id}?format=full`);
       const headers = new Map(
