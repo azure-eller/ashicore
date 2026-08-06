@@ -122,6 +122,7 @@ async function getEditableManufacturingIngredientSnapshotInTx(
   const batchRows = await tx
     .select({
       id: manufacturingOrderIngredients.id,
+      bomRevisionComponentId: manufacturingOrderIngredients.bomRevisionComponentId,
       itemId: manufacturingOrderIngredients.itemId,
       itemName: manufacturingOrderIngredients.itemName,
       itemSku: manufacturingOrderIngredients.itemSku,
@@ -170,6 +171,7 @@ async function getEditableManufacturingIngredientSnapshotInTx(
 
     rows.push({
       id: row.id,
+      bomRevisionComponentId: row.bomRevisionComponentId,
       itemId: row.itemId,
       itemName: row.itemName,
       itemSku: row.itemSku,
