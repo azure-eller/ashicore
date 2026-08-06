@@ -33,6 +33,7 @@ import { cn } from "@/lib/utils";
 import type {
   OverheadSettingsData,
   OverheadComputeResult,
+  OverheadSaveResult,
 } from "@/lib/dal/overhead-settings";
 import { apiJson, ApiJsonError } from "@/lib/client/api";
 import {
@@ -104,24 +105,16 @@ export function OverheadWorksheet({
   onSaved?: (settings: OverheadSettingsData) => void;
 }) {
   const [settings, setSettings] = useState(initialSettings);
-  const [lines, setLines] = useState<ClassifiedLine[]>(
-    initialSettings.derivation?.lines ?? []
-  );
+  const [lines, setLines] = useState<ClassifiedLine[]>([]);
   const [period, setPeriod] = useState({
     periodStart: initialSettings.periodStart ?? defaultPeriod.periodStart,
     periodEnd: initialSettings.periodEnd ?? defaultPeriod.periodEnd,
   });
-  const [loadedPeriod, setLoadedPeriod] = useState(
-    initialSettings.derivation
-      ? {
-          periodStart: initialSettings.derivation.periodStart,
-          periodEnd: initialSettings.derivation.periodEnd,
-        }
-      : null
-  );
-  const [previewIsSaved, setPreviewIsSaved] = useState(
-    initialSettings.derivation != null
-  );
+  const [loadedPeriod, setLoadedPeriod] = useState<{
+    periodStart: string;
+    periodEnd: string;
+  } | null>(null);
+  const [previewIsSaved, setPreviewIsSaved] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [needsReconnect, setNeedsReconnect] = useState(false);
@@ -231,7 +224,7 @@ export function OverheadWorksheet({
     setSaving(true);
     setError(null);
     try {
-      const saved = await apiJson<OverheadSettingsData>("/api/overhead-settings", {
+      const result = await apiJson<OverheadSaveResult>("/api/overhead-settings", {
         method: "PUT",
         body: {
           periodStart: period.periodStart,
@@ -239,19 +232,17 @@ export function OverheadWorksheet({
           overrides: overridesFromLines(),
         },
       });
-      setSettings(saved);
-      setLines(saved.derivation?.lines ?? lines);
-      setLoadedPeriod(
-        saved.derivation
-          ? {
-              periodStart: saved.derivation.periodStart,
-              periodEnd: saved.derivation.periodEnd,
-            }
-          : null
-      );
-      setPreviewIsSaved(saved.derivation != null);
+      setSettings(result.settings);
+      // Keep the server's authoritative recompute only in browser memory. The
+      // database persists the minimal settings, not these Xero account lines.
+      setLines(result.derivation.lines);
+      setLoadedPeriod({
+        periodStart: result.derivation.periodStart,
+        periodEnd: result.derivation.periodEnd,
+      });
+      setPreviewIsSaved(true);
       setDirty(false);
-      onSaved?.(saved);
+      onSaved?.(result.settings);
     } catch (e) {
       if (isMissingScopeError(e)) setNeedsReconnect(true);
       else setError(e instanceof Error ? e.message : "Couldn't save.");
@@ -443,6 +434,9 @@ function RateEquation({
   period: { periodStart: string; periodEnd: string };
   savedIsCurrent: boolean;
 }) {
+  const recoveryPerRevenueDollar =
+    percent == null ? null : (Number(percent) / 100).toFixed(2);
+
   return (
     <div className="flex flex-col gap-(--space-4)">
       <div className="flex flex-col divide-y divide-[var(--color-line-soft)] overflow-hidden rounded-(--radius-md) border border-[var(--color-line)] sm:flex-row sm:divide-x sm:divide-y-0">
@@ -463,6 +457,13 @@ function RateEquation({
         From your Xero Profit &amp; Loss · {fmtPeriod(period.periodStart, period.periodEnd)}
         {savedIsCurrent ? " · saved as your pricing default" : " · not saved"}
       </p>
+      {recoveryPerRevenueDollar ? (
+        <p className="text-[length:var(--text-sm)] leading-[var(--leading-sm)] text-[var(--color-ink-2)]">
+          This rate allocates ${recoveryPerRevenueDollar} of every $1.00 in revenue
+          to the included overhead accounts. Review the buckets below to avoid
+          counting costs already modeled in recipes, labor, or freight.
+        </p>
+      ) : null}
     </div>
   );
 }

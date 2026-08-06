@@ -49,7 +49,14 @@ export async function fetchOverheadInputs(
       authed.client.accountingApi.getReportProfitAndLoss(
         authed.tenantId,
         fromDate,
-        toDate
+        toDate,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        true
       ),
       authed.client.accountingApi.getAccounts(authed.tenantId),
     ]);

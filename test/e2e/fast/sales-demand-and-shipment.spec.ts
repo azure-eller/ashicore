@@ -3924,6 +3924,121 @@ test.describe("overhead settings seam", () => {
     expect(overridden.overheadPercent).toBe("18.00");
   });
 
+  test("normalizes a signed Xero expense group without turning credits into costs", () => {
+    const classified = classifyLines(
+      [
+        { accountId: "sales", name: "Sales", amount: "2943844.84" },
+        { accountId: "rent", name: "Rent", amount: "-1000000.00", normalizationSign: -1 },
+        { accountId: "admin", name: "Admin", amount: "-408060.94", normalizationSign: -1 },
+        { accountId: "rebate", name: "Expense rebate", amount: "1200.00", normalizationSign: -1 },
+      ],
+      new Map([
+        ["sales", "REVENUE"],
+        ["rent", "OVERHEADS"],
+        ["admin", "EXPENSE"],
+        ["rebate", "EXPENSE"],
+      ])
+    );
+
+    const result = computeOverhead(classified, {
+      periodStart: "2025-08-01",
+      periodEnd: "2026-07-31",
+    });
+
+    expect(result.overheadPool).toBe("1406860.94");
+    expect(result.overheadPercent).toBe("47.79");
+  });
+
+  test("uses the expense section total to normalize mixed debit and credit rows", () => {
+    const fixture = {
+      reports: [
+        {
+          rows: [
+            {
+              rowType: "Section",
+              title: "Less Operating Expenses",
+              rows: [
+                {
+                  rowType: "Row",
+                  cells: [
+                    { value: "Rent", attributes: [{ id: "account", value: "rent" }] },
+                    { value: "36000.00" },
+                  ],
+                },
+                {
+                  rowType: "Row",
+                  cells: [
+                    { value: "Rebate", attributes: [{ id: "account", value: "rebate" }] },
+                    { value: "(1200.00)" },
+                  ],
+                },
+                {
+                  rowType: "SummaryRow",
+                  cells: [{ value: "Total Operating Expenses" }, { value: "34800.00" }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const lines = parseProfitAndLoss(fixture as any);
+
+    expect(lines).toEqual([
+      { accountId: "rent", name: "Rent", amount: "36000", normalizationSign: 1 },
+      { accountId: "rebate", name: "Rebate", amount: "-1200", normalizationSign: 1 },
+    ]);
+  });
+
+  test("preserves a net expense credit from a signed Xero expense group", () => {
+    const classified = classifyLines(
+      [
+        { accountId: "sales", name: "Sales", amount: "10000.00" },
+        { accountId: "rent", name: "Rent", amount: "-1000.00", normalizationSign: -1 },
+        { accountId: "refund", name: "Expense refund", amount: "1200.00", normalizationSign: -1 },
+      ],
+      new Map([
+        ["sales", "REVENUE"],
+        ["rent", "OVERHEADS"],
+        ["refund", "EXPENSE"],
+      ])
+    );
+
+    const result = computeOverhead(classified, {
+      periodStart: "2025-08-01",
+      periodEnd: "2026-07-31",
+    });
+
+    expect(result.overheadPool).toBe("-200.00");
+    expect(result.overheadPercent).toBe("-2.00");
+  });
+
+  test("does not infer expense sign from user-authored overhead overrides", () => {
+    const classified = classifyLines(
+      [
+        { accountId: "sales", name: "Sales", amount: "10000.00" },
+        { accountId: "rent", name: "Rent", amount: "1000.00" },
+        { accountId: "rebate", name: "Rebate income", amount: "-100.00" },
+      ],
+      new Map([
+        ["sales", "REVENUE"],
+        ["rent", "OVERHEADS"],
+        ["rebate", "OTHERINCOME"],
+      ]),
+      { rebate: "overhead" }
+    );
+
+    const result = computeOverhead(classified, {
+      periodStart: "2025-08-01",
+      periodEnd: "2026-07-31",
+    });
+
+    expect(result.overheadPool).toBe("900.00");
+    expect(result.overheadPercent).toBe("9.00");
+  });
+
   test("reads accounting-style negative amounts instead of dropping the account", () => {
     const fixture = {
       reports: [
@@ -3995,7 +4110,7 @@ test.describe("overhead settings seam", () => {
     expect(isUnresolvedType("overheads")).toBe(false);
   });
 
-  test("saved overhead default reads back under RLS and gates on entitlement", async ({ db }) => {
+  test("saved overhead default reads back without retained Xero P&L detail", async ({ db }) => {
     await setPricingSeamEntitlements(db, ["pricing_scenarios"]);
 
     // Seed a derived rate directly (the compute path itself needs a live Xero
@@ -4004,16 +4119,6 @@ test.describe("overhead settings seam", () => {
       overheadPercent: "30.0000",
       periodStart: "2025-07-01",
       periodEnd: "2026-06-30",
-      overheadPool: "60000.00",
-      revenueTotal: "200000.00",
-      derivation: {
-        periodStart: "2025-07-01",
-        periodEnd: "2026-06-30",
-        lines: [],
-        overheadPool: "60000.00",
-        revenueTotal: "200000.00",
-        overheadPercent: "30.00",
-      },
       accountOverrides: {
         "oh-2": "excluded",
       } satisfies OverheadAccountOverrides,
@@ -4035,6 +4140,9 @@ test.describe("overhead settings seam", () => {
     expect(body.overheadPercent).toBe("30");
     expect(body.periodStart).toBe("2025-07-01");
     expect(body.accountOverrides).toEqual({ "oh-2": "excluded" });
+    expect(body).not.toHaveProperty("derivation");
+    expect(body).not.toHaveProperty("overheadPool");
+    expect(body).not.toHaveProperty("revenueTotal");
 
     // Beta gate: unentitled orgs get 402 from the overhead settings API too.
     await setPricingSeamEntitlements(db, []);

@@ -57,12 +57,17 @@ Store setup/support copy, read `docs/xero-support-listing.md`.
   Fetch active contacts, update matching ERP rows by Xero ID/email/name, but
   only create new rows for Xero contacts flagged as customers or suppliers.
 - **Profit & Loss overhead inputs** — `lib/xero/reports.ts` fetches one P&L
-  report and the chart of accounts for the Sales overhead calculator.
+  report in Xero's standard layout and the chart of accounts for the Sales
+  overhead calculator.
   Server-only `lib/overhead/parse.ts` converts the Xero report's leaf account
   rows and normalises accounting-style parenthesised negatives; browser-safe
   `lib/overhead/compute.ts` applies the account-type rules and org overrides,
-  then derives the overhead share of revenue. Unrecognised or absent account
-  types default to Excluded, and the worksheet warns while that automatic
+  then derives the overhead share of revenue. The database retains only the
+  derived percentage, selected period, and user-authored account-ID
+  classifications. Account names, types, amounts, and aggregate P&L totals are
+  returned only to the current authorized browser for live review and are not
+  retained by the server or database. Unrecognised or absent account types
+  default to Excluded, and the worksheet warns while that automatic
   classification remains unresolved. This split lets the client worksheet
   preview the same arithmetic without bundling `xero-node`. Missing report
   scope (`403`), an expired or revoked refresh token (`401`), and no connection

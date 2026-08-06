@@ -21,9 +21,6 @@ export type OverheadSettingsData = {
   overheadPercent: string | null;
   periodStart: string | null;
   periodEnd: string | null;
-  overheadPool: string | null;
-  revenueTotal: string | null;
-  derivation: OverheadDerivation | null;
   accountOverrides: OverheadAccountOverrides;
   updatedAt: Date | null;
 };
@@ -32,6 +29,12 @@ export type OverheadSettingsData = {
 export type OverheadComputeResult = {
   derivation: OverheadDerivation;
   accounts: XeroAccountSummary[];
+};
+
+/** Authoritative save response; the derivation is returned live, never stored. */
+export type OverheadSaveResult = {
+  settings: OverheadSettingsData;
+  derivation: OverheadDerivation;
 };
 
 const overheadClassSchema: z.ZodType<OverheadClass> = z.enum([
@@ -112,13 +115,13 @@ export async function refreshOverheadRate(
 }
 
 /**
- * Recompute server-side AND persist as the org's overhead default. The derivation
- * is never taken from the client — we re-pull Xero and recompute, so a saved rate
- * always reflects a real P&L the server itself read.
+ * Recompute server-side AND persist only the minimum org default. The derivation
+ * is never taken from the client and is discarded after calculation; account
+ * names and financial amounts from Xero are not written to the database.
  */
 export async function saveOverheadSettings(
   input: OverheadRefreshInput
-): Promise<OverheadSettingsData> {
+): Promise<OverheadSaveResult> {
   const { orgId, userId } = await getAuthedMemberContext();
   await withOrgContext(
     orgId,
@@ -139,7 +142,7 @@ export async function saveOverheadSettings(
     );
   }
 
-  return withOrgContext(
+  const settings = await withOrgContext(
     orgId,
     async (tx) => {
       await assertOverheadAccessInTx(tx, orgId, "PUT /api/overhead-settings");
@@ -150,9 +153,6 @@ export async function saveOverheadSettings(
           overheadPercent: derivation.overheadPercent,
           periodStart: derivation.periodStart,
           periodEnd: derivation.periodEnd,
-          overheadPool: derivation.overheadPool,
-          revenueTotal: derivation.revenueTotal,
-          derivation,
           accountOverrides: input.overrides,
         })
         .onConflictDoUpdate({
@@ -161,9 +161,6 @@ export async function saveOverheadSettings(
             overheadPercent: derivation.overheadPercent,
             periodStart: derivation.periodStart,
             periodEnd: derivation.periodEnd,
-            overheadPool: derivation.overheadPool,
-            revenueTotal: derivation.revenueTotal,
-            derivation,
             accountOverrides: input.overrides,
             updatedAt: new Date(),
           },
@@ -172,6 +169,7 @@ export async function saveOverheadSettings(
     },
     { userId }
   );
+  return { settings, derivation };
 }
 
 export async function getOverheadSettings(): Promise<OverheadSettingsData> {
@@ -192,13 +190,6 @@ export async function getOverheadSettingsInTx(
       ),
       periodStart: organizationOverheadSettings.periodStart,
       periodEnd: organizationOverheadSettings.periodEnd,
-      overheadPool: trimScaleNullable(organizationOverheadSettings.overheadPool).as(
-        "overheadPool"
-      ),
-      revenueTotal: trimScaleNullable(organizationOverheadSettings.revenueTotal).as(
-        "revenueTotal"
-      ),
-      derivation: organizationOverheadSettings.derivation,
       accountOverrides: organizationOverheadSettings.accountOverrides,
       updatedAt: organizationOverheadSettings.updatedAt,
     })
@@ -210,9 +201,6 @@ export async function getOverheadSettingsInTx(
     overheadPercent: row?.overheadPercent ?? null,
     periodStart: row?.periodStart ?? null,
     periodEnd: row?.periodEnd ?? null,
-    overheadPool: row?.overheadPool ?? null,
-    revenueTotal: row?.revenueTotal ?? null,
-    derivation: row?.derivation ?? null,
     accountOverrides: row?.accountOverrides ?? {},
     updatedAt: row?.updatedAt ?? null,
   };

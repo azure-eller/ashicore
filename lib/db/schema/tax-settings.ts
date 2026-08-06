@@ -14,7 +14,6 @@ import {
 import { sql } from "drizzle-orm";
 import type {
   OverheadAccountOverrides,
-  OverheadDerivation,
 } from "@/lib/overhead/compute";
 
 export const settingsSchema = pgSchema("settings");
@@ -87,10 +86,9 @@ export const organizationTaxSettings = settingsSchema
 
 /**
  * One row per org holding the overhead rate derived from the company's Xero P&L,
- * used as the pricing default. `derivation` is the point-in-time audit snapshot
- * (every account, amount, and classification + the pool/revenue totals) behind
- * the current rate; each successful save replaces it. `accountOverrides` are
- * the user's per-account classification overrides, replayed on the next refresh.
+ * used as the pricing default. Xero account names and financial amounts are
+ * intentionally not retained. `accountOverrides` are the user's per-account
+ * classification choices, replayed on the next live refresh.
  */
 export const organizationOverheadSettings = settingsSchema
   .table(
@@ -102,9 +100,6 @@ export const organizationOverheadSettings = settingsSchema
       overheadPercent: numeric("overhead_percent", { precision: 7, scale: 4 }),
       periodStart: date("period_start"),
       periodEnd: date("period_end"),
-      overheadPool: numeric("overhead_pool", { precision: 14, scale: 2 }),
-      revenueTotal: numeric("revenue_total", { precision: 14, scale: 2 }),
-      derivation: jsonb("derivation").$type<OverheadDerivation>(),
       accountOverrides: jsonb("account_overrides")
         .$type<OverheadAccountOverrides>()
         .notNull()

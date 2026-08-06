@@ -8,7 +8,6 @@ import {
   pricingScenarios,
 } from "../../../lib/db/schema";
 import { createItem, getOrgId, getUnitId, updateItem } from "../../helpers/api";
-import type { OverheadDerivation } from "../../../lib/overhead/compute";
 
 const orgId = getOrgId();
 const unitId = getUnitId();
@@ -186,49 +185,12 @@ test.describe("pricing scenario story", () => {
       .set({ entitlements: ["pricing_scenarios"] })
       .where(eq(organization.id, orgId));
 
-    // The org has a saved, Xero-derived overhead rate. Refresh the full row on
-    // conflict so a re-run against the same worktree DB seeds the derivation
-    // (with its account lines), not just the percentage.
-    const overheadDerivation: OverheadDerivation = {
-      periodStart: "2025-07-01",
-      periodEnd: "2026-06-30",
-      lines: [
-        {
-          accountId: "rev-sales",
-          name: "Sales",
-          amount: "200000.00",
-          accountType: "REVENUE",
-          classification: "revenue",
-          classificationSource: "auto",
-        },
-        {
-          accountId: "oh-rent",
-          name: "Rent",
-          amount: "63000.00",
-          accountType: "OVERHEADS",
-          classification: "overhead",
-          classificationSource: "auto",
-        },
-        {
-          accountId: "dc-materials",
-          name: "Direct materials",
-          amount: "50000.00",
-          accountType: "DIRECTCOSTS",
-          classification: "excluded",
-          classificationSource: "auto",
-        },
-      ],
-      overheadPool: "63000.00",
-      revenueTotal: "200000.00",
-      overheadPercent: "31.50",
-    };
+    // The org keeps only the derived rate, period, and classification choices;
+    // Xero account names and financial amounts are not retained.
     const overheadValues = {
       overheadPercent: "31.5000",
       periodStart: "2025-07-01",
       periodEnd: "2026-06-30",
-      overheadPool: "63000.00",
-      revenueTotal: "200000.00",
-      derivation: overheadDerivation,
       accountOverrides: {},
     };
     await db
@@ -262,13 +224,12 @@ test.describe("pricing scenario story", () => {
     await page.getByRole("button", { name: "Recalculate from Xero" }).click();
     await expect(page.getByText("Overhead from Xero")).toBeVisible();
     const drawer = page.locator('[data-slot="sheet-content"]');
-    await expect(drawer.getByText("Overhead rate", { exact: true })).toBeVisible();
-    await expect(drawer).toContainText(/31\.5/);
+    // The percentage remains available for pricing, but Xero account detail is
+    // not retained. Reopening the worksheet requires a new live P&L request.
     await expect(
-      drawer.getByRole("button", {
-        name: /Saved as default|Save as pricing default/,
-      })
+      drawer.getByText("Load your Profit & Loss to derive your overhead rate.")
     ).toBeVisible();
+    await expect(drawer.getByRole("button", { name: "Load from Xero" })).toBeVisible();
 
     await page.route("**/api/overhead-settings", async (route) => {
       if (route.request().method() !== "POST") return route.continue();
@@ -281,7 +242,7 @@ test.describe("pricing scenario story", () => {
         }),
       });
     });
-    await drawer.getByRole("button", { name: "Reload from Xero" }).click();
+    await drawer.getByRole("button", { name: "Load from Xero" }).click();
     await expect(
       drawer.getByRole("link", { name: "Continue to Xero" })
     ).toHaveAttribute("href", "/api/xero/connect");

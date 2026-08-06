@@ -22,6 +22,7 @@ export type ProfitAndLossLine = {
   accountId: string;
   name: string;
   amount: string; // decimal string, as reported for the period
+  normalizationSign?: 1 | -1;
 };
 
 /** A P&L line with its resolved classification and the account type behind it. */
@@ -116,7 +117,9 @@ export function classifyLines(
 function sumByClass(lines: ClassifiedLine[], target: OverheadClass): Dec {
   return lines.reduce(
     (total, line) =>
-      line.classification === target ? total.plus(new OverheadDecimal(line.amount)) : total,
+      line.classification === target
+        ? total.plus(new OverheadDecimal(line.amount).times(line.normalizationSign ?? 1))
+        : total,
     new OverheadDecimal(0)
   );
 }

@@ -101,6 +101,14 @@ Manual evidence:
 
 ## Retention
 
+The pricing overhead calculator processes Xero Profit & Loss account names,
+types, and amounts only for the live preview and authoritative save request. It
+does not persist those account details or aggregate P&L totals; the authoritative
+save derivation is returned only to the current authorized browser. Durable
+overhead settings contain only the derived percentage, selected period, and the
+user's account-ID classification overrides. Migration `0184` removes and thereby
+scrubs the former derivation and aggregate-total columns from existing rows.
+
 Retain audit events for at least one year for partner-review and incident
 investigation evidence. Do not purge or rewrite rows without an explicit
 retention policy change and a migration/ops plan.

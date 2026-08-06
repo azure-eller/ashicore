@@ -307,13 +307,18 @@ saves a new rate from that scenario's drawer.
 
 - `overhead% = operating-overhead pool ÷ revenue` over a trailing period, all read
   from the **same** Xero P&L (`getReportProfitAndLoss`) so numerator and denominator
-  are consistent. `lib/xero/reports.ts` is the thin live fetch,
+  are consistent. The fetch requests Xero's standard report layout so a user's
+  custom presentation cannot change the calculation. `lib/xero/reports.ts` is
+  the thin live fetch,
   `lib/overhead/parse.ts` converts the server-only Xero report into account lines,
   including accounting-style parenthesised negatives such as `(1,234.56)`, and
   browser-safe `lib/overhead/compute.ts` classifies and computes them. The
   worksheet uses that same pure arithmetic to update the equation and reconciling
-  account totals immediately when an operator changes a bucket; saving still
-  recomputes from Xero on the server.
+  account totals immediately when an operator changes a bucket. When Xero
+  presents expense accounts with negative accounting signs, the calculator
+  reverses the net overhead group once. Individual lines are never converted to
+  absolute values, so credits and refunds still reduce the pool and a net credit
+  remains negative. Saving still recomputes from Xero on the server.
 - Each P&L account is classified `revenue` / `overhead` / `excluded`. Auto rules
   classify `REVENUE`, `SALES`, and `OTHERINCOME` as revenue;
   `OVERHEADS`, `EXPENSE`, and `DEPRECIATN` as overhead; and `DIRECTCOSTS` as
@@ -323,12 +328,13 @@ saves a new rate from that scenario's drawer.
   to Excluded until the operator reviews it. The user can override any account;
   overrides are stored and replayed, and overriding an unrecognised account
   resolves its warning.
-- The derived rate and its point-in-time derivation snapshot (every account,
-  amount, classification, and the pool/revenue totals) persist one-row-per-org in
-  `settings.organization_overhead_settings` (mirrors `organization_tax_settings`;
-  upsert-only, no DELETE grant). Each successful save replaces the org's
-  previous rate and snapshot. Saving always **recomputes server-side** from Xero
-  — the client's preview numbers are never trusted.
+- Only the derived rate, selected period, and user-authored account-ID bucket
+  overrides persist one-row-per-org in `settings.organization_overhead_settings`
+  (mirrors `organization_tax_settings`; upsert-only, no DELETE grant). Xero
+  account names, account types, balances, overhead-pool totals, revenue totals,
+  and the P&L derivation are held only for the live request/browser review and
+  are not stored. Saving always **recomputes server-side** from Xero — the
+  client's preview numbers are never trusted.
 - Reading the P&L needs the `accounting.reports.read` Xero scope. It is appended to
   `REQUIRED_SCOPES`, but granted scopes are not stored, so existing connections are
   missing it until the user re-runs OAuth consent. Missing scope (`403`), an
@@ -336,8 +342,9 @@ saves a new rate from that scenario's drawer.
   surface the same reconnect prompt. The prompt starts Xero consent directly
   for the same connection; after updating, the operator returns to the
   worksheet and loads again.
-- `getOverheadSettings()` feeds the pricing scenario page with the saved
-  derivation and rate. Saving in the drawer updates that scenario's field
+- `getOverheadSettings()` feeds the pricing scenario page with the saved rate,
+  period, and overrides. Opening the worksheet requires a fresh Xero load to
+  review account detail. Saving in the drawer updates that scenario's field
   immediately; the field remains fully per-scenario overridable.
 
 The scenario document accepts at most 200 products. Names are 1–120 characters,
@@ -371,9 +378,9 @@ account IDs to `revenue`, `overhead`, or `excluded`.
 
 | Route | Behaviour |
 | --- | --- |
-| `GET /api/overhead-settings` | Returns the org's latest saved rate, period, totals, derivation, overrides, and update time; fields are null when no rate has been saved. |
+| `GET /api/overhead-settings` | Returns only the org's latest saved rate, period, account-ID overrides, and update time; fields are null when no rate has been saved. |
 | `POST /api/overhead-settings` | Fetches the Xero P&L and chart of accounts, then returns a preview derivation and live accounts without persisting. |
-| `PUT /api/overhead-settings` | Fetches Xero again, recomputes authoritatively, and replaces the org's saved rate, derivation snapshot, and overrides. |
+| `PUT /api/overhead-settings` | Fetches Xero again, recomputes authoritatively, persists only the rate, period, and overrides, and returns the live derivation to the current worksheet without storing it. |
 
 ## Oversell Behavior
 

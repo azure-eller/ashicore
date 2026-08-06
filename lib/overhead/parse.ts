@@ -39,7 +39,20 @@ export function parseProfitAndLoss(report: ReportWithRows): ProfitAndLossLine[] 
   const lines: ProfitAndLossLine[] = [];
   const sections = report.reports?.[0]?.rows ?? [];
   for (const section of sections) {
-    for (const row of section.rows ?? []) {
+    const rows = section.rows ?? [];
+    const isExpenseSection = /(?:^less\b|expense|cost of sales|direct costs)/i.test(
+      section.title ?? ""
+    );
+    const summaryRow = rows.find((row) => row.rowType === RowType.SummaryRow);
+    const summaryCells = summaryRow?.cells ?? [];
+    const sectionTotal = readCellAmount(summaryCells[summaryCells.length - 1]?.value);
+    const normalizationSign =
+      isExpenseSection &&
+      sectionTotal != null &&
+      new ParseDecimal(sectionTotal).isNegative()
+        ? -1
+        : 1;
+    for (const row of rows) {
       // Skip Header / Section / SummaryRow so section subtotals never
       // double-count; only leaf account rows carry an account id.
       if (row.rowType !== RowType.Row) continue;
@@ -51,7 +64,7 @@ export function parseProfitAndLoss(report: ReportWithRows): ProfitAndLossLine[] 
       const name = cells[0]?.value ?? "";
       const amount = readCellAmount(cells[cells.length - 1]?.value);
       if (!accountId || amount == null) continue;
-      lines.push({ accountId, name, amount });
+      lines.push({ accountId, name, amount, normalizationSign });
     }
   }
   return lines;
