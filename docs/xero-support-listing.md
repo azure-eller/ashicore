@@ -41,10 +41,11 @@ using the App Store signup flow.
 
 ## Disconnect
 
-Customers disconnect Xero from Settings > Integrations. Disconnect removes the
-stored OAuth connection and stops imports, sales invoice pushes, supplier bill
-pushes, and retry jobs for that organization. Existing ERP records and
-accounting sync history remain in Ashicore.
+Customers disconnect Xero from Settings > Integrations. Disconnect revokes the
+Xero refresh token before removing the stored OAuth connection, then stops
+imports, sales invoice pushes, supplier bill pushes, and retry jobs for that
+organization. Existing ERP records and accounting sync history remain in
+Ashicore.
 
 ## Data flow
 

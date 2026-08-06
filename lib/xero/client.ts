@@ -160,7 +160,7 @@ function tokenSetToPersistable(
  *  ~5-min retry window before the access token actually dies. */
 const PROACTIVE_REFRESH_THRESHOLD_SECONDS = 5 * 60;
 
-function isPermanentRefreshFailure(error: unknown): boolean {
+export function isPermanentXeroGrantFailure(error: unknown): boolean {
   // openid-client surfaces token-endpoint errors with `error: "invalid_grant"`
   // when the refresh token has been revoked, used twice, or expired. Anything
   // else (network blips, 5xx, timeouts) is treated as transient — we do NOT
@@ -258,12 +258,12 @@ export async function getAuthedXeroClient(orgId: string): Promise<{
           tenantId: existing.tenantId,
           tenantName: existing.tenantName,
           metadata: {
-            permanent: isPermanentRefreshFailure(error),
+            permanent: isPermanentXeroGrantFailure(error),
             ...accountingAuditErrorMetadata(error),
           },
         });
 
-        if (isPermanentRefreshFailure(error)) {
+        if (isPermanentXeroGrantFailure(error)) {
           throw new XeroError(
             "Xero refresh token is no longer valid. Reconnect Xero in settings.",
             401,

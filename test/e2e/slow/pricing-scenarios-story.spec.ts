@@ -269,5 +269,21 @@ test.describe("pricing scenario story", () => {
         name: /Saved as default|Save as pricing default/,
       })
     ).toBeVisible();
+
+    await page.route("**/api/overhead-settings", async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      await route.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify({
+          error: "Xero authorization expired.",
+          reason: "missing_scope",
+        }),
+      });
+    });
+    await drawer.getByRole("button", { name: "Reload from Xero" }).click();
+    await expect(
+      drawer.getByRole("link", { name: "Continue to Xero" })
+    ).toHaveAttribute("href", "/api/xero/connect");
   });
 });

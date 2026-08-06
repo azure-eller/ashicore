@@ -24,15 +24,17 @@ when already authenticated, but CLI is the portable default.
 
 ## Canonical App URL
 
-All auth-facing emails use one canonical app URL.
+All auth-facing links and post-auth redirects use one canonical app URL.
 
 - Prefer `BETTER_AUTH_URL`
 - Fall back to `NEXT_PUBLIC_APP_URL`
 - Default production canonical URL: `https://ashicore.app`
 - On Vercel preview deploys, `VERCEL_BRANCH_URL` then `VERCEL_URL` are acceptable non-request fallbacks when the canonical URL vars are unset
-- Never derive invite or auth email links from `request.url`
+- Never derive invite links, auth links, or post-auth redirect hosts from
+  `request.url`
 
-This avoids wrong-host links when the inbound host header is not the public app domain.
+This avoids wrong-host links and lost sessions when the inbound host is not the
+public app domain, including Vercel deployment aliases.
 
 ## Vercel Preview Auth
 

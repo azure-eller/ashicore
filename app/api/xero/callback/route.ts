@@ -6,6 +6,7 @@ import { integrationConnections } from "@/lib/db/schema";
 import { withOrgContext } from "@/lib/db/with-org-context";
 import { captureAppError } from "@/lib/observability/sentry";
 import { requestUrl } from "@/lib/routing/search-params";
+import { getCanonicalAppUrl } from "@/lib/app-url";
 import {
   accountingAuditErrorMetadata,
   tryRecordAccountingAuditEvent,
@@ -45,7 +46,7 @@ function connectRedirect(request: Request, error?: string) {
   const returnTo = readCookie(request, XERO_CONNECT_RETURN_COOKIE);
   const url = new URL(
     returnTo === "onboarding" ? "/onboarding" : "/settings/integrations",
-    request.url,
+    getCanonicalAppUrl(),
   );
   if (returnTo === "onboarding") {
     url.searchParams.set("integration", error ? "xero_error" : "xero_connected");
@@ -229,7 +230,7 @@ async function handleSignupCallback(request: Request, cookieState: string) {
     ? `/xero/sign-up/link?${query}`
     : `/api/auth/xero-signup/complete?${query}`;
 
-  const response = NextResponse.redirect(new URL(destination, request.url));
+  const response = NextResponse.redirect(new URL(destination, getCanonicalAppUrl()));
   response.cookies.delete(XERO_SIGNUP_OAUTH_STATE_COOKIE);
   return response;
 }
@@ -259,7 +260,7 @@ export const GET = apiHandler(async (request: Request) => {
       });
     }
     const response = signupCookieState
-      ? xeroSignupErrorRedirect(request.url, "state_mismatch")
+      ? xeroSignupErrorRedirect(getCanonicalAppUrl(), "state_mismatch")
       : connectRedirect(request, "state_mismatch");
     response.cookies.delete(XERO_CONNECT_RETURN_COOKIE);
     return response;
@@ -274,7 +275,7 @@ export const GET = apiHandler(async (request: Request) => {
       });
     }
     const response = isSignupCallback
-      ? xeroSignupErrorRedirect(request.url, errorParam)
+      ? xeroSignupErrorRedirect(getCanonicalAppUrl(), errorParam)
       : connectRedirect(request, errorParam);
     if (!isSignupCallback) response.cookies.delete(XERO_CONNECT_RETURN_COOKIE);
     return response;
@@ -315,7 +316,7 @@ export const GET = apiHandler(async (request: Request) => {
       );
     }
     const response = isSignupCallback
-      ? xeroSignupErrorRedirect(request.url, "callback_failed")
+      ? xeroSignupErrorRedirect(getCanonicalAppUrl(), "callback_failed")
       : connectRedirect(request, "callback_failed");
     if (!isSignupCallback) response.cookies.delete(XERO_CONNECT_RETURN_COOKIE);
     return response;

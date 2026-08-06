@@ -695,8 +695,8 @@ function XeroRow({
       }
       actions={
         isConnected ? (
-            <>
-              <DropdownMenu>
+          <>
+            <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="icon-sm" aria-label="More actions">
                     <HugeiconsIcon icon={MoreHorizontalIcon} strokeWidth={2} />
@@ -733,8 +733,8 @@ function XeroRow({
                     </>
                   ) : null}
                 </DropdownMenuContent>
-              </DropdownMenu>
-            </>
+            </DropdownMenu>
+          </>
           ) : canManageConnection ? (
             <Button size="sm" variant="outline" onClick={() => setOpenDialog("connect")}>
               Connect
@@ -1425,8 +1425,8 @@ function DisconnectDialog({
         <DialogHeader>
           <DialogTitle>Disconnect Xero?</DialogTitle>
           <DialogDescription>
-            Existing data stays put, but new exports and imports pause until
-            Xero is reconnected.
+            This revokes Ashicore&apos;s Xero access. Existing data stays put, but
+            new exports and imports pause until Xero is reconnected.
           </DialogDescription>
         </DialogHeader>
 
@@ -1436,6 +1436,7 @@ function DisconnectDialog({
             <div>
               <p className="font-medium">After disconnecting</p>
               <ul className="mt-(--space-4) list-disc space-y-(--space-2) pl-(--space-8)">
+                <li>Ashicore access to every authorised Xero organisation is revoked.</li>
                 <li>New invoices will stop sending to Xero.</li>
                 <li>Xero purchase order imports will pause.</li>
                 <li>Customer and supplier imports will be unavailable.</li>
@@ -1641,6 +1642,7 @@ function ConnectDialog({
             ["Send sales invoices", "Sales orders can create Xero invoices."],
             ["Import purchase orders", "Open Xero POs can create ERP purchase orders for receiving."],
             ["Import contacts", "Pull existing customers and suppliers into ERP."],
+            ["Calculate overhead", "Read Profit & Loss accounts for pricing scenarios."],
             ["Avoid duplicates", "Existing records are matched before import."],
           ].map(([title, description]) => (
             <div key={title} className="flex gap-(--space-6)">

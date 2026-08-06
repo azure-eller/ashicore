@@ -67,7 +67,7 @@ Store setup/support copy, read `docs/xero-support-listing.md`.
   preview the same arithmetic without bundling `xero-node`. Missing report
   scope (`403`), an expired or revoked refresh token (`401`), and no connection
   for the org (`409`) become `reason: "missing_scope"` so the overhead worksheet
-  can direct the operator to reconnect from **Settings > Integrations**.
+  can offer the OAuth consent flow directly from the worksheet.
 - **Supplier price sync retired** — the previous history-driven supplier item
   price updater is no longer exposed because Xero line units are not reliable
   enough to infer ERP stock-unit costs automatically.
@@ -130,12 +130,15 @@ accounting.settings.read    ← needed for the overhead calculator's account typ
 offline_access
 ```
 
-When you add or remove a scope, every existing connection must reconnect for
-the OAuth consent to re-prompt. The **Test connection** health probe detects
+When you add or remove a scope, every existing connection must re-run OAuth
+consent for Xero to grant the new scope. The overhead worksheet starts that
+flow directly when report access is missing. The
+**Test connection** health probe detects
 missing transaction scope. Report scope is verified by loading the P&L from a
 pricing scenario's overhead worksheet. Missing report scope (`403`), an expired
-or revoked refresh token (`401`), or no connection (`409`) directs the operator
-to **Settings > Integrations** to reconnect.
+or revoked refresh token (`401`), or no connection (`409`) offers the same
+consent flow from the overhead worksheet. OAuth callback redirects follow the
+canonical-host contract in `docs/production-ops.md`.
 
 ## Testing — use the Xero Demo Company
 
@@ -203,9 +206,9 @@ After any change in `lib/xero/` or in the sales push hook (`shipSalesOrder`):
    saving, then open a new pricing scenario. Expect its overhead field to contain
    the saved derived percentage. For a connection authorised before
    `accounting.reports.read` was added, an expired or revoked refresh token, or
-   an org with no Xero connection, expect a reconnect prompt that links to
-   **Settings > Integrations**; reconnect there, return to the scenario, and load
-   the report again.
+   an org with no Xero connection, expect a reconnect prompt that starts Xero
+   consent directly. Complete consent, return to the scenario, and load the
+   report again.
 5. **Failure path.** Revoke the access token from inside Xero
    (Settings → Connected apps → revoke). Ship another order. Expect
    `xero_push_status='failed'`, the order detail page to show the
