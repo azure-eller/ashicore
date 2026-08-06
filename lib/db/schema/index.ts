@@ -22,3 +22,4 @@ export * from "./auth";
 export * from "./billing";
 export * from "./reports";
 export * from "./onboarding-imports";
+export * from "./marketing";

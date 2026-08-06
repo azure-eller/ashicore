@@ -86,6 +86,15 @@ Founder alerts are optional but required before actively marketing paid signup:
 - use a comma-separated list when multiple recipients should be notified
 - alert delivery failures are logged and must not block signup, checkout, or Stripe webhooks
 
+## Autonomous Marketing
+
+The backend-only outreach harness is disabled until all marketing environment
+variables, a founder Gmail mailbox, and at least five founder-written corpus
+examples are present. Its Vercel cron runs hourly; the domain loop itself sends
+only on weekdays from 08:00 through 09:59 in the organization's configured time
+zone. See `docs/marketing-automation.md` for activation, guardrails, and API
+contracts.
+
 ## Free And Pro Billing
 
 Production Pro checkout requires live-mode configuration on the ERP Vercel project:

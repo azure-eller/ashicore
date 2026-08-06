@@ -14,7 +14,9 @@ type FounderAlertInput = {
     | "checkout_started"
     | "subscription_active"
     | "subscription_attention"
-    | "feature_gate_hit";
+    | "feature_gate_hit"
+    | "marketing_reply"
+    | "marketing_experiment";
   subject: string;
   fields: AlertField[];
   idempotencyKey?: string;
