@@ -77,6 +77,15 @@ function sentCount(state: MarketingExperimentState) {
   ).length;
 }
 
+function reservedCount(state: MarketingExperimentState, now: Date) {
+  return progressValues(state).filter(
+    (row) =>
+      row.status === "processing" &&
+      row.processingLeaseExpiresAt != null &&
+      new Date(row.processingLeaseExpiresAt).getTime() > now.getTime(),
+  ).length;
+}
+
 function dailyAllowance(state: MarketingExperimentState, now: Date, timeZone: string) {
   const sent = sentCount(state);
   if (sent < 3) return 3 - sent;
@@ -88,7 +97,10 @@ function dailyAllowance(state: MarketingExperimentState, now: Date, timeZone: st
     return 0;
   }
   const sentToday = progressValues(state).filter(
-    (row) => row.sentAt && localDateKey(new Date(row.sentAt), timeZone) === today,
+    (row) =>
+      (row.sentAt && localDateKey(new Date(row.sentAt), timeZone) === today) ||
+      (row.followUpSentAt &&
+        localDateKey(new Date(row.followUpSentAt), timeZone) === today),
   ).length;
   return Math.max(0, 5 - sentToday);
 }
@@ -127,15 +139,27 @@ async function persistState(
 async function claimPendingContacts(args: {
   orgId: string;
   experiment: ActiveExperiment;
-  limit: number;
   now: Date;
+  timeZone: string;
 }) {
   const leaseId = randomUUID();
   const expiresAt = new Date(args.now.getTime() + PROCESSING_LEASE_MS).toISOString();
   const claimed: string[] = [];
-  await persistState(args.orgId, args.experiment.id, (state) => {
+  await withOrgContext(args.orgId, async (tx) => {
+    const [row] = await tx
+      .select({ state: marketingExperiments.state, status: marketingExperiments.status })
+      .from(marketingExperiments)
+      .where(eq(marketingExperiments.id, args.experiment.id))
+      .for("update");
+    if (!row) throw new DomainError("Marketing experiment not found.", 404);
+    if (row.status !== "active") return;
+    const state = marketingExperimentStateSchema.parse(row.state);
+    const limit = Math.max(
+      0,
+      dailyAllowance(state, args.now, args.timeZone) - reservedCount(state, args.now),
+    );
     for (const contactId of args.experiment.config.contactIds) {
-      if (claimed.length >= args.limit) break;
+      if (claimed.length >= limit) break;
       const progress = state.contactProgress[contactId];
       if (!progress) continue;
       const expired =
@@ -151,9 +175,35 @@ async function claimPendingContacts(args: {
       };
       claimed.push(contactId);
     }
-    return state;
+    await tx
+      .update(marketingExperiments)
+      .set({ state, updatedAt: new Date() })
+      .where(eq(marketingExperiments.id, args.experiment.id));
   });
   return { leaseId, claimed };
+}
+
+async function leaseIsSendable(args: {
+  orgId: string;
+  experimentId: string;
+  contactId: string;
+  leaseId: string;
+  now: Date;
+}) {
+  return withOrgContext(args.orgId, async (tx) => {
+    const [row] = await tx
+      .select({ status: marketingExperiments.status, state: marketingExperiments.state })
+      .from(marketingExperiments)
+      .where(eq(marketingExperiments.id, args.experimentId));
+    if (row?.status !== "active") return false;
+    const progress = marketingExperimentStateSchema.parse(row.state).contactProgress[args.contactId];
+    return Boolean(
+      progress?.status === "processing" &&
+        progress.processingLeaseId === args.leaseId &&
+        progress.processingLeaseExpiresAt &&
+        new Date(progress.processingLeaseExpiresAt).getTime() > args.now.getTime(),
+    );
+  });
 }
 
 async function loadCandidate(orgId: string, contactId: string) {
@@ -408,13 +458,29 @@ async function processCandidate(args: {
       return "sent" as const;
     }
 
+    const deliveryMetadata = activity.marketingMetadata;
+    if (!deliveryMetadata || deliveryMetadata.deliveryStatus !== "processing") {
+      throw new DomainError("Marketing activity has no retryable delivery evidence.", 409);
+    }
+    if (
+      !(await leaseIsSendable({
+        orgId: args.orgId,
+        experimentId: args.experiment.id,
+        contactId: args.contactId,
+        leaseId: args.leaseId,
+        now: new Date(),
+      }))
+    ) {
+      return "skipped" as const;
+    }
+
     let sent: Awaited<ReturnType<typeof sendGmailMessage>>;
     try {
       sent = await sendGmailMessage({
         orgId: args.orgId,
         to: recipientEmail,
-        subject: draft.subject,
-        text: body,
+        subject: deliveryMetadata.subject,
+        text: deliveryMetadata.finalBody,
         idempotencyKey: `marketing:${args.experiment.id}:${candidate.id}:initial`,
       });
       await withOrgContext(args.orgId, (tx) =>
@@ -422,7 +488,7 @@ async function processCandidate(args: {
           .update(customerActivities)
           .set({
             marketingMetadata: {
-              ...metadata,
+              ...deliveryMetadata,
               deliveryStatus: "sent",
               gmailMessageId: sent.id,
               gmailThreadId: sent.threadId,
@@ -439,7 +505,7 @@ async function processCandidate(args: {
         experimentId: args.experiment.id,
         reason,
         activityId: activity.id,
-        metadata,
+        metadata: deliveryMetadata,
       });
       await markContact({
         orgId: args.orgId,
@@ -603,6 +669,7 @@ async function sendDueFollowUps(args: {
       corpus,
     });
     if (verdict.verdict !== "pass") continue;
+    if (!(await loadActiveExperiment(args.orgId))) break;
     let sent: Awaited<ReturnType<typeof sendGmailMessage>>;
     try {
       sent = await sendGmailMessage({
@@ -765,20 +832,20 @@ export async function processMarketingTick(args: {
       now,
       limit: allowance,
     });
-    experiment = (await loadActiveExperiment(args.orgId))!;
-    const remaining = Math.max(
-      0,
-      dailyAllowance(marketingExperimentStateSchema.parse(experiment.state), now, timeZone) -
-        followUps,
-    );
-    if (remaining > 0) {
+    const activeAfterFollowUps = await loadActiveExperiment(args.orgId);
+    if (!activeAfterFollowUps) {
+      return { status: "paused" as const, replies, followUps, sent };
+    }
+    experiment = activeAfterFollowUps;
+    if (dailyAllowance(marketingExperimentStateSchema.parse(experiment.state), now, timeZone) > 0) {
       const { leaseId, claimed } = await claimPendingContacts({
         orgId: args.orgId,
         experiment,
-        limit: remaining,
         now,
+        timeZone,
       });
       for (const contactId of claimed) {
+        if (!(await loadActiveExperiment(args.orgId))) break;
         if (
           (await processCandidate({
             orgId: args.orgId,

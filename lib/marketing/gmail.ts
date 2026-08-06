@@ -332,16 +332,29 @@ export async function readNewGmailMessages(orgId: string) {
 
   const { accessToken, mailbox } = await activeAccessToken(orgId);
   if (!mailbox.historyId) return [];
-  const history = await gmailFetch<{
+  type GmailHistoryPage = {
     historyId?: string;
     history?: Array<{ messagesAdded?: Array<{ message: { id: string } }> }>;
-  }>(
-    accessToken,
-    `/history?startHistoryId=${encodeURIComponent(mailbox.historyId)}&historyTypes=messageAdded&labelId=INBOX`,
-  );
+    nextPageToken?: string;
+  };
+  const historyRows: NonNullable<GmailHistoryPage["history"]> = [];
+  let latestHistoryId = mailbox.historyId;
+  let pageToken: string | undefined;
+  do {
+    const query = new URLSearchParams({
+      startHistoryId: mailbox.historyId,
+      historyTypes: "messageAdded",
+      labelId: "INBOX",
+    });
+    if (pageToken) query.set("pageToken", pageToken);
+    const page = await gmailFetch<GmailHistoryPage>(accessToken, `/history?${query}`);
+    historyRows.push(...(page.history ?? []));
+    latestHistoryId = page.historyId ?? latestHistoryId;
+    pageToken = page.nextPageToken;
+  } while (pageToken);
   const ids = [
     ...new Set(
-      (history.history ?? []).flatMap((row) =>
+      historyRows.flatMap((row) =>
         (row.messagesAdded ?? []).map((entry) => entry.message.id),
       ),
     ),
@@ -375,7 +388,7 @@ export async function readNewGmailMessages(orgId: string) {
     tx
       .update(marketingMailboxes)
       .set({
-        historyId: history.historyId ?? mailbox.historyId,
+        historyId: latestHistoryId,
         lastSyncedAt: new Date(),
         updatedAt: new Date(),
       })
