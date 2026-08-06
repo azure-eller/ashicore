@@ -93,13 +93,18 @@ test("a bounded experiment runs autonomously and suppresses an opt-out", async (
   );
   expect(activatedResponse.status(), await activatedResponse.text()).toBe(200);
 
-  const first = await runTick(page, "2026-08-06T15:00:00.000Z");
+  const firstTickAt = new Date();
+  const first = await runTick(page, firstTickAt.toISOString());
   expect(first).toMatchObject({ status: "active", sent: 3 });
 
-  const sameDay = await runTick(page, "2026-08-06T16:00:00.000Z");
+  const sameDay = await runTick(
+    page,
+    new Date(firstTickAt.getTime() + 60_000).toISOString(),
+  );
   expect(sameDay).toMatchObject({ status: "active", sent: 0 });
 
-  const nextDay = await runTick(page, "2026-08-07T15:00:00.000Z");
+  const nextTickAt = new Date(firstTickAt.getTime() + 24 * 60 * 60 * 1_000);
+  const nextDay = await runTick(page, nextTickAt.toISOString());
   expect(nextDay).toMatchObject({ status: "active", sent: 1 });
 
   const outboxFiles = await fs.readdir(MARKETING_GMAIL_OUTBOX_DIR);
@@ -118,7 +123,10 @@ test("a bounded experiment runs autonomously and suppresses an opt-out", async (
     }),
   );
 
-  const replyTick = await runTick(page, "2026-08-07T16:00:00.000Z");
+  const replyTick = await runTick(
+    page,
+    new Date(nextTickAt.getTime() + 60_000).toISOString(),
+  );
   expect(replyTick).toMatchObject({ status: "active", replies: 1 });
 
   const [suppressed] = await db
