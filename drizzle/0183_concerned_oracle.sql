@@ -1,0 +1,2 @@
+ALTER TABLE "purchasing"."purchase_orders" ADD COLUMN IF NOT EXISTS "ship_contact_name" varchar(255);--> statement-breakpoint
+ALTER TABLE "purchasing"."purchase_orders" ADD COLUMN IF NOT EXISTS "ship_contact_phone" varchar(50);

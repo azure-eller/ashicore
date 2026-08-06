@@ -43,7 +43,9 @@ import {
   getUnitId,
   receivePurchaseOrder,
   testFetch,
+  updateItem,
 } from "../../helpers/api";
+import { extractPdfText } from "../../helpers/pdf";
 
 const ACCOUNTING_DOCUMENT_PURCHASE_ORDER = "purchase_order";
 const ACCOUNTING_PROVIDER_XERO = "xero";
@@ -4569,5 +4571,85 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       .from(inventoryItemBalances)
       .where(eq(inventoryItemBalances.itemId, material.body.id));
     expect(balance.onHandQty).toBe("2.0000");
+  });
+  test("the supplier-facing purchase order document carries the saved delivery contact and both item codes", async ({
+    db,
+  }) => {
+    const unique = `${Date.now()}-${randomUUID().slice(0, 8)}`;
+    const sku = `FAST-PO-DOC-SKU-${unique}`;
+    const supplierItemCode = `FAST-PO-DOC-SUPP-${unique}`;
+    const contactName = `Fast Doc Contact ${unique}`;
+    const contactPhone = "970-555-0142";
+
+    const supplier = await createSupplier({
+      name: `Fast PO Doc Supplier ${unique}`,
+    });
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast PO Doc Material ${unique}`,
+      unitDefinitionId: unitId,
+      sku,
+      category: `Fast Purchasing ${ts}`,
+      description: null,
+      defaultPurchasePrice: "0.57",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    // The supplier's own code lives on the item and is what the PO grid shows.
+    await updateItem(material.body.id, { supplierItemCode });
+
+    const order = await createPurchaseOrder({
+      supplierId: supplier.body.id,
+      lines: [
+        { itemId: material.body.id, quantityOrdered: "100", unitCost: "0.57" },
+      ],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+
+    // Mirrors picking a saved address entry in the PO's "Delivery address" field:
+    // the contact rides on the order header, not on a line.
+    const saved = await testFetch(`/api/purchase-orders/${order.body.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        supplierId: supplier.body.id,
+        expectedVersion: order.body.version,
+        shipContactName: contactName,
+        shipContactPhone: contactPhone,
+        shipLine1: "414 Samuel Wade Rd",
+        shipCity: "Paonia",
+        shipRegion: "CO",
+        shipPostcode: "81428",
+        lines: [
+          { itemId: material.body.id, quantityOrdered: "100", unitCost: "0.57" },
+        ],
+        additionalCosts: [],
+      }),
+    });
+    expect(saved.status, await saved.text()).toBe(200);
+
+    const [persisted] = await db
+      .select({
+        shipContactName: purchaseOrders.shipContactName,
+        shipContactPhone: purchaseOrders.shipContactPhone,
+      })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.id, order.body.id));
+    expect(persisted.shipContactName).toBe(contactName);
+    expect(persisted.shipContactPhone).toBe(contactPhone);
+
+    // Raw fetch: testFetch only exposes json()/text(), which mangles binary.
+    const pdfRes = await fetch(
+      `${getBaseUrl()}/api/purchase-orders/${order.body.id}/pdf`,
+      { headers: { Cookie: getSessionCookie() } },
+    );
+    expect(pdfRes.status).toBe(200);
+    const pdfText = extractPdfText(Buffer.from(await pdfRes.arrayBuffer()));
+
+    expect(pdfText).toContain(contactName);
+    expect(pdfText).toContain(contactPhone);
+    expect(pdfText).toContain(supplierItemCode);
+    expect(pdfText).toContain(sku);
   });
 });

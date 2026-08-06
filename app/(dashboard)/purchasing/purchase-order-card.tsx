@@ -1440,8 +1440,8 @@ export function PurchaseOrderCard({
   );
   const currentDeliveryAddress: DeliveryAddressFields = {
     shipAddressEntryId: null,
-    shipContactName: null,
-    shipContactPhone: null,
+    shipContactName: draftValues.shipContactName,
+    shipContactPhone: draftValues.shipContactPhone,
     shipLine1: draftValues.shipLine1,
     shipLine2: draftValues.shipLine2,
     shipCity: draftValues.shipCity,

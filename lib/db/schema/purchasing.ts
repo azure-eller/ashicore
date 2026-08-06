@@ -140,6 +140,8 @@ export const purchaseOrders = purchasingSchema
       accountingPurchaseAccountCode: varchar("accounting_purchase_account_code", {
         length: 20,
       }),
+      shipContactName: varchar("ship_contact_name", { length: 255 }),
+      shipContactPhone: varchar("ship_contact_phone", { length: 50 }),
       shipLine1: varchar("ship_line1", { length: 255 }),
       shipLine2: varchar("ship_line2", { length: 255 }),
       shipCity: varchar("ship_city", { length: 120 }),

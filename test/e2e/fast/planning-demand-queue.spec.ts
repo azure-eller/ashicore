@@ -31,7 +31,11 @@ import {
   testFetch,
 } from "../../helpers/api";
 import { computeDemandQueueCoverage } from "../../../lib/inventory/allocation/coverage-engine";
-import { compareDocumentNumbers } from "../../../lib/document-number-format";
+import {
+  compareDocumentNumbers,
+  documentNumberPattern,
+  type DocumentNumberPrefix,
+} from "../../../lib/document-number-format";
 import { compareDemandOrder } from "../../../lib/inventory/allocation/priority";
 import {
   consumeStockFifoInTx,
@@ -1889,11 +1893,47 @@ test("make-to-order creation rounds batch products up to whole batches", async (
   });
 });
 
+// Numbering continues from the org's highest suffix, so the seeded legacy
+// number only proves anything while it *is* that highest suffix. A timestamp
+// alone does not guarantee that: local databases keep every document a
+// previous run created, and the millisecond clock's last nine digits roll
+// back to a smaller value roughly every eleven days. Start above whatever the
+// org already holds.
+function highestDocumentSuffix(numbers: string[], prefix: DocumentNumberPrefix) {
+  const pattern = new RegExp(documentNumberPattern(prefix));
+  return numbers.reduce((highest, value) => {
+    const suffix = Number.parseInt(value.match(pattern)?.[1] ?? "", 10);
+    return Number.isSafeInteger(suffix) ? Math.max(highest, suffix) : highest;
+  }, 0);
+}
+
 test("document numbers continue from legacy and short suffixes without padding", async ({
   db,
 }) => {
   const ts = Date.now();
-  const baseSuffix = Number(String(ts).slice(-9));
+  const existingNumbers = await Promise.all([
+    db
+      .select({ number: purchaseOrders.orderNumber })
+      .from(purchaseOrders)
+      .where(eq(purchaseOrders.organizationId, getOrgId())),
+    db
+      .select({ number: salesOrders.orderNumber })
+      .from(salesOrders)
+      .where(eq(salesOrders.organizationId, getOrgId())),
+    db
+      .select({ number: manufacturingOrders.orderNumber })
+      .from(manufacturingOrders)
+      .where(eq(manufacturingOrders.organizationId, getOrgId())),
+  ]);
+  const highestExisting = Math.max(
+    ...(["PO", "SO", "MO"] as const).map((prefix, index) =>
+      highestDocumentSuffix(
+        existingNumbers[index].map((row) => row.number),
+        prefix
+      )
+    )
+  );
+  const baseSuffix = Math.max(Number(String(ts).slice(-9)), highestExisting + 1);
   const legacyPoSuffix = baseSuffix + 100_000;
   const shortSoSuffix = baseSuffix + 200_000;
   const legacyMoSuffix = baseSuffix + 300_000;

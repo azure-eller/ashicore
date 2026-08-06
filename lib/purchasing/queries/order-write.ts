@@ -148,6 +148,8 @@ export type PurchaseOrderPayload = Omit<
   | "shippingCost"
   | "additionalCosts"
   | "accountingPurchaseAccountCode"
+  | "shipContactName"
+  | "shipContactPhone"
   | "shipLine1"
   | "shipLine2"
   | "shipCity"
@@ -157,6 +159,8 @@ export type PurchaseOrderPayload = Omit<
 > & {
   shippingCost?: string | null;
   accountingPurchaseAccountCode?: string | null;
+  shipContactName?: string | null;
+  shipContactPhone?: string | null;
   shipLine1?: string | null;
   shipLine2?: string | null;
   shipCity?: string | null;
@@ -262,6 +266,8 @@ export async function preparePurchaseOrderPayload(
   expectedDate: string | null;
   notes: string | null;
   accountingPurchaseAccountCode: string | null;
+  shipContactName: string | null;
+  shipContactPhone: string | null;
   shipLine1: string | null;
   shipLine2: string | null;
   shipCity: string | null;
@@ -484,6 +490,8 @@ export async function preparePurchaseOrderPayload(
     notes: payload.notes,
     accountingPurchaseAccountCode:
       payload.accountingPurchaseAccountCode?.trim() || null,
+    shipContactName: payload.shipContactName?.trim() || null,
+    shipContactPhone: payload.shipContactPhone?.trim() || null,
     shipLine1: address.line1,
     shipLine2: address.line2,
     shipCity: address.city,
@@ -533,6 +541,8 @@ export async function createPurchaseOrderInTx(
       expectedDate: prepared.expectedDate,
       notes: prepared.notes,
       accountingPurchaseAccountCode: prepared.accountingPurchaseAccountCode,
+      shipContactName: prepared.shipContactName,
+      shipContactPhone: prepared.shipContactPhone,
       shipLine1: prepared.shipLine1,
       shipLine2: prepared.shipLine2,
       shipCity: prepared.shipCity,
@@ -1010,6 +1020,8 @@ export async function updatePurchaseOrder(
         expectedDate: prepared.expectedDate,
         notes: prepared.notes,
         accountingPurchaseAccountCode: prepared.accountingPurchaseAccountCode,
+        shipContactName: prepared.shipContactName,
+        shipContactPhone: prepared.shipContactPhone,
         shipLine1: prepared.shipLine1,
         shipLine2: prepared.shipLine2,
         shipCity: prepared.shipCity,

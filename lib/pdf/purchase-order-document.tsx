@@ -81,6 +81,11 @@ const styles = StyleSheet.create({
     borderBottomStyle: "solid",
   },
   colItem: { flex: 1 },
+  lineCode: {
+    fontSize: 9,
+    color: "#444444",
+    marginTop: 1,
+  },
   colQty: {
     width: 82,
     maxWidth: 82,
@@ -127,6 +132,7 @@ const styles = StyleSheet.create({
 export type PurchaseOrderPdfLine = {
   itemName: string;
   itemSku: string | null;
+  supplierItemCode: string | null;
   purchaseUnitName: string;
   quantityOrdered: string;
   quantityReceived?: string;
@@ -344,10 +350,14 @@ export function PurchaseOrderDocument({
               <View key={index} style={styles.tableRow} wrap={false}>
                 <View style={styles.colItem}>
                   <Text>{line.itemName}</Text>
-                  {line.itemSku ? (
-                    <Text style={{ fontSize: 8, color: "#666666" }}>
-                      {line.itemSku}
+                  {/* Supplier's own code first — it is the one they recognise. */}
+                  {line.supplierItemCode ? (
+                    <Text style={styles.lineCode}>
+                      Supplier code: {line.supplierItemCode}
                     </Text>
+                  ) : null}
+                  {line.itemSku ? (
+                    <Text style={styles.lineCode}>SKU: {line.itemSku}</Text>
                   ) : null}
                 </View>
                 <Text style={styles.colQty}>

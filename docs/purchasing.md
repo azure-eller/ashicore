@@ -90,7 +90,11 @@ provider. It is not the target purchasing workflow.
 - ambiguous duplicate or same-type costs are never guessed; unmatched imported
   costs keep the provider payload's blank supplier assignment and classified
   distribution method
-- delivery address is stored on the purchase order header, not per line
+- delivery address is stored on the purchase order header, not per line, and
+  the header carries `ship_contact_name` / `ship_contact_phone` alongside the
+  address so the attention contact reaches the supplier-facing document. Lines
+  keep their own address columns for imported orders; the document prefers the
+  header and falls back to the first line that has one
 
 ## Supplier Items
 
@@ -325,6 +329,10 @@ Purchase orders use the shared server-rendered document workflow described in
 `docs/printing.md`. The card offers purchase order, request-for-quote, and cumulative received-inventory
 variants; Print previews inline and Download PDF returns an attachment. Selected
 orders on the list are combined into one PDF.
+
+Each material line prints the supplier item code above the SKU. The supplier
+code is read live from the item, not snapshotted onto the line, so reprinting an
+old order shows the code as it reads today.
 
 ## Expected Supply Projection
 

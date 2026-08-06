@@ -430,6 +430,8 @@ export async function getPurchaseOrderInTx(
         notes: purchaseOrders.notes,
         accountingPurchaseAccountCode:
           purchaseOrders.accountingPurchaseAccountCode,
+        shipContactName: purchaseOrders.shipContactName,
+        shipContactPhone: purchaseOrders.shipContactPhone,
         shipLine1: purchaseOrders.shipLine1,
         shipLine2: purchaseOrders.shipLine2,
         shipCity: purchaseOrders.shipCity,
@@ -597,6 +599,8 @@ export async function getEditablePurchaseOrder(
         notes: purchaseOrders.notes,
         accountingPurchaseAccountCode:
           purchaseOrders.accountingPurchaseAccountCode,
+        shipContactName: purchaseOrders.shipContactName,
+        shipContactPhone: purchaseOrders.shipContactPhone,
         shipLine1: purchaseOrders.shipLine1,
         shipLine2: purchaseOrders.shipLine2,
         shipCity: purchaseOrders.shipCity,

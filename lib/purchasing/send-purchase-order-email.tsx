@@ -1,11 +1,12 @@
 import "server-only";
 
 import { renderToBuffer } from "@react-pdf/renderer";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   accountingDocumentSyncs,
   attachmentFiles,
+  items,
   organization,
   purchaseOrderAdditionalCosts,
   purchaseOrderLines,
@@ -108,8 +109,8 @@ async function loadPurchaseOrderEmailDataInTx(
       expectedDate: purchaseOrders.expectedDate,
       orderedAt: purchaseOrders.orderedAt,
       deliveryInstructions: purchaseOrders.notes,
-      shipContactName: sql<string | null>`NULL`,
-      shipContactPhone: sql<string | null>`NULL`,
+      shipContactName: purchaseOrders.shipContactName,
+      shipContactPhone: purchaseOrders.shipContactPhone,
       shipLine1: purchaseOrders.shipLine1,
       shipLine2: purchaseOrders.shipLine2,
       shipCity: purchaseOrders.shipCity,
@@ -133,6 +134,9 @@ async function loadPurchaseOrderEmailDataInTx(
       itemId: purchaseOrderLines.itemId,
       itemName: purchaseOrderLines.itemName,
       itemSku: purchaseOrderLines.itemSku,
+      // Not snapshotted on the line: this is the supplier's own code as it
+      // currently reads on the item, which is what the PO grid shows too.
+      supplierItemCode: items.supplierItemCode,
       purchaseUnitName: purchaseOrderLines.purchaseUnitName,
       quantityOrdered: purchaseOrderLines.quantityOrdered,
       quantityReceived: purchaseOrderLines.quantityReceived,
@@ -150,6 +154,7 @@ async function loadPurchaseOrderEmailDataInTx(
       shipDeliveryInstructions: purchaseOrderLines.shipDeliveryInstructions,
     })
     .from(purchaseOrderLines)
+    .leftJoin(items, eq(purchaseOrderLines.itemId, items.id))
     .where(eq(purchaseOrderLines.purchaseOrderId, orderId))
     .orderBy(purchaseOrderLines.sortOrder);
   const displayByItemId = await getItemDisplayMetadataByIdInTx(
@@ -238,8 +243,9 @@ async function loadPurchaseOrderEmailDataInTx(
       ...order,
       deliveryInstructions:
         order.deliveryInstructions,
-      shipContactName: deliveryLine?.shipContactName ?? null,
-      shipContactPhone: deliveryLine?.shipContactPhone ?? null,
+      shipContactName: order.shipContactName ?? deliveryLine?.shipContactName ?? null,
+      shipContactPhone:
+        order.shipContactPhone ?? deliveryLine?.shipContactPhone ?? null,
       shipLine1: order.shipLine1 ?? deliveryLine?.shipLine1 ?? null,
       shipLine2: order.shipLine2 ?? deliveryLine?.shipLine2 ?? null,
       shipCity: order.shipCity ?? deliveryLine?.shipCity ?? null,
@@ -257,6 +263,7 @@ async function loadPurchaseOrderEmailDataInTx(
           [display?.masterName, display?.name],
         ),
         itemSku: line.itemSku,
+        supplierItemCode: line.supplierItemCode,
         purchaseUnitName: line.purchaseUnitName,
         quantityOrdered: line.quantityOrdered,
         quantityReceived: line.quantityReceived,

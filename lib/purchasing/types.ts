@@ -200,6 +200,8 @@ export type PurchaseOrderDetail = {
   expectedDate: string | null;
   notes: string | null;
   accountingPurchaseAccountCode: string | null;
+  shipContactName: string | null;
+  shipContactPhone: string | null;
   shipLine1: string | null;
   shipLine2: string | null;
   shipCity: string | null;
@@ -257,6 +259,8 @@ export type PurchaseOrderEditData = {
   expectedDate: string | null;
   notes: string | null;
   accountingPurchaseAccountCode: string | null;
+  shipContactName: string | null;
+  shipContactPhone: string | null;
   shipLine1: string | null;
   shipLine2: string | null;
   shipCity: string | null;
