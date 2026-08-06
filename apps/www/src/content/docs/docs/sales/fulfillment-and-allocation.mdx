@@ -5,7 +5,7 @@ sidebar:
   label: Fulfillment and allocation
 ---
 
-Fulfillment answers whether each sales line can be delivered, when it can be delivered, and what supply is covering it. The order card and list show this through three status lenses backed by a priority-ranked demand queue.
+Fulfillment answers whether each sales line can be delivered, when it can be delivered, and what supply is covering it. The order card and list show this through three status lenses backed by a priority-ranked demand queue. Operators order in the line's sales unit; coverage converts that quantity and stays in the item's stocking unit.
 
 <p class="po-meta">
   <span class="po-chip">3 status lenses</span>
@@ -40,7 +40,7 @@ The readiness result includes a message and blockers so the order can explain wh
 
 ## 03. Demand queue allocation
 
-Open sales-order lines and open manufacturing-order ingredient demand compete for the same stock and incoming supply in rank order. A higher-ranked demand claims scarce supply first.
+Open sales-order lines and open manufacturing-order ingredient demand compete for the same stock and incoming supply in rank order. A higher-ranked demand claims scarce supply first. Sales demand is always converted to stocking units before it enters that shared queue, so a pallet of three totes competes as three totes.
 
 Each line can land in one of these allocation states:
 
@@ -56,3 +56,5 @@ Each line can land in one of these allocation states:
 The `/sales/allocation` view shows coverage by item for products and materials. It reconciles on-hand stock, incoming supply, and demand from sales orders and manufacturing ingredients. Source rows can include inventory lots, manufacturing orders, and purchase-order supply.
 
 It's a read-only coverage view — you steer who gets scarce stock by ranking orders, not by hand-assigning lots. Changing sales order rank or manufacturing order rank can change which demand gets covered first.
+
+See [Sales vs. stock units](/docs/sales/sales-vs-stock-units) for the boundary between customer quantities and inventory quantities.

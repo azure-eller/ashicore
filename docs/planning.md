@@ -55,6 +55,10 @@ Demand sources:
 - remaining released manufacturing ingredient demand
 - component demand from BOM explosion of parent shortages
 
+Sales-order demand uses each line's snapshotted stocking quantity, less its
+stock-basis shipped and cancelled quantities. Sales-unit quantities remain the
+commercial display basis and never enter planning netting.
+
 Supply sources:
 
 - projected on-hand inventory

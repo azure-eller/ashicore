@@ -5,7 +5,7 @@ sidebar:
   label: Pricing and margin
 ---
 
-When you add or reprice a line, Sales resolves a suggested unit price from the customer, item, quantity, and any matching pricing schedules. Pricing schedules apply to product lines; sellable material lines use the item's base selling price. Margin starts as an estimate and can become actual after delivery consumes real stock.
+When you add or reprice a line, Sales resolves a suggested price per sales unit from the customer, item, ordered sales quantity, and any matching pricing schedules. Pricing schedules apply to product lines; sellable material lines use the item's base selling price. Margin starts as an estimate and can become actual after delivery consumes real stock.
 
 <p class="po-meta">
   <span class="po-chip">lowest matching unit price wins</span>
@@ -17,7 +17,7 @@ When you add or reprice a line, Sales resolves a suggested unit price from the c
 
 Pricing evaluates the customer category, item scope, and ordered quantity:
 
-1. The item's base selling price becomes `listUnitPrice`.
+1. The item's base selling price per effective sales unit becomes `listUnitPrice`.
 2. The pricing lookup gathers every schedule that can apply to the customer and item.
 3. Each candidate schedule contributes a matching quantity break when the quantity falls inside that break.
 4. The engine calculates each candidate unit price as `base price * (1 - discount percent / 100)`.
@@ -27,7 +27,7 @@ This means an all-customer schedule and a category-scoped schedule can both be c
 
 If no schedule break matches, the suggested unit price is the base selling price and the source is `base_price`.
 
-Schedule-based pricing is included on Free and Pro.
+Schedule-based pricing is included on Free and Pro. Quantity-break thresholds are in the sales unit: a break at 10 means 10 pallets on a Pallet line.
 
 ## 02. What the line stores
 
@@ -48,7 +48,7 @@ Discount is derived from list price versus unit price. Editing the discount colu
 
 | Amount | Formula |
 | --- | --- |
-| Line subtotal | `quantity * unitPrice` |
+| Line subtotal | `sales quantity * price per sales unit` |
 | Line tax | `lineSubtotal * taxRatePercent` |
 | Line total | `lineSubtotal + lineTaxAmount` |
 | Order total | Line totals plus shipping fee and shipping tax. |
@@ -59,11 +59,11 @@ Tax rate name and percent are snapshotted to the line so later tax setup changes
 
 The order detail data carries estimated and actual margin fields, but the visible order card currently keeps the main totals strip focused on revenue, discount, shipping fee, tax, and total.
 
-Before delivery, line margin can use estimated unit cost:
+Before delivery, line margin can use estimated unit cost. Ashicore converts the current stock-unit cost to the line's snapshotted sales unit before comparing it with the sales price:
 
 | Estimated field | Meaning |
 | --- | --- |
-| `estimatedUnitCost` | Current estimated cost for the item. |
+| `estimatedUnitCost` | Current estimated cost for one sales unit. |
 | `estimatedCogs` | Estimated cost of goods for the line. |
 | `estimatedGrossProfit` | Estimated line profit. |
 | `estimatedMarginPercent` | Estimated margin percentage. |
@@ -72,9 +72,13 @@ After delivery consumes real inventory lots, actual cost fields can be populated
 
 | Actual field | Meaning |
 | --- | --- |
-| `actualUnitCost` | Cost from consumed stock. |
+| `actualUnitCost` | Actual consumed stock cost per shipped sales unit. |
 | `actualCogs` | Actual cost of goods for shipped quantity. |
 | `actualGrossProfit` | Actual line profit. |
 | `actualMarginPercent` | Actual margin percentage. |
 
 The order-level margin summary tracks product revenue, freight recovery, product COGS, fulfillment costs, contribution margin, margin percent, and whether the cost side is estimated, actual, mixed, or unknown.
+
+Changing an item's sales-unit conversion can rescale its default price to keep
+the same underlying stock value. Existing order-line prices and unit snapshots
+stay unchanged. See [Sales vs. stock units](/docs/sales/sales-vs-stock-units).

@@ -5,6 +5,10 @@ import type {
   SalesOrderDetailLine,
 } from "@/lib/sales/types";
 import { calculateSalesLineAmounts } from "@/lib/sales/order-calculations";
+import {
+  buildSalesLineQuantities,
+  sellingToStockQuantity,
+} from "@/lib/sales/quantity-basis";
 
 /**
  * A blank SalesOrderDetail used as the local draft on /sales/order before the
@@ -108,6 +112,8 @@ export function makeDraftLine(input: {
   itemName: string;
   itemSku: string | null;
   unitName: string;
+  stockingUnitName?: string;
+  salesToStockFactor?: string;
   quantity: string;
   unitPrice: string;
   taxRateId?: string | null;
@@ -122,6 +128,25 @@ export function makeDraftLine(input: {
     unitPrice: input.unitPrice,
     taxRatePercent: input.taxRatePercent,
   });
+  const stockingUnitName = input.stockingUnitName ?? input.unitName;
+  const salesToStockFactor = input.salesToStockFactor ?? "1";
+  const stockQuantity = sellingToStockQuantity(
+    input.quantity,
+    salesToStockFactor
+  );
+  const quantities = buildSalesLineQuantities({
+    sellingUnitName: input.unitName,
+    stockingUnitName,
+    salesToStockFactor,
+    sellingOrderedQuantity: input.quantity,
+    sellingShippedQuantity: "0",
+    sellingCancelledQuantity: "0",
+    stockOrderedQuantity: stockQuantity,
+    stockShippedQuantity: "0",
+    stockCancelledQuantity: "0",
+  });
+  const selling = quantities.selling;
+  const stocking = quantities.stocking;
   return {
     id: crypto.randomUUID(),
     itemId: input.itemId,
@@ -129,13 +154,29 @@ export function makeDraftLine(input: {
     masterName: input.itemName,
     attrs: [],
     itemSku: input.itemSku,
-    unitName: input.unitName,
-    quantity: input.quantity,
-    shippedQuantity: "0",
-    plannedQuantity: "0",
-    cancelledQuantity: "0",
-    remainingQuantity: input.quantity,
-    unplannedRemainingQuantity: input.quantity,
+    unitName: stockingUnitName,
+    quantity: stocking.orderedQuantity,
+    shippedQuantity: stocking.shippedQuantity,
+    plannedQuantity: stocking.plannedQuantity,
+    cancelledQuantity: stocking.cancelledQuantity,
+    remainingQuantity: stocking.remainingQuantity,
+    unplannedRemainingQuantity: stocking.unplannedRemainingQuantity,
+    sellingUnitName: input.unitName,
+    sellingQuantity: selling.orderedQuantity,
+    sellingShippedQuantity: selling.shippedQuantity,
+    sellingPlannedQuantity: selling.plannedQuantity,
+    sellingCancelledQuantity: selling.cancelledQuantity,
+    sellingRemainingQuantity: selling.remainingQuantity,
+    sellingUnplannedRemainingQuantity: selling.unplannedRemainingQuantity,
+    stockingUnitName,
+    salesToStockFactor,
+    stockQuantity: stocking.orderedQuantity,
+    stockShippedQuantity: stocking.shippedQuantity,
+    stockPlannedQuantity: stocking.plannedQuantity,
+    stockCancelledQuantity: stocking.cancelledQuantity,
+    stockRemainingQuantity: stocking.remainingQuantity,
+    stockUnplannedRemainingQuantity: stocking.unplannedRemainingQuantity,
+    quantities,
     listUnitPrice: input.unitPrice,
     unitPrice: input.unitPrice,
     taxRateId: input.taxRateId ?? null,
@@ -179,12 +220,12 @@ export function makeDraftLine(input: {
     demandQueueSegments: [],
     demandQueueInStockQty: "0",
     demandQueueExpectedQty: "0",
-    demandQueueShortQty: input.quantity,
+    demandQueueShortQty: stocking.orderedQuantity,
     demandQueueExpectedDate: null,
     fulfillmentSummary: {
-      remainingQty: input.quantity,
+      remainingQty: stocking.orderedQuantity,
       allocatedQty: "0",
-      shortQty: input.quantity,
+      shortQty: stocking.orderedQuantity,
       productionAllocatedQty: "0",
       availabilityState: "not_available",
       expectedDate: null,
@@ -212,6 +253,7 @@ export function orderToUpdatePayload(
 ): InsertSalesOrder {
   const lines = mutate ? mutate(order.lines) : order.lines;
   return {
+    quantityContractVersion: 2,
     orderNumber: order.orderNumber,
     customerId: order.customerId,
     customerProjectId: order.customerProjectId,
@@ -238,7 +280,7 @@ export function orderToUpdatePayload(
     lines: lines.map((line) => ({
       id: line.id || undefined,
       itemId: line.itemId,
-      quantity: line.quantity,
+      quantity: line.sellingQuantity,
       listUnitPrice: line.listUnitPrice,
       unitPrice: line.unitPrice,
       taxRateId: line.taxRateId,

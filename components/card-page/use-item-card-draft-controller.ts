@@ -22,6 +22,7 @@ import { reflectPersistedCardUrlWithoutNavigation } from "@/lib/routing/reflect-
 import type { ItemType } from "@/lib/inventory/types";
 import { queryKeys } from "@/lib/client/query-keys";
 import { flushSavedCardOrThrow } from "./use-card-entity-actions";
+import { normalizeMoney } from "@/lib/format";
 
 export type ItemCardDraftController = {
   card: ItemCardDto;
@@ -114,6 +115,8 @@ function serializeItemCard(draft: ItemCardDto): {
               purchaseToStockFactor: family.purchaseToStockFactor,
             }
           : {}),
+        salesUnitDefinitionId: family.salesUnitDefinitionId,
+        salesToStockFactor: family.salesToStockFactor,
         lotTrackingMode: family.lotTrackingMode,
       },
       variants: variants.length > 0 ? variants : undefined,
@@ -173,6 +176,8 @@ export function useItemCardDraftController({
             itemType === "material" ? family.purchaseUnitDefinitionId : undefined,
           purchaseToStockFactor:
             itemType === "material" ? family.purchaseToStockFactor : undefined,
+          salesUnitDefinitionId: family.salesUnitDefinitionId,
+          salesToStockFactor: family.salesToStockFactor,
           lotTrackingMode: family.lotTrackingMode,
         },
         opts,
@@ -211,17 +216,54 @@ export function useItemCardDraftController({
   const patchFamily = useCallback(
     (patch: UpdateItemCardInput, delayMs = 0) => {
       update(
-        (draft) => ({
-          ...draft,
-          family: {
+        (draft) => {
+          const family = {
             ...draft.family,
             ...patch,
             unitName:
               patch.unitDefinitionId != null
                 ? unitNameById.get(patch.unitDefinitionId) ?? draft.family.unitName
                 : draft.family.unitName,
-          },
-        }),
+          };
+          const previousFactor = Number(
+            draft.family.salesToStockFactor ?? "1",
+          );
+          const nextFactor = Number(family.salesToStockFactor ?? "1");
+          const previousSellingUnitId =
+            draft.family.salesUnitDefinitionId ??
+            draft.family.unitDefinitionId;
+          const nextSellingUnitId =
+            family.salesUnitDefinitionId ?? family.unitDefinitionId;
+          const stockingUnitChanged =
+            family.unitDefinitionId !== draft.family.unitDefinitionId;
+          const factorChanged =
+            Number.isFinite(previousFactor) &&
+            Number.isFinite(nextFactor) &&
+            previousFactor > 0 &&
+            nextFactor > 0 &&
+            previousFactor !== nextFactor &&
+            !(
+              stockingUnitChanged &&
+              previousSellingUnitId === nextSellingUnitId
+            );
+
+          return {
+            ...draft,
+            family,
+            variants: factorChanged
+              ? draft.variants.map((variant) => ({
+                  ...variant,
+                  defaultSellingPrice:
+                    variant.defaultSellingPrice == null
+                      ? null
+                      : normalizeMoney(
+                          (Number(variant.defaultSellingPrice) * nextFactor) /
+                            previousFactor,
+                        ),
+                }))
+              : draft.variants,
+          };
+        },
         { debounceMs: delayMs },
       );
     },

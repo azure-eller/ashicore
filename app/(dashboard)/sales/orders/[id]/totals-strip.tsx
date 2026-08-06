@@ -133,7 +133,9 @@ function calculateDiscountAmount(
     const base = baseUnitPrice == null ? NaN : Number(baseUnitPrice);
     const unitPrice = Number(line.unitPrice);
     const quantity = Number(
-      order.status === "done" ? line.shippedQuantity : line.quantity
+      order.status === "done"
+        ? line.sellingShippedQuantity
+        : line.sellingQuantity
     );
     if (
       !Number.isFinite(base) ||

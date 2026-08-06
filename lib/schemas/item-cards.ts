@@ -10,6 +10,8 @@ import {
   optionalNonNegativeDecimalString,
   optionalPositiveDecimalString,
   optionalPositiveDecimalStringPreserveUndefined,
+  optionalPositiveNumeric12Scale4String,
+  optionalPositiveNumeric12Scale4StringPreserveUndefined,
 } from "./shared";
 
 const nullableText = nullableString;
@@ -26,6 +28,10 @@ export const itemCardCreateSchema = z.object({
   defaultSupplierId: z.string().uuid().nullable().optional(),
   purchaseUnitDefinitionId: z.string().uuid().nullable().optional(),
   purchaseToStockFactor: optionalPositiveDecimalString("Purchase-to-stock factor"),
+  salesUnitDefinitionId: z.string().uuid().nullable().optional(),
+  salesToStockFactor: optionalPositiveNumeric12Scale4String(
+    "Sales-to-stock factor",
+  ),
   sku: nullableText,
   sellable: z.boolean().optional(),
   defaultSellingPrice: optionalMoneyString("Default selling price"),
@@ -65,6 +71,25 @@ export const itemCardCreateSchema = z.object({
       message: "Purchase-to-stock factor is required when purchase unit is set",
     });
   }
+
+  if (
+    data.salesUnitDefinitionId &&
+    data.salesUnitDefinitionId !== data.unitDefinitionId &&
+    !data.salesToStockFactor
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["salesToStockFactor"],
+      message: "Sales-to-stock factor is required when sales unit is set",
+    });
+  }
+  if (data.salesUnitDefinitionId == null && data.salesToStockFactor != null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["salesToStockFactor"],
+      message: "Sales-to-stock factor must be cleared with the sales unit",
+    });
+  }
 });
 
 export const itemCardUpdateSchema = z.object({
@@ -77,6 +102,10 @@ export const itemCardUpdateSchema = z.object({
   purchaseToStockFactor: optionalPositiveDecimalStringPreserveUndefined(
     "Purchase-to-stock factor",
   ),
+  salesUnitDefinitionId: z.string().uuid().nullable().optional(),
+  salesToStockFactor: optionalPositiveNumeric12Scale4StringPreserveUndefined(
+    "Sales-to-stock factor",
+  ),
   lotTrackingMode: lotTrackingModeSchema.optional(),
 }).superRefine((data, ctx) => {
   if (
@@ -87,6 +116,13 @@ export const itemCardUpdateSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["purchaseToStockFactor"],
       message: "Purchase-to-stock factor is required when purchase unit is set",
+    });
+  }
+  if (data.salesUnitDefinitionId === null && data.salesToStockFactor != null) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["salesToStockFactor"],
+      message: "Sales-to-stock factor must be cleared with the sales unit",
     });
   }
 });

@@ -12,7 +12,7 @@ import Grid from '../../../../widgets/Grid.astro';
 import Button from '../../../../widgets/Button.astro';
 import Totals from '../../../../widgets/Totals.astro';
 
-Pricing schedules suggest unit prices for product sales-order lines. A schedule combines customer scope, product item scope, and quantity breaks.
+Pricing schedules suggest prices per sales unit for product sales-order lines. A schedule combines customer scope, product item scope, and quantity breaks measured in each matched line's sales unit.
 
 <p class="po-meta">
   <span class="po-chip">4 steps · ~3 min</span>
@@ -74,7 +74,7 @@ Pricing schedules suggest unit prices for product sales-order lines. A schedule 
 
    You can't create two schedules with the exact same customer-and-item scope; where scopes overlap, the lowest resulting price wins.
 
-3. **Build quantity breaks.** Add at least one break. Breaks must stay in ascending order and cannot overlap. An open-ended break must be the final row.
+3. **Build quantity breaks.** Add at least one break. Breaks use the matched item's sales unit: a break at 10 means 10 pallets for a Pallet item, not the stocking quantity inside those pallets. Breaks must stay in ascending order and cannot overlap. An open-ended break must be the final row.
 
    <Frame title="<b>Quantity breaks</b>">
      <span slot="action"><Button variant="subtle">+ Add break</Button></span>
@@ -90,8 +90,8 @@ Pricing schedules suggest unit prices for product sales-order lines. A schedule 
 
    | Field | Rule |
    | --- | --- |
-   | Minimum quantity | Required and greater than 0. |
-   | Maximum quantity | Optional. When blank, the break is open-ended. |
+   | Minimum quantity | Required and greater than 0, in the matched item's sales unit. |
+   | Maximum quantity | Optional, in the same sales unit. When blank, the break is open-ended. |
    | Discount percent | Required, from 0 through 100. |
 
 4. **Save and test on an order.** Add a covered item to a sales order for a covered customer. The line pricing lookup snapshots the winning schedule name and break label, then fills the suggested unit price.
@@ -118,7 +118,7 @@ Pricing schedules suggest unit prices for product sales-order lines. A schedule 
    | --- | --- |
    | Customer category | The customer must match the category scope, unless the schedule applies to all customers. |
    | Item scope | The item must fall within the schedule's item scope. |
-   | Quantity | The ordered quantity must fit one break. |
+   | Quantity | The ordered sales quantity must fit one break. |
    | Item type | Pricing schedules apply to products; sellable materials use their base price. |
 
 </Steps>

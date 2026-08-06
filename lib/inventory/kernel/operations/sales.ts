@@ -492,7 +492,7 @@ export async function getSalesLineQuantitiesForDemandInTx(
     .select({
       salesOrderLineId: salesOrderLines.id,
       itemId: salesOrderLines.itemId,
-      quantity: salesOrderLines.quantity,
+      quantity: salesOrderLines.stockQuantity,
     })
     .from(salesOrderLines)
     .where(eq(salesOrderLines.salesOrderId, salesOrderId));

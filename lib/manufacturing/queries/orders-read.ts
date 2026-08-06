@@ -893,8 +893,8 @@ export async function getManufacturingSalesLineOptions(
         itemId: salesOrderLines.itemId,
         itemName: salesOrderLines.itemName,
         itemSku: salesOrderLines.itemSku,
-        quantity: trimScale(salesOrderLines.quantity).as("quantity"),
-        unitName: salesOrderLines.unitName,
+        quantity: trimScale(salesOrderLines.stockQuantity).as("quantity"),
+        unitName: salesOrderLines.stockingUnitName,
         manufacturingMode: items.manufacturingMode,
         expectedBatchYield: trimScaleNullable(items.expectedBatchYield).as(
           "expectedBatchYield"

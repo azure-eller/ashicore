@@ -814,6 +814,8 @@ export async function approveImportSession(
                 item.itemType === "material" ? purchaseUnitDefinitionId : undefined,
               purchaseToStockFactor:
                 item.itemType === "material" ? item.purchaseToStockFactor : undefined,
+              salesUnitDefinitionId: undefined,
+              salesToStockFactor: undefined,
               lotTrackingMode: item.lotTrackingMode,
             },
             { idempotencyKey: `import:${sessionId}:item-card:${item.tempId}` },
@@ -852,6 +854,8 @@ export async function approveImportSession(
             defaultSupplierId,
             purchaseUnitDefinitionId,
             purchaseToStockFactor: item.purchaseToStockFactor ?? null,
+            salesUnitDefinitionId: null,
+            salesToStockFactor: null,
             sku: nullableForCreate(item.sku),
             sellable: item.itemType === "product" ? item.sellable ?? false : false,
             defaultSellingPrice: item.defaultSellingPrice ?? null,

@@ -490,6 +490,8 @@ export async function loadExistingItemsInTx(tx: Tx): Promise<ExistingItem[]> {
       unitDefinitionId: items.unitDefinitionId,
       purchaseUnitDefinitionId: items.purchaseUnitDefinitionId,
       purchaseToStockFactor: items.purchaseToStockFactor,
+      salesUnitDefinitionId: items.salesUnitDefinitionId,
+      salesToStockFactor: items.salesToStockFactor,
       category: items.category,
       description: items.description,
       defaultPurchasePrice: items.defaultPurchasePrice,
@@ -656,6 +658,14 @@ export async function applyItemsSyncInTx(
       report.createdItems.push(seed.name);
     } else {
       const sellable = resolveSeedSellable(seed, internalOnlyProductCategories);
+      if (
+        existing.unitDefinitionId !== unitDefinitionId &&
+        existing.salesUnitDefinitionId != null
+      ) {
+        throw new Error(
+          `Cannot change the stocking unit for ${seed.name} during item sync while a different sales unit is configured. Clear or reconfigure the sales unit from the item card first.`,
+        );
+      }
       const nextValues: Record<string, unknown> = {
         sku: seed.sku,
         name: seed.name,

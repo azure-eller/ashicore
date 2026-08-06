@@ -365,6 +365,8 @@ Manufacturing may optionally link one sales order line:
 
 - eligible lines come from non-deleted, open sales orders
 - the linked line must match the selected finished product
+- make-to-order previews, planned quantities, and shipped coverage use the
+  line's snapshotted stocking basis, not its customer-facing sales quantity
 - the link is informational only; it does not create or complete anything in sales
 - the link blocks duplicate sales-driven MO creation for that line
 - a linked MO keeps claiming the line while it exists (open or done); deleting (cancelling) the MO frees it

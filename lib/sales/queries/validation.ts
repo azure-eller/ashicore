@@ -123,6 +123,8 @@ export type SalesItemValidationRow = {
   category: string | null;
   unitDefinitionId: string;
   unitName: string;
+  stockingUnitName: string;
+  salesToStockFactor: string;
   variantValues: SalesVariantValue[];
   defaultSellingPrice: string | null;
   stock: string;
@@ -233,7 +235,16 @@ export async function getValidatedSalesItemsInTx(
       sellable: items.sellable,
       category: sql<string | null>`COALESCE(${itemFamilies.category}, ${items.category})`,
       unitDefinitionId: items.unitDefinitionId,
-      unitName: unitDefinitions.name,
+      unitName: sql<string>`COALESCE((
+        SELECT sales_unit.name
+        FROM inventory.unit_definitions sales_unit
+        WHERE sales_unit.id = ${items.salesUnitDefinitionId}
+        LIMIT 1
+      ), ${unitDefinitions.name})`,
+      stockingUnitName: unitDefinitions.name,
+      salesToStockFactor: trimScale(
+        sql`COALESCE(${items.salesToStockFactor}, 1)`
+      ).as("salesToStockFactor"),
       defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as(
         "defaultSellingPrice"
       ),

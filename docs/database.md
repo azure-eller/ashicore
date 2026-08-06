@@ -171,6 +171,13 @@ Sales order lines follow the same replace-in-transaction pattern as BOM rows:
 - deleting an order soft-deletes only the order row; the saved lines remain attached to that order for history
 - demand coverage ignores soft-deleted orders
 - item-name snapshots use unbounded text for canonical variant display names
+- retained line ids keep their selling-unit, stocking-unit, and conversion
+  snapshots across an eligible replacement edit; a newly added replacement
+  line snapshots the item's current units and conversion
+- `quantity`, `shippedQuantity`, and `cancelledQuantity` are selling-basis
+  fields; their `stock*` counterparts are the inventory-kernel basis
+- migration `0181_little_dark_beast.sql` backfills existing lines as a 1:1
+  selling/stock pair, preserving their former quantities and unit name
 
 ### Manufacturing Orders
 

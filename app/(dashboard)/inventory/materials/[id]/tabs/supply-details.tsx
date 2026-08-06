@@ -11,7 +11,7 @@ import {
 import { underlineControlClass } from "@/components/card-page/form-cell";
 import { EntityCombobox } from "@/components/entity-combobox";
 import { CardSection } from "@/components/card-page/card-page";
-import { CommitInput } from "@/components/card-page/commit-input";
+import { UnitConversionField } from "@/components/card-page/unit-conversion-field";
 import {
   FixedEditableLines,
   type EditableLineDataGridChange,
@@ -24,7 +24,7 @@ import {
   type UpdateItemCardInput,
   type UpdateItemCardVariantInput,
 } from "@/lib/api/clients/item-cards";
-import { formatQuantity, normalizeNumeric } from "@/lib/format";
+import { normalizeNumeric } from "@/lib/format";
 import {
   isNonNegativeNumberString,
   isPositiveNumberString,
@@ -139,10 +139,14 @@ export function MaterialSupplyDetailsTab({
                   label: `${unit.name} (${unit.size} ${unit.uom})`,
                 }))}
               />
-              <ConversionField
-                stockUnitName={card.family.unitName ?? ""}
+              <UnitConversionField
+                sourceUnitLabel="purchase unit"
+                stockingUnitName={card.family.unitName ?? ""}
                 value={card.family.purchaseToStockFactor}
-                onFamilyChange={onFamilyChange}
+                onCommit={(next) => {
+                  if (next === card.family.purchaseToStockFactor) return;
+                  onFamilyChange({ purchaseToStockFactor: next });
+                }}
               />
             </>
           ) : null}
@@ -152,6 +156,7 @@ export function MaterialSupplyDetailsTab({
       <CardSection title="Variants">
         <SupplyVariantsGrid
           variants={visibleVariants}
+          salesUnitName={card.family.salesUnitName ?? card.family.unitName ?? "unit"}
           onVariantPatch={onVariantPatch}
         />
       </CardSection>
@@ -161,9 +166,11 @@ export function MaterialSupplyDetailsTab({
 
 function SupplyVariantsGrid({
   variants,
+  salesUnitName,
   onVariantPatch,
 }: {
   variants: ItemCardVariantDto[];
+  salesUnitName: string;
   onVariantPatch: (variantId: string, patch: UpdateItemCardVariantInput) => void;
 }) {
   const [rows, setRows] = useState<ItemCardVariantDto[]>(variants);
@@ -323,7 +330,7 @@ function SupplyVariantsGrid({
       {
         field: "defaultSellingPrice",
         kind: "number",
-        headerName: "Default sales price (USD)",
+        headerName: `Default sales price / ${salesUnitName} (USD)`,
         rightAligned: true,
         editable: true,
         flex: 0.9,
@@ -346,7 +353,7 @@ function SupplyVariantsGrid({
         ),
       },
     ],
-    [],
+    [salesUnitName],
   );
 
   return (
@@ -358,46 +365,5 @@ function SupplyVariantsGrid({
       onRowsChange={handleRowsChange}
       emptyMessage="No variants yet."
     />
-  );
-}
-
-function ConversionField({
-  stockUnitName,
-  value,
-  onFamilyChange,
-  disabled,
-}: {
-  stockUnitName: string;
-  value: string | null;
-  onFamilyChange: (patch: Partial<UpdateItemCardInput>, delayMs?: number) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <CardField label="Unit conversion rate">
-      <div className="flex items-center gap-(--space-2)">
-        <span className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
-          1 purchase unit =
-        </span>
-        <CommitInput
-          label="Unit conversion rate"
-          value={value}
-          inputMode="decimal"
-          className="max-w-[8rem]"
-          disabled={disabled}
-          onCommit={(next) => {
-            if (next === (value ?? null)) return;
-            onFamilyChange({ purchaseToStockFactor: next });
-          }}
-        />
-        <span className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
-          {stockUnitName || "stock units"}
-        </span>
-      </div>
-      {value ? (
-        <p className="mt-(--space-1) text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
-          Current: 1 purchase unit = {formatQuantity(value)} {stockUnitName}
-        </p>
-      ) : null}
-    </CardField>
   );
 }

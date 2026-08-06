@@ -5,10 +5,12 @@ import { normalizeMinimumLotAgeDays } from "@/lib/bom/constraints";
 import { normalizeNumeric, normalizeNumericScale } from "@/lib/format";
 import {
   isNonNegativeNumberString,
+  isNumeric12Scale4Representable,
   isPositiveNumberString,
   nullableString as nullableStringOptional,
   nullableStringPreserveUndefined,
   nullableStringStrict as nullableString,
+  roundsToPositiveNumeric12Scale4,
 } from "./shared";
 
 const bomQuantitySchema = nullableString
@@ -195,6 +197,8 @@ const rawBaseItemSchema = createInsertSchema(items, {
   unitDefinitionId: z.string().min(1, "Unit is required"),
   purchaseUnitDefinitionId: nullableStringOptional,
   purchaseToStockFactor: nullableStringOptional,
+  salesUnitDefinitionId: nullableStringOptional,
+  salesToStockFactor: nullableStringOptional,
   sku: nullableString,
   category: nullableString,
   defaultPurchasePrice: nullableString,
@@ -272,6 +276,55 @@ function purchaseUnitRefine(
       code: z.ZodIssueCode.custom,
       message: "Conversion factor must be greater than 0",
       path: ["purchaseToStockFactor"],
+    });
+  }
+}
+
+function salesUnitRefine(
+  data: {
+    unitDefinitionId?: string;
+    salesUnitDefinitionId?: string | null;
+    salesToStockFactor?: string | null;
+  },
+  ctx: z.RefinementCtx
+) {
+  if (data.salesUnitDefinitionId == null) {
+    if (data.salesToStockFactor != null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Sales conversion must be cleared with the sales unit",
+        path: ["salesToStockFactor"],
+      });
+    }
+    return;
+  }
+
+  if (data.salesUnitDefinitionId === data.unitDefinitionId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Sales unit must be different from the stocking unit",
+      path: ["salesUnitDefinitionId"],
+    });
+  }
+
+  const factor = data.salesToStockFactor?.trim() ?? "";
+  if (!isPositiveNumberString(factor)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Conversion factor must be greater than 0",
+      path: ["salesToStockFactor"],
+    });
+  } else if (!roundsToPositiveNumeric12Scale4(factor)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Conversion factor must be at least 0.0001",
+      path: ["salesToStockFactor"],
+    });
+  } else if (!isNumeric12Scale4Representable(factor)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Conversion factor must be 99,999,999.9999 or less",
+      path: ["salesToStockFactor"],
     });
   }
 }
@@ -382,6 +435,7 @@ function operationCostsRefine(
 
 export const insertItemSchema = rawBaseItemSchema.superRefine((data, ctx) => {
   purchaseUnitRefine(data, ctx);
+  salesUnitRefine(data, ctx);
   bomRefine(data, ctx);
   operationCostsRefine(data, ctx);
   batchModeRefine(data, ctx);
@@ -412,6 +466,7 @@ export const updateItemSchema = rawBaseItemSchema.omit({
   ).optional(),
 }).superRefine((data, ctx) => {
   purchaseUnitRefine(data, ctx);
+  salesUnitRefine(data, ctx);
   bomRefine(data, ctx);
   operationCostsRefine(data, ctx);
   batchModeRefine(data, ctx);

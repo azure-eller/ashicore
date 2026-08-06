@@ -139,11 +139,22 @@ export async function getOrderLinesInTx(tx: Tx, orderId: string) {
       itemSku: salesOrderLines.itemSku,
       unitName: salesOrderLines.unitName,
       quantity: trimScale(salesOrderLines.quantity).as("quantity"),
+      stockingUnitName: salesOrderLines.stockingUnitName,
+      salesToStockFactor: trimScale(salesOrderLines.salesToStockFactor).as(
+        "salesToStockFactor"
+      ),
+      stockQuantity: trimScale(salesOrderLines.stockQuantity).as("stockQuantity"),
       shippedQuantity: trimScale(salesOrderLines.shippedQuantity).as(
         "shippedQuantity"
       ),
+      stockShippedQuantity: trimScale(salesOrderLines.stockShippedQuantity).as(
+        "stockShippedQuantity"
+      ),
       cancelledQuantity: trimScale(salesOrderLines.cancelledQuantity).as(
         "cancelledQuantity"
+      ),
+      stockCancelledQuantity: trimScale(salesOrderLines.stockCancelledQuantity).as(
+        "stockCancelledQuantity"
       ),
       listUnitPrice: trimScaleNullable(salesOrderLines.listUnitPrice).as(
         "listUnitPrice"
@@ -222,6 +233,11 @@ export type SalesOrderLineShipState = {
   quantity: number;
   cancelledQuantity: number;
   shippedQuantity: number;
+  sellingUnitName: string;
+  sellingQuantity: number;
+  sellingCancelledQuantity: number;
+  sellingShippedQuantity: number;
+  salesToStockFactor: number;
   plannedQuantity: number;
   sortOrder: number;
 };
@@ -236,6 +252,14 @@ export function remainingToShip(line: SalesOrderLineShipState) {
   );
 }
 
+export function sellingRemainingToShip(line: SalesOrderLineShipState) {
+  return normalizeShipQuantity(
+    line.sellingQuantity -
+      line.sellingShippedQuantity -
+      line.sellingCancelledQuantity,
+  );
+}
+
 export async function getSalesOrderLineShipStatesInTx(
   tx: Tx,
   orderId: string
@@ -246,10 +270,15 @@ export async function getSalesOrderLineShipStatesInTx(
       itemId: salesOrderLines.itemId,
       itemName: salesOrderLines.itemName,
       itemSku: salesOrderLines.itemSku,
-      unitName: salesOrderLines.unitName,
-      quantity: salesOrderLines.quantity,
-      shippedQuantity: salesOrderLines.shippedQuantity,
-      cancelledQuantity: salesOrderLines.cancelledQuantity,
+      unitName: salesOrderLines.stockingUnitName,
+      quantity: salesOrderLines.stockQuantity,
+      shippedQuantity: salesOrderLines.stockShippedQuantity,
+      cancelledQuantity: salesOrderLines.stockCancelledQuantity,
+      sellingUnitName: salesOrderLines.unitName,
+      sellingQuantity: salesOrderLines.quantity,
+      sellingShippedQuantity: salesOrderLines.shippedQuantity,
+      sellingCancelledQuantity: salesOrderLines.cancelledQuantity,
+      salesToStockFactor: salesOrderLines.salesToStockFactor,
       sortOrder: salesOrderLines.sortOrder,
     })
     .from(salesOrderLines)
@@ -269,6 +298,13 @@ export async function getSalesOrderLineShipStatesInTx(
         quantity: parseFloat(line.quantity),
         cancelledQuantity: parseFloat(line.cancelledQuantity),
         shippedQuantity: normalizeShipQuantity(Number(line.shippedQuantity)),
+        sellingUnitName: line.sellingUnitName,
+        sellingQuantity: parseFloat(line.sellingQuantity),
+        sellingCancelledQuantity: parseFloat(line.sellingCancelledQuantity),
+        sellingShippedQuantity: normalizeShipQuantity(
+          Number(line.sellingShippedQuantity),
+        ),
+        salesToStockFactor: parseFloat(line.salesToStockFactor),
         plannedQuantity: 0,
         sortOrder: line.sortOrder,
       },

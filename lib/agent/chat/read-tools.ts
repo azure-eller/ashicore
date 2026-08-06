@@ -18,7 +18,7 @@ const QUERY_DESCRIPTION = `Run one read-only SQL SELECT (Postgres) to answer any
 
 You query the real ERP tables directly across these schemas: sales, inventory, purchasing, manufacturing, settings. Most rows are soft-deleted, so add "deleted_at IS NULL" unless you want historical rows. Key tables (introspect information_schema for exact columns and any table not listed):
 - sales.sales_orders (status 'open'|'done', ship_date, requested_date, total_amount, customer_name), sales.sales_order_lines, sales.customers, sales.customer_activities (one engagement stream: type 'note'|'call'|'email'|'meeting'|'task'; tasks carry due_date + status 'open'|'done'), sales.customer_projects, sales.pricing_schedules / sales.pricing_schedule_items
-- inventory.items (name, sku, item_type 'product'|'material', category, safety_stock), inventory.bom_revisions + inventory.bom_revision_components (recipes — which materials each product uses; is_current flags the active revision), inventory.lots, inventory.inventory_events (stock movement ledger), inventory.stocktakes
+- inventory.items (name, sku, item_type 'product'|'material', category, safety_stock, unit_definition_id, sales_unit_definition_id, sales_to_stock_factor), inventory.unit_definitions, inventory.bom_revisions + inventory.bom_revision_components (recipes — which materials each product uses; is_current flags the active revision), inventory.lots, inventory.inventory_events (stock movement ledger), inventory.stocktakes
 - purchasing.purchase_orders (status 'not_received'|'partial'|'received'), purchasing.purchase_order_lines, purchasing.suppliers, purchasing.supplier_items
 - manufacturing.manufacturing_orders (status 'open'|'done', is_blocked), manufacturing.manufacturing_order_ingredients, manufacturing.manufacturing_order_batches
 - settings.tax_rates
@@ -26,6 +26,7 @@ You query the real ERP tables directly across these schemas: sales, inventory, p
 For inventory quantities ALWAYS use the view agent_query.items_stock(id, name, sku, item_type, category, sellable, safety_stock, unit_name, on_hand_qty, demand_qty, available_qty, expected_qty) — it carries the canonical kernel availability math. Do not recompute stock from inventory_lot_balances yourself.
 
 Semantics: an order's due date = COALESCE(ship_date, requested_date); late = open AND due date < CURRENT_DATE. A material is "unused" if it appears in no current BOM (inventory.bom_revision_components joined to bom_revisions WHERE is_current). Use ILIKE '%term%' for name/code matching.
+Sales-order line quantity, unit_name, and unit price are the commercial selling basis. The stock_quantity, stocking_unit_name, stock_shipped_quantity, and stock_cancelled_quantity columns are the inventory/planning basis. For a sellable item, join sales_unit_definition_id to inventory.unit_definitions to see the unit customers order; when it is null, the stocking unit is also the sales unit.
 
 Examples:
 SELECT order_number, customer_name, total_amount FROM sales.sales_orders WHERE deleted_at IS NULL AND status = 'open' AND COALESCE(ship_date, requested_date) < CURRENT_DATE ORDER BY ship_date LIMIT 20

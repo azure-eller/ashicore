@@ -174,6 +174,7 @@ export default defineConfig({
                   items: [
                     { label: "The delivery lifecycle", link: "/docs/sales/the-delivery-lifecycle" },
                     { label: "Fulfillment & allocation", link: "/docs/sales/fulfillment-and-allocation" },
+                    { label: "Sales vs. stock units", link: "/docs/sales/sales-vs-stock-units" },
                     { label: "Pricing, discounts & margin", link: "/docs/sales/pricing-discounts-and-margin" },
                   ],
                 },

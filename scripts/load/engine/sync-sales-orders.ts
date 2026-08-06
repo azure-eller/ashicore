@@ -1,4 +1,5 @@
 import { eq, gt, isNull, sql } from "drizzle-orm";
+import Decimal from "decimal.js-light";
 import {
   items,
   salesOrderLines,
@@ -6,6 +7,11 @@ import {
   unitDefinitions,
 } from "@/lib/db/schema";
 import { normalizeMoney, normalizeNumeric } from "@/lib/format";
+import { sellingToStockQuantity } from "@/lib/sales/quantity-basis";
+import {
+  isNumeric12Scale4Representable,
+  roundsToPositiveNumeric12Scale4,
+} from "@/lib/schemas/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
 import {
   releaseSalesDemandForSalesLineInTx,
@@ -162,6 +168,13 @@ function resolveOrderCustomerKey(
   return targetName ? normalizeCustomerKey(targetName) : sourceKey;
 }
 
+function isPositivePersistableQuantity(value: string | number) {
+  return (
+    roundsToPositiveNumeric12Scale4(value) &&
+    isNumeric12Scale4Representable(value)
+  );
+}
+
 function addPreparedLine(
   preparedLines: PreparedSalesImportLine[],
   nextLine: Omit<PreparedSalesImportLine, "sortOrder">
@@ -178,15 +191,29 @@ function addPreparedLine(
       ...nextLine,
       sortOrder: preparedLines.length,
     });
-    return;
+    return true;
   }
 
-  existingLine.quantity = normalizeNumeric(
-    parseFloat(existingLine.quantity) + parseFloat(nextLine.quantity)
+  const quantity = normalizeNumeric(
+    new Decimal(existingLine.quantity).plus(nextLine.quantity).toNumber()
   );
+  const stockQuantity = sellingToStockQuantity(
+    quantity,
+    existingLine.salesToStockFactor,
+  );
+  if (
+    !isPositivePersistableQuantity(quantity) ||
+    !isPositivePersistableQuantity(stockQuantity)
+  ) {
+    return false;
+  }
+
+  existingLine.quantity = quantity;
+  existingLine.stockQuantity = stockQuantity;
   existingLine.lineTotal = normalizeMoney(
     parseFloat(existingLine.lineTotal) + parseFloat(nextLine.lineTotal)
   );
+  return true;
 }
 
 async function generateSalesOrderNumber(tx: Tx) {
@@ -248,6 +275,9 @@ function toSalesOrderLineInsert(
     itemSku: line.itemSku,
     unitName: line.unitName,
     quantity: line.quantity,
+    stockingUnitName: line.stockingUnitName,
+    salesToStockFactor: line.salesToStockFactor,
+    stockQuantity: line.stockQuantity,
     unitPrice: line.unitPrice,
     taxRateId: null,
     taxRateName: null,
@@ -476,16 +506,37 @@ export async function evaluateSalesImportInTx(
         continue;
       }
 
-      const unitName = existingItem.unitDefinitionId
+      const stockingUnitName = existingItem.unitDefinitionId
         ? unitNameById.get(existingItem.unitDefinitionId)
         : undefined;
-      if (!unitName) {
+      if (!stockingUnitName) {
         issues.push(`${line.raw} -> Unit definition is missing for "${seed.name}".`);
+        continue;
+      }
+      const salesUnitDefinitionId =
+        existingItem.salesUnitDefinitionId ?? existingItem.unitDefinitionId;
+      const sellingUnitName = salesUnitDefinitionId
+        ? unitNameById.get(salesUnitDefinitionId)
+        : undefined;
+      const salesToStockFactor = existingItem.salesToStockFactor ?? "1";
+      if (!sellingUnitName) {
+        issues.push(`${line.raw} -> Sales unit definition is missing for "${seed.name}".`);
+        continue;
+      }
+      if (
+        !Number.isFinite(Number(salesToStockFactor)) ||
+        Number(salesToStockFactor) <= 0
+      ) {
+        issues.push(`${line.raw} -> Sales conversion is invalid for "${seed.name}".`);
         continue;
       }
 
       const quantity = Number(line.quantity);
-      if (!Number.isFinite(quantity) || quantity <= 0) {
+      if (
+        !Number.isFinite(quantity) ||
+        quantity <= 0 ||
+        !isPositivePersistableQuantity(line.quantity)
+      ) {
         issues.push(`${line.raw} -> Quantity "${line.quantity}" is invalid.`);
         continue;
       }
@@ -501,16 +552,36 @@ export async function evaluateSalesImportInTx(
         continue;
       }
 
-      addPreparedLine(preparedLines, {
+      const normalizedQuantity = normalizeNumeric(quantity);
+      const stockQuantity = sellingToStockQuantity(
+        normalizedQuantity,
+        salesToStockFactor,
+      );
+      if (!isPositivePersistableQuantity(stockQuantity)) {
+        issues.push(
+          `${line.raw} -> Stock quantity for "${seed.name}" is outside the supported 0.0001 to 99,999,999.9999 range.`,
+        );
+        continue;
+      }
+
+      const lineAdded = addPreparedLine(preparedLines, {
         itemId: existingItem.id,
         itemName: existingItem.name,
         itemSku: existingItem.sku,
-        unitName,
-        quantity: normalizeNumeric(quantity),
+        unitName: sellingUnitName,
+        quantity: normalizedQuantity,
+        stockingUnitName,
+        salesToStockFactor: normalizeNumeric(Number(salesToStockFactor)),
+        stockQuantity,
         unitPrice: normalizeMoney(unitPriceNumber),
         lineTotal: normalizeMoney(quantity * unitPriceNumber),
         allocated: line.allocated === true,
       });
+      if (!lineAdded) {
+        issues.push(
+          `${line.raw} -> Combined quantity for "${seed.name}" exceeds 99,999,999.9999.`,
+        );
+      }
     }
 
     if (issues.length > 0) {
@@ -770,7 +841,7 @@ export async function applySalesImportOrdersInTx(
           .returning({
             salesOrderLineId: salesOrderLines.id,
             itemId: salesOrderLines.itemId,
-            quantity: salesOrderLines.quantity,
+            quantity: salesOrderLines.stockQuantity,
           });
 
         await reserveConfirmedImportLinesInTx(
@@ -811,7 +882,7 @@ export async function applySalesImportOrdersInTx(
             .returning({
               salesOrderLineId: salesOrderLines.id,
               itemId: salesOrderLines.itemId,
-              quantity: salesOrderLines.quantity,
+              quantity: salesOrderLines.stockQuantity,
             });
 
           await reserveConfirmedImportLinesInTx(

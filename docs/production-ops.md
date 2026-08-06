@@ -43,6 +43,18 @@ For preview deployments that should support real sign-in flows:
 - prefer a stable preview fallback URL in `BETTER_AUTH_URL` or `NEXT_PUBLIC_APP_URL`
 - branch deploys may still use `VERCEL_BRANCH_URL` / `VERCEL_URL` automatically if the canonical URL vars are missing
 
+## Sales-Unit Deployment Boundary
+
+The sales-unit schema and application ship as one immutable Vercel deployment.
+Vercel assigns the production domain to one current deployment, so normal
+promotion does not mix old and new route handlers.
+
+Do not roll the application back to a pre-sales-unit deployment after an item
+has a different sales unit or a converted sales-order line exists. The database
+compatibility trigger intentionally rejects legacy mutations of converted
+lines, and a pre-feature server cannot interpret new selling-basis order
+writes. Roll forward with a corrective deployment instead.
+
 ## Email Delivery
 
 Production requires real email delivery for:

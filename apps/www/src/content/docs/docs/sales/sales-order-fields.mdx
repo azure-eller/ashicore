@@ -45,12 +45,17 @@ Sales orders combine a header, one or more item lines, computed money fields, fu
 | `itemId` | uuid | required | Product or material sold. |
 | `itemName` | varchar | snapshot | Item name copied onto the line. |
 | `itemSku` | varchar | snapshot | SKU copied onto the line. |
-| `unitName` | varchar | snapshot | Unit copied onto the line. |
-| `quantity` | numeric(12,4) | required | Ordered quantity. Must be greater than 0. |
-| `shippedQuantity` | numeric(12,4) | 0 | Quantity delivered so far. |
-| `cancelledQuantity` | numeric(12,4) | 0 | Quantity cancelled from a partially shipped order. Shipped plus cancelled cannot exceed ordered quantity. |
+| `unitName` | varchar | snapshot | Sales unit copied onto the line. Falls back to the stocking unit when the item has no different sales unit. |
+| `quantity` | numeric(12,4) | required | Ordered sales quantity. Must be between 0.0001 and 99,999,999.9999 after rounding to four decimal places. |
+| `shippedQuantity` | numeric(12,4) | 0 | Sales quantity delivered so far. |
+| `cancelledQuantity` | numeric(12,4) | 0 | Sales quantity cancelled from a partially shipped order. Shipped plus cancelled cannot exceed ordered quantity. |
+| `stockingUnitName` | varchar | snapshot | Stocking unit copied onto the line for fulfillment and inventory. |
+| `salesToStockFactor` | numeric(12,4) | snapshot | Stocking units in one sales unit. Must be between 0.0001 and 99,999,999.9999. |
+| `stockQuantity` | numeric(12,4) | derived snapshot | Ordered quantity converted to stocking units. Must remain between 0.0001 and 99,999,999.9999. |
+| `stockShippedQuantity` | numeric(12,4) | 0 | Delivered quantity in stocking units. |
+| `stockCancelledQuantity` | numeric(12,4) | 0 | Cancelled quantity in stocking units. |
 | `listUnitPrice` | numeric(10,2) | base price | List price used for discount comparison. |
-| `unitPrice` | numeric(10,2) | required | Unit price charged. |
+| `unitPrice` | numeric(10,2) | required | Price charged per sales unit. |
 | `discountPercent` | numeric(5,2) | 0 | Discount from list price to unit price. |
 | `suggestedUnitPrice` | numeric(10,2) | resolved | Pricing engine suggestion. |
 | `pricingSourceType` | constrained varchar | `base_price` | `base_price` or `schedule_break`. |
@@ -60,12 +65,18 @@ Sales orders combine a header, one or more item lines, computed money fields, fu
 | `taxRateId` | uuid | null | Tax rate id. |
 | `taxRateName` | varchar | snapshot | Tax rate name copied onto the line. |
 | `taxRatePercent` | numeric | 0 | Tax percent copied onto the line. |
-| `lineSubtotal` | numeric(12,2) | computed | Quantity times unit price. |
+| `lineSubtotal` | numeric(12,2) | computed | Sales quantity times price per sales unit. |
 | `lineTaxAmount` | numeric(12,2) | computed | Tax on the line subtotal. |
 | `lineTotal` | numeric(12,2) | computed | Line subtotal plus tax. |
 | `sortOrder` | integer | 0 | Display order. |
 
 Each saved order line is unique by item within the order.
+
+The line snapshots both quantity bases. Customer-facing order, delivery, BOL,
+pricing, and invoice values use the sales fields. Availability, allocation,
+manufacturing, lots, and stock consumption use the stock fields. Changing the
+item's sales unit later does not reinterpret an existing line. See [Sales vs.
+stock units](/docs/sales/sales-vs-stock-units).
 
 ## 03. Status and fulfillment values
 

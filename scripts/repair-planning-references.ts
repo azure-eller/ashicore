@@ -108,7 +108,7 @@ async function loadDemandRepairs(tx: Tx, orgId: string) {
             AND line.id IS NOT NULL
             AND so.status <> 'done'
             AND so.deleted_at IS NULL
-            THEN GREATEST(line.quantity - line.shipped_quantity - line.cancelled_quantity, 0)
+            THEN GREATEST(line.stock_quantity - line.stock_shipped_quantity - line.stock_cancelled_quantity, 0)
           ELSE 0::numeric
         END AS target_quantity,
         CASE

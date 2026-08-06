@@ -10,6 +10,7 @@ Sales orders store the customer commitment. The database stores open or done, wh
 <p class="po-meta">
   <span class="po-chip"><b>3</b> delivery states</span>
   <span class="po-chip">pricing resolves on line entry</span>
+  <span class="po-chip">optional sales units</span>
   <span class="po-chip">shipped lines lock</span>
 </p>
 
@@ -20,6 +21,10 @@ Sales orders store the customer commitment. The database stores open or done, wh
 | Not shipped | No line quantities have shipped. | yes | yes | yes |
 | Partially shipped | Some, but not all, ordered quantity has shipped. | limited | yes | no |
 | Shipped | Every deliverable line has shipped or been cancelled after partial delivery. | no | no | no |
+
+Line quantities and prices use the item's sales unit. Fulfillment and inventory
+use its stocking unit; the order line keeps the conversion it started with.
+See [Sales vs. stock units](/docs/sales/sales-vs-stock-units).
 
 ## Work with orders
 

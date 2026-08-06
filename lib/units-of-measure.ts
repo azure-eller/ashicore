@@ -97,31 +97,31 @@ export function areUnitsCompatible(sourceUom: string, targetUom: string) {
   }
 }
 
-export function derivePurchaseToStockFactor(
-  purchaseUnit: Pick<UnitDefinitionOption, "size" | "uom">,
+export function deriveUnitToStockFactor(
+  sourceUnit: Pick<UnitDefinitionOption, "size" | "uom">,
   stockingUnit: Pick<UnitDefinitionOption, "size" | "uom">
 ) {
-  if (!areUnitsCompatible(purchaseUnit.uom, stockingUnit.uom)) {
+  if (!areUnitsCompatible(sourceUnit.uom, stockingUnit.uom)) {
     return null;
   }
 
-  if (purchaseUnit.uom === stockingUnit.uom || (isCountUnit(purchaseUnit.uom) && isCountUnit(stockingUnit.uom))) {
-    const purchaseSize = Number(purchaseUnit.size);
+  if (sourceUnit.uom === stockingUnit.uom || (isCountUnit(sourceUnit.uom) && isCountUnit(stockingUnit.uom))) {
+    const sourceSize = Number(sourceUnit.size);
     const stockingSize = Number(stockingUnit.size);
 
-    if (!Number.isFinite(purchaseSize) || !Number.isFinite(stockingSize) || stockingSize <= 0) {
+    if (!Number.isFinite(sourceSize) || !Number.isFinite(stockingSize) || stockingSize <= 0) {
       return null;
     }
 
-    return purchaseSize / stockingSize;
+    return sourceSize / stockingSize;
   }
 
-  let convertedPurchaseSize: number;
+  let convertedSourceSize: number;
   try {
-    convertedPurchaseSize = Number(
+    convertedSourceSize = Number(
       convert(
-        Number(purchaseUnit.size),
-        purchaseUnit.uom as Parameters<typeof convert>[1]
+        Number(sourceUnit.size),
+        sourceUnit.uom as Parameters<typeof convert>[1]
       ).to(stockingUnit.uom as Parameters<ReturnType<typeof convert>["to"]>[0])
     );
   } catch {
@@ -129,9 +129,16 @@ export function derivePurchaseToStockFactor(
   }
   const stockingSize = Number(stockingUnit.size);
 
-  if (!Number.isFinite(convertedPurchaseSize) || !Number.isFinite(stockingSize) || stockingSize <= 0) {
+  if (!Number.isFinite(convertedSourceSize) || !Number.isFinite(stockingSize) || stockingSize <= 0) {
     return null;
   }
 
-  return convertedPurchaseSize / stockingSize;
+  return convertedSourceSize / stockingSize;
+}
+
+export function derivePurchaseToStockFactor(
+  purchaseUnit: Pick<UnitDefinitionOption, "size" | "uom">,
+  stockingUnit: Pick<UnitDefinitionOption, "size" | "uom">
+) {
+  return deriveUnitToStockFactor(purchaseUnit, stockingUnit);
 }

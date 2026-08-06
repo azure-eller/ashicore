@@ -14,7 +14,7 @@ import { calculateDiscountPercentString, calculateSalesLineAmounts } from "@/lib
 import type { BulkConfirmSalesOrders, InsertSalesOrder, PatchSalesOrderHeader, PatchSalesOrderLine, UpdateSalesOrder } from "@/lib/schemas/sales-orders";
 import type { PricingSourceType, SalesOrderDetail } from "../types";
 import { SalesError } from "./errors";
-import { withSalesTransactionRetry, isEditableOpenSalesOrderStatus, isOpenSalesOrderStatus, rerankOpenSalesOrdersInTx, getOrderLinesInTx, getLockedSalesOrderInTx, normalizeShipQuantity, getSalesOrderLineShipStatesInTx, remainingToShip } from "./shared";
+import { withSalesTransactionRetry, isEditableOpenSalesOrderStatus, isOpenSalesOrderStatus, rerankOpenSalesOrdersInTx, getOrderLinesInTx, getLockedSalesOrderInTx, normalizeShipQuantity, getSalesOrderLineShipStatesInTx, remainingToShip, sellingRemainingToShip } from "./shared";
 import { type SalesItemValidationRow, getValidatedCustomerInTx, getValidatedCustomerProjectInTx, getValidatedSalesItemsInTx } from "./validation";
 import { getPricingScheduleLookupForProductsInTx, resolvePricingForProduct } from "./pricing";
 import { getSalesOrder, getSalesOrderInTx } from "./orders-read";
@@ -22,6 +22,11 @@ import {
   PUSHED_ACCOUNTING_INVOICE_SHORT_CLOSE_MESSAGE,
   salesOrderHasPushedAccountingInvoiceInTx,
 } from "../accounting-policy";
+import {
+  isSalesQuantityRepresentable,
+  reconcileSalesOrderQuantityEdit,
+  sellingToStockQuantity,
+} from "../quantity-basis";
 
 type PreparedOrderLineBase = {
   id?: string;
@@ -31,6 +36,9 @@ type PreparedOrderLineBase = {
   itemSku: string | null;
   unitName: string;
   quantity: string;
+  stockingUnitName: string;
+  salesToStockFactor: string;
+  stockQuantity: string;
   listUnitPrice: string | null;
   unitPrice: string;
   taxRateId: string | null;
@@ -50,6 +58,13 @@ type PreparedOrderLine = PreparedOrderLineBase & {
   pricingScheduleName: string | null;
   pricingBreakLabel: string | null;
   isPriceOverridden: boolean;
+};
+
+type SalesLineQuantitySnapshot = {
+  itemId: string;
+  sellingUnitName: string;
+  stockingUnitName: string;
+  salesToStockFactor: string;
 };
 
 function normalizeOptionalLineMoney(value: string | null | undefined) {
@@ -155,7 +170,7 @@ async function getOpenLinkedManufacturingOrdersForSalesEditInTx(
       id: manufacturingOrders.id,
       productId: manufacturingOrders.productId,
       salesOrderLineId: manufacturingOrders.salesOrderLineId,
-      salesLineQuantity: trimScale(salesOrderLines.quantity).as("salesLineQuantity"),
+      salesLineQuantity: trimScale(salesOrderLines.stockQuantity).as("salesLineQuantity"),
       plannedQuantity: trimScale(manufacturingOrders.plannedQuantity).as(
         "plannedQuantity"
       ),
@@ -264,7 +279,7 @@ async function assertLinkedMtoSalesLinesUnchangedInTx(
       );
     }
 
-    const nextQuantity = Number(replacement.quantity);
+    const nextQuantity = Number(replacement.stockQuantity);
     if (
       Number.isFinite(nextQuantity) &&
       nextQuantity !== Number(linkedRow.salesLineQuantity)
@@ -389,7 +404,11 @@ async function prepareOrderPayload(
   tx: Tx,
   orgId: string,
   payload: InsertSalesOrder,
-  options?: { lockItems?: boolean }
+  options?: {
+    lockItems?: boolean;
+    quantitySnapshotsByLineId?: Map<string, SalesLineQuantitySnapshot>;
+    quantitySnapshotsByIndex?: SalesLineQuantitySnapshot[];
+  }
 ): Promise<{
   customerId: string;
   customerProjectId: string | null;
@@ -457,6 +476,27 @@ async function prepareOrderPayload(
     if (!item) {
       throw new SalesError("Item not found", 404);
     }
+    const requestedSnapshot =
+      (line.id
+        ? options?.quantitySnapshotsByLineId?.get(line.id)
+        : undefined) ??
+      options?.quantitySnapshotsByIndex?.[index];
+    const quantitySnapshot =
+      requestedSnapshot?.itemId === item.id ? requestedSnapshot : null;
+    const sellingUnitName = quantitySnapshot?.sellingUnitName ?? item.unitName;
+    const stockingUnitName =
+      quantitySnapshot?.stockingUnitName ?? item.stockingUnitName;
+    const salesToStockFactor =
+      quantitySnapshot?.salesToStockFactor ?? item.salesToStockFactor;
+    if (
+      Number(salesToStockFactor) !== 1 &&
+      payload.quantityContractVersion !== 2
+    ) {
+      throw new SalesError(
+        "Converted sales units require quantity contract version 2.",
+        409,
+      );
+    }
 
     const pricing = resolvePricingForProduct(
       {
@@ -468,6 +508,42 @@ async function prepareOrderPayload(
       pricingLookup
     );
     const quantity = Number(line.quantity);
+    const normalizedQuantity = normalizeNumeric(quantity);
+    if (!isSalesQuantityRepresentable(normalizedQuantity)) {
+      throw new SalesError("Quantity is too large.", 400, {
+        errors: {
+          [`lines.${index}.quantity`]: [
+            "Enter a quantity of 99,999,999.9999 selling units or less.",
+          ],
+        },
+      });
+    }
+    const stockQuantity = sellingToStockQuantity(
+      normalizedQuantity,
+      salesToStockFactor,
+    );
+    if (Number(normalizedQuantity) <= 0 || Number(stockQuantity) <= 0) {
+      throw new SalesError(
+        "Quantity is too small for the sales-unit conversion.",
+        400,
+        {
+          errors: {
+            [`lines.${index}.quantity`]: [
+              "Enter a quantity that converts to at least 0.0001 stocking units.",
+            ],
+          },
+        },
+      );
+    }
+    if (!isSalesQuantityRepresentable(stockQuantity)) {
+      throw new SalesError("Quantity is too large for the sales-unit conversion.", 400, {
+        errors: {
+          [`lines.${index}.quantity`]: [
+            "Enter a quantity that converts to 99,999,999.9999 stocking units or less.",
+          ],
+        },
+      });
+    }
     const unitPrice = Number(line.unitPrice);
     const normalizedUnitPrice = normalizeMoney(unitPrice);
     const effectiveTaxRateId =
@@ -495,7 +571,7 @@ async function prepareOrderPayload(
       normalizeOptionalLineMoney(line.discountPercent) ??
       calculateDiscountPercentString(listUnitPrice, normalizedUnitPrice);
     const { lineSubtotal, lineTaxAmount, lineTotal } = calculateSalesLineAmounts({
-      quantity,
+      quantity: normalizedQuantity,
       unitPrice,
       taxRatePercent: selectedTaxRate?.ratePercent ?? 0,
     });
@@ -505,8 +581,11 @@ async function prepareOrderPayload(
       itemId: item.id,
       itemName: item.displayName,
       itemSku: item.sku,
-      unitName: item.unitName,
-      quantity: normalizeNumeric(quantity),
+      unitName: sellingUnitName,
+      quantity: normalizedQuantity,
+      stockingUnitName,
+      salesToStockFactor,
+      stockQuantity,
       listUnitPrice,
       unitPrice: normalizedUnitPrice,
       taxRateId: selectedTaxRate?.id ?? null,
@@ -622,10 +701,15 @@ async function createSalesOrderInTx(
   orgId: string,
   userId: string,
   data: InsertSalesOrder,
-  options?: { idempotencyKey?: string }
+  options?: {
+    idempotencyKey?: string;
+    quantitySnapshotsByIndex?: SalesLineQuantitySnapshot[];
+  }
 ) {
 
-  const prepared = await prepareOrderPayload(tx, orgId, data);
+  const prepared = await prepareOrderPayload(tx, orgId, data, {
+    quantitySnapshotsByIndex: options?.quantitySnapshotsByIndex,
+  });
 
   const orderNumber = await resolveSalesOrderNumberInTx(
     tx,
@@ -684,6 +768,7 @@ async function createSalesOrderInTx(
             itemSku: salesOrderLines.itemSku,
             unitName: salesOrderLines.unitName,
             quantity: salesOrderLines.quantity,
+            stockQuantity: salesOrderLines.stockQuantity,
             sortOrder: salesOrderLines.sortOrder,
           })
       : [];
@@ -699,7 +784,7 @@ async function createSalesOrderInTx(
     lines: insertedLines.map((line) => ({
       salesOrderLineId: line.salesOrderLineId,
       itemId: line.itemId,
-      quantity: parseFloat(line.quantity),
+      quantity: parseFloat(line.stockQuantity),
     })),
   });
 
@@ -762,13 +847,19 @@ export async function duplicateSalesOrder(
           shippingFeeTaxAmount: order.shippingFeeTaxAmount,
           lines: order.lines.map((line) => ({
             itemId: line.itemId,
-            quantity: line.quantity,
+            quantity: line.sellingQuantity,
             unitPrice: line.unitPrice,
             taxRateId: line.taxRateId,
           })),
           confirmOversell: true,
         }, {
           idempotencyKey: options?.idempotencyKey,
+          quantitySnapshotsByIndex: order.lines.map((line) => ({
+            itemId: line.itemId,
+            sellingUnitName: line.sellingUnitName,
+            stockingUnitName: line.stockingUnitName,
+            salesToStockFactor: line.salesToStockFactor,
+          })),
         });
       },
     );
@@ -831,7 +922,19 @@ export async function updateSalesOrder(
 
     await assertSalesOrderHasNoShippedLinesForEditInTx(tx, id);
 
-    const prepared = await prepareOrderPayload(tx, orgId, data);
+    const prepared = await prepareOrderPayload(tx, orgId, data, {
+      quantitySnapshotsByLineId: new Map(
+        existingLines.map((line) => [
+          line.id,
+          {
+            itemId: line.itemId,
+            sellingUnitName: line.unitName,
+            stockingUnitName: line.stockingUnitName,
+            salesToStockFactor: line.salesToStockFactor,
+          },
+        ])
+      ),
+    });
 
     if (isEditableOpenSalesOrderStatus(existingOrder.status)) {
       await lockItemsInTx(tx, [
@@ -874,6 +977,7 @@ export async function updateSalesOrder(
             itemSku: salesOrderLines.itemSku,
             unitName: salesOrderLines.unitName,
             quantity: salesOrderLines.quantity,
+            stockQuantity: salesOrderLines.stockQuantity,
             sortOrder: salesOrderLines.sortOrder,
           })
         : [];
@@ -939,7 +1043,7 @@ export async function updateSalesOrder(
       lines: insertedLines.map((line) => ({
         salesOrderLineId: line.salesOrderLineId,
         itemId: line.itemId,
-        quantity: parseFloat(line.quantity),
+        quantity: parseFloat(line.stockQuantity),
       })),
     });
 
@@ -1204,6 +1308,8 @@ export async function patchSalesOrderLine(
         id: salesOrderLines.id,
         itemId: salesOrderLines.itemId,
         quantity: salesOrderLines.quantity,
+        stockQuantity: salesOrderLines.stockQuantity,
+        salesToStockFactor: salesOrderLines.salesToStockFactor,
         listUnitPrice: salesOrderLines.listUnitPrice,
         unitPrice: salesOrderLines.unitPrice,
         taxRateId: salesOrderLines.taxRateId,
@@ -1214,7 +1320,10 @@ export async function patchSalesOrderLine(
         pricingScheduleName: salesOrderLines.pricingScheduleName,
         pricingBreakLabel: salesOrderLines.pricingBreakLabel,
         isPriceOverridden: salesOrderLines.isPriceOverridden,
+        shippedQuantity: salesOrderLines.shippedQuantity,
         cancelledQuantity: salesOrderLines.cancelledQuantity,
+        stockShippedQuantity: salesOrderLines.stockShippedQuantity,
+        stockCancelledQuantity: salesOrderLines.stockCancelledQuantity,
       })
       .from(salesOrderLines)
       .where(
@@ -1231,6 +1340,17 @@ export async function patchSalesOrderLine(
         result: null,
       });
       return null;
+    }
+
+    if (
+      patch.quantity != null &&
+      Number(existingLine.salesToStockFactor) !== 1 &&
+      patch.quantityContractVersion !== 2
+    ) {
+      throw new SalesError(
+        "Converted sales units require quantity contract version 2.",
+        409,
+      );
     }
 
     const nextQuantity = patch.quantity ?? existingLine.quantity;
@@ -1253,7 +1373,9 @@ export async function patchSalesOrderLine(
         ? existingLine.taxRatePercent
         : taxRate?.ratePercent ?? "0";
     const nextQuantityNumber = parseFloat(nextQuantity);
-    const currentQuantityNumber = parseFloat(existingLine.quantity);
+    const normalizedNextQuantity = normalizeNumeric(nextQuantityNumber);
+    let nextStockQuantity = existingLine.stockQuantity;
+    const currentStockQuantityNumber = parseFloat(existingLine.stockQuantity);
 
     if (
       patch.quantity != null &&
@@ -1266,37 +1388,82 @@ export async function patchSalesOrderLine(
     }
 
     if (patch.quantity != null) {
-      await assertSalesOrderLineQuantityEditableInTx(
-        tx,
-        lineId,
-        nextQuantityNumber,
-        currentQuantityNumber
-      );
-
-      const lineState = (await getSalesOrderLineShipStatesInTx(tx, orderId)).get(lineId);
-      if (!lineState) {
-        await finishInventoryOperationInTx(tx, {
-          organizationId: orgId,
-          idempotencyKey: options?.idempotencyKey ?? null,
-          result: null,
+      if (!isSalesQuantityRepresentable(normalizedNextQuantity)) {
+        throw new SalesError("Quantity is too large.", 400, {
+          errors: {
+            quantity: [
+              "Enter a quantity of 99,999,999.9999 selling units or less.",
+            ],
+          },
         });
-        return null;
       }
-      const minimumQuantity = normalizeShipQuantity(
-        lineState.shippedQuantity +
-          lineState.cancelledQuantity
+      const minimumSellingQuantity = normalizeShipQuantity(
+        Number(existingLine.shippedQuantity) +
+          Number(existingLine.cancelledQuantity),
       );
-      if (nextQuantityNumber < minimumQuantity) {
+      if (nextQuantityNumber < minimumSellingQuantity) {
         throw new SalesError(
           "Quantity cannot be less than shipped or cancelled quantity.",
           400,
           {
             errors: {
-              quantity: [`Must be ${normalizeNumeric(minimumQuantity)} or greater`],
+              quantity: [
+                `Must be ${normalizeNumeric(minimumSellingQuantity)} or greater`,
+              ],
             },
-          }
+          },
         );
       }
+
+      const minimumStockQuantity = normalizeShipQuantity(
+        Number(existingLine.stockShippedQuantity) +
+          Number(existingLine.stockCancelledQuantity),
+      );
+      const reconciled = reconcileSalesOrderQuantityEdit({
+        nextSellingQuantity: normalizedNextQuantity,
+        currentSellingQuantity: existingLine.quantity,
+        currentStockQuantity: existingLine.stockQuantity,
+        completedSellingQuantity: minimumSellingQuantity,
+        completedStockQuantity: minimumStockQuantity,
+        salesToStockFactor: existingLine.salesToStockFactor,
+      });
+      nextStockQuantity = reconciled.stockOrderedQuantity;
+      if (!isSalesQuantityRepresentable(nextStockQuantity)) {
+        throw new SalesError(
+          "Quantity is too large for the sales-unit conversion.",
+          400,
+          {
+            errors: {
+              quantity: [
+                "Enter a quantity that converts to 99,999,999.9999 stocking units or less.",
+              ],
+            },
+          },
+        );
+      }
+      if (
+        Number(reconciled.sellingRemainingQuantity) > 0 &&
+        Number(reconciled.stockRemainingQuantity) <= 0
+      ) {
+        throw new SalesError(
+          "Quantity is too small for the sales-unit conversion.",
+          400,
+          {
+            errors: {
+              quantity: [
+                "Enter a quantity that converts to at least 0.0001 stocking units.",
+              ],
+            },
+          },
+        );
+      }
+
+      await assertSalesOrderLineQuantityEditableInTx(
+        tx,
+        lineId,
+        Number(nextStockQuantity),
+        currentStockQuantityNumber,
+      );
     }
 
     await lockItemsInTx(tx, [existingLine.itemId]);
@@ -1306,7 +1473,7 @@ export async function patchSalesOrderLine(
       lineTaxAmount: nextLineTaxAmount,
       lineTotal: nextLineTotal,
     } = calculateSalesLineAmounts({
-      quantity: nextQuantityNumber,
+      quantity: normalizedNextQuantity,
       unitPrice: nextUnitPrice,
       taxRatePercent: nextTaxRatePercent,
     });
@@ -1349,7 +1516,10 @@ export async function patchSalesOrderLine(
       updatedAt: new Date(),
     };
     if (patch.taxRateId !== undefined) updates.taxRateName = nextTaxRateName;
-    if (patch.quantity != null) updates.quantity = patch.quantity;
+    if (patch.quantity != null) {
+      updates.quantity = normalizedNextQuantity;
+      updates.stockQuantity = nextStockQuantity;
+    }
     if (patch.unitPrice != null) updates.unitPrice = normalizedUnitPrice;
     if (patch.unitPrice != null && existingLine.listUnitPrice == null) {
       updates.listUnitPrice = listUnitPrice;
@@ -1361,7 +1531,9 @@ export async function patchSalesOrderLine(
       .where(eq(salesOrderLines.id, lineId));
 
     if (patch.quantity != null) {
-      const quantityDelta = roundQuantity(nextQuantityNumber - currentQuantityNumber);
+      const quantityDelta = roundQuantity(
+        Number(nextStockQuantity) - currentStockQuantityNumber,
+      );
       if (quantityDelta > 0) {
         await recordSalesDemandInTx(tx, {
           organizationId: orgId,
@@ -1499,7 +1671,11 @@ export async function cancelRemainingSalesOrder(
       const linesToCancel = [...states.values()].flatMap((line) => {
         const quantity = remainingToShip(line);
         if (quantity <= 0) return [];
-        return [{ ...line, quantityToCancel: quantity }];
+        return [{
+          ...line,
+          quantityToCancel: quantity,
+          sellingQuantityToCancel: sellingRemainingToShip(line),
+        }];
       });
       if (linesToCancel.length === 0) {
         throw new SalesError("No remaining quantity to cancel.", 400);
@@ -1527,7 +1703,8 @@ export async function cancelRemainingSalesOrder(
         await tx
           .update(salesOrderLines)
           .set({
-            cancelledQuantity: sql`${salesOrderLines.cancelledQuantity} + ${normalizeNumeric(line.quantityToCancel)}`,
+            cancelledQuantity: sql`${salesOrderLines.cancelledQuantity} + ${normalizeNumeric(line.sellingQuantityToCancel)}`,
+            stockCancelledQuantity: sql`${salesOrderLines.stockCancelledQuantity} + ${normalizeNumeric(line.quantityToCancel)}`,
             updatedAt: now,
           })
           .where(eq(salesOrderLines.id, line.id));

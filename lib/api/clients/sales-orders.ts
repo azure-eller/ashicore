@@ -25,7 +25,9 @@ const json = createApiJsonRequester(({ message, status, fieldErrors, body }) => 
 }, (path) => `Request failed (${path})`, (status, path) => `Request failed (${status} ${path})`);
 
 /**
- * Ship the whole sales order (all remaining). 409 carries `.negativeStock`.
+ * Ship all remaining sales quantities, or the supplied partial `sellingQuantity`
+ * values. The server converts them with each line's snapshotted sales-to-stock
+ * factor; 409 carries `.negativeStock`.
  * `syncAccounting` is intentionally omitted: the server defaults it on and only pushes
  * a Xero invoice when the org's `autoPushSalesInvoices` setting is enabled, so invoicing
  * is governed by settings — identical wherever shipping is triggered from.
@@ -33,7 +35,7 @@ const json = createApiJsonRequester(({ message, status, fieldErrors, body }) => 
 export async function shipSalesOrder(
   orderId: string,
   confirmNegativeStock: boolean,
-  lines?: Array<{ salesOrderLineId: string; quantity: string }>,
+  lines?: Array<{ salesOrderLineId: string; sellingQuantity: string }>,
   locationId?: string | null,
 ): Promise<void> {
   const path = `/api/sales-orders/${orderId}/ship`;

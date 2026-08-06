@@ -317,7 +317,7 @@ export async function checkInventoryPlanningIntegrityForOrg(
             WHEN demand.reference_type = 'manufacturing_order_ingredient'
               THEN GREATEST(ingredient.planned_quantity - ingredient.picked_quantity, 0)
             WHEN demand.reference_type = 'sales_order_line'
-              THEN GREATEST(line.quantity - line.shipped_quantity - line.cancelled_quantity, 0)
+              THEN GREATEST(line.stock_quantity - line.stock_shipped_quantity - line.stock_cancelled_quantity, 0)
             ELSE NULL
           END AS target_quantity
         FROM inventory.inventory_demands_summary demand
@@ -359,7 +359,7 @@ export async function checkInventoryPlanningIntegrityForOrg(
             WHEN demand.reference_type = 'manufacturing_order_ingredient'
               THEN GREATEST(ingredient.planned_quantity - ingredient.picked_quantity, 0)
             WHEN demand.reference_type = 'sales_order_line'
-              THEN GREATEST(line.quantity - line.shipped_quantity - line.cancelled_quantity, 0)
+              THEN GREATEST(line.stock_quantity - line.stock_shipped_quantity - line.stock_cancelled_quantity, 0)
             ELSE NULL
           END AS target_quantity
         FROM inventory.inventory_demands_summary demand

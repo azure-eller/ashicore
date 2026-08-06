@@ -35,8 +35,8 @@ Delivery runs through the inventory kernel and updates the order:
 
 | Step | Result |
 | --- | --- |
-| Consume stock | Delivered quantities pull lot-backed stock from the selected ship-from location. |
-| Record shipped quantities | Each delivered line increments `shippedQuantity`. |
+| Consume stock | Delivered sales quantities convert with the line snapshot, then pull stocking quantities from lot-backed stock at the selected ship-from location. |
+| Record shipped quantities | Each delivered line records matching sales-unit and stocking-unit shipped quantities. |
 | Protect shipped history | Quantity cannot be reduced below shipped plus cancelled quantity, and shipped lines cannot be removed. |
 | Advance delivery state | Partial delivery shows `Partially shipped`; final delivery sets the order to `done`. |
 | Cancel a remainder | A partially shipped order can cancel undelivered quantities, release demand, and close without setting `shippedAt`. |

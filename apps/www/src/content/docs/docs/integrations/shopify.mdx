@@ -43,7 +43,7 @@ Ashicore imports **paid, unshipped** Shopify orders — up to 250 at a time — 
    The token only needs read access to orders. Once saved, the card shows your shop domain and an **Ecommerce orders** label so you know the connection is live.
    </Aside>
 
-2. **Import paid, unshipped orders.** Choose <span class="po-uikey">Import paid orders</span> on the Shopify card. Ashicore pulls paid, unshipped orders (up to 250 at a time) and creates a sales order for each. Lines are matched to your catalog by SKU — each needs a positive quantity and price and a matching sellable item, or it's skipped. The customer is matched by Shopify ID, then email, then name, and created if new. Ashicore then reports a summary — **created**, **skipped**, and any **errors**. Orders that already exist are skipped, so you can run the import as often as you like without duplicating.
+2. **Import paid, unshipped orders.** Choose <span class="po-uikey">Import paid orders</span> on the Shopify card. Ashicore pulls paid, unshipped orders (up to 250 at a time) and creates a sales order for each. Lines are matched to your catalog by SKU — each needs a positive quantity and price and a matching sellable item, or it's skipped. Shopify quantity and price become the line's sales-unit quantity and price; Ashicore converts the quantity to the item's stocking unit for fulfillment. The customer is matched by Shopify ID, then email, then name, and created if new. Ashicore then reports a summary — **created**, **skipped**, and any **errors**. Orders that already exist are skipped, so you can run the import as often as you like without duplicating.
 
    <Frame title="<b>Shopify</b> · store.myshopify.com">
      <span slot="action"><Button variant="ghost">Import paid orders</Button></span>

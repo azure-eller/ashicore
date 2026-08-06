@@ -70,7 +70,11 @@ export async function getLots(
           "soldQuantity"
         ),
         revenue: trimScale(sql`
-          COALESCE(SUM(${inventoryEvents.quantity} * ${salesOrderLines.unitPrice}), 0)
+          COALESCE(SUM(
+            ${inventoryEvents.quantity}
+            * ${salesOrderLines.unitPrice}
+            / ${salesOrderLines.salesToStockFactor}
+          ), 0)
         `).as("revenue"),
         cogs: trimScale(sql`COALESCE(SUM(${inventoryEvents.extendedCost}), 0)`).as(
           "cogs"

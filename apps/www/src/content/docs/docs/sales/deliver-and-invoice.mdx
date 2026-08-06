@@ -32,9 +32,9 @@ If the order is already shipped, the control is disabled.
 
 ## 2. Choose quantities and location
 
-For partial delivery, the dialog is titled `Deliver items from {orderNumber}` and shows each shippable row with `Quantity to deliver` and `Quantity left available`. Quantity inputs are capped at the remaining quantity.
+For partial delivery, the dialog is titled `Deliver items from {orderNumber}` and shows each shippable row with `Quantity to deliver` and `Left after delivery`. Quantity inputs and remaining amounts use the sales unit and are capped at the remaining sales quantity.
 
-Choose one `Ship from` location for the delivery. A full delivery in a single-location organization can submit in one step. Multi-location delivery asks for the ship-from location.
+Choose one `Ship from` location for the delivery. A full delivery in a single-location organization can submit in one step. Multi-location delivery asks for the ship-from location. Availability, shortage, and pick-lot quantities stay in the stocking unit because that is what physically leaves the location.
 
 If the delivery would oversell, the app shows the shortage and changes the confirmation to `Deliver anyway`. Confirming allows negative stock; canceling lets you replenish first.
 
@@ -50,7 +50,7 @@ If the customer accepts the partial delivery as final, open the order menu and c
 
 Open the order menu and choose `Bill of lading`. Choose the quantities for the load, then select `View BOL` to open the PDF in a browser tab.
 
-The BOL is a preview document. It does not deliver stock, create a shipment record, save a BOL template, or change accounting. On open orders, quantities are capped at what remains to deliver. On shipped orders, quantities are capped at what actually shipped, with older shipped records falling back to the remaining non-cancelled quantity when no shipped quantities were recorded.
+The BOL is a preview document. It does not deliver stock, create a shipment record, save a BOL template, or change accounting. Its quantities use the sales unit snapshotted on each line. On open orders, quantities are capped at what remains to deliver. On shipped orders, quantities are capped at what actually shipped, with older shipped records falling back to the remaining non-cancelled quantity when no shipped quantities were recorded.
 
 The PDF uses a straight bill of lading short-form layout. It fills the shipper, consignee, order and invoice reference, contact, notes, and selected load quantities from the order, and leaves carrier, trailer, seal, SCAC/PRO, package, weight, HM, NMFC, class, declared-value, COD, freight terms, and signature fields ready for the carrier and shipper to complete.
 

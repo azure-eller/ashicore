@@ -23,6 +23,7 @@ import {
   createPurchaseOrder,
   createSalesOrder,
   createSupplier,
+  createUnit,
   fulfillSalesOrder,
   getOrgId,
   getUnitId,
@@ -1431,22 +1432,38 @@ test("make-to-order preview ignores queue stock and avoids double-counting linke
     quantity: "5",
   });
 
-  await db
-    .update(salesOrderLines)
-    .set({ shippedQuantity: "2" })
-    .where(eq(salesOrderLines.id, line.id));
+  try {
+    await db
+      .update(salesOrderLines)
+      .set({
+        shippedQuantity: "2",
+        stockShippedQuantity: "2",
+      })
+      .where(eq(salesOrderLines.id, line.id));
 
-  const previewAfterShippingResponse = await testFetch(
-    `/api/sales-orders/${order.body.id}/manufacturing-orders`
-  );
-  expect(previewAfterShippingResponse.status).toBe(200);
-  const previewAfterShipping = (await previewAfterShippingResponse.json()) as {
-    lines: Array<{ status: string; quantity: string }>;
-  };
-  expect(previewAfterShipping.lines[0]).toMatchObject({
-    status: "will_create",
-    quantity: "5",
-  });
+    const previewAfterShippingResponse = await testFetch(
+      `/api/sales-orders/${order.body.id}/manufacturing-orders`
+    );
+    expect(previewAfterShippingResponse.status).toBe(200);
+    const previewAfterShipping = (await previewAfterShippingResponse.json()) as {
+      lines: Array<{ status: string; quantity: string }>;
+    };
+    expect(previewAfterShipping.lines[0]).toMatchObject({
+      status: "will_create",
+      quantity: "5",
+    });
+  } finally {
+    // This test deliberately bypasses the shipping kernel to isolate preview
+    // math. Restore the snapshot fields so the fixture cannot leave canonical
+    // demand projections over target, including when an assertion fails.
+    await db
+      .update(salesOrderLines)
+      .set({
+        shippedQuantity: "0",
+        stockShippedQuantity: "0",
+      })
+      .where(eq(salesOrderLines.id, line.id));
+  }
 
   const cancelledOrder = await createSalesOrder({
     customerId: customer.body.id,
@@ -1461,22 +1478,35 @@ test("make-to-order preview ignores queue stock and avoids double-counting linke
     .from(salesOrderLines)
     .where(eq(salesOrderLines.salesOrderId, cancelledOrder.body.id));
   expect(cancelledLine).toBeTruthy();
-  await db
-    .update(salesOrderLines)
-    .set({ cancelledQuantity: "8" })
-    .where(eq(salesOrderLines.id, cancelledLine.id));
+  try {
+    await db
+      .update(salesOrderLines)
+      .set({
+        cancelledQuantity: "8",
+        stockCancelledQuantity: "8",
+      })
+      .where(eq(salesOrderLines.id, cancelledLine.id));
 
-  const cancelledPreviewResponse = await testFetch(
-    `/api/sales-orders/${cancelledOrder.body.id}/manufacturing-orders`
-  );
-  expect(cancelledPreviewResponse.status).toBe(200);
-  const cancelledPreview = (await cancelledPreviewResponse.json()) as {
-    lines: Array<{ status: string; skipReason: string | null }>;
-  };
-  expect(cancelledPreview.lines[0]).toMatchObject({
-    status: "skipped",
-    skipReason: "no_remaining_demand",
-  });
+    const cancelledPreviewResponse = await testFetch(
+      `/api/sales-orders/${cancelledOrder.body.id}/manufacturing-orders`
+    );
+    expect(cancelledPreviewResponse.status).toBe(200);
+    const cancelledPreview = (await cancelledPreviewResponse.json()) as {
+      lines: Array<{ status: string; skipReason: string | null }>;
+    };
+    expect(cancelledPreview.lines[0]).toMatchObject({
+      status: "skipped",
+      skipReason: "no_remaining_demand",
+    });
+  } finally {
+    await db
+      .update(salesOrderLines)
+      .set({
+        cancelledQuantity: "0",
+        stockCancelledQuantity: "0",
+      })
+      .where(eq(salesOrderLines.id, cancelledLine.id));
+  }
 });
 
 test("make-to-order creation uses the sales line quantity", async ({
@@ -1484,6 +1514,12 @@ test("make-to-order creation uses the sales line quantity", async ({
 }) => {
   const ts = Date.now();
   const unitId = getUnitId();
+  const pallet = await createUnit({
+    name: `Fast MTO pallet of 3 ${ts}`,
+    size: "3",
+    uom: "ea",
+  });
+  expect(pallet.status).toBe(201);
 
   const component = await createItem({
     itemType: "material",
@@ -1505,6 +1541,8 @@ test("make-to-order creation uses the sales line quantity", async ({
     name: `Fast Explicit MTO Product ${ts}`,
     sellable: true,
     unitDefinitionId: unitId,
+    salesUnitDefinitionId: pallet.body.id,
+    salesToStockFactor: "3",
     sku: `FAST-EXPLICIT-MTO-${ts}`,
     category: `Fast Planning ${ts}`,
     description: null,
@@ -1526,7 +1564,7 @@ test("make-to-order creation uses the sales line quantity", async ({
     orderNumber: `EXPLICIT-MTO-${ts}`,
     orderDate: "2026-05-10",
     shipDate: "2026-05-20",
-    lines: [{ itemId: product.body.id, quantity: "100", unitPrice: "10.00" }],
+    lines: [{ itemId: product.body.id, quantity: "2", unitPrice: "10.00" }],
   });
   expect(order.status).toBe(201);
 
@@ -1548,7 +1586,9 @@ test("make-to-order creation uses the sales line quantity", async ({
         lineQuantities: [
           {
             salesOrderLineId: line.id,
-            quantity: "25",
+            // Creation must use the immutable stock-basis snapshot, not this
+            // stale client-supplied selling-basis value.
+            quantity: "1",
           },
         ],
         notes: null,
@@ -1570,8 +1610,8 @@ test("make-to-order creation uses the sales line quantity", async ({
   expect(manufacturingOrder).toMatchObject({
     salesOrderId: order.body.id,
     salesOrderLineId: line.id,
-    plannedQuantity: "100.0000",
-    requestedQuantity: "100.0000",
+    plannedQuantity: "6.0000",
+    requestedQuantity: "6.0000",
   });
 });
 

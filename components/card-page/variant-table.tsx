@@ -608,6 +608,7 @@ export function VariantTable({
     [card.options],
   );
   const unitName = card.family.unitName;
+  const salesUnitName = card.family.salesUnitName ?? unitName ?? "unit";
   const visibleVariants = useMemo(
     () => card.variants.filter((variant) => variant.deletedAt == null),
     [card.variants],
@@ -792,7 +793,7 @@ export function VariantTable({
       cols.push({
         field: "defaultSellingPrice",
         colId: "defaultSellingPrice",
-        headerName: "Default sales price",
+        headerName: `Default sales price / ${salesUnitName}`,
         type: "rightAligned",
         editable: true,
         cellEditor: "agTextCellEditor",
@@ -943,6 +944,7 @@ export function VariantTable({
     return cols;
   }, [
     activeOptions,
+    salesUnitName,
     unitName,
     viewMode,
   ]);

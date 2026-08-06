@@ -23,6 +23,10 @@ import {
   calculateSalesLineAmounts,
 } from "@/lib/sales/order-calculations";
 import { makeDraftOrder, orderToUpdatePayload } from "./order-draft";
+import {
+  buildSalesLineQuantities,
+  reconcileSalesOrderQuantityEdit,
+} from "@/lib/sales/quantity-basis";
 
 export type SalesOrderDraftHeaderPatch = PatchSalesOrderHeader &
   Partial<
@@ -86,7 +90,8 @@ function serializeSalesOrder(draft: SalesOrderDetail): {
   const pathAliases: Record<string, string> = {};
   payload.lines.forEach((line, index) => {
     for (const key of LINE_PAYLOAD_KEYS) {
-      pathAliases[`lines.${index}.${key}`] = `lines.${line.id}.${key}`;
+      pathAliases[`lines.${index}.${key}`] =
+        `lines.${line.id}.${key === "quantity" ? "sellingQuantity" : key}`;
     }
   });
   return { payload, pathAliases };
@@ -317,18 +322,13 @@ function patchLine(
   line: SalesOrderDetailLine,
   patch: SalesOrderLinePatch,
 ): SalesOrderDetailLine {
-  const quantity = patch.quantity ?? line.quantity;
+  const quantity = patch.quantity ?? line.sellingQuantity;
   const unitPrice = patch.unitPrice ?? line.unitPrice;
   const taxRate =
     patch.taxRateId === undefined
       ? line.taxRateId
       : patch.taxRateId;
   const taxPercent = patch.taxRatePercent ?? line.taxRatePercent;
-  const amounts = calculateSalesLineAmounts({
-    quantity,
-    unitPrice,
-    taxRatePercent: taxPercent,
-  });
   const listUnitPrice =
     line.listUnitPrice == null ? NaN : Number(line.listUnitPrice);
   const nextUnitPrice = Number(unitPrice);
@@ -339,9 +339,62 @@ function patchLine(
     listUnitPrice <= 0
       ? line.discountPercent
       : calculateDiscountPercentString(listUnitPrice, nextUnitPrice);
+  const stockQuantity =
+    patch.quantity == null
+      ? line.stockQuantity
+      : reconcileSalesOrderQuantityEdit({
+          nextSellingQuantity: quantity,
+          currentSellingQuantity: line.sellingQuantity,
+          currentStockQuantity: line.stockQuantity,
+          completedSellingQuantity:
+            Number(line.sellingShippedQuantity) +
+            Number(line.sellingCancelledQuantity),
+          completedStockQuantity:
+            Number(line.stockShippedQuantity) +
+            Number(line.stockCancelledQuantity),
+          salesToStockFactor: line.salesToStockFactor,
+        }).stockOrderedQuantity;
+  const quantities = buildSalesLineQuantities({
+    sellingUnitName: line.sellingUnitName,
+    stockingUnitName: line.stockingUnitName,
+    salesToStockFactor: line.salesToStockFactor,
+    sellingOrderedQuantity: quantity,
+    sellingShippedQuantity: line.sellingShippedQuantity,
+    sellingCancelledQuantity: line.sellingCancelledQuantity,
+    stockOrderedQuantity: stockQuantity,
+    stockShippedQuantity: line.stockShippedQuantity,
+    stockCancelledQuantity: line.stockCancelledQuantity,
+    stockPlannedQuantity: line.stockPlannedQuantity,
+  });
+  const amounts = calculateSalesLineAmounts({
+    quantity: quantities.selling.orderedQuantity,
+    unitPrice,
+    taxRatePercent: taxPercent,
+  });
   return {
     ...line,
-    quantity,
+    quantity: quantities.stocking.orderedQuantity,
+    shippedQuantity: quantities.stocking.shippedQuantity,
+    plannedQuantity: quantities.stocking.plannedQuantity,
+    cancelledQuantity: quantities.stocking.cancelledQuantity,
+    remainingQuantity: quantities.stocking.remainingQuantity,
+    unplannedRemainingQuantity:
+      quantities.stocking.unplannedRemainingQuantity,
+    sellingQuantity: quantities.selling.orderedQuantity,
+    sellingShippedQuantity: quantities.selling.shippedQuantity,
+    sellingPlannedQuantity: quantities.selling.plannedQuantity,
+    sellingCancelledQuantity: quantities.selling.cancelledQuantity,
+    sellingRemainingQuantity: quantities.selling.remainingQuantity,
+    sellingUnplannedRemainingQuantity:
+      quantities.selling.unplannedRemainingQuantity,
+    stockQuantity: quantities.stocking.orderedQuantity,
+    stockShippedQuantity: quantities.stocking.shippedQuantity,
+    stockPlannedQuantity: quantities.stocking.plannedQuantity,
+    stockCancelledQuantity: quantities.stocking.cancelledQuantity,
+    stockRemainingQuantity: quantities.stocking.remainingQuantity,
+    stockUnplannedRemainingQuantity:
+      quantities.stocking.unplannedRemainingQuantity,
+    quantities,
     unitPrice,
     taxRateId: taxRate,
     taxRateName:

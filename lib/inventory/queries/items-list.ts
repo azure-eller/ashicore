@@ -41,6 +41,7 @@ import {
   applyMarginTiers,
   calculateMarginPercent,
 } from "./metrics";
+import { sellingUnitPriceToStockUnitPrice } from "@/lib/sales/quantity-basis";
 import {
   projectedAvailableQty,
   projectedDemandQty,
@@ -233,6 +234,9 @@ export async function getItems(filters?: {
                 expectedQty: expectedCol,
                 safetyStock: trimScale(items.safetyStock).as("safetyStock"),
                 defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as("defaultSellingPrice"),
+                salesToStockFactor: trimScaleNullable(items.salesToStockFactor).as(
+                  "salesToStockFactor"
+                ),
                 currentStockUnitCost: trimScaleNullable(items.currentStockUnitCost).as(
                   "currentStockUnitCost"
                 ),
@@ -376,7 +380,12 @@ export async function getItems(filters?: {
                   potential: row.potential,
                   estimatedUnitCost,
                   marginPercent: calculateMarginPercent(
-                    row.defaultSellingPrice,
+                    row.defaultSellingPrice == null
+                      ? null
+                      : sellingUnitPriceToStockUnitPrice(
+                          row.defaultSellingPrice,
+                          row.salesToStockFactor ?? "1"
+                        ),
                     estimatedUnitCost,
                   ),
                   marginTier: null,

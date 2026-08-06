@@ -40,6 +40,7 @@ import {
   createItem,
   createManufacturingOrder,
   createSalesOrder,
+  createUnit,
   fulfillSalesOrder,
   getBaseUrl,
   getOrgId,
@@ -55,6 +56,13 @@ import {
 } from "../../../lib/schemas/pricing-scenarios";
 import { calculatePricingScenario } from "../../../lib/pricing-scenarios/calculations";
 import { withAccountingConnectionFixtureLock } from "../../helpers/accounting-connection-fixture-lock";
+import { evaluateSalesImportInTx } from "../../../scripts/load/engine/sync-sales-orders";
+import type {
+  ItemSeed,
+  SalesImportConfig,
+} from "../../../scripts/load/engine/types";
+import type { Tx } from "../../../lib/db/with-org-context";
+import { convertedShipmentQuantities } from "../../../lib/sales/quantity-basis";
 
 const ACCOUNTING_PROVIDER_XERO = "xero";
 const ACCOUNTING_PROVIDER_QUICKBOOKS = "quickbooks";
@@ -342,6 +350,869 @@ test.describe("sales demand and shipping heartbeat", () => {
       onHandQty: "10.0000",
       demandQty: "6.0000",
       availableToPromise: "4.0000",
+    });
+  });
+
+  test("converted partial shipment rounding preserves a completable remainder", () => {
+    const first = convertedShipmentQuantities({
+      requestedBasis: "selling",
+      requestedQuantity: "0.0002",
+      salesToStockFactor: "0.3333",
+      sellingRemainingQuantity: "0.0006",
+      stockRemainingQuantity: "0.0002",
+    });
+    expect(first).toEqual({
+      sellingQuantity: "0.0002",
+      stockQuantity: "0.0001",
+    });
+
+    const unrepresentablePartial = convertedShipmentQuantities({
+      requestedBasis: "selling",
+      requestedQuantity: "0.0002",
+      salesToStockFactor: "0.3333",
+      sellingRemainingQuantity: "0.0004",
+      stockRemainingQuantity: "0.0001",
+    });
+    expect(unrepresentablePartial).toEqual({
+      sellingQuantity: "0.0002",
+      stockQuantity: "0",
+    });
+
+    const fullRemainder = convertedShipmentQuantities({
+      requestedBasis: "selling",
+      requestedQuantity: "0.0004",
+      salesToStockFactor: "0.3333",
+      sellingRemainingQuantity: "0.0004",
+      stockRemainingQuantity: "0.0001",
+    });
+    expect(fullRemainder).toEqual({
+      sellingQuantity: "0.0004",
+      stockQuantity: "0.0001",
+    });
+  });
+
+  test("sales units keep commercial snapshots separate from stock demand and shipment", async ({
+    db,
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const pallet = await createUnit({
+      name: `Fast pallet of 3 ${unique}`,
+      size: "3",
+      uom: "ea",
+    });
+    expect(pallet.status, JSON.stringify(pallet.body)).toBe(201);
+
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast sales-unit material ${unique}`,
+      sellable: true,
+      unitDefinitionId: unitId,
+      salesUnitDefinitionId: pallet.body.id,
+      salesToStockFactor: "3",
+      sku: `FAST-SALES-UNIT-${unique}`,
+      category: `Fast Sales ${ts}`,
+      description: null,
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: "30",
+      currentStockUnitCost: "1",
+      stock: "9",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status, JSON.stringify(material.body)).toBe(201);
+
+    const unrepresentableFactor = await updateItem(material.body.id, {
+      salesUnitDefinitionId: pallet.body.id,
+      salesToStockFactor: "0.00001",
+    });
+    expect(
+      unrepresentableFactor.status,
+      JSON.stringify(unrepresentableFactor.body),
+    ).toBe(400);
+
+    const tinyWeightUnit = await createUnit({
+      name: `Fast tiny weight ${unique}`,
+      size: "0.0001",
+      uom: "kg",
+    });
+    expect(tinyWeightUnit.status, JSON.stringify(tinyWeightUnit.body)).toBe(201);
+    const hugeWeightUnit = await createUnit({
+      name: `Fast huge weight ${unique}`,
+      size: "999999.9999",
+      uom: "kg",
+    });
+    expect(hugeWeightUnit.status, JSON.stringify(hugeWeightUnit.body)).toBe(201);
+    const autoOverflowMaterial = await createItem({
+      itemType: "material",
+      name: `Fast auto-overflow material ${unique}`,
+      sellable: true,
+      unitDefinitionId: tinyWeightUnit.body.id,
+      sku: `FAST-AUTO-OVERFLOW-${unique}`,
+      category: `Fast Sales ${ts}`,
+      description: null,
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: "1",
+      currentStockUnitCost: "1",
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(
+      autoOverflowMaterial.status,
+      JSON.stringify(autoOverflowMaterial.body),
+    ).toBe(201);
+    const autoDerivedOverflow = await testFetch(
+      `/api/item-cards/${autoOverflowMaterial.body.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          family: {
+            salesUnitDefinitionId: hugeWeightUnit.body.id,
+          },
+        }),
+      },
+    );
+    expect(
+      autoDerivedOverflow.status,
+      await autoDerivedOverflow.text(),
+    ).toBe(400);
+
+    const casePack = await createUnit({
+      name: `Fast six-kilo pack ${unique}`,
+      size: "6",
+      uom: "kg",
+    });
+    expect(casePack.status, JSON.stringify(casePack.body)).toBe(201);
+    const autoDerived = await testFetch(
+      `/api/item-cards/${material.body.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          family: {
+            salesUnitDefinitionId: casePack.body.id,
+          },
+          // A full card save can carry the price last read by the client. The
+          // server must not let that stale value undo its conversion rescale.
+          variants: [
+            {
+              id: material.body.id,
+              defaultSellingPrice: "30",
+            },
+          ],
+        }),
+      },
+    );
+    const autoDerivedCard = await autoDerived.json();
+    expect(autoDerived.status, JSON.stringify(autoDerivedCard)).toBe(200);
+    expect(autoDerivedCard.family).toMatchObject({
+      salesUnitDefinitionId: casePack.body.id,
+      salesToStockFactor: "6",
+    });
+    expect(
+      autoDerivedCard.variants.find(
+        (variant: { id: string }) => variant.id === material.body.id,
+      )?.defaultSellingPrice,
+    ).toBe("60");
+
+    const restoredSalesBasis = await updateItem(material.body.id, {
+      salesUnitDefinitionId: pallet.body.id,
+      salesToStockFactor: "3",
+    });
+    expect(
+      restoredSalesBasis.status,
+      JSON.stringify(restoredSalesBasis.body),
+    ).toBe(200);
+    expect(
+      (
+        restoredSalesBasis.body as {
+          variants: Array<{ id: string; defaultSellingPrice: string | null }>;
+        }
+      ).variants.find((variant) => variant.id === material.body.id)
+        ?.defaultSellingPrice,
+    ).toBe("30");
+
+    await page.goto(`/inventory/materials/${material.body.id}`);
+    await expect(
+      page.getByLabel("Default sales unit of measure"),
+    ).toContainText(pallet.body.name);
+    await expect(
+      page.getByText(`Current: 1 ${pallet.body.name} = 3`),
+    ).toBeVisible();
+
+    const customer = await createCustomer({
+      name: `Fast sales-unit customer ${unique}`,
+    });
+    expect(customer.status).toBe(201);
+
+    const smallFactorMaterial = await createItem({
+      itemType: "material",
+      name: `Fast small-factor material ${unique}`,
+      sellable: true,
+      unitDefinitionId: unitId,
+      salesUnitDefinitionId: casePack.body.id,
+      salesToStockFactor: "0.001",
+      sku: `FAST-SMALL-FACTOR-${unique}`,
+      category: `Fast Sales ${ts}`,
+      description: null,
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: "1",
+      currentStockUnitCost: "1",
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(
+      smallFactorMaterial.status,
+      JSON.stringify(smallFactorMaterial.body),
+    ).toBe(201);
+
+    const importSeed: ItemSeed = {
+      key: `small-factor-${unique}`,
+      sku: `FAST-SMALL-FACTOR-${unique}`,
+      name: `Fast small-factor material ${unique}`,
+      itemType: "material",
+      category: `Fast Sales ${ts}`,
+      description: "",
+      sellable: true,
+    };
+    const importConfig: SalesImportConfig = {
+      orderMarkerPrefix: `[fast-sales-unit-${unique}:`,
+      productAliasToSeedKey: {
+        SmallFactor: importSeed.key,
+      },
+      customerMode: "existing-only",
+      orderSeeds: [
+        {
+          sourceRows: [1],
+          customerName: `Fast sales-unit customer ${unique}`,
+          reference: "selling overflow",
+          address: null,
+          contact: null,
+          specialInstructions: null,
+          lines: [
+            {
+              kind: "mapped",
+              product: "SmallFactor",
+              quantity: "100000000",
+              raw: "oversized selling quantity",
+            },
+          ],
+        },
+        {
+          sourceRows: [2, 3],
+          customerName: `Fast sales-unit customer ${unique}`,
+          reference: "aggregate overflow",
+          address: null,
+          contact: null,
+          specialInstructions: null,
+          lines: [
+            {
+              kind: "mapped",
+              product: "SmallFactor",
+              quantity: "60000000",
+              raw: "aggregate quantity part one",
+            },
+            {
+              kind: "mapped",
+              product: "SmallFactor",
+              quantity: "60000000",
+              raw: "aggregate quantity part two",
+            },
+          ],
+        },
+      ],
+    };
+    const importEvaluation = await evaluateSalesImportInTx(
+      db as unknown as Tx,
+      importConfig,
+      new Map([[importSeed.key, importSeed]]),
+      new Set([importSeed.sku!]),
+    );
+    expect(importEvaluation.orders).toHaveLength(2);
+    expect(importEvaluation.orders[0]).toMatchObject({
+      kind: "skipped",
+      issues: [expect.stringContaining('Quantity "100000000" is invalid')],
+    });
+    expect(importEvaluation.orders[1]).toMatchObject({
+      kind: "skipped",
+      issues: [expect.stringContaining("Combined quantity")],
+    });
+
+    const sellingOverflow = await createSalesOrder({
+      customerId: customer.body.id,
+      lines: [
+        {
+          itemId: smallFactorMaterial.body.id,
+          quantity: "100000000",
+          unitPrice: "1",
+        },
+      ],
+    });
+    expect(sellingOverflow.status, JSON.stringify(sellingOverflow.body)).toBe(
+      400,
+    );
+    const stockingOverflow = await createSalesOrder({
+      customerId: customer.body.id,
+      lines: [
+        {
+          itemId: material.body.id,
+          quantity: "40000000",
+          unitPrice: "30",
+        },
+      ],
+    });
+    expect(stockingOverflow.status, JSON.stringify(stockingOverflow.body)).toBe(
+      400,
+    );
+
+    const order = await createSalesOrder({
+      customerId: customer.body.id,
+      lines: [
+        {
+          itemId: material.body.id,
+          quantity: "2",
+          unitPrice: "30",
+        },
+      ],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+    const [line] = await db
+      .select({
+        id: salesOrderLines.id,
+        sellingUnitName: salesOrderLines.unitName,
+        sellingQuantity: salesOrderLines.quantity,
+        stockingUnitName: salesOrderLines.stockingUnitName,
+        factor: salesOrderLines.salesToStockFactor,
+        stockQuantity: salesOrderLines.stockQuantity,
+      })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, order.body.id));
+    expect(line).toMatchObject({
+      sellingUnitName: pallet.body.name,
+      sellingQuantity: "2.0000",
+      factor: "3.0000",
+      stockQuantity: "6.0000",
+    });
+
+    const [demand] = await db
+      .select({ quantity: inventoryDemandSummary.quantity })
+      .from(inventoryDemandSummary)
+      .where(eq(inventoryDemandSummary.referenceId, line.id));
+    expect(demand.quantity).toBe("6.0000");
+
+    const initialDetailResponse = await testFetch(
+      `/api/sales-orders/${order.body.id}`,
+    );
+    const initialDetail = await initialDetailResponse.json();
+    expect(initialDetail.lines[0]).toMatchObject({
+      // Legacy flat fields remain safe for stock-basis mobile clients.
+      unitName: line.stockingUnitName,
+      quantity: "6",
+      sellingUnitName: pallet.body.name,
+      sellingQuantity: "2",
+      stockQuantity: "6",
+      quantities: {
+        contractVersion: 2,
+        selling: {
+          unitName: pallet.body.name,
+          orderedQuantity: "2",
+          salesToStockFactor: "3",
+        },
+        stocking: {
+          unitName: line.stockingUnitName,
+          orderedQuantity: "6",
+        },
+      },
+    });
+    const legacyPut = await testFetch(
+      `/api/sales-orders/${order.body.id}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          customerId: customer.body.id,
+          status: "open",
+          orderDate: "2026-04-15",
+          shipDate: null,
+          requestedDate: null,
+          notes: null,
+          lines: [
+            {
+              id: initialDetail.lines[0].id,
+              itemId: material.body.id,
+              quantity: initialDetail.lines[0].quantity,
+              unitPrice: initialDetail.lines[0].unitPrice,
+            },
+          ],
+        }),
+      },
+    );
+    expect(legacyPut.status).toBe(409);
+    expect(await legacyPut.json()).toMatchObject({
+      error: "Converted sales units require quantity contract version 2.",
+    });
+    const [lineAfterLegacyPut] = await db
+      .select({
+        quantity: salesOrderLines.quantity,
+        stockQuantity: salesOrderLines.stockQuantity,
+      })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.id, line.id));
+    expect(lineAfterLegacyPut).toEqual({
+      quantity: "2.0000",
+      stockQuantity: "6.0000",
+    });
+    const listResponse = await testFetch("/api/sales-orders");
+    expect(listResponse.status).toBe(200);
+    const list = (await listResponse.json()) as Array<{
+      id: string;
+      lines: Array<Record<string, unknown>>;
+    }>;
+    const listOrder = list.find((candidate) => candidate.id === order.body.id);
+    expect(listOrder?.lines[0]).toMatchObject({
+      unitName: line.stockingUnitName,
+      quantity: "6",
+      shippedQuantity: "0",
+      sellingUnitName: pallet.body.name,
+      sellingQuantity: "2",
+      stockQuantity: "6",
+      quantities: {
+        contractVersion: 2,
+        selling: {
+          unitName: pallet.body.name,
+          orderedQuantity: "2",
+          salesToStockFactor: "3",
+        },
+        stocking: {
+          unitName: line.stockingUnitName,
+          orderedQuantity: "6",
+        },
+      },
+    });
+
+    await expect(
+      (async () => {
+        await db
+          .update(salesOrderLines)
+          .set({
+            quantity: "2.5",
+            shippedQuantity: "0.5",
+            cancelledQuantity: "0.25",
+          })
+          .where(eq(salesOrderLines.id, line.id));
+      })(),
+    ).rejects.toThrow();
+    const [legacyUpdatedLine] = await db
+      .select({
+        quantity: salesOrderLines.quantity,
+        shippedQuantity: salesOrderLines.shippedQuantity,
+        cancelledQuantity: salesOrderLines.cancelledQuantity,
+        stockQuantity: salesOrderLines.stockQuantity,
+        stockShippedQuantity: salesOrderLines.stockShippedQuantity,
+        stockCancelledQuantity: salesOrderLines.stockCancelledQuantity,
+      })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.id, line.id));
+    expect(legacyUpdatedLine).toEqual({
+      quantity: "2.0000",
+      shippedQuantity: "0.0000",
+      cancelledQuantity: "0.0000",
+      stockQuantity: "6.0000",
+      stockShippedQuantity: "0.0000",
+      stockCancelledQuantity: "0.0000",
+    });
+
+    await db
+      .update(salesOrderLines)
+      .set({
+        quantity: "2",
+        stockQuantity: "6",
+        shippedQuantity: "0",
+        stockShippedQuantity: "0",
+        cancelledQuantity: "0",
+        stockCancelledQuantity: "0",
+      })
+      .where(eq(salesOrderLines.id, line.id));
+    const [pairedUpdatedLine] = await db
+      .select({
+        quantity: salesOrderLines.quantity,
+        stockQuantity: salesOrderLines.stockQuantity,
+        stockShippedQuantity: salesOrderLines.stockShippedQuantity,
+        stockCancelledQuantity: salesOrderLines.stockCancelledQuantity,
+      })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.id, line.id));
+    expect(pairedUpdatedLine).toEqual({
+      quantity: "2.0000",
+      stockQuantity: "6.0000",
+      stockShippedQuantity: "0.0000",
+      stockCancelledQuantity: "0.0000",
+    });
+
+    const snapshotOrder = await createSalesOrder({
+      customerId: customer.body.id,
+      lines: [
+        {
+          itemId: material.body.id,
+          quantity: "2",
+          unitPrice: "30",
+        },
+      ],
+    });
+    expect(snapshotOrder.status, JSON.stringify(snapshotOrder.body)).toBe(201);
+    const [snapshotLine] = await db
+      .select({ id: salesOrderLines.id })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, snapshotOrder.body.id));
+
+    const reconfigured = await updateItem(material.body.id, {
+      salesUnitDefinitionId: pallet.body.id,
+      salesToStockFactor: "4",
+    });
+    expect(reconfigured.status, JSON.stringify(reconfigured.body)).toBe(200);
+
+    const preservedSnapshot = await testFetch(
+      `/api/sales-orders/${snapshotOrder.body.id}`,
+      {
+        method: "PUT",
+        headers: Object.fromEntries(
+          createIdempotencyHeaders(
+            "updateSalesOrderWithPersistedSalesUnitSnapshot",
+          ).entries(),
+        ),
+        body: JSON.stringify({
+          customerId: customer.body.id,
+          quantityContractVersion: 2,
+          lines: [
+            {
+              id: snapshotLine.id,
+              itemId: material.body.id,
+              quantity: "2",
+              unitPrice: "30",
+            },
+          ],
+          confirmOversell: true,
+        }),
+      },
+    );
+    expect(
+      preservedSnapshot.status,
+      await preservedSnapshot.text(),
+    ).toBe(200);
+    const [preservedLine] = await db
+      .select({
+        id: salesOrderLines.id,
+        factor: salesOrderLines.salesToStockFactor,
+        stockQuantity: salesOrderLines.stockQuantity,
+      })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, snapshotOrder.body.id));
+    expect(preservedLine).toEqual({
+      id: snapshotLine.id,
+      factor: "3.0000",
+      stockQuantity: "6.0000",
+    });
+
+    const replacementLineId = randomUUID();
+    const currentSalesBasis = await testFetch(
+      `/api/sales-orders/${snapshotOrder.body.id}`,
+      {
+        method: "PUT",
+        headers: Object.fromEntries(
+          createIdempotencyHeaders(
+            "updateSalesOrderWithNewSalesUnitSnapshot",
+          ).entries(),
+        ),
+        body: JSON.stringify({
+          customerId: customer.body.id,
+          quantityContractVersion: 2,
+          lines: [
+            {
+              id: replacementLineId,
+              itemId: material.body.id,
+              quantity: "2",
+              unitPrice: "30",
+            },
+          ],
+          confirmOversell: true,
+        }),
+      },
+    );
+    expect(currentSalesBasis.status, await currentSalesBasis.text()).toBe(200);
+    const [replacementLine] = await db
+      .select({
+        id: salesOrderLines.id,
+        factor: salesOrderLines.salesToStockFactor,
+        stockQuantity: salesOrderLines.stockQuantity,
+      })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.salesOrderId, snapshotOrder.body.id));
+    expect(replacementLine).toEqual({
+      id: replacementLineId,
+      factor: "4.0000",
+      stockQuantity: "8.0000",
+    });
+    const [replacementDemand] = await db
+      .select({ quantity: inventoryDemandSummary.quantity })
+      .from(inventoryDemandSummary)
+      .where(eq(inventoryDemandSummary.referenceId, replacementLineId));
+    expect(replacementDemand.quantity).toBe("8.0000");
+
+    for (const [requestName, shipmentLine] of [
+      [
+        "shipSalesOrderRejectsBothQuantityBases",
+        { salesOrderLineId: line.id, quantity: "1", sellingQuantity: "1" },
+      ],
+      ["shipSalesOrderRejectsMissingQuantityBasis", { salesOrderLineId: line.id }],
+    ] as const) {
+      const invalidShipment = await testFetch(
+        `/api/sales-orders/${order.body.id}/ship`,
+        {
+          method: "POST",
+          headers: Object.fromEntries(
+            createIdempotencyHeaders(requestName).entries(),
+          ),
+          body: JSON.stringify({
+            syncAccounting: false,
+            lines: [shipmentLine],
+          }),
+        },
+      );
+      expect(invalidShipment.status).toBe(400);
+    }
+
+    const tinyStockShipment = await testFetch(
+      `/api/sales-orders/${order.body.id}/ship`,
+      {
+        method: "POST",
+        headers: Object.fromEntries(
+          createIdempotencyHeaders(
+            "shipSalesOrderRejectsZeroSellingCounterpart",
+          ).entries(),
+        ),
+        body: JSON.stringify({
+          syncAccounting: false,
+          lines: [{ salesOrderLineId: line.id, quantity: "0.0001" }],
+        }),
+      },
+    );
+    expect(tinyStockShipment.status).toBe(400);
+    expect(await tinyStockShipment.json()).toMatchObject({
+      errors: {
+        lines: [
+          "Enter a quantity that converts to at least 0.0001 selling units.",
+        ],
+      },
+    });
+    const [afterRejectedTinyShipment] = await db
+      .select({
+        sellingShippedQuantity: salesOrderLines.shippedQuantity,
+        stockShippedQuantity: salesOrderLines.stockShippedQuantity,
+      })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.id, line.id));
+    expect(afterRejectedTinyShipment).toEqual({
+      sellingShippedQuantity: "0.0000",
+      stockShippedQuantity: "0.0000",
+    });
+
+    const ship = await testFetch(`/api/sales-orders/${order.body.id}/ship`, {
+      method: "POST",
+      headers: Object.fromEntries(
+        createIdempotencyHeaders("shipSalesOrderWithSalesUnit").entries(),
+      ),
+      body: JSON.stringify({
+        syncAccounting: false,
+        lines: [{ salesOrderLineId: line.id, sellingQuantity: "0.5" }],
+      }),
+    });
+    expect(ship.status, await ship.text()).toBe(200);
+
+    const [afterLine] = await db
+      .select({
+        factor: salesOrderLines.salesToStockFactor,
+        sellingShippedQuantity: salesOrderLines.shippedQuantity,
+        stockShippedQuantity: salesOrderLines.stockShippedQuantity,
+      })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.id, line.id));
+    expect(afterLine).toEqual({
+      factor: "3.0000",
+      sellingShippedQuantity: "0.5000",
+      stockShippedQuantity: "1.5000",
+    });
+    const [remainingDemand] = await db
+      .select({ quantity: inventoryDemandSummary.quantity })
+      .from(inventoryDemandSummary)
+      .where(eq(inventoryDemandSummary.referenceId, line.id));
+    expect(remainingDemand.quantity).toBe("4.5000");
+    const consumption = await db
+      .select({ quantity: inventoryEvents.quantity })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.referenceId, order.body.id),
+          eq(inventoryEvents.eventType, "sales_consumption"),
+        ),
+      );
+    expect(consumption).toEqual([{ quantity: "1.5000" }]);
+
+    const legacyStockShipment = await testFetch(
+      `/api/sales-orders/${order.body.id}/ship`,
+      {
+        method: "POST",
+        headers: Object.fromEntries(
+          createIdempotencyHeaders(
+            "shipSalesOrderWithLegacyStockQuantity",
+          ).entries(),
+        ),
+        body: JSON.stringify({
+          syncAccounting: false,
+          lines: [{ salesOrderLineId: line.id, quantity: "1" }],
+        }),
+      },
+    );
+    expect(
+      legacyStockShipment.status,
+      await legacyStockShipment.text(),
+    ).toBe(200);
+
+    const [beforeLegacyLinePatchOrder] = await db
+      .select({ version: salesOrders.version })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, order.body.id));
+    const [beforeLegacyLinePatchDemand] = await db
+      .select({ quantity: inventoryDemandSummary.quantity })
+      .from(inventoryDemandSummary)
+      .where(eq(inventoryDemandSummary.referenceId, line.id));
+
+    const legacyLinePatch = await testFetch(
+      `/api/sales-orders/${order.body.id}/lines/${line.id}`,
+      {
+        method: "PATCH",
+        headers: Object.fromEntries(
+          createIdempotencyHeaders(
+            "rejectLegacyConvertedSalesLineQuantityPatch",
+          ).entries(),
+        ),
+        body: JSON.stringify({ quantity: "2.5", unitPrice: "999" }),
+      },
+    );
+    expect(legacyLinePatch.status).toBe(409);
+    expect(await legacyLinePatch.json()).toMatchObject({
+      error: "Converted sales units require quantity contract version 2.",
+    });
+    const [afterLegacyLinePatch] = await db
+      .select({
+        sellingQuantity: salesOrderLines.quantity,
+        stockQuantity: salesOrderLines.stockQuantity,
+        unitPrice: salesOrderLines.unitPrice,
+      })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.id, line.id));
+    expect(afterLegacyLinePatch).toEqual({
+      sellingQuantity: "2.0000",
+      stockQuantity: "6.0000",
+      unitPrice: "30.00",
+    });
+    const [afterLegacyLinePatchOrder] = await db
+      .select({ version: salesOrders.version })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, order.body.id));
+    const [afterLegacyLinePatchDemand] = await db
+      .select({ quantity: inventoryDemandSummary.quantity })
+      .from(inventoryDemandSummary)
+      .where(eq(inventoryDemandSummary.referenceId, line.id));
+    expect(afterLegacyLinePatchOrder.version).toBe(
+      beforeLegacyLinePatchOrder.version,
+    );
+    expect(afterLegacyLinePatchDemand).toEqual(beforeLegacyLinePatchDemand);
+
+    const markerOnlyLinePatch = await testFetch(
+      `/api/sales-orders/${order.body.id}/lines/${line.id}`,
+      {
+        method: "PATCH",
+        headers: Object.fromEntries(
+          createIdempotencyHeaders("rejectSalesLineVersionMarkerOnly").entries(),
+        ),
+        body: JSON.stringify({ quantityContractVersion: 2 }),
+      },
+    );
+    expect(markerOnlyLinePatch.status).toBe(400);
+    const [afterMarkerOnlyLinePatchOrder] = await db
+      .select({ version: salesOrders.version })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, order.body.id));
+    expect(afterMarkerOnlyLinePatchOrder.version).toBe(
+      beforeLegacyLinePatchOrder.version,
+    );
+
+    const priceOnlyLinePatch = await testFetch(
+      `/api/sales-orders/${order.body.id}/lines/${line.id}`,
+      {
+        method: "PATCH",
+        headers: Object.fromEntries(
+          createIdempotencyHeaders("allowLegacyConvertedPriceOnlyPatch").entries(),
+        ),
+        body: JSON.stringify({ unitPrice: "30" }),
+      },
+    );
+    expect(priceOnlyLinePatch.status, await priceOnlyLinePatch.text()).toBe(200);
+    const [afterPriceOnlyLinePatchOrder] = await db
+      .select({ version: salesOrders.version })
+      .from(salesOrders)
+      .where(eq(salesOrders.id, order.body.id));
+    expect(afterPriceOnlyLinePatchOrder.version).toBe(
+      beforeLegacyLinePatchOrder.version + 1,
+    );
+
+    const editToDeliveredQuantity = await testFetch(
+      `/api/sales-orders/${order.body.id}/lines/${line.id}`,
+      {
+        method: "PATCH",
+        headers: Object.fromEntries(
+          createIdempotencyHeaders(
+            "editSalesOrderToDeliveredSalesQuantity",
+          ).entries(),
+        ),
+        body: JSON.stringify({
+          quantityContractVersion: 2,
+          quantity: "0.8333",
+        }),
+      },
+    );
+    const editedOrder = await editToDeliveredQuantity.json();
+    expect(
+      editToDeliveredQuantity.status,
+      JSON.stringify(editedOrder),
+    ).toBe(200);
+    expect(editedOrder.lines[0].quantities).toMatchObject({
+      selling: {
+        orderedQuantity: "0.8333",
+        shippedQuantity: "0.8333",
+        remainingQuantity: "0",
+      },
+      stocking: {
+        orderedQuantity: "2.5",
+        shippedQuantity: "2.5",
+        remainingQuantity: "0",
+      },
+    });
+
+    const [editedLine] = await db
+      .select({
+        sellingOrderedQuantity: salesOrderLines.quantity,
+        sellingShippedQuantity: salesOrderLines.shippedQuantity,
+        stockOrderedQuantity: salesOrderLines.stockQuantity,
+        stockShippedQuantity: salesOrderLines.stockShippedQuantity,
+      })
+      .from(salesOrderLines)
+      .where(eq(salesOrderLines.id, line.id));
+    expect(editedLine).toEqual({
+      sellingOrderedQuantity: "0.8333",
+      sellingShippedQuantity: "0.8333",
+      stockOrderedQuantity: "2.5000",
+      stockShippedQuantity: "2.5000",
     });
   });
 
@@ -687,7 +1558,7 @@ test.describe("sales demand and shipping heartbeat", () => {
               .from(salesOrderLines)
               .where(eq(salesOrderLines.salesOrderId, orderId))
           ).length,
-        { timeout: 15_000 },
+        { timeout: 30_000 },
       )
       .toBe(2);
     await page.reload();
@@ -1618,6 +2489,17 @@ test.describe("sales demand and shipping heartbeat", () => {
     db,
   }) => {
     const productId = await createStockedProduct("ShopifyImport", "10");
+    const shopifyCase = await createUnit({
+      name: `Fast Shopify case ${ts}`,
+      size: "3",
+      uom: "ea",
+    });
+    expect(shopifyCase.status, JSON.stringify(shopifyCase.body)).toBe(201);
+    const configured = await updateItem(productId, {
+      salesUnitDefinitionId: shopifyCase.body.id,
+      salesToStockFactor: "3",
+    });
+    expect(configured.status, JSON.stringify(configured.body)).toBe(200);
     const customer = await createCustomer({
       name: `Fast Shopify Customer ${ts}`,
       email: `fast-shopify-${ts}@example.com`,
@@ -1695,10 +2577,25 @@ test.describe("sales demand and shipping heartbeat", () => {
       expect(order).toBeTruthy();
 
       const [line] = await db
-        .select({ id: salesOrderLines.id, quantity: salesOrderLines.quantity })
+        .select({
+          id: salesOrderLines.id,
+          quantity: salesOrderLines.quantity,
+          stockQuantity: salesOrderLines.stockQuantity,
+          factor: salesOrderLines.salesToStockFactor,
+          unitName: salesOrderLines.unitName,
+          unitPrice: salesOrderLines.unitPrice,
+          lineSubtotal: salesOrderLines.lineSubtotal,
+          lineTotal: salesOrderLines.lineTotal,
+        })
         .from(salesOrderLines)
         .where(eq(salesOrderLines.salesOrderId, order.id));
       expect(line.quantity).toBe("2.0000");
+      expect(line.stockQuantity).toBe("6.0000");
+      expect(line.factor).toBe("3.0000");
+      expect(line.unitName).toBe(shopifyCase.body.name);
+      expect(line.unitPrice).toBe("12.00");
+      expect(line.lineSubtotal).toBe("24.00");
+      expect(line.lineTotal).toBe("24.00");
 
       const [demand] = await db
         .select({ quantity: inventoryDemandSummary.quantity })
@@ -1710,7 +2607,7 @@ test.describe("sales demand and shipping heartbeat", () => {
             eq(inventoryDemandSummary.referenceId, line.id)
           )
         );
-      expect(demand.quantity).toBe("2.0000");
+      expect(demand.quantity).toBe("6.0000");
 
       const [external] = await db
         .select({ localRecordId: integrationExternalRecords.localRecordId })

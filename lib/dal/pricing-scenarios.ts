@@ -38,6 +38,7 @@ import {
   type PricingScenarioRevisionSnapshot,
   type UpdatePricingScenario,
 } from "@/lib/schemas/pricing-scenarios";
+import { sellingUnitPriceToStockUnitPrice } from "@/lib/sales/quantity-basis";
 
 export type PricingScenarioListRow = {
   id: string;
@@ -132,6 +133,7 @@ async function resolveScenarioInputsInTx(tx: Tx, doc: PricingScenarioDoc) {
           defaultPurchasePrice: items.defaultPurchasePrice,
           purchaseToStockFactor: items.purchaseToStockFactor,
           defaultSellingPrice: items.defaultSellingPrice,
+          salesToStockFactor: items.salesToStockFactor,
           unitName: unitDefinitions.name,
         })
         .from(items)
@@ -193,7 +195,13 @@ async function resolveScenarioInputsInTx(tx: Tx, doc: PricingScenarioDoc) {
         name: item?.name ?? "Unknown product",
         sku: item?.sku ?? null,
         unitName: item?.unitName ?? null,
-        baselineCurrentPrice: item?.defaultSellingPrice ?? null,
+        baselineCurrentPrice:
+          item?.defaultSellingPrice == null
+            ? null
+            : sellingUnitPriceToStockUnitPrice(
+                item.defaultSellingPrice,
+                item.salesToStockFactor ?? "1"
+              ),
       };
     }),
   };

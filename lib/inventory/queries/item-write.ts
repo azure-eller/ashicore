@@ -365,6 +365,10 @@ export async function updateItem(
         purchaseToStockFactor: trimScaleNullable(items.purchaseToStockFactor).as(
           "purchaseToStockFactor"
         ),
+        salesUnitDefinitionId: items.salesUnitDefinitionId,
+        salesToStockFactor: trimScaleNullable(items.salesToStockFactor).as(
+          "salesToStockFactor"
+        ),
         defaultPurchasePrice: trimScaleNullable(items.defaultPurchasePrice).as(
           "defaultPurchasePrice"
         ),
@@ -425,6 +429,8 @@ export async function updateItem(
             unitDefinitionId: existingItem.unitDefinitionId ?? undefined,
             purchaseUnitDefinitionId: normalizedItemData.purchaseUnitDefinitionId,
             purchaseToStockFactor: normalizedItemData.purchaseToStockFactor,
+            salesUnitDefinitionId: normalizedItemData.salesUnitDefinitionId,
+            salesToStockFactor: normalizedItemData.salesToStockFactor,
             updatedAt: new Date(),
           })
           .where(eq(itemFamilies.id, existingItem.familyId));
@@ -671,6 +677,8 @@ export async function createItemWithLot(
           data.itemType === "material" ? data.purchaseUnitDefinitionId ?? null : null,
         purchaseToStockFactor:
           data.itemType === "material" ? data.purchaseToStockFactor ?? null : null,
+        salesUnitDefinitionId: data.salesUnitDefinitionId ?? null,
+        salesToStockFactor: data.salesToStockFactor ?? null,
       })
       .returning({ id: itemFamilies.id });
 

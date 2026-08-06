@@ -42,7 +42,9 @@ type UnitSelectFieldProps = {
   disabled?: boolean;
   required?: boolean;
   invalid?: boolean;
+  error?: React.ReactNode;
   canCreateUnit?: boolean;
+  createDialogDescription?: string;
   onUnitCreated?: (unit: UnitSelectOption) => void;
   onUnitChange: (unit: UnitSelectOption) => void;
 };
@@ -54,7 +56,9 @@ export function UnitSelectField({
   disabled,
   required,
   invalid,
+  error,
   canCreateUnit = false,
+  createDialogDescription = "Add a stocking unit for item quantities and inventory balances.",
   onUnitCreated,
   onUnitChange,
 }: UnitSelectFieldProps) {
@@ -126,6 +130,7 @@ export function UnitSelectField({
         disabled={disabled}
         required={required}
         invalid={invalid}
+        error={error}
         placeholder={canCreateUnit ? "Select or create unit" : "Select a unit"}
         options={options}
       />
@@ -135,7 +140,7 @@ export function UnitSelectField({
           <DialogHeader>
             <DialogTitle>Create unit</DialogTitle>
             <DialogDescription>
-              Add a stocking unit for item quantities and inventory balances.
+              {createDialogDescription}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-(--space-5)">

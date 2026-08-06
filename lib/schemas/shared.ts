@@ -77,6 +77,7 @@ export const expectedVersionSchema = z.number().int().min(1).optional();
 
 export {
   isNonNegativeNumberString,
+  isNumeric12Scale4Representable,
   isPositiveNumberString,
   nonNegativeDecimalString,
   nullableStringPreserveUndefined,
@@ -85,6 +86,9 @@ export {
   optionalNonNegativeDecimalString,
   optionalPositiveDecimalString,
   optionalPositiveDecimalStringPreserveUndefined,
+  optionalPositiveNumeric12Scale4String,
+  optionalPositiveNumeric12Scale4StringPreserveUndefined,
   positiveDecimalString,
   positiveMoneyString,
+  roundsToPositiveNumeric12Scale4,
 } from "./numeric";

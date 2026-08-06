@@ -3,6 +3,7 @@ import "server-only";
 import { cache } from "react";
 import { and, asc, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
+import Decimal from "decimal.js-light";
 import {
   itemFamilies,
   itemVariantValues,
@@ -31,6 +32,7 @@ import {
   variantOptions,
 } from "@/lib/db/schema";
 import { trimScaleNullable } from "@/lib/db/numeric";
+import { normalizeMoney, normalizeNumeric } from "@/lib/format";
 import {
   itemCardCreateSchema,
   itemCardDocUpdateSchema,
@@ -76,6 +78,11 @@ import type {
   ItemType,
   VariantOptionValueDisplay,
 } from "@/lib/inventory/types";
+import { deriveUnitToStockFactor } from "@/lib/units-of-measure";
+import {
+  isNumeric12Scale4Representable,
+  roundsToPositiveNumeric12Scale4,
+} from "@/lib/schemas/numeric";
 
 export class ItemCardError extends DomainError {
   constructor(message: string, status = 400) {
@@ -189,6 +196,9 @@ export type ItemCardDto = {
     defaultSupplierId: string | null;
     purchaseUnitDefinitionId: string | null;
     purchaseToStockFactor: string | null;
+    salesUnitDefinitionId: string | null;
+    salesUnitName: string | null;
+    salesToStockFactor: string | null;
     lotTrackingMode: LotTrackingMode;
     version: number;
     deletedAt: Date | null;
@@ -378,6 +388,16 @@ async function getItemCardInTx(tx: Tx, itemId: string): Promise<ItemCardDto> {
         purchaseUnitDefinitionId: itemFamilies.purchaseUnitDefinitionId,
         purchaseToStockFactor: trimScaleNullable(itemFamilies.purchaseToStockFactor).as(
           "purchaseToStockFactor",
+        ),
+        salesUnitDefinitionId: itemFamilies.salesUnitDefinitionId,
+        salesUnitName: sql<string | null>`(
+          SELECT name
+          FROM inventory.unit_definitions
+          WHERE id = ${itemFamilies.salesUnitDefinitionId}
+          LIMIT 1
+        )`,
+        salesToStockFactor: trimScaleNullable(itemFamilies.salesToStockFactor).as(
+          "salesToStockFactor",
         ),
         lotTrackingMode: itemFamilies.lotTrackingMode,
         version: itemFamilies.version,
@@ -782,6 +802,8 @@ export async function cloneItemCard(
             defaultSupplierId: sourceFamily.defaultSupplierId,
             purchaseUnitDefinitionId: sourceFamily.purchaseUnitDefinitionId,
             purchaseToStockFactor: sourceFamily.purchaseToStockFactor,
+            salesUnitDefinitionId: sourceFamily.salesUnitDefinitionId,
+            salesToStockFactor: sourceFamily.salesToStockFactor,
             lotTrackingMode: sourceFamily.lotTrackingMode,
           })
           .returning({ id: itemFamilies.id });
@@ -802,6 +824,8 @@ export async function cloneItemCard(
           unitDefinitionId: source.unitDefinitionId,
           purchaseUnitDefinitionId: source.purchaseUnitDefinitionId,
           purchaseToStockFactor: source.purchaseToStockFactor,
+          salesUnitDefinitionId: source.salesUnitDefinitionId,
+          salesToStockFactor: source.salesToStockFactor,
           safetyStock: source.safetyStock,
           defaultPurchasePrice: source.defaultPurchasePrice,
           currentStockUnitCost: null,
@@ -1004,6 +1028,41 @@ export async function createItemCardInTx(
     },
     async () => {
       await assertSkuCapacityInTx(tx, orgId, 1);
+      let salesUnitDefinitionId = data.salesUnitDefinitionId ?? null;
+      let salesToStockFactor = data.salesToStockFactor ?? null;
+      if (salesUnitDefinitionId === data.unitDefinitionId) {
+        salesUnitDefinitionId = null;
+        salesToStockFactor = null;
+      }
+      if (salesUnitDefinitionId != null) {
+        const [salesUnit] = await tx
+          .select({ id: unitDefinitions.id })
+          .from(unitDefinitions)
+          .where(
+            and(
+              eq(unitDefinitions.id, salesUnitDefinitionId),
+              isNull(unitDefinitions.deletedAt),
+            ),
+          )
+          .limit(1);
+        if (!salesUnit) {
+          throw new ItemCardError(
+            "Sales unit is not available for this organization.",
+          );
+        }
+        const parsedSalesFactor = Number(salesToStockFactor);
+        if (
+          salesToStockFactor == null ||
+          !Number.isFinite(parsedSalesFactor) ||
+          parsedSalesFactor <= 0
+        ) {
+          throw new ItemCardError(
+            "Sales-to-stock factor must be greater than zero.",
+          );
+        }
+      } else {
+        salesToStockFactor = null;
+      }
       const [family] = await tx
         .insert(itemFamilies)
         .values({
@@ -1019,6 +1078,8 @@ export async function createItemCardInTx(
             data.itemType === "material" ? data.purchaseUnitDefinitionId ?? null : null,
           purchaseToStockFactor:
             data.itemType === "material" ? data.purchaseToStockFactor ?? null : null,
+          salesUnitDefinitionId,
+          salesToStockFactor,
           lotTrackingMode: data.lotTrackingMode ?? "tracked",
         })
         .returning({ id: itemFamilies.id });
@@ -1038,6 +1099,8 @@ export async function createItemCardInTx(
             data.itemType === "material" ? data.purchaseUnitDefinitionId ?? null : null,
           purchaseToStockFactor:
             data.itemType === "material" ? data.purchaseToStockFactor ?? null : null,
+          salesUnitDefinitionId,
+          salesToStockFactor,
           sku: data.sku ?? null,
           sellable: data.sellable ?? false,
           defaultSellingPrice: data.defaultSellingPrice ?? null,
@@ -1061,6 +1124,139 @@ export async function createItemCardInTx(
   return result;
 }
 
+async function resolveAlternateUnitPairInTx(
+  tx: Tx,
+  params: {
+    label: "Purchase" | "Sales";
+    previousUnitId: string | null;
+    previousStockUnitId: string;
+    nextUnitId: string | null;
+    nextStockUnitId: string;
+    nextFactor: string | null;
+    factorWasProvided: boolean;
+  },
+) {
+  if (
+    params.nextUnitId == null ||
+    params.nextUnitId === params.nextStockUnitId
+  ) {
+    return { unitId: null, factor: null };
+  }
+
+  const conversionUnits = await tx
+    .select({
+      id: unitDefinitions.id,
+      size: unitDefinitions.size,
+      uom: unitDefinitions.uom,
+    })
+    .from(unitDefinitions)
+    .where(
+      and(
+        inArray(unitDefinitions.id, [
+          params.nextUnitId,
+          params.nextStockUnitId,
+        ]),
+        isNull(unitDefinitions.deletedAt),
+      ),
+    );
+  const unitById = new Map(conversionUnits.map((unit) => [unit.id, unit]));
+  const alternateUnit = unitById.get(params.nextUnitId);
+  const stockingUnit = unitById.get(params.nextStockUnitId);
+  if (!alternateUnit || !stockingUnit) {
+    throw new ItemCardError(
+      `${params.label} or stocking unit is not available for this organization.`,
+    );
+  }
+
+  let factor = params.nextFactor;
+  const conversionBasisChanged =
+    params.nextUnitId !== params.previousUnitId ||
+    params.nextStockUnitId !== params.previousStockUnitId;
+  if (!params.factorWasProvided && conversionBasisChanged) {
+    const derivedFactor = deriveUnitToStockFactor(alternateUnit, stockingUnit);
+    if (
+      derivedFactor == null ||
+      !Number.isFinite(derivedFactor) ||
+      derivedFactor <= 0
+    ) {
+      throw new ItemCardError(
+        `Set a new ${params.label.toLowerCase()}-to-stock factor when changing the ${params.label.toLowerCase()} or stocking unit.`,
+      );
+    }
+    factor = normalizeNumeric(derivedFactor);
+  }
+
+  if (factor == null || !roundsToPositiveNumeric12Scale4(factor)) {
+    throw new ItemCardError(
+      `${params.label}-to-stock factor must be greater than zero.`,
+    );
+  }
+  if (!isNumeric12Scale4Representable(factor)) {
+    throw new ItemCardError(
+      `${params.label}-to-stock factor must be 99,999,999.9999 or less.`,
+    );
+  }
+
+  return { unitId: params.nextUnitId, factor };
+}
+
+type SalesUnitBasis = {
+  stockUnitId: string;
+  salesUnitId: string | null;
+  salesToStockFactor: string | null;
+};
+
+function rescaleDefaultSellingPricesForBasisChange(
+  previous: SalesUnitBasis,
+  next: SalesUnitBasis,
+) {
+  const previousFactor = Number(previous.salesToStockFactor ?? "1");
+  const nextFactor = Number(next.salesToStockFactor ?? "1");
+  const previousEffectiveSalesUnitId =
+    previous.salesUnitId ?? previous.stockUnitId;
+  const nextEffectiveSalesUnitId = next.salesUnitId ?? next.stockUnitId;
+  const stockingUnitChanged = next.stockUnitId !== previous.stockUnitId;
+
+  return (
+    previousFactor !== nextFactor &&
+    !(
+      stockingUnitChanged &&
+      previousEffectiveSalesUnitId === nextEffectiveSalesUnitId
+    )
+  );
+}
+
+async function assertDefaultSellingPricesCanBeRescaledInTx(
+  tx: Tx,
+  familyId: string,
+  previousFactor: string,
+  nextFactor: string,
+) {
+  const variantPrices = await tx
+    .select({ name: items.name, price: items.defaultSellingPrice })
+    .from(items)
+    .where(eq(items.familyId, familyId));
+
+  for (const variant of variantPrices) {
+    if (variant.price == null) continue;
+    const current = new Decimal(variant.price);
+    const rescaled = current
+      .times(nextFactor)
+      .dividedBy(previousFactor)
+      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    if (rescaled.gt("99999999.99")) {
+      throw new ItemCardError(
+        `Changing the sales unit would make the default selling price for ${variant.name} exceed 99,999,999.99. Adjust the price first.`,
+      );
+    }
+    if (current.gt(0) && rescaled.eq(0)) {
+      throw new ItemCardError(
+        `Changing the sales unit would round the default selling price for ${variant.name} to zero. Adjust the price first.`,
+      );
+    }
+  }
+}
+
 export async function updateItemCardInTx(
   tx: Tx,
   orgId: string,
@@ -1082,18 +1278,18 @@ export async function updateItemCardInTx(
     .select({
       itemType: itemFamilies.itemType,
       lotTrackingMode: itemFamilies.lotTrackingMode,
+      unitDefinitionId: itemFamilies.unitDefinitionId,
+      purchaseUnitDefinitionId: itemFamilies.purchaseUnitDefinitionId,
+      purchaseToStockFactor: itemFamilies.purchaseToStockFactor,
+      salesUnitDefinitionId: itemFamilies.salesUnitDefinitionId,
+      salesToStockFactor: itemFamilies.salesToStockFactor,
     })
     .from(itemFamilies)
     .where(eq(itemFamilies.id, familyId))
     .for("update");
 
   if (!family) throw new ItemCardError("Item card not found", 404);
-  if (
-    data.lotTrackingMode === "untracked" &&
-    family.lotTrackingMode !== "untracked"
-  ) {
-    await assertCanDisableLotTrackingInTx(tx, familyId);
-  }
+
   if (
     family.itemType !== "material" &&
     (data.defaultSupplierId !== undefined ||
@@ -1103,6 +1299,72 @@ export async function updateItemCardInTx(
     throw new ItemCardError("Purchase defaults are only supported for material cards.");
   }
 
+  const nextStockUnitId = data.unitDefinitionId ?? family.unitDefinitionId;
+  const nextPurchase = await resolveAlternateUnitPairInTx(tx, {
+    label: "Purchase",
+    previousUnitId: family.purchaseUnitDefinitionId,
+    previousStockUnitId: family.unitDefinitionId,
+    nextUnitId:
+      family.itemType === "material"
+        ? data.purchaseUnitDefinitionId === undefined
+          ? family.purchaseUnitDefinitionId
+          : data.purchaseUnitDefinitionId
+        : null,
+    nextStockUnitId,
+    nextFactor:
+      family.itemType === "material"
+        ? data.purchaseToStockFactor === undefined
+          ? family.purchaseToStockFactor
+          : data.purchaseToStockFactor
+        : null,
+    factorWasProvided: data.purchaseToStockFactor !== undefined,
+  });
+  const nextSales = await resolveAlternateUnitPairInTx(tx, {
+    label: "Sales",
+    previousUnitId: family.salesUnitDefinitionId,
+    previousStockUnitId: family.unitDefinitionId,
+    nextUnitId:
+      data.salesUnitDefinitionId === undefined
+        ? family.salesUnitDefinitionId
+        : data.salesUnitDefinitionId,
+    nextStockUnitId,
+    nextFactor:
+      data.salesToStockFactor === undefined
+        ? family.salesToStockFactor
+        : data.salesToStockFactor,
+    factorWasProvided: data.salesToStockFactor !== undefined,
+  });
+  const nextSalesUnitId = nextSales.unitId;
+  const nextSalesFactor = nextSales.factor;
+  const previousEffectiveSalesFactor = family.salesToStockFactor ?? "1";
+  const nextEffectiveSalesFactor = nextSalesFactor ?? "1";
+  const shouldRescaleDefaultSellingPrices =
+    rescaleDefaultSellingPricesForBasisChange(
+      {
+        stockUnitId: family.unitDefinitionId,
+        salesUnitId: family.salesUnitDefinitionId,
+        salesToStockFactor: family.salesToStockFactor,
+      },
+      {
+        stockUnitId: nextStockUnitId,
+        salesUnitId: nextSalesUnitId,
+        salesToStockFactor: nextSalesFactor,
+      },
+    );
+  if (shouldRescaleDefaultSellingPrices) {
+    await assertDefaultSellingPricesCanBeRescaledInTx(
+      tx,
+      familyId,
+      previousEffectiveSalesFactor,
+      nextEffectiveSalesFactor,
+    );
+  }
+  if (
+    data.lotTrackingMode === "untracked" &&
+    family.lotTrackingMode !== "untracked"
+  ) {
+    await assertCanDisableLotTrackingInTx(tx, familyId);
+  }
   if (
     data.lotTrackingMode === "untracked" &&
     family.lotTrackingMode !== "untracked"
@@ -1134,9 +1396,11 @@ export async function updateItemCardInTx(
       defaultSupplierId:
         family.itemType === "material" ? data.defaultSupplierId : undefined,
       purchaseUnitDefinitionId:
-        family.itemType === "material" ? data.purchaseUnitDefinitionId : undefined,
+        family.itemType === "material" ? nextPurchase.unitId : undefined,
       purchaseToStockFactor:
-        family.itemType === "material" ? data.purchaseToStockFactor : undefined,
+        family.itemType === "material" ? nextPurchase.factor : undefined,
+      salesUnitDefinitionId: nextSalesUnitId,
+      salesToStockFactor: nextSalesFactor,
       lotTrackingMode: data.lotTrackingMode,
       updatedAt: new Date(),
     })
@@ -1153,9 +1417,15 @@ export async function updateItemCardInTx(
       description: data.description,
       unitDefinitionId: data.unitDefinitionId,
       purchaseUnitDefinitionId:
-        family.itemType === "material" ? data.purchaseUnitDefinitionId : undefined,
+        family.itemType === "material" ? nextPurchase.unitId : undefined,
       purchaseToStockFactor:
-        family.itemType === "material" ? data.purchaseToStockFactor : undefined,
+        family.itemType === "material" ? nextPurchase.factor : undefined,
+      salesUnitDefinitionId: nextSalesUnitId,
+      salesToStockFactor: nextSalesFactor,
+      defaultSellingPrice:
+        shouldRescaleDefaultSellingPrices
+          ? sql`ROUND(${items.defaultSellingPrice} * ${nextEffectiveSalesFactor}::numeric / ${previousEffectiveSalesFactor}::numeric, 2)`
+          : undefined,
       updatedAt: new Date(),
     })
     .where(eq(items.familyId, familyId));
@@ -1408,6 +1678,8 @@ export async function createItemCardVariant(
         unitDefinitionId: source.unitDefinitionId,
         purchaseUnitDefinitionId: source.purchaseUnitDefinitionId,
         purchaseToStockFactor: source.purchaseToStockFactor,
+        salesUnitDefinitionId: source.salesUnitDefinitionId,
+        salesToStockFactor: source.salesToStockFactor,
         safetyStock: data.safetyStock ?? source.safetyStock,
         defaultPurchasePrice: data.defaultPurchasePrice ?? source.defaultPurchasePrice,
         currentStockUnitCost: data.currentStockUnitCost ?? source.currentStockUnitCost,
@@ -1531,7 +1803,12 @@ export async function updateItemCardDoc(
             : []),
         ),
       )
-      .returning({ id: itemFamilies.id });
+      .returning({
+        id: itemFamilies.id,
+        unitDefinitionId: itemFamilies.unitDefinitionId,
+        salesUnitDefinitionId: itemFamilies.salesUnitDefinitionId,
+        salesToStockFactor: itemFamilies.salesToStockFactor,
+      });
 
     if (!bumped) {
       const result: ItemCardDocUpdateResult = {
@@ -1546,11 +1823,74 @@ export async function updateItemCardDoc(
       return result;
     }
 
+    const salesBasisMayChange =
+      family != null &&
+      ((family.unitDefinitionId !== undefined &&
+        family.unitDefinitionId !== bumped.unitDefinitionId) ||
+        (family.salesUnitDefinitionId !== undefined &&
+          family.salesUnitDefinitionId !== bumped.salesUnitDefinitionId) ||
+        (family.salesToStockFactor !== undefined &&
+          Number(family.salesToStockFactor ?? "1") !==
+            Number(bumped.salesToStockFactor ?? "1")));
+    const currentSellingPricesByVariantId = salesBasisMayChange
+      ? new Map(
+          (
+            await tx
+              .select({
+                id: items.id,
+                defaultSellingPrice: trimScaleNullable(
+                  items.defaultSellingPrice,
+                ).as("defaultSellingPrice"),
+              })
+              .from(items)
+              .where(eq(items.familyId, familyId))
+              .for("update")
+          ).map((variant) => [variant.id, variant.defaultSellingPrice]),
+        )
+      : new Map<string, string | null>();
+
+    let updatedFamilyCard: ItemCardDto | null = null;
     if (family) {
-      await updateItemCardInTx(tx, orgId, userId, itemId, family);
+      updatedFamilyCard = await updateItemCardInTx(
+        tx,
+        orgId,
+        userId,
+        itemId,
+        family,
+      );
     }
+    const salesPriceFactorChanges =
+      updatedFamilyCard != null &&
+      rescaleDefaultSellingPricesForBasisChange(
+        {
+          stockUnitId: bumped.unitDefinitionId,
+          salesUnitId: bumped.salesUnitDefinitionId,
+          salesToStockFactor: bumped.salesToStockFactor,
+        },
+        {
+          stockUnitId: updatedFamilyCard.family.unitDefinitionId,
+          salesUnitId: updatedFamilyCard.family.salesUnitDefinitionId,
+          salesToStockFactor: updatedFamilyCard.family.salesToStockFactor,
+        },
+      );
     for (const { id: variantId, ...patch } of variants ?? []) {
-      await updateItemCardVariantInTx(tx, orgId, variantId, patch);
+      const currentSellingPrice =
+        currentSellingPricesByVariantId.get(variantId);
+      const submittedSellingPrice = patch.defaultSellingPrice;
+      const submittedPriceIsStalePreConversion =
+        salesPriceFactorChanges &&
+        submittedSellingPrice !== undefined &&
+        (submittedSellingPrice == null
+          ? currentSellingPrice == null
+          : currentSellingPrice != null &&
+            normalizeMoney(Number(submittedSellingPrice)) ===
+              normalizeMoney(Number(currentSellingPrice)));
+      await updateItemCardVariantInTx(tx, orgId, variantId, {
+        ...patch,
+        defaultSellingPrice: submittedPriceIsStalePreConversion
+          ? undefined
+          : submittedSellingPrice,
+      });
     }
     if (variantOrder) {
       await applyVariantOrderInTx(tx, familyId, variantOrder);
@@ -2066,6 +2406,8 @@ export async function generateVariants(
           unitDefinitionId: source.unitDefinitionId,
           purchaseUnitDefinitionId: source.purchaseUnitDefinitionId,
           purchaseToStockFactor: source.purchaseToStockFactor,
+          salesUnitDefinitionId: source.salesUnitDefinitionId,
+          salesToStockFactor: source.salesToStockFactor,
           safetyStock: source.safetyStock,
           defaultPurchasePrice: source.defaultPurchasePrice,
           currentStockUnitCost: source.currentStockUnitCost,

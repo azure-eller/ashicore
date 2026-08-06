@@ -231,6 +231,8 @@ export type SalesOrderItemOption = {
   sku: string | null;
   category: string | null;
   unitName: string;
+  stockingUnitName: string;
+  salesToStockFactor: string;
   defaultSellingPrice: string | null;
   estimatedUnitCost: string | null;
   stock: string;
@@ -294,6 +296,44 @@ export type SalesOrderListLine = {
   unplannedSourceSummary?: string;
   unplannedAllocationStatus?: SalesAllocationLineSummary["status"];
   unitName: string;
+  sellingUnitName?: string;
+  sellingQuantity?: string;
+  sellingShippedQuantity?: string;
+  sellingCancelledQuantity?: string;
+  sellingRemainingQuantity?: string;
+  stockingUnitName?: string;
+  salesToStockFactor?: string;
+  stockQuantity?: string;
+  stockShippedQuantity?: string;
+  stockCancelledQuantity?: string;
+  stockRemainingQuantity?: string;
+  quantities?: SalesLineQuantities;
+};
+
+export type SalesLineQuantityProjection = {
+  unitName: string;
+  orderedQuantity: string;
+  shippedQuantity: string;
+  cancelledQuantity: string;
+  remainingQuantity: string;
+  plannedQuantity: string;
+  unplannedRemainingQuantity: string;
+};
+
+/**
+ * Versioned quantity contract for clients that need to distinguish the
+ * commercial unit from the inventory kernel's canonical stocking unit.
+ *
+ * The legacy flat fields on a sales line remain stocking-basis fields so an
+ * older mobile client can never consume too little inventory after a sales
+ * unit is configured.
+ */
+export type SalesLineQuantities = {
+  contractVersion: 2;
+  selling: SalesLineQuantityProjection & {
+    salesToStockFactor: string;
+  };
+  stocking: SalesLineQuantityProjection;
 };
 
 export type SalesAllocationCoverageKind = "explicit";
@@ -450,6 +490,22 @@ export type SalesOrderDetailLine = {
   cancelledQuantity: string;
   remainingQuantity: string;
   unplannedRemainingQuantity: string;
+  sellingUnitName: string;
+  sellingQuantity: string;
+  sellingShippedQuantity: string;
+  sellingPlannedQuantity: string;
+  sellingCancelledQuantity: string;
+  sellingRemainingQuantity: string;
+  sellingUnplannedRemainingQuantity: string;
+  stockingUnitName: string;
+  salesToStockFactor: string;
+  stockQuantity: string;
+  stockShippedQuantity: string;
+  stockPlannedQuantity: string;
+  stockCancelledQuantity: string;
+  stockRemainingQuantity: string;
+  stockUnplannedRemainingQuantity: string;
+  quantities: SalesLineQuantities;
   listUnitPrice: string | null;
   unitPrice: string;
   discountPercent: string;

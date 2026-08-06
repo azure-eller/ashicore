@@ -7,10 +7,11 @@ import {
   CardField,
 } from "@/components/card-page/card-field";
 import { SellableCardField } from "@/components/card-page/sellable-card-field";
+import { SalesUnitCardField } from "@/components/card-page/sales-unit-card-field";
 import {
-  UnitSelectField,
   type UnitSelectOption,
 } from "@/components/card-page/unit-select-field";
+import { StockUnitCardField } from "@/components/card-page/stock-unit-card-field";
 import { CardSection } from "@/components/card-page/card-page";
 import { CardPageTwoColumn } from "@/components/card-page/card-page-two-column";
 import {
@@ -113,23 +114,26 @@ export function MaterialGeneralInfoTab({
           }
           right={
             <>
-              <UnitSelectField
-                currentUnitId={card.family.unitDefinitionId}
+              <StockUnitCardField
+                card={card}
                 unitOptions={unitOptions}
-                required
-                invalid={!card.family.unitDefinitionId}
                 canCreateUnit={canAdminInventory}
                 onUnitCreated={onUnitCreated}
-                onUnitChange={(unit) => {
-                  const patch = { unitDefinitionId: unit.id };
-                  onFamilyChange(patch, Number.POSITIVE_INFINITY);
-                  onFamilyCommit(patch);
-                }}
+                onFamilyChange={onFamilyChange}
+                onFamilyCommit={onFamilyCommit}
               />
               <SellableCardField
                 variants={card.variants}
                 disabled={isDraft}
                 onChange={onSellableChange}
+              />
+              <SalesUnitCardField
+                card={card}
+                unitOptions={unitOptions}
+                disabled={isDraft}
+                canCreateUnit={canAdminInventory}
+                onUnitCreated={onUnitCreated}
+                onFamilyCommit={onFamilyCommit}
               />
               <CardField label="Tracking">
                 <CardCheckboxField

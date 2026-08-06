@@ -38,6 +38,13 @@ export const itemFamilies = inventorySchema
         precision: 12,
         scale: 4,
       }),
+      salesUnitDefinitionId: uuid("sales_unit_definition_id").references(
+        () => unitDefinitions.id
+      ),
+      salesToStockFactor: numeric("sales_to_stock_factor", {
+        precision: 12,
+        scale: 4,
+      }),
       lotTrackingMode: varchar("lot_tracking_mode", { length: 20 })
         .notNull()
         .default("tracked"),
@@ -56,6 +63,16 @@ export const itemFamilies = inventorySchema
       check(
         "item_families_lot_tracking_mode_check",
         sql`lot_tracking_mode IN ('tracked', 'untracked')`
+      ),
+      check(
+        "item_families_sales_unit_pair_check",
+        sql`(sales_unit_definition_id IS NULL AND sales_to_stock_factor IS NULL)
+          OR (
+            sales_unit_definition_id IS NOT NULL
+            AND sales_to_stock_factor IS NOT NULL
+            AND sales_to_stock_factor > 0
+            AND sales_unit_definition_id <> unit_definition_id
+          )`
       ),
       pgPolicy("item_families_org_isolation", {
         for: "all",
@@ -162,6 +179,13 @@ export const items = inventorySchema
         precision: 12,
         scale: 4,
       }),
+      salesUnitDefinitionId: uuid("sales_unit_definition_id").references(
+        () => unitDefinitions.id
+      ),
+      salesToStockFactor: numeric("sales_to_stock_factor", {
+        precision: 12,
+        scale: 4,
+      }),
 
       // Stock
       safetyStock: numeric("safety_stock", { precision: 12, scale: 4 }).notNull().default("0"),
@@ -259,6 +283,17 @@ export const items = inventorySchema
       check(
         "items_standard_cost_quantity_positive",
         sql`standard_cost_quantity IS NULL OR standard_cost_quantity > 0`
+      ),
+      check(
+        "items_sales_unit_pair_check",
+        sql`(sales_unit_definition_id IS NULL AND sales_to_stock_factor IS NULL)
+          OR (
+            sales_unit_definition_id IS NOT NULL
+            AND sales_to_stock_factor IS NOT NULL
+            AND sales_to_stock_factor > 0
+            AND unit_definition_id IS NOT NULL
+            AND sales_unit_definition_id <> unit_definition_id
+          )`
       ),
       pgPolicy("items_org_isolation", {
         for: "all",

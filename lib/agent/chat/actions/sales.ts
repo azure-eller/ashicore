@@ -36,7 +36,9 @@ const lineInput = z.object({
   quantity: z
     .string()
     .regex(/^\d+(\.\d+)?$/)
-    .describe('Quantity as a positive decimal string, e.g. "10"'),
+    .describe(
+      'Quantity in the item\'s configured sales unit, as a positive decimal string, e.g. "10"',
+    ),
   unitPrice: z
     .string()
     .nullable()
@@ -121,6 +123,7 @@ export const salesOrderCreateAction = defineAgentAction({
       commitPath: "/api/sales-orders",
       method: "POST",
       commitPayload: {
+        quantityContractVersion: 2,
         customerId: customer.id,
         ...(input.orderDate ? { orderDate: input.orderDate } : {}),
         requestedDate: input.requestedDate,

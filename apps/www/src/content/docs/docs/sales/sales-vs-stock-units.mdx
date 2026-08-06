@@ -1,0 +1,73 @@
+---
+title: Sales units vs. stock units
+description: Sell in the units customers order while keeping inventory, recipes, planning, and cost in one stable stock unit.
+sidebar:
+  label: Sales vs. stock units
+  badge:
+    text: Concept
+    variant: tip
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Customers do not always buy in the unit you use inside the operation. Ashicore lets a sellable item use an optional **sales unit** while inventory stays in its **stocking unit**.
+
+## Two units, one item
+
+| Term | What it means | Tote example |
+| --- | --- | --- |
+| Sales unit | The unit a customer orders and sees on the sales order | Pallet |
+| Stocking unit | The unit you produce, hold, pick, and cost | 1 Yard Tote |
+| Conversion rate | Stocking units in one sales unit | 3 |
+
+With that setup, an order for **4 pallets** creates demand for **12 totes**. In the web app, the order, unit price, delivered quantity, BOL, and invoice stay in pallets. On-hand stock, lots, manufacturing, and recipe usage stay in totes.
+
+<Aside type="note" title="Inventory always stays in the stocking unit">
+The sales unit is a commercial layer, not a second inventory balance. Stock screens do not switch to pallets after production. This keeps partial pallets, mixed orders, lot picking, costing, and planning on one unambiguous basis.
+</Aside>
+
+## Set the sales unit
+
+On the product or material card:
+
+1. Turn on **Sellable**.
+2. Under **Sales unit**, select **Use a different sales unit**.
+3. Choose the **Default sales unit of measure**.
+4. Review the **Unit conversion rate**: one sales unit equals this many stocking units.
+
+When the two unit definitions measure the same kind of thing, Ashicore calculates the conversion. For example, a pallet defined as three each and a tote defined as one each produces a factor of 3. When the units cannot be converted dimensionally — such as selling a 50 lb bag while stocking dolomite in cups — enter the measured conversion yourself.
+
+The conversion rate must round to at least `0.0001` and cannot exceed `99,999,999.9999` stocking units per sales unit.
+
+Leave **Use a different sales unit** off when you sell and stock in the same unit.
+
+## Where each unit appears
+
+| Uses sales units | Uses stocking units |
+| --- | --- |
+| Sales-order quantities and prices | On-hand, available, and lot quantities |
+| Delivered and cancelled quantities | Demand and allocation coverage |
+| Customer documents and accounting invoices | Manufacturing, recipes, and planning |
+| Sales totals and per-unit margin | FIFO stock consumption and inventory cost |
+
+The web delivery dialog accepts the remaining sales quantity. Availability warnings and pick-lot guidance remain in stocking units so the operator knows what physical quantity leaves inventory.
+
+<Aside type="note" title="Mobile unit display">
+The current Android app continues to display and submit sales-line quantities in the stocking unit. This compatibility behavior keeps inventory consumption correct, but the mobile order does not yet show the customer-facing sales quantity. Use the web app when you need the sales-unit view.
+</Aside>
+
+## Prices follow the sales unit
+
+**Default selling price** is the price of one effective sales unit. If you change a conversion on an item that already has default prices, Ashicore asks you to confirm and rescales those prices so the underlying value of the stock stays the same.
+
+For example, changing from `$30 per tote` to a pallet of three produces `$90 per pallet`. Existing sales-order lines do not change.
+
+Quantity-break pricing also reads the ordered sales quantity. A break at 10 means 10 pallets when the line's sales unit is Pallet, not 10 totes.
+
+Order quantities are stored to four decimal places. A line must be no more than `99,999,999.9999` sales units, and its converted stocking quantity must stay between `0.0001` and `99,999,999.9999`.
+
+## Orders keep their original conversion
+
+Each sales-order line copies its sales unit, stocking unit, and conversion when the item is added. Changing the item later affects new lines, not the meaning of an existing order.
+
+That snapshot also controls partial delivery. If an old line says one pallet equals three totes, delivering half a pallet consumes 1.5 totes even if the item is later changed to four totes per pallet.

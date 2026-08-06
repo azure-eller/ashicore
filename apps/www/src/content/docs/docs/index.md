@@ -40,6 +40,7 @@ Sales orders, customers, pricing schedules, fulfillment, and margin.
 
 - [Sales overview](/docs/sales/) — the module entry point for orders, customers, and pricing.
 - [Sales orders](/docs/sales/sales-orders) — delivery states, order work, concepts, and reference.
+- [Sales vs. stock units](/docs/sales/sales-vs-stock-units) — customer-facing quantities and prices with stock-based fulfillment.
 - [Customers](/docs/sales/customers) — accounts, contacts, addresses, and CRM activity.
 - [Pricing schedules](/docs/sales/pricing-schedules) — quantity-break discounts and line pricing resolution.
 

@@ -210,6 +210,8 @@ export async function updateItem(id: string, data: Record<string, unknown>) {
     "defaultSupplierId",
     "purchaseUnitDefinitionId",
     "purchaseToStockFactor",
+    "salesUnitDefinitionId",
+    "salesToStockFactor",
   ]);
   if (snapshotAtStart?.itemType === "product") {
     delete familyPayload.defaultSupplierId;
@@ -745,6 +747,7 @@ export async function createSalesOrder(data: {
   const res = await testFetch("/api/sales-orders", {
     method: "POST",
     body: JSON.stringify({
+      quantityContractVersion: 2,
       ...(data.orderNumber !== undefined ? { orderNumber: data.orderNumber } : {}),
       customerId: data.customerId,
       customerProjectId: data.customerProjectId ?? null,
@@ -788,6 +791,7 @@ export async function updateSalesOrder(
   const res = await testFetch(`/api/sales-orders/${id}`, {
     method: "PUT",
     body: JSON.stringify({
+      quantityContractVersion: 2,
       ...(data.orderNumber !== undefined ? { orderNumber: data.orderNumber } : {}),
       customerId: data.customerId,
       status: data.status ?? "open",

@@ -79,6 +79,9 @@ export type ItemCardFamilyDto = {
   defaultSupplierId: string | null;
   purchaseUnitDefinitionId: string | null;
   purchaseToStockFactor: string | null;
+  salesUnitDefinitionId: string | null;
+  salesUnitName: string | null;
+  salesToStockFactor: string | null;
   lotTrackingMode: LotTrackingMode;
   version: number;
   deletedAt: DateOrIso;
@@ -116,6 +119,8 @@ export type CreateItemCardInput = {
   defaultSupplierId?: string | null;
   purchaseUnitDefinitionId?: string | null;
   purchaseToStockFactor?: string | null;
+  salesUnitDefinitionId?: string | null;
+  salesToStockFactor?: string | null;
   sku?: string | null;
   sellable?: boolean;
   defaultSellingPrice?: string | null;

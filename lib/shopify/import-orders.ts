@@ -409,6 +409,7 @@ export async function importPaidShopifyOrders(
     try {
       const salesOrder = await createSalesOrder(
         {
+          quantityContractVersion: 2,
           customerId: prepared.customerId,
           customerProjectId: null,
           status: "open",

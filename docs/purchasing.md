@@ -113,6 +113,10 @@ provider-specific workflow routes for future connectors.
 Purchase orders may store additional costs for `shipping`, `customs`, and
 `other`.
 
+Purchase units are independent from optional sales units. Both convert to the
+same canonical stocking unit, but a purchase-order line snapshots only its
+purchase/stock pair and a sales-order line snapshots only its sales/stock pair.
+
 - `by_value` additional costs are landed cost and are allocated to material
   lines by each line's share of the material subtotal
 - `by_quantity` additional costs are landed cost and are allocated by each

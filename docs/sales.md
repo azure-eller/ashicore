@@ -20,6 +20,7 @@ Sales v1 includes:
 - multi-line sales orders
 - unsaved new sales-order cards that keep local edits and wait for a customer before the first create
 - customer and item snapshots on saved orders
+- optional family-level sales units with snapshotted sales-to-stock conversion
 - `open` and `done` statuses
 - projection-backed demand coverage from non-deleted open orders with non-deleted lines
 - order-level shipping with optional partial stock consumption
@@ -148,8 +149,15 @@ Invalid transitions:
 
 - orders store `customerName`
 - orders may link to a customer project/job with `customerProjectId`
-- lines store `itemName`, `itemSku`, and `unitName`; `itemName` is the
-  canonical variant display name, including every assigned option value
+- lines store `itemName`, `itemSku`, the selling unit, the stocking unit, and
+  the sales-to-stock factor; `itemName` is the canonical variant display name,
+  including every assigned option value
+- selling ordered/shipped/cancelled quantities and their stock-basis
+  counterparts are both snapshotted; later item-unit changes never reinterpret
+  an existing line
+- eligible full-order edits preserve the snapshot for a retained line id and
+  item; removing and adding the item again creates a replacement line from the
+  item's current sales unit and conversion
 - lines store point-in-time pricing snapshots: list unit price, discount percent,
   suggested unit price, and pricing source
 - list/detail pages render snapshots so renamed or deleted records do not break history
@@ -158,9 +166,70 @@ Invalid transitions:
 - items and customers used by active open sales orders cannot be soft-deleted
 - shipped orders rely on snapshots for history and do not block customer or item soft delete
 
+## Sales Units And Quantity Basis
+
+Every item always has a stocking unit. A sellable item may also have one
+family-level sales unit and a positive conversion factor:
+
+- `salesToStockFactor` means "stocking units per 1 sales unit"
+- explicit factors persist as `numeric(12,4)`: after four-decimal rounding they
+  must be at least `0.0001` and no more than `99,999,999.9999`
+- when no different sales unit is configured, the effective sales unit is the
+  stocking unit and the effective factor is `1`
+- the alternate sales unit and factor mirror from `item_families` to every
+  concrete variant, just like the family stocking unit
+- selecting the stocking unit as the sales unit canonicalizes the pair back to
+  null; the database requires the sales-unit id and factor to be both null or
+  both present
+- compatible count/dimensional units derive the factor automatically from
+  their unit definitions; incompatible conversions require an explicit factor
+- changing the stocking unit re-derives compatible purchase and sales factors.
+  An incompatible/manual alternate unit blocks the stock-unit change until the
+  alternate is cleared or a new factor is supplied at the domain boundary.
+
+The quantity split is intentionally asymmetric:
+
+| Commercial / customer basis | Inventory-kernel basis |
+| --- | --- |
+| sales-order quantity, shipped/cancelled/remaining quantity | demand, allocation, availability, and expected coverage |
+| unit price, discounts, line totals, BOL, accounting invoice | lots, FIFO consumption, dispositions, and inventory events |
+| customer-facing sales summaries | manufacturing quantities, recipe usage, planning, and cost |
+
+`sales_order_lines.unitName`, `quantity`, `shippedQuantity`, and
+`cancelledQuantity` are the immutable selling-basis snapshot. The corresponding
+`stockingUnitName`, `salesToStockFactor`, `stockQuantity`,
+`stockShippedQuantity`, and `stockCancelledQuantity` are the canonical
+inventory-basis snapshot. Line creation initializes
+`stockQuantity = round(quantity * salesToStockFactor, 4)`. After any partial
+fulfillment, the completed selling and stock quantities are an authoritative
+pair: four-decimal conversion can make recomputing one completed basis from the
+other differ by a rounding remainder. Database checks therefore cap completed
+quantities independently on each basis. Quantity edits preserve the completed
+pair and convert only the still-open selling remainder.
+
+Default selling prices are prices per effective sales unit. Changing the
+effective factor rescales non-null variant default selling prices in the same
+transaction so the underlying value per stocking quantity stays constant.
+Changing the label while keeping the same factor does not reprice. Existing
+sales-order price and quantity snapshots never change.
+
+Conversions use decimal arithmetic and normalize sales quantities to four
+decimal places. Shipping the exact remaining quantity closes with the stored
+remainder on both bases rather than repeatedly multiplying/dividing, preventing
+rounding drift for factors such as `0.3333`.
+
+New and edited line quantities must fit `numeric(12,4)` on both bases. The
+selling quantity may not exceed `99,999,999.9999`; its converted stock quantity
+must round to at least `0.0001` and may not exceed `99,999,999.9999`. The same
+checks apply to imported sales lines before persistence.
+
 ## Pricing
 
 - sales order lines may use any non-deleted product or material whose `sellable` flag is true
+- base/list/suggested/unit prices and pricing-schedule quantity breaks are in
+  the line's selling basis
+- estimated stock-unit cost is converted to cost per selling unit before margin
+  math; actual unit cost divides FIFO COGS by shipped selling quantity
 - a pricing schedule has a product item scope: all sellable products, a product category, a variant value, or specific selected products
 - a sales-order product line considers every schedule whose customer scope and item scope both match the product — these scopes can overlap (a product may match an `all`, a `category`, a `variant`, and a `selected` schedule at once)
 - sellable material lines use their base selling price; pricing schedules do not apply to material lines
@@ -192,7 +261,8 @@ current margin in one explicit unit context.
   flattens each product's current recipe tree into per-unit leaf quantities
   and operation hours on the same graph the estimated-cost roll-ups use; leaf
   prices resolve exactly like estimated cost, labor rates come from
-  manufacturing resources, current price from `items.defaultSellingPrice`.
+  manufacturing resources, and current price converts the sales-unit
+  `items.defaultSellingPrice` back to the worksheet's stock-unit basis.
 - The pure isomorphic engine (`lib/pricing-scenarios/calculations.ts`)
   implements the target-margin (share) model: overhead and target profit are
   both shares of the selling price, matching how an SG&A ratio is measured
@@ -335,7 +405,8 @@ controls which open orders claim stock first; exact lots are chosen when shippin
 - separate planned ship dates require separate sales orders
 - users set `shipDate` on the sales order; no shipment rows are created for new orders
 - active shipment mutation routes return `410 Gone`
-- `remaining_to_ship = ordered_qty - shipped_qty - cancelled_qty`
+- selling remaining = selling ordered - selling shipped - selling cancelled
+- stock remaining = stock ordered - stock shipped - stock cancelled
 - BOLs are stateless PDF projections over selected sales order line quantities.
   Operators can render a BOL before shipping; the route must not mutate orders,
   shipments, inventory, accounting, or saved BOL records.
@@ -347,7 +418,10 @@ controls which open orders claim stock first; exact lots are chosen when shippin
 - open-order BOL fallback quantities are remaining-to-ship. Done-order fallback
   quantities are shipped quantities when present, otherwise ordered minus
   cancelled quantity for legacy done rows that did not record shipped quantities.
-- shipping consumes live lot-backed stock FIFO for the order quantities
+- web/new-client shipping submits `sellingQuantity`; the route converts with the
+  line snapshot and consumes live lot-backed stock FIFO in stocking units
+- legacy clients may submit `quantity`, which remains explicitly stocking-basis
+  for backward compatibility. A line request must provide exactly one basis.
 - shipping may warn before recording negative stock; retrying with
   `confirmNegativeStock` continues
 - successful order shipping writes `sales_consumption` inventory events against
@@ -368,6 +442,27 @@ controls which open orders claim stock first; exact lots are chosen when shippin
 
 Lot-untracked items consume the hidden `INTERNAL-UNTRACKED` lot. Sales UI and
 allocation contracts should not ask operators to choose or inspect that lot.
+
+### Sales line API compatibility
+
+Sales detail, list, and shipping-queue responses expose a versioned
+`quantities` object with `contractVersion: 2` and complete `selling` and
+`stocking` projections. Each projection contains unit, ordered, shipped,
+cancelled, remaining, planned, and unplanned-remaining quantities; the selling
+projection also carries `salesToStockFactor`.
+
+The legacy flat `unitName`, `quantity`, shipped/cancelled/remaining/planned
+fields deliberately stay stocking-basis. The current Android client consumes
+these flat fields and submits shipping as `quantity`, so it continues to display
+and submit a safe inventory quantity instead of under-consuming stock. Its
+sales-unit migration must add the complete `quantities.contractVersion = 2`
+model, fall back wholly to the flat contract when v2 is absent or unknown, show
+both bases without mixing fields, and submit `sellingQuantity`. Any new client
+must follow the same atomic-version rule.
+
+Sales-order POST and PUT requests that submit selling-basis line quantities set
+`quantityContractVersion: 2`. Unversioned requests remain safe for same-unit
+lines and fail with `409 Conflict` when a line has a sales-to-stock conversion.
 
 ## Shipping Fees and Margin
 
@@ -390,7 +485,7 @@ Only this contributes to sales demand:
 - non-deleted lines
 
 `done` orders do not contribute to sales demand. For partial shipping, demand is
-the remaining open quantity, not the original ordered quantity.
+the remaining open stock quantity, not the original selling or stock quantity.
 
 The kernel model is:
 

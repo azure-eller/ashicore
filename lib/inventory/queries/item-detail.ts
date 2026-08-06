@@ -45,6 +45,10 @@ export async function getItem(id: string) {
         purchaseToStockFactor: trimScaleNullable(
           sql`COALESCE(${itemFamilies.purchaseToStockFactor}, ${items.purchaseToStockFactor})`
         ).as("purchaseToStockFactor"),
+        salesUnitDefinitionId: sql<string | null>`COALESCE(${itemFamilies.salesUnitDefinitionId}, ${items.salesUnitDefinitionId})`,
+        salesToStockFactor: trimScaleNullable(
+          sql`COALESCE(${itemFamilies.salesToStockFactor}, ${items.salesToStockFactor})`
+        ).as("salesToStockFactor"),
         defaultPurchasePrice: trimScaleNullable(items.defaultPurchasePrice).as(
           "defaultPurchasePrice"
         ),
@@ -103,6 +107,18 @@ export async function getItem(id: string) {
           })
           .from(unitDefinitions)
           .where(eq(unitDefinitions.id, row.purchaseUnitDefinitionId))
+          .then((rows) => rows[0] ?? null)
+      : null;
+    const salesUnit = row.salesUnitDefinitionId
+      ? await tx
+          .select({
+            id: unitDefinitions.id,
+            name: unitDefinitions.name,
+            size: trimScale(unitDefinitions.size).as("size"),
+            uom: unitDefinitions.uom,
+          })
+          .from(unitDefinitions)
+          .where(eq(unitDefinitions.id, row.salesUnitDefinitionId))
           .then((rows) => rows[0] ?? null)
       : null;
     const currentBomRevision = await getCurrentBomRevisionInTx(tx, id);
@@ -188,6 +204,9 @@ export async function getItem(id: string) {
       purchaseUnitName: purchaseUnit?.name ?? null,
       purchaseUnitSize: purchaseUnit?.size ?? null,
       purchaseUnitUom: purchaseUnit?.uom ?? null,
+      salesUnitName: salesUnit?.name ?? null,
+      salesUnitSize: salesUnit?.size ?? null,
+      salesUnitUom: salesUnit?.uom ?? null,
       currentBomRevision,
       supplierSources,
     };

@@ -75,6 +75,8 @@ export type ExistingItem = {
   unitDefinitionId: string | null;
   purchaseUnitDefinitionId: string | null;
   purchaseToStockFactor: string | null;
+  salesUnitDefinitionId?: string | null;
+  salesToStockFactor?: string | null;
   category: string | null;
   description: string | null;
   defaultPurchasePrice: string | null;
@@ -163,6 +165,9 @@ export type PreparedSalesImportLine = {
   itemSku: string | null;
   unitName: string;
   quantity: string;
+  stockingUnitName: string;
+  salesToStockFactor: string;
+  stockQuantity: string;
   unitPrice: string;
   lineTotal: string;
   allocated: boolean;

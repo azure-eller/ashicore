@@ -16,6 +16,7 @@ import { SalesError } from "./errors";
 import { type SalesItemValidationRow, getValidatedCustomerInTx, getValidatedSalesItemsInTx } from "./validation";
 import { ensureCustomerCategoryExistsInTx } from "./customer-categories";
 import { getSalesOrderItemOptions } from "./orders-read";
+import { stockUnitPriceToSellingUnitPrice } from "../quantity-basis";
 
 type PricingScheduleRecord = {
   id: string;
@@ -1047,9 +1048,18 @@ export async function resolveSalesLinePricing(
       getEstimatedUnitCostsByItemIdInTx(tx, [values.itemId]),
     ]);
 
+    const estimatedStockUnitCost =
+      estimatedUnitCosts.get(values.itemId) ?? null;
+
     return {
       ...pricing,
-      estimatedUnitCost: estimatedUnitCosts.get(values.itemId) ?? null,
+      estimatedUnitCost:
+        estimatedStockUnitCost == null
+          ? null
+          : stockUnitPriceToSellingUnitPrice(
+              estimatedStockUnitCost,
+              item.salesToStockFactor
+            ),
     };
   });
 }

@@ -47,8 +47,9 @@ used as a presentation fallback for a variant.
 - `DELETE /api/item-cards/:itemId`
 
 Card reads return `focusedVariantId`, `family`, `options`, and `variants`.
-Family fields include material-level `defaultSupplierId`, purchase unit, and
-purchase-to-stock conversion. Variant rows include `sellable`,
+Family fields include material-level `defaultSupplierId`, purchase unit and
+purchase-to-stock conversion, plus the optional sales unit and sales-to-stock
+conversion shared by products and materials. Variant rows include `sellable`,
 SKU/barcode/default fields, option display, duplicate-combination warnings, and
 deleted variants display with `(deleted)`. Products and materials both use the
 variant-level `sellable` flag to control whether the item can appear on sales
@@ -59,6 +60,30 @@ exposing the hidden lot used by untracked stock.
 `PATCH /api/item-cards/:itemId` updates family/card metadata only. Variant-owned
 fields such as SKU, prices, barcodes, lead time, and MOQ stay on
 `PATCH /api/items/:variantId`.
+
+## Alternate Unit Rules
+
+The stocking unit remains the canonical inventory, manufacturing, planning,
+lot, and cost basis. Purchase and sales units are independent optional
+family-level presentation/transaction bases:
+
+- each alternate unit id and factor is an all-or-nothing pair
+- each factor is positive and means stocking units per one alternate unit
+- sales-to-stock factors persist at four decimal places and must round into the
+  inclusive `0.0001` to `99,999,999.9999` range
+- choosing the stocking unit as an alternate canonicalizes that alternate pair
+  to null
+- compatible unit definitions derive conversions automatically; incompatible
+  pairs require an explicit factor
+- changing the stocking unit re-derives both compatible alternate factors in
+  the domain layer, not only in the browser. An incompatible change without a
+  replacement factor fails rather than preserving a stale denominator.
+
+Sales-unit controls are shown when at least one active variant is sellable.
+`defaultSellingPrice` is per effective sales unit. A factor change rescales
+non-null default selling prices for all family variants in the same transaction
+to preserve value per stocking quantity; historical sales-order snapshots do
+not change.
 
 ## Variants
 

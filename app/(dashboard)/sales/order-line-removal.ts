@@ -21,8 +21,9 @@ export function buildSalesOrderLineRemovalPayload(
     lines: order.lines
       .filter((line) => line.id !== lineId)
       .map((line) => ({
+        id: line.id,
         itemId: line.itemId,
-        quantity: line.quantity,
+        quantity: line.sellingQuantity,
         unitPrice: line.unitPrice,
       })),
     confirmOversell: true,

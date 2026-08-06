@@ -24,6 +24,10 @@ import { getEstimatedUnitCostsByItemIdInTx } from "@/lib/inventory/estimated-cos
 import { parseMoneyValue, getOrderLinesInTx, normalizeShipQuantity } from "./shared";
 import { stockSubquery, demandQtySubquery, availableQtySubquery, expectedQtySubquery, getSalesOptionLabelsByItemIdInTx, getSalesVariantValuesByItemIdInTx, formatSalesItemDisplayName } from "./validation";
 import { SalesError } from "./errors";
+import {
+  buildSalesLineQuantities,
+  stockUnitPriceToSellingUnitPrice,
+} from "../quantity-basis";
 
 /**
  * `availableQty` is derived here in the data layer so components never do
@@ -780,7 +784,16 @@ export async function getSalesOrderItemOptions(): Promise<SalesOrderItemOption[]
         sellable: items.sellable,
         sku: items.sku,
         category: sql<string | null>`COALESCE(${itemFamilies.category}, ${items.category})`,
-        unitName: unitDefinitions.name,
+        unitName: sql<string>`COALESCE((
+          SELECT sales_unit.name
+          FROM inventory.unit_definitions sales_unit
+          WHERE sales_unit.id = ${items.salesUnitDefinitionId}
+          LIMIT 1
+        ), ${unitDefinitions.name})`,
+        stockingUnitName: unitDefinitions.name,
+        salesToStockFactor: trimScale(
+          sql`COALESCE(${items.salesToStockFactor}, 1)`
+        ).as("salesToStockFactor"),
         defaultSellingPrice: trimScaleNullable(items.defaultSellingPrice).as(
           "defaultSellingPrice"
         ),
@@ -825,6 +838,8 @@ export async function getSalesOrderItemOptions(): Promise<SalesOrderItemOption[]
           sku: row.sku,
           category: row.category,
           unitName: row.unitName,
+          stockingUnitName: row.stockingUnitName,
+          salesToStockFactor: row.salesToStockFactor,
           variantValues: variantValuesByItemId.get(row.id) ?? [],
           defaultSellingPrice: row.defaultSellingPrice,
           estimatedUnitCost: null,
@@ -925,8 +940,27 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
             salesOrderId: salesOrderLines.salesOrderId,
             salesOrderLineId: salesOrderLines.id,
             itemId: salesOrderLines.itemId,
-            quantity: trimScale(salesOrderLines.quantity).as("quantity"),
-            shippedQuantity: trimScale(salesOrderLines.shippedQuantity).as("shippedQuantity"),
+            sellingUnitName: salesOrderLines.unitName,
+            sellingQuantity: trimScale(salesOrderLines.quantity).as(
+              "sellingQuantity"
+            ),
+            sellingShippedQuantity: trimScale(
+              salesOrderLines.shippedQuantity
+            ).as("sellingShippedQuantity"),
+            sellingCancelledQuantity: trimScale(
+              salesOrderLines.cancelledQuantity
+            ).as("sellingCancelledQuantity"),
+            stockingUnitName: salesOrderLines.stockingUnitName,
+            salesToStockFactor: trimScale(
+              salesOrderLines.salesToStockFactor
+            ).as("salesToStockFactor"),
+            quantity: trimScale(salesOrderLines.stockQuantity).as("quantity"),
+            shippedQuantity: trimScale(
+              salesOrderLines.stockShippedQuantity
+            ).as("shippedQuantity"),
+            cancelledQuantity: trimScale(
+              salesOrderLines.stockCancelledQuantity
+            ).as("cancelledQuantity"),
             sortOrder: salesOrderLines.sortOrder,
           })
           .from(salesOrderLines)
@@ -946,6 +980,15 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
         const orderedQuantityByLineId = new Map(
           availabilityLineRows.map((line) => [line.salesOrderLineId, line.quantity])
         );
+        const quantitySnapshotsByLineId = new Map(
+          availabilityLineRows.map((line) => [line.salesOrderLineId, line])
+        );
+        const cancelledByLine = new Map(
+          availabilityLineRows.map((line) => [
+            line.salesOrderLineId,
+            normalizeShipQuantity(Number(line.cancelledQuantity)),
+          ])
+        );
         availabilityLineRows.forEach((line) => {
           shippedByLine.set(line.salesOrderLineId, normalizeShipQuantity(Number(line.shippedQuantity)));
         });
@@ -955,7 +998,9 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
 
           const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
           const remainingQty = normalizeShipQuantity(
-            Number(line.quantity) - shippedQty
+            Number(line.quantity) -
+              shippedQty -
+              Number(line.cancelledQuantity)
           );
           if (!Number.isFinite(remainingQty) || remainingQty <= 0) {
             return [];
@@ -1010,7 +1055,9 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
               (acc, line) => {
                 const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
                 const remainingQty = normalizeShipQuantity(
-                  Number(line.quantity) - shippedQty
+                  Number(line.quantity) -
+                    shippedQty -
+                    (cancelledByLine.get(line.salesOrderLineId) ?? 0)
                 );
                 const demandQueueCoverage = demandQueueCoverageBySalesLineId.get(
                   line.salesOrderLineId
@@ -1102,7 +1149,9 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
           const stockBlockers = salesLines.flatMap((line) => {
             const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
             const remainingQty = normalizeShipQuantity(
-              Number(line.quantity) - shippedQty
+              Number(line.quantity) -
+                shippedQty -
+                (cancelledByLine.get(line.salesOrderLineId) ?? 0)
             );
             const demandQueueCoverage = demandQueueCoverageBySalesLineId.get(
               line.salesOrderLineId
@@ -1136,14 +1185,29 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
               contactEmail: null,
             }),
             status: order.status as SalesOrderListRow["status"],
-            itemSummary: summarizeItems(salesLines),
+            itemSummary: summarizeItems(
+              salesLines.map((line) => {
+                const snapshot = quantitySnapshotsByLineId.get(
+                  line.salesOrderLineId
+                );
+                return {
+                  ...line,
+                  quantity: snapshot?.sellingQuantity ?? line.quantity,
+                  unitName: snapshot?.sellingUnitName ?? line.unitName,
+                };
+              })
+            ),
             lines: salesLines.map((line) => {
               const shippedQty = shippedByLine.get(line.salesOrderLineId) ?? 0;
+              const cancelledQty =
+                cancelledByLine.get(line.salesOrderLineId) ?? 0;
               const remainingQty = normalizeShipQuantity(
-                Number(line.quantity) - shippedQty
+                Number(line.quantity) - shippedQty - cancelledQty
               );
+              const plannedQty =
+                plannedByLine.get(line.salesOrderLineId) ?? 0;
               const unplannedQty = normalizeShipQuantity(
-                remainingQty - (plannedByLine.get(line.salesOrderLineId) ?? 0)
+                remainingQty - plannedQty
               );
               const demandQueueCoverage = demandQueueCoverageBySalesLineId.get(
                 line.salesOrderLineId
@@ -1154,6 +1218,25 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                 remainingQty,
                 coverage: demandQueueCoverage,
               });
+              const snapshot = quantitySnapshotsByLineId.get(
+                line.salesOrderLineId
+              );
+              const quantities = snapshot
+                ? buildSalesLineQuantities({
+                    sellingUnitName: snapshot.sellingUnitName,
+                    stockingUnitName: snapshot.stockingUnitName,
+                    salesToStockFactor: snapshot.salesToStockFactor,
+                    sellingOrderedQuantity: snapshot.sellingQuantity,
+                    sellingShippedQuantity:
+                      snapshot.sellingShippedQuantity,
+                    sellingCancelledQuantity:
+                      snapshot.sellingCancelledQuantity,
+                    stockOrderedQuantity: snapshot.quantity,
+                    stockShippedQuantity: snapshot.shippedQuantity,
+                    stockCancelledQuantity: snapshot.cancelledQuantity,
+                    stockPlannedQuantity: plannedQty,
+                  })
+                : undefined;
 
               return {
                 id: line.salesOrderLineId,
@@ -1184,6 +1267,25 @@ export async function getSalesOrders(): Promise<SalesOrderListRow[]> {
                 unplannedSourceSummary: allocation.sourceSummary,
                 unplannedAllocationStatus: allocation.status,
                 unitName: line.unitName,
+                sellingUnitName: quantities?.selling.unitName,
+                sellingQuantity: quantities?.selling.orderedQuantity,
+                sellingShippedQuantity:
+                  quantities?.selling.shippedQuantity,
+                sellingCancelledQuantity:
+                  quantities?.selling.cancelledQuantity,
+                sellingRemainingQuantity:
+                  quantities?.selling.remainingQuantity,
+                stockingUnitName: quantities?.stocking.unitName,
+                salesToStockFactor:
+                  quantities?.selling.salesToStockFactor,
+                stockQuantity: quantities?.stocking.orderedQuantity,
+                stockShippedQuantity:
+                  quantities?.stocking.shippedQuantity,
+                stockCancelledQuantity:
+                  quantities?.stocking.cancelledQuantity,
+                stockRemainingQuantity:
+                  quantities?.stocking.remainingQuantity,
+                quantities,
               };
             }),
             fulfillmentSummary: (() => {
@@ -1266,7 +1368,7 @@ export async function getOpenSalesProductItemIds(): Promise<string[]> {
           eq(salesOrders.status, "open"),
           isNull(salesOrders.deletedAt),
           eq(items.itemType, "product"),
-          sql`${salesOrderLines.quantity} > ${salesOrderLines.cancelledQuantity}`
+          sql`${salesOrderLines.stockQuantity} > ${salesOrderLines.stockCancelledQuantity}`
         )
       );
 
@@ -1414,13 +1516,26 @@ export async function getSalesOrderInTx(
         itemId: salesOrderLines.itemId,
         itemName: salesOrderLines.itemName,
         itemSku: salesOrderLines.itemSku,
-        unitName: salesOrderLines.unitName,
-        quantity: trimScale(salesOrderLines.quantity).as("quantity"),
-        shippedQuantity: trimScale(salesOrderLines.shippedQuantity).as(
-          "shippedQuantity"
+        sellingUnitName: salesOrderLines.unitName,
+        sellingQuantity: trimScale(salesOrderLines.quantity).as("sellingQuantity"),
+        sellingShippedQuantity: trimScale(salesOrderLines.shippedQuantity).as(
+          "sellingShippedQuantity"
         ),
-        cancelledQuantity: trimScale(salesOrderLines.cancelledQuantity).as(
-          "cancelledQuantity"
+        sellingCancelledQuantity: trimScale(salesOrderLines.cancelledQuantity).as(
+          "sellingCancelledQuantity"
+        ),
+        stockingUnitName: salesOrderLines.stockingUnitName,
+        salesToStockFactor: trimScale(salesOrderLines.salesToStockFactor).as(
+          "salesToStockFactor"
+        ),
+        stockQuantity: trimScale(salesOrderLines.stockQuantity).as("stockQuantity"),
+        stockShippedQuantity: trimScale(salesOrderLines.stockShippedQuantity).as(
+          "stockShippedQuantity"
+        ),
+        stockCancelledQuantity: trimScale(
+          salesOrderLines.stockCancelledQuantity
+        ).as(
+          "stockCancelledQuantity"
         ),
         listUnitPrice: trimScaleNullable(salesOrderLines.listUnitPrice).as(
           "listUnitPrice"
@@ -1483,9 +1598,16 @@ export async function getSalesOrderInTx(
         masterName: familyName ?? rest.itemName,
         attrs: optionLabels,
       };
-      const estimatedUnitCost = estimatedUnitCosts.get(rest.itemId) ?? null;
+      const estimatedStockUnitCost = estimatedUnitCosts.get(rest.itemId) ?? null;
+      const estimatedUnitCost =
+        estimatedStockUnitCost == null
+          ? null
+          : stockUnitPriceToSellingUnitPrice(
+              estimatedStockUnitCost,
+              rest.salesToStockFactor,
+            );
       const estimatedMargin = calculateUnitMarginMetrics({
-        quantity: rest.quantity,
+        quantity: rest.sellingQuantity,
         unitPrice: rest.unitPrice,
         unitCost: estimatedUnitCost,
       });
@@ -1496,7 +1618,7 @@ export async function getSalesOrderInTx(
             cogs: actualCost.cogs,
           })
         : null;
-      const actualQuantity = actualCost ? Number.parseFloat(actualCost.quantity) : null;
+      const actualQuantity = Number.parseFloat(rest.sellingShippedQuantity);
       const actualCogs = actualCost ? Number.parseFloat(actualCost.cogs) : null;
       const actualUnitCost =
         actualQuantity != null &&
@@ -1521,11 +1643,7 @@ export async function getSalesOrderInTx(
         actualMarginPercent: actualMargin?.marginPercent ?? null,
       };
     });
-    const shippedByLine = new Map<string, number>();
     const plannedByLine = new Map<string, number>();
-    for (const line of lines) {
-      shippedByLine.set(line.id, normalizeShipQuantity(Number(line.shippedQuantity ?? 0)));
-    }
     const orderFreightRecovery = parseMoneyValue(order.shippingFeeAmount);
     const orderProductCogs = order.status === "done"
       ? lines.some((line) => line.actualCogs == null)
@@ -1550,25 +1668,48 @@ export async function getSalesOrderInTx(
     });
 
     const linesWithFulfillment = lines.map((line) => {
-      const shippedQuantity = shippedByLine.get(line.id) ?? 0;
-      const plannedQuantity = plannedByLine.get(line.id) ?? 0;
-      const cancelledQuantity = parseFloat(line.cancelledQuantity);
-      const orderedQuantity = parseFloat(line.quantity);
-      const remainingQuantity = normalizeShipQuantity(
-        orderedQuantity - shippedQuantity - cancelledQuantity
-      );
-      const unplannedRemainingQuantity = normalizeShipQuantity(
-        remainingQuantity - plannedQuantity
-      );
+      const stockPlannedQuantity = plannedByLine.get(line.id) ?? 0;
+      const quantities = buildSalesLineQuantities({
+        sellingUnitName: line.sellingUnitName,
+        stockingUnitName: line.stockingUnitName,
+        salesToStockFactor: line.salesToStockFactor,
+        sellingOrderedQuantity: line.sellingQuantity,
+        sellingShippedQuantity: line.sellingShippedQuantity,
+        sellingCancelledQuantity: line.sellingCancelledQuantity,
+        stockOrderedQuantity: line.stockQuantity,
+        stockShippedQuantity: line.stockShippedQuantity,
+        stockCancelledQuantity: line.stockCancelledQuantity,
+        stockPlannedQuantity,
+      });
+      const { selling: sellingProjection, stocking: stockProjection } =
+        quantities;
 
       return {
         ...line,
+        // Legacy flat fields intentionally remain stocking-basis.
+        unitName: stockProjection.unitName,
+        quantity: stockProjection.orderedQuantity,
+        shippedQuantity: stockProjection.shippedQuantity,
+        plannedQuantity: stockProjection.plannedQuantity,
+        cancelledQuantity: stockProjection.cancelledQuantity,
+        remainingQuantity: stockProjection.remainingQuantity,
+        unplannedRemainingQuantity: stockProjection.unplannedRemainingQuantity,
+        sellingQuantity: sellingProjection.orderedQuantity,
+        sellingShippedQuantity: sellingProjection.shippedQuantity,
+        sellingPlannedQuantity: sellingProjection.plannedQuantity,
+        sellingCancelledQuantity: sellingProjection.cancelledQuantity,
+        sellingRemainingQuantity: sellingProjection.remainingQuantity,
+        sellingUnplannedRemainingQuantity:
+          sellingProjection.unplannedRemainingQuantity,
+        stockQuantity: stockProjection.orderedQuantity,
+        stockShippedQuantity: stockProjection.shippedQuantity,
+        stockPlannedQuantity: stockProjection.plannedQuantity,
+        stockCancelledQuantity: stockProjection.cancelledQuantity,
+        stockRemainingQuantity: stockProjection.remainingQuantity,
+        stockUnplannedRemainingQuantity:
+          stockProjection.unplannedRemainingQuantity,
+        quantities,
         reservationAllocatedQty: line.allocatedQty,
-        shippedQuantity: normalizeNumeric(shippedQuantity),
-        plannedQuantity: normalizeNumeric(plannedQuantity),
-        cancelledQuantity: normalizeNumeric(cancelledQuantity),
-        remainingQuantity: normalizeNumeric(remainingQuantity),
-        unplannedRemainingQuantity: normalizeNumeric(unplannedRemainingQuantity),
       };
     });
     const demandQueueCoverageByDemandKey =

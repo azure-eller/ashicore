@@ -175,10 +175,10 @@ function ShipOrderDialog({
     .filter((row) => row.selected)
     .map((row) => ({
       salesOrderLineId: row.salesOrderLineId,
-      quantity: normalizeDialogQuantity(row.quantity),
+      sellingQuantity: normalizeDialogQuantity(row.quantity),
     }))
     .filter((line) => {
-      const quantity = Number(line.quantity);
+      const quantity = Number(line.sellingQuantity);
       return Number.isFinite(quantity) && quantity > 0;
     });
   const invalidRows = rows.filter((row) => {
@@ -273,8 +273,11 @@ function ShipOrderDialog({
           )}
         </DialogHeader>
         {mode === "partial" ? (
-          <div className="space-y-(--space-4)">
-            <FramedTable containerClassName="border border-[var(--color-line)]">
+          <div className="min-w-0 space-y-(--space-4)">
+            <FramedTable
+              className="table-fixed"
+              containerClassName="min-w-0 border border-[var(--color-line)]"
+            >
               <FramedTableHead>
                 <FramedTableRow>
                   <FramedTableHeaderCell className="w-10">
@@ -294,7 +297,7 @@ function ShipOrderDialog({
                   <FramedTableHeaderCell>Item</FramedTableHeaderCell>
                   <FramedTableHeaderCell>Location</FramedTableHeaderCell>
                   <FramedTableHeaderCell className="w-44 text-right">Quantity to deliver</FramedTableHeaderCell>
-                  <FramedTableHeaderCell className="w-44 text-right">Quantity left available</FramedTableHeaderCell>
+                  <FramedTableHeaderCell className="w-44 text-right">Left after delivery</FramedTableHeaderCell>
                 </FramedTableRow>
               </FramedTableHead>
               <FramedTableBody>
@@ -325,7 +328,10 @@ function ShipOrderDialog({
                           aria-label={`Select ${row.itemName}`}
                         />
                       </FramedTableCell>
-                      <FramedTableCell className={row.selected ? "" : "text-[var(--color-ink-faint)]"}>
+                      <FramedTableCell
+                        className={row.selected ? "truncate" : "truncate text-[var(--color-ink-faint)]"}
+                        title={row.itemName}
+                      >
                         {row.itemName}
                       </FramedTableCell>
                       <FramedTableCell className="text-[var(--color-ink-faint)]">
@@ -333,7 +339,7 @@ function ShipOrderDialog({
                       </FramedTableCell>
                       <FramedTableCell className="text-right">
                         {row.selected ? (
-                          <div className="flex items-center justify-end gap-(--space-2)">
+                          <div className="flex flex-col items-end gap-(--space-1)">
                             <Input
                               className="h-(--height-input-sm) w-28 text-right font-mono tabular-nums"
                               inputMode="decimal"
@@ -350,15 +356,27 @@ function ShipOrderDialog({
                                 );
                               }}
                             />
-                            <span className="text-[var(--color-ink-faint)]">{row.unitName}</span>
+                            <span
+                              className="max-w-full truncate text-[var(--color-ink-faint)]"
+                              title={row.unitName}
+                            >
+                              {row.unitName}
+                            </span>
                           </div>
                         ) : (
                           <span className="text-[var(--color-ink-faint)]">Qty to deliver</span>
                         )}
                       </FramedTableCell>
-                      <FramedTableCell className="text-right font-mono tabular-nums">
-                        {formatQuantity(String(left))}{" "}
-                        <span className="font-[var(--font-body)] text-[var(--color-ink-faint)]">{row.unitName}</span>
+                      <FramedTableCell className="text-right">
+                        <div className="flex flex-col items-end font-mono tabular-nums">
+                          <span>{formatQuantity(String(left))}</span>
+                          <span
+                            className="max-w-full truncate font-[var(--font-body)] text-[var(--color-ink-faint)]"
+                            title={row.unitName}
+                          >
+                            {row.unitName}
+                          </span>
+                        </div>
                       </FramedTableCell>
                     </FramedTableRow>
                   );
@@ -417,8 +435,8 @@ function toShippableRow(
     return {
       salesOrderLineId: line.id,
       itemName: line.itemName,
-      unitName: line.unitName,
-      remainingQuantity: line.remainingQuantity,
+      unitName: line.sellingUnitName,
+      remainingQuantity: line.sellingRemainingQuantity,
     };
   }
 
@@ -431,8 +449,10 @@ function toShippableRow(
       line.attrs.length > 0
         ? `${line.masterName} / ${line.attrs.join(" / ")}`
         : line.masterName,
-    unitName: line.unitName,
+    unitName: line.sellingUnitName ?? line.unitName,
     remainingQuantity:
+      line.sellingRemainingQuantity ??
+      line.quantities?.selling.remainingQuantity ??
       line.remainingQty ??
       String(Math.max(0, Number(line.quantity) - Number(line.shippedQuantity ?? "0"))),
   };

@@ -16,7 +16,7 @@ import Grid from '../../../../widgets/Grid.astro';
 Create the item everything else references. Pick whether it is a material or a product, choose the unit you stock it in, then fill in buying, costing, pricing, and traceability details.
 
 <p class="po-meta">
-  <span class="po-chip">4 steps / ~4 min</span>
+  <span class="po-chip">5 steps / ~5 min</span>
   <span class="po-chip">type is permanent</span>
   <span class="po-chip">autosaves</span>
 </p>
@@ -55,7 +55,22 @@ The app treats **item type** as a creation-time decision. The item-card UI can c
    Leave purchase unit blank when you buy and stock in the same unit. If you set one, it must differ from the stocking unit and needs a positive conversion factor. See [Purchase vs. stock units](/docs/purchasing/purchase-vs-stock-units).
    </Aside>
 
-3. **Set stock, cost, price, and traceability.** Add safety stock, default prices, current stock unit cost, barcodes, supplier item code, lead time, and minimum order quantity as needed. Set **Sellable** if the item can appear on sales orders. Use **Lot tracking** on the item family to choose individual lots or the untracked shared bucket. Switching the mode needs inventory-admin access and is blocked while open orders, stocktakes, or blocked stock reference the item.
+3. **Set how you sell it.** Turn on **Sellable** if the item can appear on sales orders. If customers order it differently than you stock it, select **Use a different sales unit**, choose the **Default sales unit of measure**, and review the **Unit conversion rate**.
+
+   <Frame title="<b>General information</b>">
+     <div class="mk-pad">
+       <div class="mk-rows mk-rows--2">
+         <Field label="Sellable">Yes</Field>
+         <Field label="Sales unit">Use a different sales unit</Field>
+         <Field label="Default sales unit of measure">Pallet</Field>
+         <Field label="Unit conversion rate">1 sales unit = 3 1 Yard Totes</Field>
+       </div>
+     </div>
+   </Frame>
+
+   Ashicore calculates compatible conversions. Enter the factor yourself for a real packaging conversion it cannot infer, such as the number of cups in a 50 lb bag. Sales orders and prices use the sales unit; inventory and recipes stay in the stocking unit. See [Sales vs. stock units](/docs/sales/sales-vs-stock-units).
+
+4. **Set stock, cost, price, and traceability.** Add safety stock, default prices, current stock unit cost, barcodes, supplier item code, lead time, and minimum order quantity as needed. **Default selling price** is per sales unit when one is configured. Use **Lot tracking** on the item family to choose individual lots or the untracked shared bucket. Switching the mode needs inventory-admin access and is blocked while open orders, stocktakes, or blocked stock reference the item.
 
    <Frame title="<b>Cost &amp; stock</b>">
      <div class="mk-pad">
@@ -71,7 +86,7 @@ The app treats **item type** as a creation-time decision. The item-card UI can c
    The create form accepts an initial **stock** quantity. Later stock edits are treated as adjustments, not silent quantity rewrites. Use [Adjust stock](/docs/inventory/adjust-stock) when you are correcting physical inventory.
    </Aside>
 
-4. **For products, add manufacturing details and a recipe.** Products can carry a manufacturing mode, batch yield fields, operation costs, and BOM rows. Batch mode requires an expected batch yield. A valid recipe records components, lot-age constraints, and operation costs as BOM revision history. The Recipe tab shows each ingredient's current estimated cost contribution per finished unit; manufacturing orders can swap a BOM component to another active variant in the same item family.
+5. **For products, add manufacturing details and a recipe.** Products can carry a manufacturing mode, batch yield fields, operation costs, and BOM rows. Batch mode requires an expected batch yield. A valid recipe records components, lot-age constraints, and operation costs as BOM revision history. The Recipe tab shows each ingredient's current estimated cost contribution per finished unit; manufacturing orders can swap a BOM component to another active variant in the same item family.
 
    <Frame title="<b>Premium Potting Mix</b> / Recipe">
      <Grid>

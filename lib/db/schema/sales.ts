@@ -604,6 +604,15 @@ export const salesOrderLines = salesSchema
       itemSku: varchar("item_sku", { length: 50 }),
       unitName: varchar("unit_name", { length: 50 }).notNull(),
       quantity: numeric("quantity", { precision: 12, scale: 4 }).notNull(),
+      stockingUnitName: varchar("stocking_unit_name", { length: 50 }).notNull(),
+      salesToStockFactor: numeric("sales_to_stock_factor", {
+        precision: 12,
+        scale: 4,
+      }).notNull(),
+      stockQuantity: numeric("stock_quantity", {
+        precision: 12,
+        scale: 4,
+      }).notNull(),
       cancelledQuantity: numeric("cancelled_quantity", {
         precision: 12,
         scale: 4,
@@ -611,6 +620,18 @@ export const salesOrderLines = salesSchema
         .notNull()
         .default("0"),
       shippedQuantity: numeric("shipped_quantity", {
+        precision: 12,
+        scale: 4,
+      })
+        .notNull()
+        .default("0"),
+      stockCancelledQuantity: numeric("stock_cancelled_quantity", {
+        precision: 12,
+        scale: 4,
+      })
+        .notNull()
+        .default("0"),
+      stockShippedQuantity: numeric("stock_shipped_quantity", {
         precision: 12,
         scale: 4,
       })
@@ -667,6 +688,18 @@ export const salesOrderLines = salesSchema
       check(
         "sales_order_lines_cancelled_quantity_check",
         sql`cancelled_quantity >= 0 AND shipped_quantity >= 0 AND cancelled_quantity + shipped_quantity <= quantity`
+      ),
+      // Fulfillment snapshots commercial and stock quantities as an exact
+      // pair. After a partial stock-basis shipment, four-decimal rounding can
+      // make stock_quantity differ from quantity × factor, so each basis owns
+      // its completion cap independently.
+      check(
+        "sales_order_lines_stock_quantity_check",
+        sql`sales_to_stock_factor > 0
+          AND stock_quantity > 0
+          AND stock_cancelled_quantity >= 0
+          AND stock_shipped_quantity >= 0
+          AND stock_cancelled_quantity + stock_shipped_quantity <= stock_quantity`
       ),
       pgPolicy("sales_order_lines_org_isolation", {
         for: "all",

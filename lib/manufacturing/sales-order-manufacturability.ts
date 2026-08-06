@@ -174,11 +174,11 @@ export async function getSalesOrderManufacturingSummariesInTx(
       itemId: salesOrderLines.itemId,
       itemName: salesOrderLines.itemName,
       itemSku: salesOrderLines.itemSku,
-      quantity: trimScale(salesOrderLines.quantity).as("quantity"),
-      cancelledQuantity: trimScale(salesOrderLines.cancelledQuantity).as(
+      quantity: trimScale(salesOrderLines.stockQuantity).as("quantity"),
+      cancelledQuantity: trimScale(salesOrderLines.stockCancelledQuantity).as(
         "cancelledQuantity"
       ),
-      unitName: salesOrderLines.unitName,
+      unitName: salesOrderLines.stockingUnitName,
       orderStatus: salesOrders.status,
       sortOrder: salesOrderLines.sortOrder,
       createdAt: salesOrderLines.createdAt,
@@ -258,7 +258,7 @@ export async function getSalesOrderManufacturingSummariesInTx(
     ? await tx
         .select({
           salesOrderLineId: salesOrderLines.id,
-          shippedQuantity: trimScale(salesOrderLines.shippedQuantity).as(
+          shippedQuantity: trimScale(salesOrderLines.stockShippedQuantity).as(
             "shippedQuantity"
           ),
         })

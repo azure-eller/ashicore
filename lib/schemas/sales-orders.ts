@@ -2,7 +2,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { DEFAULT_COUNTRY } from "@/lib/addresses";
 import { salesOrders } from "@/lib/db/schema";
-import { normalizeMoney } from "@/lib/format";
+import { normalizeMoney, normalizeNumeric } from "@/lib/format";
 import {
   clientIdSchema,
   expectedVersionSchema,
@@ -13,6 +13,7 @@ import {
   nullableStringStrict,
   nullableStringPreserveUndefined,
   optionalMoneyString,
+  positiveDecimalString,
   positiveMoneyString,
 } from "./shared";
 import { PRICING_SOURCE_TYPES } from "./pricing-schedules";
@@ -174,6 +175,7 @@ const baseSalesOrderSchema = createInsertSchema(salesOrders, {
   updatedAt: true,
   })
   .extend({
+    quantityContractVersion: z.literal(2).optional(),
     lines: cleanedLinesSchema,
     confirmOversell: z.boolean().optional(),
   });
@@ -265,7 +267,10 @@ export type PatchSalesOrderHeader = z.infer<typeof patchSalesOrderHeaderSchema>;
  */
 export const patchSalesOrderLineSchema = z
   .object({
-    quantity: positiveMoneyString().optional(),
+    quantityContractVersion: z.literal(2).optional(),
+    quantity: positiveDecimalString("Quantity")
+      .transform((value) => normalizeNumeric(Number(value)))
+      .optional(),
     unitPrice: positiveMoneyString().optional(),
     taxRateId: nullableStringStrict
       .refine(
@@ -275,7 +280,10 @@ export const patchSalesOrderLineSchema = z
       .optional(),
   })
   .refine(
-    (value) => Object.keys(value).length > 0,
+    (value) =>
+      value.quantity !== undefined ||
+      value.unitPrice !== undefined ||
+      value.taxRateId !== undefined,
     "Patch must include at least one field",
   );
 export type PatchSalesOrderLine = z.infer<typeof patchSalesOrderLineSchema>;
@@ -316,13 +324,18 @@ export type BulkConfirmSalesOrders = z.infer<typeof bulkConfirmSalesOrdersSchema
 
 const rawShipLineSchema = z.object({
   salesOrderLineId: z.string().min(1, "Line is required"),
-  quantity: nullableString,
+  quantity: nullableString.optional(),
+  sellingQuantity: nullableString.optional(),
 });
 
 const shipLinesSchema = z
   .array(rawShipLineSchema)
   .transform((lines) =>
-    lines.filter((line) => (line.quantity?.trim() ?? "") !== "")
+    lines.filter(
+      (line) =>
+        (line.quantity?.trim() ?? "") !== "" ||
+        (line.sellingQuantity?.trim() ?? "") !== "",
+    )
   )
   .superRefine((lines, ctx) => {
     if (lines.length === 0) {
@@ -345,7 +358,17 @@ const shipLinesSchema = z
       }
       seen.add(line.salesOrderLineId);
 
-      const quantity = line.quantity?.trim() ?? "";
+      const stockQuantity = line.quantity?.trim() ?? "";
+      const sellingQuantity = line.sellingQuantity?.trim() ?? "";
+      if (Boolean(stockQuantity) === Boolean(sellingQuantity)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Provide exactly one quantity basis",
+          path: [index, "quantity"],
+        });
+        return;
+      }
+      const quantity = sellingQuantity || stockQuantity;
       if (!isPositiveNumberString(quantity)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,

@@ -166,7 +166,7 @@ async function getShippedSalesQuantityByLineInTx(tx: Tx, salesOrderLineIds: stri
   const rows = await tx
     .select({
       salesOrderLineId: salesOrderLines.id,
-      quantity: trimScale(salesOrderLines.shippedQuantity).as("quantity"),
+      quantity: trimScale(salesOrderLines.stockShippedQuantity).as("quantity"),
     })
     .from(salesOrderLines)
     .where(inArray(salesOrderLines.id, salesOrderLineIds));
@@ -215,9 +215,9 @@ async function loadOpenSalesOrdersInTx(
       lineId: salesOrderLines.id,
       itemId: salesOrderLines.itemId,
       itemName: salesOrderLines.itemName,
-      unitName: salesOrderLines.unitName,
-      orderedQty: trimScale(salesOrderLines.quantity).as("orderedQty"),
-      cancelledQty: trimScale(salesOrderLines.cancelledQuantity).as("cancelledQty"),
+      unitName: salesOrderLines.stockingUnitName,
+      orderedQty: trimScale(salesOrderLines.stockQuantity).as("orderedQty"),
+      cancelledQty: trimScale(salesOrderLines.stockCancelledQuantity).as("cancelledQty"),
       sortOrder: salesOrderLines.sortOrder,
       createdAt: salesOrderLines.createdAt,
     })

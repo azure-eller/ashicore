@@ -1,5 +1,37 @@
 import { z } from "zod";
+import Decimal from "decimal.js-light";
 import { normalizeMoney, normalizeNumeric } from "@/lib/format";
+
+const NUMERIC_12_4_MAX = new Decimal("99999999.9999");
+
+export function isNumeric12Scale4Representable(value: string | number) {
+  try {
+    return new Decimal(value)
+      .toDecimalPlaces(4, Decimal.ROUND_HALF_UP)
+      .abs()
+      .lte(NUMERIC_12_4_MAX);
+  } catch {
+    return false;
+  }
+}
+
+export function roundsToPositiveNumeric12Scale4(value: string | number) {
+  try {
+    return new Decimal(value)
+      .toDecimalPlaces(4, Decimal.ROUND_HALF_UP)
+      .gt(0);
+  } catch {
+    return false;
+  }
+}
+
+function normalizeNumeric12Scale4(value: string) {
+  const normalized = new Decimal(value)
+    .toDecimalPlaces(4, Decimal.ROUND_HALF_UP)
+    .toFixed(4)
+    .replace(/\.?0+$/, "");
+  return normalized === "-0" ? "0" : normalized;
+}
 
 /**
  * Same normalization as nullableString but preserves undefined as undefined.
@@ -76,6 +108,48 @@ export const optionalPositiveDecimalStringPreserveUndefined = (label: string) =>
     )
     .transform((value) =>
       value == null ? value : normalizeNumeric(Number(value)),
+    );
+
+export const optionalPositiveNumeric12Scale4String = (label: string) =>
+  z
+    .string()
+    .nullable()
+    .optional()
+    .transform((value) => (value != null ? value.trim() || null : null))
+    .refine(
+      (value) => value == null || isPositiveNumberString(value),
+      `${label} must be greater than 0`,
+    )
+    .refine(
+      (value) => value == null || roundsToPositiveNumeric12Scale4(value),
+      `${label} must be at least 0.0001`,
+    )
+    .refine(
+      (value) => value == null || isNumeric12Scale4Representable(value),
+      `${label} must be 99,999,999.9999 or less`,
+    )
+    .transform((value) =>
+      value == null ? null : normalizeNumeric12Scale4(value),
+    );
+
+export const optionalPositiveNumeric12Scale4StringPreserveUndefined = (
+  label: string,
+) =>
+  nullableStringPreserveUndefined
+    .refine(
+      (value) => value == null || isPositiveNumberString(value),
+      `${label} must be greater than 0`,
+    )
+    .refine(
+      (value) => value == null || roundsToPositiveNumeric12Scale4(value),
+      `${label} must be at least 0.0001`,
+    )
+    .refine(
+      (value) => value == null || isNumeric12Scale4Representable(value),
+      `${label} must be 99,999,999.9999 or less`,
+    )
+    .transform((value) =>
+      value == null ? value : normalizeNumeric12Scale4(value),
     );
 
 export const optionalMoneyString = (label = "Amount") =>

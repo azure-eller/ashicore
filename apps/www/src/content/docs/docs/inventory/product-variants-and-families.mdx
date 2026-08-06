@@ -23,7 +23,7 @@ Use variants when one product or material has several real sellable or stockable
 ## The family shape
 
 <div class="po-annot">
-  <div class="arow"><span class="aidx">1</span><div><div class="at">The family card</div><div class="ad">The family card holds the shared identity: name, item type, category, description, stocking unit, lot-tracking mode, and shared purchasing setup. Editing these fields on the card mirrors the change to every variant item.</div></div></div>
+  <div class="arow"><span class="aidx">1</span><div><div class="at">The family card</div><div class="ad">The family card holds the shared identity: name, item type, category, description, stocking unit, optional sales unit, lot-tracking mode, and shared purchasing setup. Editing these fields on the card mirrors the change to every variant item.</div></div></div>
   <div class="arow"><span class="aidx">2</span><div><div class="at">Options and values</div><div class="ad">Options are the axes of variation — for example, Bag size with values 0.5 ft3, 1 ft3, 2 ft3. Values are ordered and unique within their option. The card UI supports up to 3 option axes.</div></div></div>
   <div class="arow"><span class="aidx">3</span><div><div class="at">Variant items</div><div class="ad">Each option-value combination produces one stockable item row with its own SKU, price, stock, lots, and ledger history. Every combination in the family must be unique.</div></div></div>
 </div>
@@ -43,7 +43,7 @@ Use variants when one product or material has several real sellable or stockable
 
 | Rule | Detail |
 | --- | --- |
-| Shared fields are edited on the family card and mirror to all variants. | Name, item type, category, unit, lot-tracking mode, and purchasing setup are managed once. |
+| Shared fields are edited on the family card and mirror to all variants. | Name, item type, category, stock and sales units, lot-tracking mode, and purchasing setup are managed once. |
 | Per-variant fields are independent. | SKU, barcodes, supplier code, lead time, MOQ, prices, stock quantity, and sellability belong to each concrete variant item. |
 | The displayed name identifies the full variant. | The family name is followed by every assigned option value in option order, separated by `/`. A disabled value stays in the name of variants that already use it. |
 | Each option-value combination must be unique. | The API exposes duplicate-combination warnings; filled duplicate SKUs are hard-blocked. |

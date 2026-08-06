@@ -151,11 +151,13 @@ export function OrderCard({
   const [bolQuantities, setBolQuantities] = useState<Record<string, string>>({});
   const [cancelRemainingOpen, setCancelRemainingOpen] = useState(false);
   const [cancelRemainingError, setCancelRemainingError] = useState<string | null>(null);
-  const shippedLines = order.lines.filter((line) => Number(line.shippedQuantity) > 0);
+  const shippedLines = order.lines.filter(
+    (line) => Number(line.sellingShippedQuantity) > 0
+  );
   const hasAnyShippedQuantity = shippedLines.length > 0;
   const hasShippedItems = shippedLines.length > 0;
   const remainingLines = order.lines.filter(
-    (line) => Number(line.remainingQuantity) > 0
+    (line) => Number(line.sellingRemainingQuantity) > 0
   );
   const bolLines =
     order.status === "done"
@@ -569,15 +571,17 @@ export function OrderCard({
 }
 
 function RemainingItemsSection({ lines }: { lines: SalesOrderDetailLine[] }) {
-  const totalQuantity = lines.reduce(
-    (sum, line) => sum + Number(line.remainingQuantity || 0),
-    0
+  const quantitySummary = summarizeSellingQuantity(
+    lines,
+    (line) => line.sellingRemainingQuantity,
   );
 
   return (
     <CardSection
       title="Items not shipped"
-      count={`· ${lines.length} ${lines.length === 1 ? "line" : "lines"} · ${formatQuantity(String(totalQuantity))} units`}
+      count={`· ${lines.length} ${lines.length === 1 ? "line" : "lines"}${
+        quantitySummary ? ` · ${quantitySummary}` : ""
+      }`}
     >
       <SalesFulfillmentTable>
         <FramedTableHead>
@@ -595,12 +599,12 @@ function RemainingItemsSection({ lines }: { lines: SalesOrderDetailLine[] }) {
               <FramedTableCell>
                 <div className="font-medium">{line.itemName}</div>
                 <div className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
-                  {line.unitName}
+                  {line.sellingUnitName}
                 </div>
               </FramedTableCell>
               <FramedTableCell align="right" numeric>
-                {formatQuantity(line.remainingQuantity)}{" "}
-                <span className="font-[var(--font-body)] text-[var(--color-ink-faint)]">{line.unitName}</span>
+                {formatQuantity(line.sellingRemainingQuantity)}{" "}
+                <span className="font-[var(--font-body)] text-[var(--color-ink-faint)]">{line.sellingUnitName}</span>
               </FramedTableCell>
               <FramedTableCell align="right" numeric>
                 {formatPrice(line.unitPrice) ?? "—"}
@@ -609,7 +613,7 @@ function RemainingItemsSection({ lines }: { lines: SalesOrderDetailLine[] }) {
                 {formatPercent(line.taxRatePercent, { fallback: "0%" })}
               </FramedTableCell>
               <FramedTableCell align="right" numeric strong>
-                {formatPrice(calculateSalesLineTotalForQuantity(line, line.remainingQuantity)) ?? "—"}
+                {formatPrice(calculateSalesLineTotalForQuantity(line, line.sellingRemainingQuantity)) ?? "—"}
               </FramedTableCell>
             </FramedTableRow>
           ))}
@@ -624,18 +628,28 @@ function ShippedItemsSection({
 }: {
   lines: SalesOrderDetailLine[];
 }) {
-  const totalQuantity = lines.reduce(
-    (sum, line) => sum + Number(line.shippedQuantity || 0),
-    0
+  const quantitySummary = summarizeSellingQuantity(
+    lines,
+    (line) => line.sellingShippedQuantity,
   );
   const totalAmount = lines.reduce((sum, line) => {
-    return sum + Number(calculateSalesLineTotalForQuantity(line, line.shippedQuantity));
+    return (
+      sum +
+      Number(
+        calculateSalesLineTotalForQuantity(
+          line,
+          line.sellingShippedQuantity
+        )
+      )
+    );
   }, 0);
 
   return (
     <CardSection
       title="Shipped items"
-      count={`· ${formatQuantity(String(totalQuantity))} units`}
+      count={`· ${lines.length} ${lines.length === 1 ? "line" : "lines"}${
+        quantitySummary ? ` · ${quantitySummary}` : ""
+      }`}
     >
       <SalesFulfillmentTable>
         <FramedTableHead>
@@ -654,12 +668,12 @@ function ShippedItemsSection({
                 <FramedTableCell>
                   <div className="font-medium">{line.itemName}</div>
                   <div className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
-                    {line.unitName}
+                    {line.sellingUnitName}
                   </div>
                 </FramedTableCell>
                 <FramedTableCell align="right" numeric>
-                  {formatQuantity(line.shippedQuantity)}{" "}
-                  <span className="font-[var(--font-body)] text-[var(--color-ink-faint)]">{line.unitName}</span>
+                  {formatQuantity(line.sellingShippedQuantity)}{" "}
+                  <span className="font-[var(--font-body)] text-[var(--color-ink-faint)]">{line.sellingUnitName}</span>
                 </FramedTableCell>
                 <FramedTableCell align="right" numeric>
                   {formatPrice(line.unitPrice) ?? "—"}
@@ -668,7 +682,7 @@ function ShippedItemsSection({
                   {formatPercent(line.taxRatePercent, { fallback: "0%" })}
                 </FramedTableCell>
                 <FramedTableCell align="right" numeric strong>
-                  {formatPrice(calculateSalesLineTotalForQuantity(line, line.shippedQuantity)) ?? "—"}
+                  {formatPrice(calculateSalesLineTotalForQuantity(line, line.sellingShippedQuantity)) ?? "—"}
                 </FramedTableCell>
               </FramedTableRow>
             );
@@ -690,6 +704,20 @@ function SalesFulfillmentTable({ children }: { children: React.ReactNode }) {
       <FramedTable>{children}</FramedTable>
     </TableFrame>
   );
+}
+
+function summarizeSellingQuantity(
+  lines: SalesOrderDetailLine[],
+  quantity: (line: SalesOrderDetailLine) => string,
+) {
+  const unitNames = new Set(lines.map((line) => line.sellingUnitName));
+  if (lines.length === 0 || unitNames.size !== 1) return null;
+
+  const total = lines.reduce((sum, line) => {
+    const value = Number(quantity(line));
+    return Number.isFinite(value) ? sum + value : sum;
+  }, 0);
+  return `${formatQuantity(String(total))} ${lines[0].sellingUnitName}`;
 }
 
 function BillOfLadingDialog({
@@ -729,7 +757,7 @@ function BillOfLadingDialog({
   const hasValidQuantity = lineStates.some((state) => state.isPositive);
   const invalidLine = lineStates.find((state) => state.isOverMax);
   const validationMessage = invalidLine
-    ? `Quantity cannot exceed ${formatQuantity(String(invalidLine.maxQuantity))} ${invalidLine.line.unitName}.`
+    ? `Quantity cannot exceed ${formatQuantity(String(invalidLine.maxQuantity))} ${invalidLine.line.sellingUnitName}.`
     : null;
 
   return (
@@ -748,7 +776,7 @@ function BillOfLadingDialog({
               <div className="min-w-0">
                 <div className="truncate font-medium">{line.itemName}</div>
                 <div className="text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
-                  {line.unitName}
+                  {line.sellingUnitName}
                 </div>
               </div>
               <label className="grid gap-(--space-2)">
@@ -797,11 +825,14 @@ function getBolMaxQuantity(
   hasAnyShippedQuantity: boolean
 ) {
   if (orderStatus === "done") {
-    if (hasAnyShippedQuantity) return Number(line.shippedQuantity);
-    return Math.max(0, Number(line.quantity) - Number(line.cancelledQuantity));
+    if (hasAnyShippedQuantity) return Number(line.sellingShippedQuantity);
+    return Math.max(
+      0,
+      Number(line.sellingQuantity) - Number(line.sellingCancelledQuantity)
+    );
   }
 
-  return Number(line.remainingQuantity);
+  return Number(line.sellingRemainingQuantity);
 }
 
 function makeInitialDraftOrder(

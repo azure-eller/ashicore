@@ -10,6 +10,7 @@ Items are the shared records behind products and materials. The live app separat
 <p class="po-meta">
   <span class="po-chip"><b>2</b> types</span>
   <span class="po-chip">family stock unit</span>
+  <span class="po-chip">optional family sales unit</span>
   <span class="po-chip">autosaves</span>
 </p>
 
@@ -20,7 +21,7 @@ Items are the shared records behind products and materials. The live app separat
 | Material | Things you buy, consume, or stock as inputs. | No | Usually no |
 | Product | Things you make or sell. | Optional BOM/recipe | Optional |
 
-Item type is a creation-time decision. The item-card UI can change the family stock unit and mirror it to variants; treat that as an operational correction because existing inventory history remains in the unit used when it was posted.
+Item type is a creation-time decision. The item-card UI can change the family stock unit and mirror it to variants; treat that as an operational correction because existing inventory history remains in the unit used when it was posted. A sellable family can also carry a different sales unit without changing how inventory is held.
 
 ## Work with items
 

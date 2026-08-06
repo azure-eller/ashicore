@@ -15,7 +15,8 @@ import type { ShipSalesOrder } from "@/lib/schemas/sales-orders";
 import type { NegativeStockWarningPayload } from "../types";
 import { demandQueueCoverageKey, getDemandQueueInventoryLotClaimConflicts, getDemandQueueCoverageForItemsInTx } from "@/lib/inventory/allocation/demand-queue";
 import { SalesError } from "./errors";
-import { withSalesTransactionRetry, rerankOpenSalesOrdersInTx, getOrderLinesInTx, getLockedSalesOrderInTx, normalizeShipQuantity, getSalesOrderLineShipStatesInTx, remainingToShip } from "./shared";
+import { convertedShipmentQuantities } from "../quantity-basis";
+import { withSalesTransactionRetry, rerankOpenSalesOrdersInTx, getOrderLinesInTx, getLockedSalesOrderInTx, normalizeShipQuantity, getSalesOrderLineShipStatesInTx, remainingToShip, sellingRemainingToShip } from "./shared";
 
 async function buildStockWarningPayloadInTx(
   _tx: Tx,
@@ -268,14 +269,53 @@ export async function shipSalesOrder(
               errors: { lines: ["Sales order line not found."] },
             });
           }
-          const quantity = normalizeShipQuantity(Number(input.quantity));
-          const remaining = remainingToShip(state);
-          if (!Number.isFinite(quantity) || quantity <= 0) {
+          const requestedBasis =
+            input.sellingQuantity != null ? "selling" : "stocking";
+          const requestedQuantity =
+            input.sellingQuantity ?? input.quantity ?? "";
+          const requested = normalizeShipQuantity(Number(requestedQuantity));
+          const basisRemaining =
+            requestedBasis === "selling"
+              ? sellingRemainingToShip(state)
+              : remainingToShip(state);
+          if (!Number.isFinite(requested) || requested <= 0) {
             throw new SalesError("Quantity must be greater than 0.", 400, {
               errors: { lines: ["Quantity must be greater than 0."] },
             });
           }
-          if (quantity > remaining) {
+          if (requested > basisRemaining) {
+            throw new SalesError("Cannot ship more than the remaining quantity.", 400, {
+              errors: { lines: ["Cannot ship more than the remaining quantity."] },
+            });
+          }
+          const converted = convertedShipmentQuantities({
+            requestedBasis,
+            requestedQuantity: String(requested),
+            salesToStockFactor: String(state.salesToStockFactor),
+            sellingRemainingQuantity: String(sellingRemainingToShip(state)),
+            stockRemainingQuantity: String(remainingToShip(state)),
+          });
+          const quantity = Number(converted.stockQuantity);
+          const sellingQuantity = Number(converted.sellingQuantity);
+          if (quantity <= 0 || sellingQuantity <= 0) {
+            const counterpartBasis =
+              requestedBasis === "selling" ? "stocking" : "selling";
+            throw new SalesError(
+              "Quantity is too small for the sales-unit conversion.",
+              400,
+              {
+                errors: {
+                  lines: [
+                    `Enter a quantity that converts to at least 0.0001 ${counterpartBasis} units.`,
+                  ],
+                },
+              },
+            );
+          }
+          if (
+            quantity > remainingToShip(state) ||
+            sellingQuantity > sellingRemainingToShip(state)
+          ) {
             throw new SalesError("Cannot ship more than the remaining quantity.", 400, {
               errors: { lines: ["Cannot ship more than the remaining quantity."] },
             });
@@ -288,12 +328,14 @@ export async function shipSalesOrder(
             unitName: state.unitName,
             sortOrder: state.sortOrder,
             quantity,
+            sellingQuantity,
           };
         });
       }
 
       return [...states.values()].flatMap((state) => {
         const quantity = remainingToShip(state);
+        const sellingQuantity = sellingRemainingToShip(state);
         if (quantity <= 0) return [];
         return [
           {
@@ -304,6 +346,7 @@ export async function shipSalesOrder(
             unitName: state.unitName,
             sortOrder: state.sortOrder,
             quantity,
+            sellingQuantity,
           },
         ];
       });
@@ -428,7 +471,8 @@ export async function shipSalesOrder(
       await tx
         .update(salesOrderLines)
         .set({
-          shippedQuantity: sql`${salesOrderLines.shippedQuantity} + ${normalizeNumeric(line.quantity)}`,
+          shippedQuantity: sql`${salesOrderLines.shippedQuantity} + ${normalizeNumeric(line.sellingQuantity)}`,
+          stockShippedQuantity: sql`${salesOrderLines.stockShippedQuantity} + ${normalizeNumeric(line.quantity)}`,
           updatedAt: shippedAt,
         })
         .where(eq(salesOrderLines.id, line.salesOrderLineId));

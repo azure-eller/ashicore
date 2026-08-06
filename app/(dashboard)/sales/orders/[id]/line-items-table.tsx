@@ -80,12 +80,12 @@ export function LineItemsTable({
       change: EditableLineDataGridChange<SalesOrderDetailLine>,
     ): change is EditableLineDataGridChange<SalesOrderDetailLine> & {
       row: SalesOrderDetailLine;
-      field: "itemId" | "quantity" | "unitPrice" | "taxRateId";
+      field: "itemId" | "sellingQuantity" | "unitPrice" | "taxRateId";
     } =>
       change.type === "cell_edit_committed" &&
       change.row != null &&
       (change.field === "itemId" ||
-        change.field === "quantity" ||
+        change.field === "sellingQuantity" ||
         change.field === "unitPrice" ||
         change.field === "taxRateId") &&
       !isPersistedLine(change.row);
@@ -106,7 +106,7 @@ export function LineItemsTable({
   }, [order.lines, persistedLineIds]);
 
   const nonBlankRows = rows.filter((line) => !isBlankSalesOrderLine(line));
-  const totalQuantity = sumNumeric(nonBlankRows.map((line) => line.quantity));
+  const quantitySummary = summarizeSellingQuantity(nonBlankRows);
   const canAddLine = editable && itemOptions != null;
   const existingItemIds = useMemo(
     () => new Set(rows.filter((line) => !isBlankSalesOrderLine(line)).map((line) => line.itemId)),
@@ -194,7 +194,7 @@ export function LineItemsTable({
                 {data.itemName || <span className="text-[var(--color-ink-faint)]">Search items...</span>}
               </span>
               <span className="text-[length:var(--text-card-caption)] text-[var(--color-ink-faint)]">
-                {data.unitName}
+                {data.sellingUnitName}
               </span>
             </div>
           ) : null,
@@ -210,7 +210,8 @@ export function LineItemsTable({
         valueFormatter: ({ value }) => (value ? String(value) : "—"),
       },
       {
-        field: "quantity",
+        field: "sellingQuantity",
+        colId: "quantity",
         kind: "number",
         headerName: "Qty",
         rightAligned: true,
@@ -220,20 +221,23 @@ export function LineItemsTable({
         tooltipValueGetter: ({ data }) => data ? quantityLockReason(data) : null,
         cellRenderer: ({ data }: ICellRendererParams<SalesOrderDetailLine>) => {
           if (!data) return null;
-          const shipped = Number(data.shippedQuantity);
+          const shipped = Number(data.sellingShippedQuantity);
           return (
             <div className="flex flex-col items-end justify-center leading-tight py-(--space-1) font-mono tabular-nums">
-              <span>{formatQuantity(data.quantity) ?? "0"}</span>
+              <span>{formatQuantity(data.sellingQuantity) ?? "0"}</span>
               {shipped > 0 ? (
                 <span className="text-[length:var(--text-card-caption)] text-[var(--color-ink-faint)]">
-                  {formatQuantity(data.shippedQuantity)} shipped
+                  {formatQuantity(data.sellingShippedQuantity)} shipped
                 </span>
               ) : null}
             </div>
           );
         },
         valueFormatter: ({ value }) => formatQuantity(String(value ?? "0")) ?? "0",
-        valueSetter: numericSetter("quantity", (value, line) => value >= minimumLineQuantity(line)),
+        valueSetter: numericSetter(
+          "sellingQuantity",
+          (value, line) => value >= minimumLineQuantity(line)
+        ),
       },
       {
         field: "unitPrice",
@@ -406,12 +410,12 @@ export function LineItemsTable({
       const pricingResult = await resolveLinePricing({
         customerId: order.customerId,
         itemId: picked.id,
-        quantity: change.row.quantity,
+        quantity: change.row.sellingQuantity,
       });
       setPricingLookupError(pricingResult.error);
       controller.addLine(
         lineFromItem(picked, change.row.id, {
-          quantity: change.row.quantity,
+          quantity: change.row.sellingQuantity,
           unitPrice:
             pricingResult.pricing?.suggestedUnitPrice ?? change.row.unitPrice,
           taxRateId: change.row.taxRateId,
@@ -422,8 +426,10 @@ export function LineItemsTable({
       return;
     }
     if (change.type === "cell_edit_committed" && change.row && change.field && isPersistedLine(change.row)) {
-      if (change.field === "quantity") {
-        applyPatch(change.row.id, { quantity: change.row.quantity });
+      if (change.field === "sellingQuantity") {
+        applyPatch(change.row.id, {
+          quantity: change.row.sellingQuantity,
+        });
       } else if (change.field === "unitPrice") {
         applyPatch(change.row.id, { unitPrice: change.row.unitPrice });
       } else if (change.field === "taxRateId") {
@@ -445,7 +451,7 @@ export function LineItemsTable({
 
   const requestDelete = (line: SalesOrderDetailLine) => {
     if (deleteLineLockedReason(line)) return;
-    if (Number(line.shippedQuantity) > 0) {
+    if (Number(line.sellingShippedQuantity) > 0) {
       setConfirmDelete(line);
       return;
     }
@@ -458,9 +464,9 @@ export function LineItemsTable({
     <>
       <CardSection
         title="Line items"
-        count={`· ${lineCount} ${lineCount === 1 ? "line" : "lines"} · ${
-          formatQuantity(String(totalQuantity))
-        } units`}
+        count={`· ${lineCount} ${lineCount === 1 ? "line" : "lines"}${
+          quantitySummary ? ` · ${quantitySummary}` : ""
+        }`}
       >
 
         <MutableLines<SalesOrderDetailLine>
@@ -540,7 +546,7 @@ export function LineItemsTable({
   );
 
   function numericSetter(
-    field: "quantity" | "unitPrice",
+    field: "sellingQuantity" | "unitPrice",
     valid: (value: number, line: SalesOrderDetailLine) => boolean,
   ) {
     return (params: ValueSetterParams<SalesOrderDetailLine>) => {
@@ -559,7 +565,7 @@ function recalculateLineTotals(line: SalesOrderDetailLine) {
   Object.assign(
     line,
     calculateSalesLineAmounts({
-      quantity: line.quantity,
+      quantity: line.sellingQuantity,
       unitPrice: line.unitPrice,
       taxRatePercent: line.taxRatePercent,
     }),
@@ -600,6 +606,8 @@ function lineFromItem(
     itemName: item.displayName || item.name,
     itemSku: item.sku,
     unitName: item.unitName,
+    stockingUnitName: item.stockingUnitName,
+    salesToStockFactor: item.salesToStockFactor,
     quantity: values?.quantity ?? "1",
     unitPrice: values?.unitPrice ?? item.defaultSellingPrice ?? "0",
     taxRateId: values?.taxRateId ?? taxRate?.id ?? null,
@@ -645,7 +653,7 @@ function mergeUnsentBlankLines(
 }
 
 function isSavableDraftLine(line: SalesOrderDetailLine) {
-  const quantity = Number(line.quantity);
+  const quantity = Number(line.sellingQuantity);
   const unitPrice = Number(line.unitPrice);
   return (
     Boolean(line.itemId) &&
@@ -658,8 +666,8 @@ function isSavableDraftLine(line: SalesOrderDetailLine) {
 
 function minimumLineQuantity(line: SalesOrderDetailLine) {
   return (
-    Number(line.shippedQuantity) +
-    Number(line.cancelledQuantity)
+    Number(line.sellingShippedQuantity) +
+    Number(line.sellingCancelledQuantity)
   );
 }
 
@@ -670,10 +678,10 @@ function quantityLockReason(line: SalesOrderDetailLine) {
 }
 
 function deleteLineLockedReason(line: SalesOrderDetailLine) {
-  if (Number(line.shippedQuantity) > 0) {
+  if (Number(line.sellingShippedQuantity) > 0) {
     return "This line has shipped quantity, so it cannot be removed.";
   }
-  if (Number(line.cancelledQuantity) > 0) {
+  if (Number(line.sellingCancelledQuantity) > 0) {
     return "This line has cancelled quantity, so it cannot be removed.";
   }
   return null;
@@ -736,11 +744,15 @@ function lineProductionState(line: SalesOrderDetailLine): FulfillmentDisplayStat
   return getProductionDisplayState(line.fulfillmentSummary.productionState);
 }
 
-function sumNumeric(values: Array<string | null | undefined>): number {
-  return values.reduce((total, value) => {
-    const parsed = value == null ? NaN : Number(value);
-    return Number.isFinite(parsed) ? total + parsed : total;
+function summarizeSellingQuantity(lines: SalesOrderDetailLine[]) {
+  const unitNames = new Set(lines.map((line) => line.sellingUnitName));
+  if (lines.length === 0 || unitNames.size !== 1) return null;
+
+  const total = lines.reduce((sum, line) => {
+    const quantity = Number(line.sellingQuantity);
+    return Number.isFinite(quantity) ? sum + quantity : sum;
   }, 0);
+  return `${formatQuantity(String(total))} ${lines[0].sellingUnitName}`;
 }
 
 function lineBaseUnitPrice(

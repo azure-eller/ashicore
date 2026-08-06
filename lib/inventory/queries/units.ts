@@ -51,6 +51,7 @@ export async function getUnitDefinitions() {
             and (
               ${itemFamilies.unitDefinitionId} = ${unitDefinitions.id}
               or ${itemFamilies.purchaseUnitDefinitionId} = ${unitDefinitions.id}
+              or ${itemFamilies.salesUnitDefinitionId} = ${unitDefinitions.id}
             )
         ) or exists (
           select 1
@@ -59,6 +60,7 @@ export async function getUnitDefinitions() {
             and (
               ${items.unitDefinitionId} = ${unitDefinitions.id}
               or ${items.purchaseUnitDefinitionId} = ${unitDefinitions.id}
+              or ${items.salesUnitDefinitionId} = ${unitDefinitions.id}
             )
         )`.as("isInUse"),
       })
@@ -82,6 +84,7 @@ export async function getUnitDefinitionsForItemDraft() {
             and (
               ${itemFamilies.unitDefinitionId} = ${unitDefinitions.id}
               or ${itemFamilies.purchaseUnitDefinitionId} = ${unitDefinitions.id}
+              or ${itemFamilies.salesUnitDefinitionId} = ${unitDefinitions.id}
             )
         ) or exists (
           select 1
@@ -90,6 +93,7 @@ export async function getUnitDefinitionsForItemDraft() {
             and (
               ${items.unitDefinitionId} = ${unitDefinitions.id}
               or ${items.purchaseUnitDefinitionId} = ${unitDefinitions.id}
+              or ${items.salesUnitDefinitionId} = ${unitDefinitions.id}
             )
         )`.as("isInUse"),
       })
@@ -192,6 +196,7 @@ export async function deleteUnitDefinition(unitId: string): Promise<boolean> {
           or(
             eq(itemFamilies.unitDefinitionId, unitId),
             eq(itemFamilies.purchaseUnitDefinitionId, unitId),
+            eq(itemFamilies.salesUnitDefinitionId, unitId),
           ),
         ),
       )
@@ -205,6 +210,7 @@ export async function deleteUnitDefinition(unitId: string): Promise<boolean> {
           or(
             eq(items.unitDefinitionId, unitId),
             eq(items.purchaseUnitDefinitionId, unitId),
+            eq(items.salesUnitDefinitionId, unitId),
           ),
         ),
       )
