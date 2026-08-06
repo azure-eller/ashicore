@@ -37,7 +37,7 @@ When you choose a product, Ashicore snapshots the current recipe components into
 
 ## Variant Swaps
 
-A recipe component stores one default item variant and may configure active variants from the same item family as replacements. Each configured variant has its own recipe quantity in that variant's unit. On the manufacturing order, an ingredient can be swapped to one of those configured variants during planning or execution while the row is still not picked. The swap applies the selected variant's configured quantity. After picking starts, the row locks because the inventory trail already references the selected item and lots.
+A recipe component stores one default item variant and may configure active variants from the same item family as replacements. Each configured variant has its own recipe quantity in that variant's unit. On the manufacturing order, an ingredient can be swapped to one of those configured variants during planning or execution while the row is still not picked. The swap applies the selected variant's configured quantity. On a released batch order, one recipe line has an ingredient row for every batch, so the swap updates that line across all batches; it is blocked if any of those rows has been picked. After picking starts, the row locks because the inventory trail already references the selected item and lots.
 
 ## Lot Strategy And Age Requirements
 
