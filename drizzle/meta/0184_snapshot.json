@@ -1,6 +1,6 @@
 {
-  "id": "4d956970-7e34-4c74-9b49-367fe73c513e",
-  "prevId": "e8d5178d-58cc-4e24-99c0-f4a1f4f89c1e",
+  "id": "e8d5178d-58cc-4e24-99c0-f4a1f4f89c1e",
+  "prevId": "d88af78a-b0c5-4289-85d1-fce6fed2f314",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -5305,24 +5305,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "marketing_experiment_id": {
-          "name": "marketing_experiment_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "marketing_contact_id": {
-          "name": "marketing_contact_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "marketing_metadata": {
-          "name": "marketing_metadata",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "deleted_at": {
           "name": "deleted_at",
           "type": "timestamp with time zone",
@@ -5389,28 +5371,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "sales_customer_activities_marketing_contact_uidx": {
-          "name": "sales_customer_activities_marketing_contact_uidx",
-          "columns": [
-            {
-              "expression": "marketing_experiment_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "marketing_contact_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "marketing_experiment_id IS NOT NULL AND marketing_contact_id IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -5435,20 +5395,6 @@
           "schemaTo": "sales",
           "columnsFrom": [
             "customer_project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "customer_activities_marketing_contact_id_customer_contacts_id_fk": {
-          "name": "customer_activities_marketing_contact_id_customer_contacts_id_fk",
-          "tableFrom": "customer_activities",
-          "tableTo": "customer_contacts",
-          "schemaTo": "sales",
-          "columnsFrom": [
-            "marketing_contact_id"
           ],
           "columnsTo": [
             "id"
@@ -5876,18 +5822,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
-        },
-        "outreach_suppressed_at": {
-          "name": "outreach_suppressed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "outreach_suppression_reason": {
-          "name": "outreach_suppression_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "deleted_at": {
           "name": "deleted_at",
@@ -17471,303 +17405,6 @@
       "checkConstraints": {},
       "isRLSEnabled": true
     },
-    "marketing.experiments": {
-      "name": "experiments",
-      "schema": "marketing",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "varchar(20)",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'draft'"
-        },
-        "config": {
-          "name": "config",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "state": {
-          "name": "state",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "result": {
-          "name": "result",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "evaluate_at": {
-          "name": "evaluate_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_by_user_id": {
-          "name": "created_by_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "marketing_experiments_org_status_idx": {
-          "name": "marketing_experiments_org_status_idx",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "marketing_experiments_one_active_uidx": {
-          "name": "marketing_experiments_one_active_uidx",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "status = 'active'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "experiments_created_by_user_id_user_id_fk": {
-          "name": "experiments_created_by_user_id_user_id_fk",
-          "tableFrom": "experiments",
-          "tableTo": "user",
-          "schemaTo": "system",
-          "columnsFrom": [
-            "created_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {
-        "marketing_experiments_org_isolation": {
-          "name": "marketing_experiments_org_isolation",
-          "as": "PERMISSIVE",
-          "for": "ALL",
-          "to": [
-            "public"
-          ],
-          "using": "organization_id = current_setting('app.current_org_id', true)",
-          "withCheck": "organization_id = current_setting('app.current_org_id', true)"
-        }
-      },
-      "checkConstraints": {
-        "marketing_experiments_status_check": {
-          "name": "marketing_experiments_status_check",
-          "value": "\"marketing\".\"experiments\".\"status\" IN ('draft', 'active', 'paused', 'completed')"
-        }
-      },
-      "isRLSEnabled": true
-    },
-    "marketing.mailboxes": {
-      "name": "mailboxes",
-      "schema": "marketing",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "email": {
-          "name": "email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "access_token_ciphertext": {
-          "name": "access_token_ciphertext",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "refresh_token_ciphertext": {
-          "name": "refresh_token_ciphertext",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "token_encryption_key_id": {
-          "name": "token_encryption_key_id",
-          "type": "varchar(100)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "token_expires_at": {
-          "name": "token_expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "history_id": {
-          "name": "history_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_synced_at": {
-          "name": "last_synced_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "disabled_at": {
-          "name": "disabled_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "marketing_mailboxes_org_uidx": {
-          "name": "marketing_mailboxes_org_uidx",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "marketing_mailboxes_user_idx": {
-          "name": "marketing_mailboxes_user_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "mailboxes_user_id_user_id_fk": {
-          "name": "mailboxes_user_id_user_id_fk",
-          "tableFrom": "mailboxes",
-          "tableTo": "user",
-          "schemaTo": "system",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {
-        "marketing_mailboxes_org_isolation": {
-          "name": "marketing_mailboxes_org_isolation",
-          "as": "PERMISSIVE",
-          "for": "ALL",
-          "to": [
-            "public"
-          ],
-          "using": "organization_id = current_setting('app.current_org_id', true)",
-          "withCheck": "organization_id = current_setting('app.current_org_id', true)"
-        }
-      },
-      "checkConstraints": {},
-      "isRLSEnabled": true
-    },
     "agent.pending_requests": {
       "name": "pending_requests",
       "schema": "agent",
@@ -18546,7 +18183,6 @@
     "settings": "settings",
     "system": "system",
     "reporting": "reporting",
-    "marketing": "marketing",
     "agent": "agent"
   },
   "sequences": {},
