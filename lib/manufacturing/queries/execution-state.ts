@@ -873,9 +873,10 @@ export function aggregateBatchIngredients(
   const ingredientMap = new Map<string, ManufacturingOrderIngredientDetail>();
 
   for (const row of rows) {
-    const existing = ingredientMap.get(row.itemId);
+    const ingredientKey = row.bomRevisionComponentId ?? row.itemId;
+    const existing = ingredientMap.get(ingredientKey);
     if (!existing) {
-      ingredientMap.set(row.itemId, {
+      ingredientMap.set(ingredientKey, {
         id: row.id,
         bomRevisionComponentId: row.bomRevisionComponentId,
         itemId: row.itemId,

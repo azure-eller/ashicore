@@ -763,6 +763,8 @@ export function BomEditor({
           getDraftRow: (row: BomGridRow, componentId: string) => ({
             ...row,
             componentId,
+            alternates:
+              componentId === row.componentId ? row.alternates : [],
           }),
           showTypeBadge: true,
           createLinks: [
