@@ -81,6 +81,11 @@ same launch-time 15-day transition through the additive migration. Old columns,
 usage tables, and the adjustment worker remain temporarily so pending charges
 can drain safely.
 
+Migration `0186_free_grace_backfill` moves legacy Core/Pro organizations without
+a Stripe subscription to Free while preserving their original SKU-limit date.
+Organizations with a Stripe subscription remain Pro. This prevents historical
+database labels from granting permanent paid access after the transition.
+
 After one full grace window and verification that no legacy subscriptions or
 pending adjustments remain, contract cleanup may remove legacy plan values,
 commercial entitlement columns, bands, interval/location/add-on fields, usage

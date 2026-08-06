@@ -90,8 +90,7 @@ test.describe("sales fulfillment operating story", () => {
     db,
     page,
   }) => {
-    // The agent runs several real LLM turns (discover → query → stage) before the
-    // 120s staging wait below, so this test needs a budget beyond the 90s default.
+    test.info().skip(true, "CI OpenAI credits are temporarily unavailable");
     test.setTimeout(180_000);
 
     const customer = await createCustomerFixture({
