@@ -277,8 +277,13 @@ function getFamilySiblings(
  * Chooses which same-family variants may replace this ingredient, and how much of each.
  *
  * The quantity is typed per variant in that variant's own unit and is never derived — a
- * larger package is a different number, not a multiple of the base line. A variant left
- * unchecked simply is not offered on manufacturing orders.
+ * larger package is a different number, not a multiple of the base line.
+ *
+ * Listing a variant here records how much of it replaces the line. It does not restrict what
+ * an order may select: manufacturing still offers every active same-family variant, and an
+ * unlisted one falls back to this line's own quantity. That fallback is right for a variant
+ * that differs by grade or colour, and wrong for one that differs by package size — so a
+ * size variant belongs in this list.
  */
 function VariantsCell({
   data,
