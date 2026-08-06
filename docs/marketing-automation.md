@@ -20,8 +20,9 @@ result, and exits. Postgres is the durable orchestrator.
 
 - One active experiment per organization.
 - An experiment contains 1–30 explicit CRM contact IDs.
-- The first day sends three canaries. Later weekdays send at most five total
-  messages between 08:00 and 10:00 organization-local time.
+- The first three sends are canaries, with no further sends on the local day
+  the third canary is sent. Later weekdays send at most five total messages
+  between 08:00 and 10:00 organization-local time.
 - Each recipient can receive one initial message and one follow-up after five
   days.
 - Generation and evaluation use separate fresh model calls. One rewrite is
