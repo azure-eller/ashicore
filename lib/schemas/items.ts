@@ -38,6 +38,9 @@ const bomRowSchema = z.object({
     .array(
       z.object({
         itemId: z.string().min(1, "Alternate is required"),
+        // Typed in the alternate's own unit. Optional so recipes saved before alternates
+        // carried a quantity keep loading; those fall back to the component's own number.
+        quantity: bomQuantitySchema.optional(),
       }).strict()
     )
     .optional()
@@ -84,6 +87,9 @@ const rawBomRowSchema = z.object({
     .array(
       z.object({
         itemId: z.string().min(1, "Alternate is required"),
+        // Typed in the alternate's own unit. Optional so recipes saved before alternates
+        // carried a quantity keep loading; those fall back to the component's own number.
+        quantity: bomQuantitySchema.optional(),
       }).strict()
     )
     .optional()
@@ -365,7 +371,7 @@ function bomRefine(
   data: {
     bom?: Array<{
       componentId: string;
-      alternates?: Array<{ itemId: string }>;
+      alternates?: Array<{ itemId: string; quantity?: string | null }> | null;
     }>;
   },
   ctx: z.RefinementCtx

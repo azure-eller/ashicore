@@ -2734,4 +2734,130 @@ test.describe("manufacturing demand and completion heartbeat", () => {
     });
     expect(freedLineEdit.status, JSON.stringify(freedLineEdit.body)).toBe(200);
   });
+
+  test("BOM alternate quantity is server-owned, and swapping is allowed until the ingredient is picked", async ({
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const base = await createItem({
+      itemType: "material",
+      name: `Alt Base ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `ALT-BASE-${unique}`,
+      category: `Alt Qty ${ts}`,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "500",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(base.status).toBe(201);
+
+    const [familyRow] = await db
+      .select({ id: itemFamilies.id })
+      .from(items)
+      .innerJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
+      .where(eq(items.id, base.body.id));
+
+    const [alt] = await db
+      .insert(items)
+      .values({
+        organizationId: orgId,
+        familyId: familyRow.id,
+        name: `Alt Large ${unique}`,
+        sku: `ALT-LARGE-${unique}`,
+        itemType: "material",
+        unitDefinitionId: unitId,
+        safetyStock: "0",
+        defaultPurchasePrice: "8.00",
+        defaultSellingPrice: null,
+        sellable: false,
+        manufacturingMode: "discrete",
+        optionCombinationKey: `alt-large-${unique}`,
+        isMaster: false,
+        sortOrder: 1,
+      })
+      .returning({ id: items.id });
+
+    // Base line takes 12; the larger package takes 3 for the same output.
+    const product = await createItem({
+      itemType: "product",
+      name: `Alt Product ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `ALT-PRODUCT-${unique}`,
+      category: `Alt Qty ${ts}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "25.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [
+        {
+          componentId: base.body.id,
+          quantity: "12",
+          alternates: [{ itemId: alt.id, quantity: "3" }],
+        },
+      ],
+    });
+    expect(product.status, JSON.stringify(product.body)).toBe(201);
+
+    // The client submits the base line's number, as the mobile picker used to. The recipe
+    // owns the alternate's quantity, so 3 wins over 12 — carrying 12 across the swap books a
+    // much larger package at the small package's count and drifts stock every batch.
+    const order = await createManufacturingOrder({
+      productId: product.body.id,
+      plannedQuantity: "2",
+      ingredients: [
+        { itemId: alt.id, defaultItemId: base.body.id, quantityPerUnit: "12" },
+      ],
+      confirmShortage: false,
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+    const orderId = order.body.id as string;
+
+    const [created] = await db
+      .select({
+        id: manufacturingOrderIngredients.id,
+        itemId: manufacturingOrderIngredients.itemId,
+        quantityPerUnit: manufacturingOrderIngredients.quantityPerUnit,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
+    expect(created).toMatchObject({ itemId: alt.id, quantityPerUnit: "3.0000" });
+
+    const released = await releaseManufacturingOrder(orderId, { confirmShortage: true });
+    expect([200, 201]).toContain(released.status);
+
+    // Still unpicked: production may switch package after release.
+    const swapBack = await testFetch(
+      `/api/manufacturing-orders/${orderId}/ingredients/${created.id}/material`,
+      { method: "PATCH", body: JSON.stringify({ itemId: base.body.id }) },
+    );
+    expect(swapBack.status, await swapBack.text()).toBe(200);
+
+    const [swapped] = await db
+      .select({
+        itemId: manufacturingOrderIngredients.itemId,
+        quantityPerUnit: manufacturingOrderIngredients.quantityPerUnit,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
+    expect(swapped).toMatchObject({ itemId: base.body.id, quantityPerUnit: "12.0000" });
+
+    const picked = await testFetch(
+      `/api/manufacturing-orders/${orderId}/ingredients/${created.id}/pick`,
+      { method: "POST", body: JSON.stringify({}) },
+    );
+    expect([200, 201]).toContain(picked.status);
+
+    // Once picked the material is fixed: reversing consumed stock by lot, location and cost
+    // layer is out of scope, so the order is changed by deleting and recreating it.
+    const refused = await testFetch(
+      `/api/manufacturing-orders/${orderId}/ingredients/${created.id}/material`,
+      { method: "PATCH", body: JSON.stringify({ itemId: alt.id }) },
+    );
+    expect(refused.status).toBe(400);
+    expect(await refused.text()).toContain("picked");
+  });
 });

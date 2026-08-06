@@ -60,7 +60,7 @@ export type BomInputRow = {
   componentId: string;
   quantity: string;
   minimumLotAgeDays?: number | null;
-  alternates?: Array<{ itemId: string }>;
+  alternates?: Array<{ itemId: string; quantity?: string | null }>;
 };
 
 export type BomOperationCostInputRow = {
@@ -79,7 +79,18 @@ function normalizeBomRows(bom: BomInputRow[]) {
     componentId: row.componentId,
     quantity: normalizeComparableNumber(row.quantity),
     minimumLotAgeDays: row.minimumLotAgeDays ?? null,
-    alternates: (row.alternates ?? []).map((alternate) => alternate.itemId).sort(),
+    // Quantity is part of the identity: editing only an alternate's number must still cut a
+    // new revision, or the edit is silently discarded as "no change".
+    alternates: (row.alternates ?? [])
+      .map(
+        (alternate) =>
+          `${alternate.itemId}:${
+            alternate.quantity == null
+              ? ""
+              : normalizeComparableNumber(alternate.quantity)
+          }`
+      )
+      .sort(),
     sortOrder: index,
   }));
 }
@@ -315,14 +326,16 @@ export async function createBomRevisionInTx(
           throw new InventoryError("BOM alternate component not found", 400);
         }
 
-        const quantityFactor = derivePurchaseToStockFactor(
-          { size: defaultComponent.unitSize, uom: defaultComponent.unitUom },
-          { size: alternateItem.unitSize, uom: alternateItem.unitUom }
-        );
+        // The recipe author types the alternate's quantity in its own unit, so nothing is
+        // derived from unit sizes and unit-incompatible alternates are no longer rejected —
+        // substituting a differently-shaped package is the whole point. Older rows that
+        // carry only a factor are left alone; this path always writes an explicit quantity.
+        const typedQuantity =
+          alternate.quantity == null ? null : normalizeNumeric(Number(alternate.quantity));
 
-        if (quantityFactor == null) {
+        if (typedQuantity == null) {
           throw new InventoryError(
-            `${alternateItem.name} is not unit-compatible with ${defaultComponent.name}.`,
+            `Enter how much ${alternateItem.name} replaces ${defaultComponent.name}.`,
             400
           );
         }
@@ -334,7 +347,8 @@ export async function createBomRevisionInTx(
           alternateItemSku: alternateItem.sku,
           alternateItemType: alternateItem.itemType,
           unitName: alternateItem.unitName,
-          quantityFactor: normalizeNumeric(quantityFactor),
+          quantity: typedQuantity,
+          quantityFactor: null,
           sortOrder: alternateIndex,
         };
       });
@@ -548,6 +562,9 @@ export async function copyCurrentBomToVariants(
       minimumLotAgeDays: getMinimumLotAgeDays(row.constraints),
       alternates: row.alternates.map((alternate) => ({
         itemId: alternate.alternateItemId,
+        // Carry the typed quantity through the copy, or the alternate silently reverts to
+        // the base line's number on the copied recipe.
+        quantity: alternate.quantity,
       })),
     }));
     const operationCosts: BomOperationCostInputRow[] = sourceOperationCosts.map((row) => ({

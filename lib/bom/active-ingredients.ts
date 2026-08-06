@@ -93,6 +93,7 @@ export async function getCurrentActiveBomIngredientsInTx(tx: Tx, productId: stri
         alternateItemSku: bomRevisionComponentAlternates.alternateItemSku,
         alternateItemType: bomRevisionComponentAlternates.alternateItemType,
         unitName: bomRevisionComponentAlternates.unitName,
+        quantity: trimScale(bomRevisionComponentAlternates.quantity).as("quantity"),
         quantityFactor: trimScale(bomRevisionComponentAlternates.quantityFactor).as(
           "quantityFactor"
         ),
@@ -135,7 +136,8 @@ export async function getCurrentActiveBomIngredientsInTx(tx: Tx, productId: stri
       itemSku: string | null;
       itemType: string;
       unitName: string;
-      quantityFactor: string;
+      quantity: string | null;
+      quantityFactor: string | null;
       sortOrder: number;
     }>
   >();
@@ -149,7 +151,12 @@ export async function getCurrentActiveBomIngredientsInTx(tx: Tx, productId: stri
       itemSku: alternate.alternateItemSku,
       itemType: alternate.alternateItemType,
       unitName: alternate.unitName,
-      quantityFactor: alternate.quantityFactor,
+      quantity: alternate.quantity,
+      // Legacy wire field, deliberately never null. Android builds already in the field parse
+      // quantityFactor as a non-null String with no default, so a null here fails their whole
+      // manufacturing-order parse — and those installs cannot be fixed retroactively. `quantity`
+      // is authoritative; 1 is a neutral value for clients that only know the old shape.
+      quantityFactor: alternate.quantityFactor ?? "1",
       sortOrder: alternate.sortOrder,
     });
     alternatesByComponentId.set(alternate.bomRevisionComponentId, bucket);

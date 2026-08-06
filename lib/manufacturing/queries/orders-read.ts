@@ -671,7 +671,8 @@ export async function getManufacturingProductTemplates(): Promise<
           itemSku: string | null;
           itemType: string;
           unitName: string;
-          quantityFactor: string;
+          quantity: string | null;
+          quantityFactor: string | null;
           sortOrder: number;
         }>;
       }>;
@@ -767,7 +768,8 @@ export async function getManufacturingProductTemplates(): Promise<
               itemSku: alternate.alternateItemSku,
               itemType: alternate.alternateItemType,
               unitName: alternate.unitName,
-              quantityFactor: alternate.quantityFactor,
+              quantity: alternate.quantity,
+              quantityFactor: alternate.quantityFactor ?? "1",
               sortOrder: alternate.sortOrder,
             })),
           })),
@@ -1125,7 +1127,8 @@ export async function getManufacturingOrder(
                   itemSku: alternate.alternateItemSku,
                   itemType: alternate.alternateItemType,
                   unitName: alternate.unitName,
-                  quantityFactor: alternate.quantityFactor,
+                  quantity: alternate.quantity,
+                  quantityFactor: alternate.quantityFactor ?? "1",
                   sortOrder: alternate.sortOrder,
                 })),
               };
@@ -1359,7 +1362,8 @@ export async function getManufacturingOrderEditData(
             itemSku: alternate.alternateItemSku,
             itemType: alternate.alternateItemType,
             unitName: alternate.unitName,
-            quantityFactor: alternate.quantityFactor,
+            quantity: alternate.quantity,
+            quantityFactor: alternate.quantityFactor ?? "1",
             sortOrder: alternate.sortOrder,
           })),
         };

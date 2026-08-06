@@ -44,16 +44,24 @@ import { cn } from "@/lib/utils";
 type AvailableComponent = {
   id: string;
   name: string;
+  familyId: string | null;
   displayName: string;
   itemType: string;
   unit: string;
   estimatedUnitCost?: string | null;
 };
 
+type BomAlternateRow = {
+  itemId: string;
+  /** Nullable on the way in: recipes saved before alternates carried a number. */
+  quantity?: string | null;
+};
+
 type BomPayloadRow = {
   componentId: string | null;
   quantity: string | null;
   minimumLotAgeDays?: string | number | null;
+  alternates?: BomAlternateRow[] | null;
 };
 
 type BomGridRow = BomPayloadRow & {
@@ -109,6 +117,7 @@ function toPayloadRows(rows: BomGridRow[]): BomPayloadRow[] {
     componentId: row.componentId ?? "",
     quantity: normalizeTextCell(row.quantity),
     minimumLotAgeDays: normalizeMinimumLotAge(row.minimumLotAgeDays),
+    alternates: row.alternates ?? [],
   }));
 }
 
@@ -128,6 +137,7 @@ export function toBomRevisionPayloadRows(rows: BomPayloadRow[]) {
       componentId: row.componentId ?? "",
       quantity: row.quantity ?? "",
       minimumLotAgeDays: row.minimumLotAgeDays ?? null,
+      alternates: row.alternates ?? [],
     }));
 }
 
@@ -139,6 +149,9 @@ function comparablePayload(rows: BomGridRow[]) {
         componentId: row.componentId ?? "",
         quantity: row.quantity ?? null,
         minimumLotAgeDays: row.minimumLotAgeDays ?? null,
+        alternates: [...(row.alternates ?? [])].sort((left, right) =>
+          left.itemId.localeCompare(right.itemId)
+        ),
       }))
   );
 }
@@ -232,6 +245,218 @@ function getRequirementSummary(row: BomGridRow | undefined) {
       : null;
 
   return summarizeComponentRequirements(lotAgeConstraint ? [lotAgeConstraint] : []);
+}
+
+function getVariantSummary(
+  data: BomGridRow | undefined,
+  componentMap: Map<string, AvailableComponent>
+) {
+  const count = data?.alternates?.length ?? 0;
+  if (count === 0) {
+    return data?.componentId && getFamilySiblings(data.componentId, componentMap).length > 0
+      ? "None"
+      : "—";
+  }
+  return count === 1 ? "1 variant" : `${count} variants`;
+}
+
+/** Every other item sharing this component's family. Empty when it has no siblings. */
+function getFamilySiblings(
+  componentId: string,
+  componentMap: Map<string, AvailableComponent>
+) {
+  const component = componentMap.get(componentId);
+  if (!component?.familyId) return [];
+  return [...componentMap.values()].filter(
+    (candidate) =>
+      candidate.familyId === component.familyId && candidate.id !== component.id
+  );
+}
+
+/**
+ * Chooses which same-family variants may replace this ingredient, and how much of each.
+ *
+ * The quantity is typed per variant in that variant's own unit and is never derived — a
+ * larger package is a different number, not a multiple of the base line. A variant left
+ * unchecked simply is not offered on manufacturing orders.
+ */
+function VariantsCell({
+  data,
+  rows,
+  componentMap,
+  emitRowsChange,
+  readOnly,
+}: ICellRendererParams<BomGridRow> & {
+  rows: BomGridRow[];
+  componentMap: Map<string, AvailableComponent>;
+  emitRowsChange: (
+    nextRows: BomGridRow[],
+    change: EditableLineDataGridChange<BomGridRow>,
+  ) => void;
+  readOnly: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const summary = getVariantSummary(data, componentMap);
+  const siblings = data?.componentId
+    ? getFamilySiblings(data.componentId, componentMap)
+    : [];
+
+  if (!data) {
+    return null;
+  }
+
+  if (readOnly || siblings.length === 0) {
+    return (
+      <span
+        className={cn(
+          "block truncate px-(--space-3)",
+          summary !== "None" && summary !== "—"
+            ? undefined
+            : "text-[var(--color-ink-faint)]"
+        )}
+      >
+        {summary}
+      </span>
+    );
+  }
+
+  const invalid = Object.entries(draft).some(
+    ([, value]) => value.trim() !== "" && !(Number(value) > 0)
+  );
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen) {
+          const next: Record<string, string> = {};
+          for (const alternate of data.alternates ?? []) {
+            next[alternate.itemId] = alternate.quantity ?? "";
+          }
+          setDraft(next);
+        }
+        setOpen(nextOpen);
+      }}
+    >
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className={cn(
+            "h-full w-full justify-start px-(--space-3)",
+            summary === "None" && "text-[var(--color-ink-faint)]"
+          )}
+        >
+          {summary}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-96">
+        <PopoverHeader>
+          <PopoverTitle>Ingredient variants</PopoverTitle>
+          <PopoverDescription>
+            How much of each replaces this line
+          </PopoverDescription>
+        </PopoverHeader>
+        <div className="space-y-(--space-4)">
+          {siblings.map((sibling) => {
+            const value = draft[sibling.id] ?? "";
+            const checked = sibling.id in draft;
+            const badValue = checked && value.trim() !== "" && !(Number(value) > 0);
+            return (
+              <div key={sibling.id} className="flex items-start gap-(--space-4)">
+                <Checkbox
+                  id={`variant-${data.clientRowId}-${sibling.id}`}
+                  checked={checked}
+                  onCheckedChange={(next) => {
+                    setDraft((current) => {
+                      const copy = { ...current };
+                      if (next === true) {
+                        copy[sibling.id] = current[sibling.id] ?? "";
+                      } else {
+                        delete copy[sibling.id];
+                      }
+                      return copy;
+                    });
+                  }}
+                />
+                <div className="min-w-0 flex-1 space-y-(--space-3)">
+                  <Label htmlFor={`variant-${data.clientRowId}-${sibling.id}`}>
+                    {sibling.displayName}
+                  </Label>
+                  <div className="grid grid-cols-[1fr_auto] items-center gap-(--space-3)">
+                    <Input
+                      inputMode="decimal"
+                      value={value}
+                      disabled={!checked}
+                      aria-invalid={badValue}
+                      aria-label={`${sibling.displayName} quantity`}
+                      onChange={(event) =>
+                        setDraft((current) => ({
+                          ...current,
+                          [sibling.id]: event.target.value,
+                        }))
+                      }
+                    />
+                    <span className="text-[length:var(--text-sm)] text-[var(--color-ink-faint)]">
+                      {sibling.unit}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {invalid ? (
+            <p className="text-[length:var(--text-xs)] text-[var(--status-danger-ink)]">
+              Quantities must be greater than 0.
+            </p>
+          ) : null}
+        </div>
+        <div className="flex justify-end gap-(--space-3)">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setOpen(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={
+              invalid ||
+              Object.entries(draft).some(([, value]) => value.trim() === "")
+            }
+            onClick={() => {
+              const nextAlternates: BomAlternateRow[] = Object.entries(draft).map(
+                ([itemId, quantity]) => ({ itemId, quantity: quantity.trim() })
+              );
+              const nextRows = rows.map((row) =>
+                row.clientRowId === data.clientRowId
+                  ? { ...row, alternates: nextAlternates }
+                  : row
+              );
+              const nextRow = nextRows.find(
+                (row) => row.clientRowId === data.clientRowId
+              );
+              emitRowsChange(nextRows, {
+                type: "cell_edit_committed",
+                field: "componentId",
+                colId: "alternates",
+                row: nextRow,
+                rows: nextRows,
+              });
+              setOpen(false);
+            }}
+          >
+            Apply
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 function RequirementsCell({
@@ -616,6 +841,22 @@ export function BomEditor({
 
             return <EstimatedMoneyCell value={contribution} />;
           },
+        },
+        {
+          colId: "alternates",
+          kind: "display",
+          headerName: "Variants",
+          minWidth: 128,
+          flex: 0.6,
+          cellRenderer: (params: ICellRendererParams<BomGridRow>) => (
+            <VariantsCell
+              {...params}
+              rows={rows}
+              componentMap={componentMap}
+              emitRowsChange={emitRowsChange}
+              readOnly={readOnly}
+            />
+          ),
         },
         {
           field: "minimumLotAgeDays",

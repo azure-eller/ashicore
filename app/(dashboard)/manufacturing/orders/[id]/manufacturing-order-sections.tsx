@@ -81,7 +81,8 @@ export type ManufacturingProductOption = {
       itemSku: string | null;
       itemType: string;
       unitName: string;
-      quantityFactor: string;
+      quantity: string | null;
+      quantityFactor: string | null;
       sortOrder: number;
     }>;
   }>;

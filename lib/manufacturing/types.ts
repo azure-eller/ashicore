@@ -254,7 +254,8 @@ export type ManufacturingOrderIngredientDetail = {
     itemSku: string | null;
     itemType: string;
     unitName: string;
-    quantityFactor: string;
+    quantity: string | null;
+    quantityFactor: string | null;
     sortOrder: number;
   }>;
 };
@@ -423,7 +424,8 @@ export type ManufacturingOrderEditData = {
       itemSku: string | null;
       itemType: string;
       unitName: string;
-      quantityFactor: string;
+      quantity: string | null;
+      quantityFactor: string | null;
       sortOrder: number;
     }>;
   }>;

@@ -82,6 +82,7 @@ export default async function ProductRecipePage({
       availableComponents={availableComponents.map((component) => ({
         id: component.id,
         name: component.name,
+        familyId: component.familyId,
         displayName: component.displayName,
         itemType: component.itemType,
         unit: component.unit,

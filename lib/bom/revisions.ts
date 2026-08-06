@@ -39,7 +39,8 @@ export type BomRevisionComponentAlternateSnapshot = {
   alternateItemSku: string | null;
   alternateItemType: string;
   unitName: string;
-  quantityFactor: string;
+  quantity: string | null;
+  quantityFactor: string | null;
   sortOrder: number;
 };
 
@@ -191,6 +192,7 @@ export async function getBomRevisionComponentsByRevisionIdInTx(
         alternateItemSku: bomRevisionComponentAlternates.alternateItemSku,
         alternateItemType: bomRevisionComponentAlternates.alternateItemType,
         unitName: bomRevisionComponentAlternates.unitName,
+        quantity: trimScale(bomRevisionComponentAlternates.quantity).as("quantity"),
         quantityFactor: trimScale(bomRevisionComponentAlternates.quantityFactor).as(
           "quantityFactor"
         ),
@@ -229,6 +231,7 @@ export async function getBomRevisionComponentsByRevisionIdInTx(
       alternateItemSku: alternate.alternateItemSku,
       alternateItemType: alternate.alternateItemType,
       unitName: alternate.unitName,
+      quantity: alternate.quantity,
       quantityFactor: alternate.quantityFactor,
       sortOrder: alternate.sortOrder,
     });
