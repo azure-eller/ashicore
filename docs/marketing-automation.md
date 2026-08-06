@@ -49,10 +49,11 @@ GOOGLE_TOKEN_ENCRYPTION_KEYS={"gmail_v1":"<32-byte-base64-key>"}
 GOOGLE_TOKEN_ENCRYPTION_KEY_ID=gmail_v1
 OPENAI_API_KEY
 ASHICORE_ALERT_EMAILS
-CRON_SECRET
 ```
 
-`MARKETING_AUTOMATION_SECRET` may replace `CRON_SECRET` for the marketing route.
+Configure either `MARKETING_AUTOMATION_SECRET` or the shared `CRON_SECRET` for
+the marketing route. `ASHICORE_ALERT_EMAILS` is required for positive/unknown
+reply, pause, and completion notices to reach the founder.
 `MARKETING_AGENT_MODEL` may override the shared agent model. Configure the
 Google OAuth consent screen for `gmail.send` and `gmail.readonly`, then register
 the exact redirect URI above.
@@ -79,6 +80,7 @@ GET    /api/marketing/experiments/:id
 POST   /api/marketing/experiments/:id/activate
 POST   /api/marketing/experiments/:id/pause
 GET    /api/marketing/gmail/connect
+GET    /api/marketing/gmail/callback
 DELETE /api/marketing/gmail
 PATCH  /api/marketing/contacts/:id/suppression
 ```
