@@ -16,7 +16,7 @@ import { demandQueueCoverageKey, getDemandQueueCoverageByDemandKeyForItemsInTx }
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import type { ManufacturingBatchStatus, ManufacturingLotStrategy, ManufacturingOrderStatus, ManufacturingPickStatus } from "@/lib/schemas/manufacturing-orders";
 import type { ManufacturingOrderDetail, ManufacturingOrderEditData, ManufacturingOrderListRow, ManufacturingIngredientReadiness, ManufacturingPickProgressStatus, ManufacturingProductOption, ManufacturingSalesOrderOption, ManufacturingSalesOrderPreview, ManufacturingSalesLineOption } from "../types";
-import { type ExecutionIngredientRow, aggregateBatchIngredients, getBatchPickProgressStatus, getBatchRowsInTx, getExecutionLotAllocationsByIngredientInTx, getExecutionLotAllocationsByItemId, getExecutionLotPickPlansByIngredientInTx, getIngredientConstraintsByIdInTx, getTemplateIngredientsInTx, toIngredientDetail, withIngredientLotTrackingModesInTx } from "./execution-state";
+import { type ExecutionIngredientRow, aggregateBatchIngredients, getBatchPickProgressStatus, getBatchRowsInTx, getExecutionIngredientLineKey, getExecutionLotAllocationsByIngredientInTx, getExecutionLotAllocationsByLine, getExecutionLotPickPlansByIngredientInTx, getIngredientConstraintsByIdInTx, getTemplateIngredientsInTx, toIngredientDetail, withIngredientLotTrackingModesInTx } from "./execution-state";
 import { type IngredientProgressRow, canonicalItemName, effectiveManufacturingPriorityRankSql, getActiveSiblingVariantsByItemIdInTx, getManufacturingItemDisplayMetadataInTx, getPickProgressStatus, getRemainingQuantityNumber, sumNumericStrings } from "./shared";
 
 type EditableManufacturingIngredientSnapshotRow = {
@@ -1090,7 +1090,7 @@ export async function getManufacturingOrder(
           (ingredient) => ingredient.id
         )
       );
-    const lotAllocationsByItemId = getExecutionLotAllocationsByItemId(
+    const lotAllocationsByLine = getExecutionLotAllocationsByLine(
       batchIngredientsWithDetails ?? (rawIngredients as ExecutionIngredientRow[]),
       lotAllocationsByIngredientId
     );
@@ -1111,14 +1111,20 @@ export async function getManufacturingOrder(
               if (!bomRow) {
                 return {
                   ...ingredient,
-                  lotAllocations: lotAllocationsByItemId.get(ingredient.itemId) ?? [],
+                  lotAllocations:
+                    lotAllocationsByLine.get(
+                      getExecutionIngredientLineKey(ingredient)
+                    ) ?? [],
                   siblingVariants: [],
                 };
               }
 
               return {
                 ...ingredient,
-                lotAllocations: lotAllocationsByItemId.get(ingredient.itemId) ?? [],
+                lotAllocations:
+                    lotAllocationsByLine.get(
+                      getExecutionIngredientLineKey(ingredient)
+                    ) ?? [],
                 defaultItemId: bomRow.componentId,
                 defaultItemName: bomRow.componentName,
                 defaultItemSku: bomRow.componentSku,
@@ -1143,7 +1149,10 @@ export async function getManufacturingOrder(
           })()
         : ingredients.map((ingredient) => ({
             ...ingredient,
-            lotAllocations: lotAllocationsByItemId.get(ingredient.itemId) ?? [],
+            lotAllocations:
+                    lotAllocationsByLine.get(
+                      getExecutionIngredientLineKey(ingredient)
+                    ) ?? [],
             siblingVariants: [],
           }));
     const itemDisplayById = await getManufacturingItemDisplayMetadataInTx(tx, [
