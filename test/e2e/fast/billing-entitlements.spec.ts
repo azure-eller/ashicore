@@ -31,7 +31,7 @@ import { getBaseUrl, getOrgId } from "../../helpers/api";
 
 const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? "";
 const FREE_GRACE_BACKFILL_SQL = readFileSync(
-  "drizzle/0183_free_grace_backfill.sql",
+  "drizzle/0184_free_grace_backfill.sql",
   "utf8",
 );
 
