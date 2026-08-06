@@ -123,5 +123,6 @@ export type MarketingActivityMetadata = {
   gmailThreadId?: string;
   followUpMessageId?: string;
   replyMessageId?: string;
+  replyMessageIds?: string[];
   replyOutcome?: (typeof MARKETING_REPLY_OUTCOMES)[number];
 };

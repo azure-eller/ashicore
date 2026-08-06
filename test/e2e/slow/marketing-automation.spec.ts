@@ -112,6 +112,10 @@ test("a bounded experiment runs autonomously and suppresses an opt-out", async (
   const sent = JSON.parse(
     await fs.readFile(path.join(MARKETING_GMAIL_OUTBOX_DIR, outboxFiles[0]!), "utf8"),
   ) as { threadId: string };
+  const pausedResponse = await page.request.post(
+    `/api/marketing/experiments/${created.id}/pause`,
+  );
+  expect(pausedResponse.status(), await pausedResponse.text()).toBe(200);
   await fs.writeFile(
     path.join(MARKETING_GMAIL_INBOX_DIR, "opt-out.json"),
     JSON.stringify({
@@ -127,7 +131,7 @@ test("a bounded experiment runs autonomously and suppresses an opt-out", async (
     page,
     new Date(nextTickAt.getTime() + 60_000).toISOString(),
   );
-  expect(replyTick).toMatchObject({ status: "active", replies: 1 });
+  expect(replyTick).toMatchObject({ status: "idle", replies: 1 });
 
   const [suppressed] = await db
     .select({

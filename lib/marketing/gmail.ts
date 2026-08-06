@@ -321,17 +321,17 @@ function decodeBody(payload: {
 export async function readNewGmailMessages(orgId: string) {
   if (await isMarketingTestMode()) {
     const names = await fs.readdir(MARKETING_GMAIL_INBOX_DIR).catch(() => []);
-    return Promise.all(
+    return { messages: await Promise.all(
       names.filter((name) => name.endsWith(".json")).map(async (name) =>
         JSON.parse(
           await fs.readFile(path.join(MARKETING_GMAIL_INBOX_DIR, name), "utf8"),
         ) as GmailInboundMessage,
       ),
-    );
+    ) };
   }
 
   const { accessToken, mailbox } = await activeAccessToken(orgId);
-  if (!mailbox.historyId) return [];
+  if (!mailbox.historyId) return { messages: [] };
   type GmailHistoryPage = {
     historyId?: string;
     history?: Array<{ messagesAdded?: Array<{ message: { id: string } }> }>;
@@ -384,17 +384,20 @@ export async function readNewGmailMessages(orgId: string) {
       };
     }),
   );
-  await withOrgContext(orgId, (tx) =>
+  return { messages, historyId: latestHistoryId };
+}
+
+export async function acknowledgeGmailHistory(orgId: string, historyId: string) {
+  return withOrgContext(orgId, (tx) =>
     tx
       .update(marketingMailboxes)
       .set({
-        historyId: latestHistoryId,
+        historyId,
         lastSyncedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(eq(marketingMailboxes.id, mailbox.id)),
+      .where(eq(marketingMailboxes.organizationId, orgId)),
   );
-  return messages;
 }
 
 export async function disableMarketingMailbox(orgId: string, userId: string) {

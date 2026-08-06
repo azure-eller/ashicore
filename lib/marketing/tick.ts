@@ -1,7 +1,7 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import {
   customerActivities,
   customerActivityAttendees,
@@ -30,7 +30,11 @@ import {
   MARKETING_PROMPT_VERSION,
   marketingModelName,
 } from "./generation";
-import { readNewGmailMessages, sendGmailMessage } from "./gmail";
+import {
+  acknowledgeGmailHistory,
+  readNewGmailMessages,
+  sendGmailMessage,
+} from "./gmail";
 import { isMarketingTestMode } from "./runtime-policy";
 
 const PROCESSING_LEASE_MS = 15 * 60 * 1_000;
@@ -343,35 +347,30 @@ async function processCandidate(args: {
     return "skipped" as const;
   }
   const recipientEmail = candidate.email;
+  let activity = await withOrgContext(args.orgId, async (tx) => {
+    const [existing] = await tx
+      .select()
+      .from(customerActivities)
+      .where(
+        and(
+          eq(customerActivities.marketingExperimentId, args.experiment.id),
+          eq(customerActivities.marketingContactId, candidate.id),
+        ),
+      );
+    return existing ?? null;
+  });
 
   try {
-    const corpus = await assertMarketingCorpusReady();
-    let draft = await generateMarketingDraft({
-      company: candidate.company,
-      recipient: candidate.name,
-      evidence: candidate.evidence,
-      ...args.experiment.config,
-      corpus,
-    });
-    const verdicts = [
-      await evaluateMarketingDraft({
-        draft,
-        company: candidate.company,
-        evidence: candidate.evidence,
-        allowedClaims: args.experiment.config.allowedClaims,
-        corpus,
-      }),
-    ];
-    if (verdicts[0]!.verdict === "rewrite") {
-      draft = await generateMarketingDraft({
+    if (!activity) {
+      const corpus = await assertMarketingCorpusReady();
+      let draft = await generateMarketingDraft({
         company: candidate.company,
         recipient: candidate.name,
         evidence: candidate.evidence,
         ...args.experiment.config,
         corpus,
-        rewriteFeedback: verdicts[0],
       });
-      verdicts.push(
+      const verdicts = [
         await evaluateMarketingDraft({
           draft,
           company: candidate.company,
@@ -379,68 +378,89 @@ async function processCandidate(args: {
           allowedClaims: args.experiment.config.allowedClaims,
           corpus,
         }),
-      );
-    }
-    if (verdicts.at(-1)!.verdict !== "pass") {
-      await markContact({
-        orgId: args.orgId,
-        experimentId: args.experiment.id,
-        contactId: args.contactId,
-        leaseId: args.leaseId,
-        patch: { status: "skipped", reason: verdicts.at(-1)!.reasons.join(" ") },
-      });
-      return "skipped" as const;
-    }
-
-    const body = `${draft.body}${complianceFooter()}`;
-    const metadata: MarketingActivityMetadata = {
-      version: "v1",
-      deliveryStatus: "processing",
-      evidence: candidate.evidence,
-      subject: draft.subject,
-      generatedBody: draft.body,
-      finalBody: body,
-      evaluatorVerdicts: verdicts,
-      model: marketingModelName(),
-      promptVersion: MARKETING_PROMPT_VERSION,
-      corpusVersion: corpus.version,
-    };
-    const activity = await withOrgContext(args.orgId, async (tx) => {
-      const [existing] = await tx
-        .select()
-        .from(customerActivities)
-        .where(
-          and(
-            eq(customerActivities.marketingExperimentId, args.experiment.id),
-            eq(customerActivities.marketingContactId, candidate.id),
-          ),
+      ];
+      if (verdicts[0]!.verdict === "rewrite") {
+        draft = await generateMarketingDraft({
+          company: candidate.company,
+          recipient: candidate.name,
+          evidence: candidate.evidence,
+          ...args.experiment.config,
+          corpus,
+          rewriteFeedback: verdicts[0],
+        });
+        verdicts.push(
+          await evaluateMarketingDraft({
+            draft,
+            company: candidate.company,
+            evidence: candidate.evidence,
+            allowedClaims: args.experiment.config.allowedClaims,
+            corpus,
+          }),
         );
-      if (existing) return existing;
-      const [created] = await tx
-        .insert(customerActivities)
-        .values({
+      }
+      if (verdicts.at(-1)!.verdict !== "pass") {
+        await markContact({
+          orgId: args.orgId,
+          experimentId: args.experiment.id,
+          contactId: args.contactId,
+          leaseId: args.leaseId,
+          patch: { status: "skipped", reason: verdicts.at(-1)!.reasons.join(" ") },
+        });
+        return "skipped" as const;
+      }
+
+      const body = `${draft.body}${complianceFooter()}`;
+      const metadata: MarketingActivityMetadata = {
+        version: "v1",
+        deliveryStatus: "processing",
+        evidence: candidate.evidence,
+        subject: draft.subject,
+        generatedBody: draft.body,
+        finalBody: body,
+        evaluatorVerdicts: verdicts,
+        model: marketingModelName(),
+        promptVersion: MARKETING_PROMPT_VERSION,
+        corpusVersion: corpus.version,
+      };
+      activity = await withOrgContext(args.orgId, async (tx) => {
+        const [existing] = await tx
+          .select()
+          .from(customerActivities)
+          .where(
+            and(
+              eq(customerActivities.marketingExperimentId, args.experiment.id),
+              eq(customerActivities.marketingContactId, candidate.id),
+            ),
+          );
+        if (existing) return existing;
+        const [created] = await tx
+          .insert(customerActivities)
+          .values({
+            organizationId: args.orgId,
+            customerId: candidate.customerId,
+            type: "email",
+            occurredAt: args.now,
+            title: draft.subject,
+            body,
+            createdByUserId: args.experiment.createdByUserId,
+            createdByName: "Ashicore marketing automation",
+            marketingExperimentId: args.experiment.id,
+            marketingContactId: candidate.id,
+            marketingMetadata: metadata,
+          })
+          .returning();
+        await tx.insert(customerActivityAttendees).values({
           organizationId: args.orgId,
           customerId: candidate.customerId,
-          type: "email",
-          occurredAt: args.now,
-          title: draft.subject,
-          body,
-          createdByUserId: args.experiment.createdByUserId,
-          createdByName: "Ashicore marketing automation",
-          marketingExperimentId: args.experiment.id,
-          marketingContactId: candidate.id,
-          marketingMetadata: metadata,
-        })
-        .returning();
-      await tx.insert(customerActivityAttendees).values({
-        organizationId: args.orgId,
-        customerId: candidate.customerId,
-        activityId: created!.id,
-        contactId: candidate.id,
-        contactName: candidate.name,
-      });
-      return created!;
-    }, { userId: args.experiment.createdByUserId });
+          activityId: created!.id,
+          contactId: candidate.id,
+          contactName: candidate.name,
+        });
+        return created!;
+      }, { userId: args.experiment.createdByUserId });
+    }
+
+    if (!activity) throw new DomainError("Marketing activity was not created.", 500);
 
     if (activity.marketingMetadata?.deliveryStatus === "sent") {
       await markContact({
@@ -459,7 +479,10 @@ async function processCandidate(args: {
     }
 
     const deliveryMetadata = activity.marketingMetadata;
-    if (!deliveryMetadata || deliveryMetadata.deliveryStatus !== "processing") {
+    if (
+      !deliveryMetadata ||
+      !["processing", "failed"].includes(deliveryMetadata.deliveryStatus)
+    ) {
       throw new DomainError("Marketing activity has no retryable delivery evidence.", 409);
     }
     if (
@@ -541,22 +564,32 @@ async function processCandidate(args: {
   }
 }
 
-async function syncReplies(orgId: string, experiment: ActiveExperiment) {
-  const inbound = await readNewGmailMessages(orgId);
-  if (inbound.length === 0) return 0;
+async function syncReplies(orgId: string) {
+  const batch = await readNewGmailMessages(orgId);
+  if (batch.messages.length === 0) {
+    if (batch.historyId) await acknowledgeGmailHistory(orgId, batch.historyId);
+    return 0;
+  }
   const activities = await withOrgContext(orgId, (tx) =>
     tx
       .select()
       .from(customerActivities)
-      .where(eq(customerActivities.marketingExperimentId, experiment.id)),
+      .where(isNotNull(customerActivities.marketingExperimentId)),
   );
   let processed = 0;
-  for (const message of inbound) {
+  for (const message of batch.messages) {
     const activity = activities.find(
       (row) => row.marketingMetadata?.gmailThreadId === message.threadId,
     );
-    if (!activity?.marketingContactId || !activity.marketingMetadata) continue;
-    if (activity.marketingMetadata.replyMessageId === message.messageId) continue;
+    if (
+      !activity?.marketingExperimentId ||
+      !activity.marketingContactId ||
+      !activity.marketingMetadata
+    ) continue;
+    if (
+      activity.marketingMetadata.replyMessageId === message.messageId ||
+      activity.marketingMetadata.replyMessageIds?.includes(message.messageId)
+    ) continue;
     const classification = await classifyMarketingReply(message);
     const isBounce =
       classification.outcome === "automated" &&
@@ -564,17 +597,19 @@ async function syncReplies(orgId: string, experiment: ActiveExperiment) {
         `${message.from}\n${message.subject}\n${message.text}`,
       );
     const status = isBounce ? "bounced" : "replied";
+    const updatedMetadata = {
+      ...activity.marketingMetadata,
+      replyMessageId: message.messageId,
+      replyMessageIds: [
+        ...(activity.marketingMetadata.replyMessageIds ?? []),
+        message.messageId,
+      ],
+      replyOutcome: classification.outcome,
+    };
     await withOrgContext(orgId, async (tx) => {
       await tx
         .update(customerActivities)
-        .set({
-          marketingMetadata: {
-            ...activity.marketingMetadata!,
-            replyMessageId: message.messageId,
-            replyOutcome: classification.outcome,
-          },
-          updatedAt: new Date(),
-        })
+        .set({ marketingMetadata: updatedMetadata, updatedAt: new Date() })
         .where(eq(customerActivities.id, activity.id));
       if (["opt_out", "complaint"].includes(classification.outcome)) {
         await tx
@@ -589,7 +624,7 @@ async function syncReplies(orgId: string, experiment: ActiveExperiment) {
     });
     await markContact({
       orgId,
-      experimentId: experiment.id,
+      experimentId: activity.marketingExperimentId,
       contactId: activity.marketingContactId,
       patch: {
         status,
@@ -615,11 +650,18 @@ async function syncReplies(orgId: string, experiment: ActiveExperiment) {
         tx
           .update(marketingExperiments)
           .set({ status: "paused", updatedAt: new Date() })
-          .where(eq(marketingExperiments.id, experiment.id)),
+          .where(
+            and(
+              eq(marketingExperiments.id, activity.marketingExperimentId!),
+              eq(marketingExperiments.status, "active"),
+            ),
+          ),
       );
     }
+    activity.marketingMetadata = updatedMetadata;
     processed += 1;
   }
+  if (batch.historyId) await acknowledgeGmailHistory(orgId, batch.historyId);
   return processed;
 }
 
@@ -669,7 +711,8 @@ async function sendDueFollowUps(args: {
       corpus,
     });
     if (verdict.verdict !== "pass") continue;
-    if (!(await loadActiveExperiment(args.orgId))) break;
+    const active = await loadActiveExperiment(args.orgId);
+    if (!active || active.id !== args.experiment.id) break;
     let sent: Awaited<ReturnType<typeof sendGmailMessage>>;
     try {
       sent = await sendGmailMessage({
@@ -802,19 +845,30 @@ export async function processMarketingTick(args: {
     return row?.timeZone ?? "America/Denver";
   });
   let experiment = await loadActiveExperiment(args.orgId);
-  if (!experiment) return { status: "idle" as const };
 
   let replies: number;
   try {
-    replies = await syncReplies(args.orgId, experiment);
+    replies = await syncReplies(args.orgId);
   } catch (error) {
-    await pauseForDeliveryFailure({
-      orgId: args.orgId,
-      experimentId: experiment.id,
-      reason: error instanceof Error ? error.message : "Gmail reply sync failed.",
+    const reason = error instanceof Error ? error.message : "Gmail reply sync failed.";
+    if (experiment) {
+      await pauseForDeliveryFailure({
+        orgId: args.orgId,
+        experimentId: experiment.id,
+        reason,
+      });
+      return { status: "paused" as const, replies: 0, reason: "mailbox_failure" };
+    }
+    await sendFounderAlert({
+      kind: "marketing_experiment",
+      subject: "Ashicore marketing reply sync failed",
+      fields: [{ label: "Reason", value: reason }],
+      idempotencyKey: "marketing-reply-sync-failure",
     });
-    return { status: "paused" as const, replies: 0, reason: "mailbox_failure" };
+    return { status: "idle" as const, replies: 0, reason: "mailbox_failure" };
   }
+  experiment = await loadActiveExperiment(args.orgId);
+  if (!experiment) return { status: "idle" as const, replies };
   if (await maybeAutoPauseForBounces(args.orgId, experiment.id)) {
     return { status: "paused" as const, replies, reason: "bounce_guard" };
   }
