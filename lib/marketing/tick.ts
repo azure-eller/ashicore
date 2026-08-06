@@ -84,9 +84,11 @@ function sentCount(state: MarketingExperimentState) {
 function reservedCount(state: MarketingExperimentState, now: Date) {
   return progressValues(state).filter(
     (row) =>
-      row.status === "processing" &&
-      row.processingLeaseExpiresAt != null &&
-      new Date(row.processingLeaseExpiresAt).getTime() > now.getTime(),
+      (row.status === "processing" &&
+        row.processingLeaseExpiresAt != null &&
+        new Date(row.processingLeaseExpiresAt).getTime() > now.getTime()) ||
+      (row.followUpLeaseExpiresAt != null &&
+        new Date(row.followUpLeaseExpiresAt).getTime() > now.getTime()),
   ).length;
 }
 
@@ -709,7 +711,7 @@ async function sendDueFollowUps(args: {
   orgId: string;
   experiment: ActiveExperiment;
   now: Date;
-  limit: number;
+  timeZone: string;
 }) {
   const leaseId = randomUUID();
   const leaseExpiresAt = new Date(args.now.getTime() + PROCESSING_LEASE_MS).toISOString();
@@ -721,6 +723,10 @@ async function sendDueFollowUps(args: {
       .for("update");
     if (!row || row.status !== "active") return [];
     const state = marketingExperimentStateSchema.parse(row.state);
+    const limit = Math.max(
+      0,
+      dailyAllowance(state, args.now, args.timeZone) - reservedCount(state, args.now),
+    );
     const claimed = Object.entries(state.contactProgress)
       .filter(([, progress]) =>
         progress.status === "sent" &&
@@ -731,7 +737,7 @@ async function sendDueFollowUps(args: {
         (!progress.followUpLeaseExpiresAt ||
           new Date(progress.followUpLeaseExpiresAt).getTime() <= args.now.getTime()),
       )
-      .slice(0, args.limit);
+      .slice(0, limit);
     for (const [contactId, progress] of claimed) {
       state.contactProgress[contactId] = {
         ...progress,
@@ -967,13 +973,11 @@ export async function processMarketingTick(args: {
   let followUps = 0;
   let sent = 0;
   if (await sendWindowOpen(now, timeZone)) {
-    const initialState = marketingExperimentStateSchema.parse(experiment.state);
-    const allowance = dailyAllowance(initialState, now, timeZone);
     followUps = await sendDueFollowUps({
       orgId: args.orgId,
       experiment,
       now,
-      limit: allowance,
+      timeZone,
     });
     const activeAfterFollowUps = await loadActiveExperiment(args.orgId);
     if (!activeAfterFollowUps) {
