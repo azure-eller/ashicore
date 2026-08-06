@@ -21,6 +21,7 @@ import { type IngredientProgressRow, canonicalItemName, effectiveManufacturingPr
 
 type EditableManufacturingIngredientSnapshotRow = {
   id: string;
+  bomRevisionComponentId: string | null;
   itemId: string;
   itemName: string;
   itemSku: string | null;
@@ -76,6 +77,7 @@ async function getEditableManufacturingIngredientSnapshotInTx(
   const templateRows = await tx
     .select({
       id: manufacturingOrderIngredients.id,
+      bomRevisionComponentId: manufacturingOrderIngredients.bomRevisionComponentId,
       itemId: manufacturingOrderIngredients.itemId,
       itemName: manufacturingOrderIngredients.itemName,
       itemSku: manufacturingOrderIngredients.itemSku,
@@ -992,6 +994,7 @@ export async function getManufacturingOrder(
         ? await tx
             .select({
               id: manufacturingOrderIngredients.id,
+              bomRevisionComponentId: manufacturingOrderIngredients.bomRevisionComponentId,
               manufacturingOrderBatchId:
                 manufacturingOrderIngredients.manufacturingOrderBatchId,
               itemId: manufacturingOrderIngredients.itemId,
@@ -1099,7 +1102,9 @@ export async function getManufacturingOrder(
                 bomRows.map((row) => row.componentId)
               );
             return ingredients.map((ingredient) => {
-              const bomRow = bomRows.find((row) => row.sortOrder === ingredient.sortOrder);
+              const bomRow = bomRows.find(
+                (row) => row.id === ingredient.bomRevisionComponentId
+              );
 
               if (!bomRow) {
                 return {
@@ -1308,7 +1313,7 @@ export async function getManufacturingOrderEditData(
         ? []
         : await getBomRevisionComponentsInTx(tx, order.bomRevisionId);
 
-    const bomBySortOrder = new Map(bomRows.map((row) => [row.sortOrder, row]));
+    const bomById = new Map(bomRows.map((row) => [row.id, row]));
     const itemDisplayById = await getManufacturingItemDisplayMetadataInTx(tx, [
       order.productId,
       ...editableIngredients.flatMap((ingredient) => [ingredient.itemId]),
@@ -1326,7 +1331,9 @@ export async function getManufacturingOrderEditData(
       ...order,
       productName: canonicalItemName(itemDisplayById, order.productId, order.productName),
       ingredients: editableIngredients.map((ingredient) => {
-        const bomRow = bomBySortOrder.get(ingredient.sortOrder);
+        const bomRow = ingredient.bomRevisionComponentId
+          ? bomById.get(ingredient.bomRevisionComponentId)
+          : undefined;
         return {
           id: ingredient.id,
           itemId: ingredient.itemId,

@@ -217,6 +217,7 @@ export type ManufacturingIngredientSiblingVariant = {
 
 export type ManufacturingOrderIngredientDetail = {
   id: string;
+  bomRevisionComponentId?: string | null;
   itemId: string;
   itemName: string;
   itemSku: string | null;

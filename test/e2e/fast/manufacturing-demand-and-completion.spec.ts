@@ -317,6 +317,7 @@ test.describe("manufacturing demand and completion heartbeat", () => {
     const [savedIngredient] = await db
       .select({
         id: manufacturingOrderIngredients.id,
+        bomRevisionComponentId: manufacturingOrderIngredients.bomRevisionComponentId,
         itemId: manufacturingOrderIngredients.itemId,
         quantityPerUnit: manufacturingOrderIngredients.quantityPerUnit,
         plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
@@ -2824,7 +2825,11 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       })
       .from(manufacturingOrderIngredients)
       .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
-    expect(created).toMatchObject({ itemId: alt.id, quantityPerUnit: "3.0000" });
+    expect(created).toMatchObject({
+      itemId: alt.id,
+      quantityPerUnit: "3.0000",
+      bomRevisionComponentId: expect.any(String),
+    });
 
     const released = await releaseManufacturingOrder(orderId, { confirmShortage: true });
     expect([200, 201]).toContain(released.status);

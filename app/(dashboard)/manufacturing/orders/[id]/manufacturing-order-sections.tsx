@@ -567,6 +567,8 @@ export function IngredientsSection({
 }) {
   const [confirmDelete, setConfirmDelete] =
     useState<ManufacturingOrderIngredientDetail | null>(null);
+  const [swappingIngredientId, setSwappingIngredientId] = useState<string | null>(null);
+  const [swapError, setSwapError] = useState<string | null>(null);
 
   const ingredients = useMemo(() => order.ingredients ?? [], [order.ingredients]);
   const isBatchMode = order.manufacturingMode === "batch";
@@ -645,6 +647,53 @@ export function IngredientsSection({
       });
     },
     [controller, getSiblingIngredientSelection, requirementMultiplier],
+  );
+  const swapExecutionIngredient = useCallback(
+    async (row: ManufacturingOrderIngredientDetail, itemId: string) => {
+      if (itemId === row.itemId) return;
+      setSwappingIngredientId(row.id);
+      setSwapError(null);
+      try {
+        const response = await fetch(
+          `/api/manufacturing-orders/${order.id}/ingredients/${row.id}/material`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ itemId }),
+          },
+        );
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(body?.error ?? "Could not change the ingredient material.");
+        }
+        const result = (await response.json()) as {
+          itemId: string;
+          quantityPerUnit: string;
+        };
+        const selected = getSiblingIngredientSelection(row, result.itemId);
+        if (!selected) throw new Error("The selected ingredient variant is unavailable.");
+        setRows((current) =>
+          current.map((ingredient) =>
+            ingredient.id === row.id
+              ? {
+                  ...ingredient,
+                  ...selected,
+                  quantityPerUnit: result.quantityPerUnit,
+                  plannedQuantity: multiplyQuantityString(
+                    result.quantityPerUnit,
+                    requirementMultiplier,
+                  ),
+                }
+              : ingredient,
+          ),
+        );
+      } catch (error) {
+        setSwapError((error as Error).message);
+      } finally {
+        setSwappingIngredientId(null);
+      }
+    },
+    [getSiblingIngredientSelection, order.id, requirementMultiplier],
   );
 
   const handleRowsChange = useCallback(
@@ -785,7 +834,6 @@ export function IngredientsSection({
           const siblingOptions = ingredientSelectionOptions(params.data);
           const canSelectSibling =
             siblingOptions.length > 1 &&
-            canEditPlanning &&
             params.data.pickStatus === "not_picked";
           return (
             <div className="flex min-w-0 items-start gap-(--space-2) leading-tight">
@@ -797,8 +845,14 @@ export function IngredientsSection({
                 >
                   <Select
                     value={params.data.itemId}
+                    disabled={swappingIngredientId === params.data.id}
                     onValueChange={(itemId) => {
-                      if (params.data) applySiblingIngredientSelection(params.data, itemId);
+                      if (!params.data) return;
+                      if (canEditPlanning) {
+                        applySiblingIngredientSelection(params.data, itemId);
+                      } else {
+                        void swapExecutionIngredient(params.data, itemId);
+                      }
                     }}
                   >
                     <SelectTrigger
@@ -891,6 +945,8 @@ export function IngredientsSection({
     [
       canEditPlanning,
       applySiblingIngredientSelection,
+      swapExecutionIngredient,
+      swappingIngredientId,
       getSiblingIngredientSelection,
       ingredientOptions,
       batchCount,
@@ -935,6 +991,11 @@ export function IngredientsSection({
         }
         onDeleteRow={(row) => setConfirmDelete(row)}
       />
+      {swapError ? (
+        <p className="text-[length:var(--text-sm)] text-[var(--color-danger-ink)]">
+          {swapError}
+        </p>
+      ) : null}
 
       <AlertDialog
         open={confirmDelete != null}

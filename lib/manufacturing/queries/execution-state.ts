@@ -16,6 +16,7 @@ import { type LockedManufacturingOrder, getPickProgressStatus, getRemainingQuant
 export type ExecutionIngredientRow = {
   id: string;
   manufacturingOrderBatchId: string | null;
+  bomRevisionComponentId: string | null;
   itemId: string;
   itemName: string;
   itemSku: string | null;
@@ -138,6 +139,7 @@ export async function getTemplateIngredientsInTx(tx: Tx, orderId: string) {
     .select({
       id: manufacturingOrderIngredients.id,
       manufacturingOrderBatchId: manufacturingOrderIngredients.manufacturingOrderBatchId,
+      bomRevisionComponentId: manufacturingOrderIngredients.bomRevisionComponentId,
       itemId: manufacturingOrderIngredients.itemId,
       itemName: manufacturingOrderIngredients.itemName,
       itemSku: manufacturingOrderIngredients.itemSku,
@@ -189,6 +191,7 @@ export async function getBatchIngredientsInTx(tx: Tx, batchId: string) {
     .select({
       id: manufacturingOrderIngredients.id,
       manufacturingOrderBatchId: manufacturingOrderIngredients.manufacturingOrderBatchId,
+      bomRevisionComponentId: manufacturingOrderIngredients.bomRevisionComponentId,
       itemId: manufacturingOrderIngredients.itemId,
       itemName: manufacturingOrderIngredients.itemName,
       itemSku: manufacturingOrderIngredients.itemSku,
@@ -332,6 +335,7 @@ export async function ensureBatchExecutionRowsInTx(
         values: {
           manufacturingOrderId: order.id,
           manufacturingOrderBatchId: batch.id,
+          bomRevisionComponentId: ingredient.bomRevisionComponentId,
           itemId: ingredient.itemId,
           itemName: ingredient.itemName,
           itemSku: ingredient.itemSku,
@@ -873,6 +877,7 @@ export function aggregateBatchIngredients(
     if (!existing) {
       ingredientMap.set(row.itemId, {
         id: row.id,
+        bomRevisionComponentId: row.bomRevisionComponentId,
         itemId: row.itemId,
         itemName: row.itemName,
         itemSku: row.itemSku,

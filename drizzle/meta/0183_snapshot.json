@@ -1,6 +1,6 @@
 {
-  "id": "d88af78a-b0c5-4289-85d1-fce6fed2f314",
-  "prevId": "d24d22e1-9bc5-447a-8045-683931438138",
+  "id": "9547c25e-f5b2-46df-8750-e3658c93dea7",
+  "prevId": "d88af78a-b0c5-4289-85d1-fce6fed2f314",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4071,11 +4071,17 @@
           "primaryKey": false,
           "notNull": true
         },
+        "quantity": {
+          "name": "quantity",
+          "type": "numeric(12, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
         "quantity_factor": {
           "name": "quantity_factor",
           "type": "numeric(12, 4)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "sort_order": {
           "name": "sort_order",
@@ -4199,7 +4205,15 @@
       "checkConstraints": {
         "bom_revision_component_alternates_quantity_factor_check": {
           "name": "bom_revision_component_alternates_quantity_factor_check",
-          "value": "quantity_factor > 0"
+          "value": "quantity_factor IS NULL OR quantity_factor > 0"
+        },
+        "bom_revision_component_alternates_quantity_check": {
+          "name": "bom_revision_component_alternates_quantity_check",
+          "value": "quantity IS NULL OR quantity > 0"
+        },
+        "bom_revision_component_alternates_amount_present_check": {
+          "name": "bom_revision_component_alternates_amount_present_check",
+          "value": "quantity IS NOT NULL OR quantity_factor IS NOT NULL"
         }
       },
       "isRLSEnabled": true
@@ -8445,6 +8459,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "bom_revision_component_id": {
+          "name": "bom_revision_component_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "item_id": {
           "name": "item_id",
           "type": "uuid",
@@ -8579,6 +8599,21 @@
           "method": "btree",
           "with": {}
         },
+        "manufacturing_order_ingredients_bom_component_id_idx": {
+          "name": "manufacturing_order_ingredients_bom_component_id_idx",
+          "columns": [
+            {
+              "expression": "bom_revision_component_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "manufacturing_order_ingredients_item_id_idx": {
           "name": "manufacturing_order_ingredients_item_id_idx",
           "columns": [
@@ -8666,6 +8701,20 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "manufacturing_order_ingredients_bom_revision_component_id_bom_revision_components_id_fk": {
+          "name": "manufacturing_order_ingredients_bom_revision_component_id_bom_revision_components_id_fk",
+          "tableFrom": "manufacturing_order_ingredients",
+          "tableTo": "bom_revision_components",
+          "schemaTo": "inventory",
+          "columnsFrom": [
+            "bom_revision_component_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
           "onUpdate": "no action"
         },
         "manufacturing_order_ingredients_item_id_items_id_fk": {

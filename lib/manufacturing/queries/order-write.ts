@@ -130,6 +130,7 @@ async function assertManufacturingPlanningUpdateAllowedInTx(
 }
 
 type ValidatedIngredient = {
+  bomRevisionComponentId: string | null;
   itemId: string;
   itemName: string;
   itemSku: string | null;
@@ -345,7 +346,7 @@ export async function swapManufacturingIngredientMaterial(
       .select({
         id: manufacturingOrderIngredients.id,
         itemId: manufacturingOrderIngredients.itemId,
-        sortOrder: manufacturingOrderIngredients.sortOrder,
+        bomRevisionComponentId: manufacturingOrderIngredients.bomRevisionComponentId,
         pickStatus: manufacturingOrderIngredients.pickStatus,
         pickedQuantity: trimScale(manufacturingOrderIngredients.pickedQuantity).as(
           "pickedQuantity"
@@ -379,11 +380,10 @@ export async function swapManufacturingIngredientMaterial(
       throw new ManufacturingError("This order has no recipe to check against.", 409);
     }
 
-    // The ingredient row does not record which BOM line it came from, and its item may
-    // already be a swapped variant, so the component is matched on the sort order the two
-    // are inserted with.
     const components = await getBomRevisionComponentsInTx(tx, order.bomRevisionId);
-    const component = components.find((row) => row.sortOrder === ingredient.sortOrder);
+    const component = components.find(
+      (row) => row.id === ingredient.bomRevisionComponentId
+    );
     if (!component) {
       throw new ManufacturingError("The product BOM changed. Reload and try again.", 409);
     }
@@ -811,6 +811,7 @@ async function prepareCreateIngredientsInTx(
       const recipeBasis = normalizeRecipeBasis(row.recipeBasis);
 
       return {
+        bomRevisionComponentId: row.id,
         itemId: selected.itemId,
         itemName: selected.itemName,
         itemSku: selected.itemSku,
@@ -949,6 +950,7 @@ async function prepareCreateIngredientsFromBomInTx(
       const recipeBasis = normalizeRecipeBasis(row.recipeBasis);
 
       return {
+        bomRevisionComponentId: row.id,
         itemId: row.itemId,
         itemName: row.itemName,
         itemSku: row.itemSku,
@@ -984,6 +986,7 @@ async function insertManufacturingIngredientsInTx(
     .values(
       ingredients.map((ingredient) => ({
         manufacturingOrderId,
+        bomRevisionComponentId: ingredient.bomRevisionComponentId,
         itemId: ingredient.itemId,
         itemName: ingredient.itemName,
         itemSku: ingredient.itemSku,
@@ -1318,9 +1321,18 @@ async function prepareUpdatedIngredientsInTx(
         400
       );
     }
-    const quantityPerUnit = normalizeNumeric(Number(submitted.quantityPerUnit));
+    const quantityPerUnit = resolveIngredientQuantityPerUnit(
+      row.componentId,
+      row.alternates.map((alternate) => ({
+        itemId: alternate.alternateItemId,
+        quantity: alternate.quantity,
+      })),
+      selected.itemId,
+      submitted.quantityPerUnit
+    );
 
     return {
+      bomRevisionComponentId: row.id,
       itemId: selected.itemId,
       itemName: selected.itemName,
       itemSku: selected.itemSku,
@@ -1362,6 +1374,7 @@ async function prepareFreeformUpdatedIngredientsInTx(
     }
     const quantityPerUnit = normalizeNumeric(Number(submitted.quantityPerUnit));
     return {
+      bomRevisionComponentId: null,
       itemId: activeItem.id,
       itemName: activeItem.name,
       itemSku: activeItem.sku,
