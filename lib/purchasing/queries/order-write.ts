@@ -904,9 +904,12 @@ export async function updatePurchaseOrder(
         nextExpectedLines.push({
           purchaseOrderLineId: existingLine.id,
           itemId: line.itemId,
+          // Short-closed balance stays written off across later edits; without
+          // this an unrelated card save would re-book supply nobody is shipping.
           quantity: Math.max(
             parseFloat(line.stockQuantityOrdered) -
-              parseFloat(existingLine.stockQuantityReceived),
+              parseFloat(existingLine.stockQuantityReceived) -
+              parseFloat(existingLine.stockQuantityClosed),
             0,
           ),
         });
@@ -999,10 +1002,13 @@ export async function updatePurchaseOrder(
       return {
         ordered: parseFloat(line.stockQuantityOrdered),
         received: parseFloat(existingLine?.stockQuantityReceived ?? "0"),
+        // A short-closed balance settles the line just as a receipt does, so an
+        // ordinary card save must not demote the order back to partial.
+        closed: parseFloat(existingLine?.stockQuantityClosed ?? "0"),
       };
     });
     const allReceived = nextReceivedState.every(
-      (line) => line.received >= line.ordered,
+      (line) => line.received + line.closed >= line.ordered,
     );
     const anyReceived = nextReceivedState.some((line) => line.received > 0);
     const nextStatus = allReceived

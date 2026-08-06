@@ -7,7 +7,11 @@ import { lockSalesPriorityQueueInTx } from "@/lib/manufacturing-priority-lock";
 import { documentNumberSortSql } from "@/lib/document-numbers";
 import type { ReorderSalesOrderPriorityRanks } from "@/lib/schemas/sales-orders";
 import { SalesError } from "./errors";
-import { OPEN_SALES_ORDER_STATUSES, isOpenSalesOrderStatus } from "./shared";
+import {
+  OPEN_SALES_ORDER_STATUSES,
+  isOpenSalesOrderStatus,
+  withSalesTransactionRetry,
+} from "./shared";
 
 function assertSameStringSet(actual: string[], expected: string[], message: string) {
   if (actual.length !== expected.length) {
@@ -42,7 +46,11 @@ function mergeSubmittedOrderIds(currentIds: string[], submittedIds: string[]) {
 export async function reorderSalesOrderPriorityRanks(
   payload: ReorderSalesOrderPriorityRanks
 ): Promise<{ updated: number }> {
-  return withAuthedOrgContext(async (tx, orgId) => {
+  // Reordering locks the submitted orders by id and then the whole open queue by
+  // rank, so it can deadlock against a concurrent sales-order write that takes the
+  // same rows in the other order. Every other sales mutation already absorbs that
+  // through this retry; this path was the one that surfaced it as a 500.
+  return withSalesTransactionRetry(() => withAuthedOrgContext(async (tx, orgId) => {
     await lockSalesPriorityQueueInTx(tx, orgId);
 
     const orders = await tx
@@ -58,6 +66,10 @@ export async function reorderSalesOrderPriorityRanks(
           isNull(salesOrders.deletedAt)
         )
       )
+      // Take these rows in id order, the same order rerankOpenSalesOrdersInTx uses.
+      // An unordered FOR UPDATE lets Postgres pick the row order per plan, which is
+      // how two transactions over the same orders end up holding each other's rows.
+      .orderBy(asc(salesOrders.id))
       .for("update");
 
     const rankedOpenOrders = await tx
@@ -123,5 +135,5 @@ export async function reorderSalesOrderPriorityRanks(
     }
 
     return { updated: orderedIds.length };
-  });
+  }));
 }

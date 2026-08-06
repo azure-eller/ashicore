@@ -40,7 +40,7 @@ Only <Pill status="not_received" /> or <Pill status="partial" /> orders can be r
      </div>
    </Frame>
 
-2. **Enter quantities and the receiving location.** The dialog lists every line with its **Ordered**, **Received**, and **Remaining** quantities, plus a **Receive now** input (in purchase units). Choosing *Received* prefills each row to its remaining amount; leave those values unchanged to complete the order, or reduce/clear rows to receive less. Choosing *Partially received* starts blank so you fill only what arrived. Pick the **Receive into** location — leave it as default unless stock landed elsewhere.
+2. **Enter quantities and the receiving location.** The dialog lists every line with its **Ordered**, **Received**, and **Remaining** quantities, plus a **Receive now** input (in purchase units). Choosing *Received* prefills each row to its remaining amount; leave those values unchanged to receive the full balance, or reduce/clear rows to record a short shipment and close the difference as not arriving. Choosing *Partially received* starts blank so you fill only what arrived and leave the balance expected. Pick the **Receive into** location — leave it as default unless stock landed elsewhere.
 
    <Frame title="<b>Receive purchase order</b>">
      <span slot="action"><Button variant="primary">Receive selected</Button></span>
@@ -57,10 +57,10 @@ Only <Pill status="not_received" /> or <Pill status="partial" /> orders can be r
    </Frame>
 
    <Aside type="note" title="You can't receive more than remaining">
-   "Receive now" is capped at each line's remaining quantity — a larger number is flagged invalid and the dialog won't submit. Leave a line blank (or 0) to skip it; that's a partial receipt. Received stock lands as **available**; block it afterward from the lot action menu for tracked stock or **Stock action** on an untracked item card.
+   "Receive now" is capped at each line's remaining quantity — a larger number is flagged invalid and the dialog won't submit. Under **Partially received**, leave a line blank (or 0) to skip it and keep that balance open. Under **Received**, a blank or reduced line closes the difference as not arriving. Received stock lands as **available**; block it afterward from the lot action menu for tracked stock or **Stock action** on an untracked item card.
    </Aside>
 
-3. **Confirm — stock, lots, and status update.** Choose **Mark received** when you left the full prefill in place, or **Receive selected** for the lines you filled. Each received line writes a permanent receipt at the landed stock-unit cost; tracked items get a new lot, while untracked items append to their internal shared lot. The matching expected supply is released, and the status becomes <Pill status="partial" /> (lines remain) or <Pill status="received" /> (all complete).
+3. **Confirm — stock, lots, and status update.** Choose **Mark received** to finish the order, or **Receive selected** to record a partial delivery and keep its balance open. Each received line writes a permanent receipt at the landed stock-unit cost; tracked items get a new lot, while untracked items append to their internal shared lot. The matching expected supply is released. **Partially received** leaves unreceived quantities expected and the order <Pill status="partial" />; **Received** closes any shortfall as not arriving and makes the order <Pill status="received" />.
 
    <div class="po-annot">
      <div class="arow"><span class="aidx">✓</span><div><div class="at">Lot created</div><div class="ad">828 kg of Huila Green at the landed cost per stock unit, disposition available.</div></div></div>

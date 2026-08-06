@@ -4652,4 +4652,201 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     expect(pdfText).toContain(supplierItemCode);
     expect(pdfText).toContain(sku);
   });
+
+  test("receiving short as received closes the balance and releases its expected supply", async ({
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const material = await createItem({
+      itemType: "material",
+      name: `Short close material ${unique}`,
+      unitDefinitionId: getUnitId(),
+      sku: `PO-SHORTCLOSE-${unique}`,
+      category: "Purchasing receipt",
+      description: null,
+      defaultPurchasePrice: "5",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    const supplier = await createSupplier({ name: `Short close supplier ${unique}` });
+    const order = await createPurchaseOrder({
+      supplierId: supplier.body.id,
+      lines: [{ itemId: material.body.id, quantityOrdered: "10", unitCost: "5" }],
+    });
+    const [line] = await db
+      .select({ id: purchaseOrderLines.id })
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, order.body.id));
+
+    // The supplier shorted the order and the balance is never arriving, so the
+    // operator marks it received rather than booking stock that never showed up.
+    const received = await receivePurchaseOrder(order.body.id, {
+      closeRemaining: true,
+      lines: [{ lineId: line.id, quantityReceived: "8" }],
+    });
+    expect(received.status, JSON.stringify(received.body)).toBe(200);
+    expect(received.body.status).toBe("received");
+
+    const [closedLine] = await db
+      .select({
+        quantityOrdered: purchaseOrderLines.quantityOrdered,
+        quantityReceived: purchaseOrderLines.quantityReceived,
+        quantityClosed: purchaseOrderLines.quantityClosed,
+      })
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.id, line.id));
+    expect(closedLine.quantityOrdered).toBe("10.0000");
+    expect(closedLine.quantityReceived).toBe("8.0000");
+    expect(closedLine.quantityClosed).toBe("2.0000");
+
+    // The written-off balance must stop counting as incoming supply.
+    const expectedRows = await db
+      .select({ quantity: inventoryExpectedSummary.quantity })
+      .from(inventoryExpectedSummary)
+      .where(
+        and(
+          eq(inventoryExpectedSummary.referenceType, "purchase_order_line"),
+          eq(inventoryExpectedSummary.referenceId, line.id)
+        )
+      );
+    expect(expectedRows).toHaveLength(0);
+
+    const [balanceAfterClose] = await db
+      .select({ onHandQty: sql<string>`sum(${inventoryItemBalances.onHandQty})` })
+      .from(inventoryItemBalances)
+      .where(eq(inventoryItemBalances.itemId, material.body.id));
+    expect(balanceAfterClose.onHandQty).toBe("8.0000");
+
+    // Both the web dialog and the Android receive screen decide what is still
+    // receivable from quantityRemaining, so a closed balance must read as zero.
+    const detail = await testFetch(`/api/purchase-orders/${order.body.id}`);
+    const detailBody = await detail.json();
+    expect(detailBody.lines[0].quantityRemaining).toBe("0");
+  });
+
+  test("correcting a short-closed line clears its closure so the line can be ordered back up", async ({
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const material = await createItem({
+      itemType: "material",
+      name: `Stale closure material ${unique}`,
+      unitDefinitionId: getUnitId(),
+      sku: `PO-STALECLOSE-${unique}`,
+      category: "Purchasing receipt",
+      description: null,
+      defaultPurchasePrice: "5",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    const supplier = await createSupplier({
+      name: `Stale closure supplier ${unique}`,
+    });
+    const order = await createPurchaseOrder({
+      supplierId: supplier.body.id,
+      expectedDate: "2026-05-07",
+      lines: [{ itemId: material.body.id, quantityOrdered: "10", unitCost: "5" }],
+    });
+    const lineId = order.body.lines[0].id;
+
+    const received = await receivePurchaseOrder(order.body.id, {
+      closeRemaining: true,
+      lines: [{ lineId, quantityReceived: "8" }],
+    });
+    expect(received.status, JSON.stringify(received.body)).toBe(200);
+
+    // Only 7 actually arrived. The correction restates ordered as what came, so
+    // no shortfall is left to write off — a closure carried past this point
+    // strands the line at zero receivable the next time it is ordered up.
+    const corrected = await testFetch(
+      `/api/purchase-orders/${order.body.id}/quantity-correction`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          lineId,
+          quantityOrdered: "7",
+          expectedVersion: received.body.version,
+        }),
+      }
+    );
+    const correctedBody = await corrected.json();
+    expect(corrected.status, JSON.stringify(correctedBody)).toBe(200);
+
+    const [afterCorrection] = await db
+      .select({
+        quantityOrdered: purchaseOrderLines.quantityOrdered,
+        quantityReceived: purchaseOrderLines.quantityReceived,
+        quantityClosed: purchaseOrderLines.quantityClosed,
+        stockQuantityClosed: purchaseOrderLines.stockQuantityClosed,
+      })
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.id, lineId));
+    expect(afterCorrection.quantityOrdered).toBe("7.0000");
+    expect(afterCorrection.quantityReceived).toBe("7.0000");
+    expect(afterCorrection.quantityClosed).toBe("0.0000");
+    expect(afterCorrection.stockQuantityClosed).toBe("0.0000");
+
+    const raised = await testFetch(`/api/purchase-orders/${order.body.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        orderNumber: order.body.orderNumber,
+        supplierId: supplier.body.id,
+        expectedDate: "2026-05-07",
+        shippingCost: "0",
+        notes: null,
+        accountingPurchaseAccountCode: null,
+        shipLine1: null,
+        shipLine2: null,
+        shipCity: null,
+        shipRegion: null,
+        shipPostcode: null,
+        shipCountry: null,
+        expectedVersion: correctedBody.order.version,
+        lines: [
+          {
+            id: lineId,
+            itemId: material.body.id,
+            quantityOrdered: "8",
+            unitCost: "5",
+            taxRateId: null,
+            accountingPurchaseAccountCode: null,
+            shipAddressEntryId: null,
+            shipContactName: null,
+            shipContactPhone: null,
+            shipLine1: null,
+            shipLine2: null,
+            shipCity: null,
+            shipRegion: null,
+            shipPostcode: null,
+            shipCountry: null,
+            shipDeliveryInstructions: null,
+          },
+        ],
+        additionalCosts: [],
+      }),
+    });
+    const raisedBody = await raised.json();
+    expect(raised.status, JSON.stringify(raisedBody)).toBe(200);
+    expect(raisedBody.status).toBe("partial");
+
+    const reopened = await testFetch(`/api/purchase-orders/${order.body.id}`);
+    const reopenedBody = await reopened.json();
+    expect(reopenedBody.lines[0].quantityRemaining).toBe("1");
+
+    const expectedRows = await db
+      .select({ quantity: inventoryExpectedSummary.quantity })
+      .from(inventoryExpectedSummary)
+      .where(
+        and(
+          eq(inventoryExpectedSummary.referenceType, "purchase_order_line"),
+          eq(inventoryExpectedSummary.referenceId, lineId)
+        )
+      );
+    expect(expectedRows).toHaveLength(1);
+    expect(expectedRows[0].quantity).toBe("1.0000");
+  });
 });

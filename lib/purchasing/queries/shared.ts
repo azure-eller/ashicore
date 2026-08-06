@@ -160,6 +160,12 @@ export async function getPurchaseOrderLinesInTx(tx: Tx, purchaseOrderId: string)
       stockQuantityReceived: trimScale(
         purchaseOrderLines.stockQuantityReceived,
       ).as("stockQuantityReceived"),
+      quantityClosed: trimScale(purchaseOrderLines.quantityClosed).as(
+        "quantityClosed",
+      ),
+      stockQuantityClosed: trimScale(
+        purchaseOrderLines.stockQuantityClosed,
+      ).as("stockQuantityClosed"),
       unitCost: trimScale(purchaseOrderLines.unitCost).as("unitCost"),
       stockUnitCost: trimScale(purchaseOrderLines.stockUnitCost).as(
         "stockUnitCost",

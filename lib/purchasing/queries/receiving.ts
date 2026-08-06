@@ -125,7 +125,8 @@ export async function receivePurchaseOrder(
       const quantityReceived = Number(line.quantityReceived);
       const remaining =
         parseFloat(existingLine.quantityOrdered) -
-        parseFloat(existingLine.quantityReceived);
+        parseFloat(existingLine.quantityReceived) -
+        parseFloat(existingLine.quantityClosed);
 
       if (quantityReceived > remaining && !data.confirmOverReceipt) {
         overReceiptWarnings.push({
@@ -273,6 +274,70 @@ export async function receivePurchaseOrder(
       });
     }
 
+    // The operator declared this order finished, so every line's outstanding
+    // balance is written off rather than left waiting on a delivery that is not
+    // coming. Ordered quantity is untouched: the line keeps recording what was
+    // ordered versus what actually arrived.
+    if (data.closeRemaining) {
+      for (const line of existingLines) {
+        const currentLine = updatedLines.get(line.id);
+        if (!currentLine) continue;
+
+        const closed = Math.max(
+          parseFloat(currentLine.quantityOrdered) -
+            parseFloat(currentLine.quantityReceived),
+          0,
+        );
+        const stockClosed = Math.max(
+          parseFloat(currentLine.stockQuantityOrdered) -
+            parseFloat(currentLine.stockQuantityReceived),
+          0,
+        );
+        const normalizedClosed = normalizeNumeric(closed);
+        const normalizedStockClosed = normalizeNumeric(stockClosed);
+
+        await tx
+          .update(purchaseOrderLines)
+          .set({
+            quantityClosed: normalizedClosed,
+            stockQuantityClosed: normalizedStockClosed,
+            updatedAt: new Date(),
+          })
+          .where(eq(purchaseOrderLines.id, currentLine.id));
+
+        updatedLines.set(currentLine.id, {
+          ...currentLine,
+          quantityClosed: normalizedClosed,
+          stockQuantityClosed: normalizedStockClosed,
+        });
+      }
+
+      // Closed balances must stop feeding expected supply, or planning keeps
+      // reordering against pallets nobody is going to ship.
+      await editExpectedFromPurchaseInTx(tx, {
+        organizationId: orgId,
+        purchaseOrderId: id,
+        actorUserId: userId,
+        idempotencyKey: deriveInventoryIdempotencyKey(
+          options?.idempotencyKey,
+          "close-remaining-expected",
+        ),
+        nextLines: existingLines.map((line) => {
+          const currentLine = updatedLines.get(line.id) ?? line;
+          return {
+            purchaseOrderLineId: line.id,
+            itemId: line.itemId,
+            quantity: Math.max(
+              parseFloat(currentLine.stockQuantityOrdered) -
+                parseFloat(currentLine.stockQuantityReceived) -
+                parseFloat(currentLine.stockQuantityClosed),
+              0,
+            ),
+          };
+        }),
+      });
+    }
+
     const overReceiptExpectedLines = existingLines.map((line) => {
       const currentLine = updatedLines.get(line.id);
       return {
@@ -281,7 +346,13 @@ export async function receivePurchaseOrder(
         quantity: Math.max(
           parseFloat(
             currentLine?.stockQuantityOrdered ?? line.stockQuantityOrdered,
-          ) - parseFloat(line.stockQuantityReceived),
+          ) -
+            parseFloat(
+              currentLine?.stockQuantityReceived ?? line.stockQuantityReceived,
+            ) -
+            parseFloat(
+              currentLine?.stockQuantityClosed ?? line.stockQuantityClosed,
+            ),
           0,
         ),
       };
@@ -396,7 +467,8 @@ export async function receivePurchaseOrder(
 
     const allReceived = [...updatedLines.values()].every(
       (line) =>
-        parseFloat(line.quantityReceived) >= parseFloat(line.quantityOrdered),
+        parseFloat(line.quantityReceived) + parseFloat(line.quantityClosed) >=
+        parseFloat(line.quantityOrdered),
     );
     const finalTaxAmount = finalLines.reduce(
       (sum, line) => sum + Number(line.lineTaxAmount),

@@ -281,13 +281,19 @@ const rawReceiveLineSchema = z.object({
 
 export const receivePurchaseOrderSchema = z
   .object({
-    lines: z.array(rawReceiveLineSchema).min(1),
+    lines: z.array(rawReceiveLineSchema),
     confirmOverReceipt: z.boolean().optional(),
+    // Operator intent, not arithmetic: true means "this order is done, whatever
+    // is still outstanding is never arriving." Optional and defaulted to false so
+    // the mobile client, which sends no such flag, keeps its partial-receipt
+    // behaviour unchanged.
+    closeRemaining: z.boolean().optional(),
     // Receiving location; omitted = default (mobile sends no locationId).
     locationId: z.string().uuid().nullish(),
   })
-  .transform(({ lines, confirmOverReceipt, locationId }) => ({
+  .transform(({ lines, confirmOverReceipt, closeRemaining, locationId }) => ({
     confirmOverReceipt: confirmOverReceipt ?? false,
+    closeRemaining: closeRemaining ?? false,
     locationId: locationId ?? null,
     lines: lines
       .map((line) => ({
@@ -298,7 +304,10 @@ export const receivePurchaseOrderSchema = z
       .filter((line) => line.quantityReceived !== ""),
   }))
   .superRefine((data, ctx) => {
-    if (data.lines.length === 0) {
+    // Closing out an order is a decision, not a receipt: an operator learning the
+    // balance is never arriving has nothing new to receive, so a bare close is a
+    // valid request. Every other receive still needs a quantity.
+    if (data.lines.length === 0 && !data.closeRemaining) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "Enter at least one received quantity",

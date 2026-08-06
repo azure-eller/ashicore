@@ -36,7 +36,7 @@ One row per order. Money fields are calculated from the lines and additional cos
 | Tax | Derived | Tax on the line amounts only — shipping and additional costs are not taxed. |
 | Total | Derived | Subtotal plus tax. |
 | Ordered date | System | Set when the order is created. |
-| Received date | System | Set when the order becomes fully received; cleared if it later reopens. |
+| Received date | System | Set when the order is finished as **Received**; cleared if it later reopens. |
 
 ## Order lines
 
@@ -73,7 +73,7 @@ An order is always in exactly one status:
 
 - <Pill status="not_received" /> — placed with the supplier; its remaining quantity is expected supply.
 - <Pill status="partial" /> — some lines received into stock; a remainder is still due.
-- <Pill status="received" /> — every line received.
+- <Pill status="received" /> — the order is finished; every line was received or its shortfall was closed as not arriving.
 
 For how an order moves between these, see [The purchase order lifecycle](/docs/purchasing/the-po-lifecycle).
 

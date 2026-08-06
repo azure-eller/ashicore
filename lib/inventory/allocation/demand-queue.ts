@@ -381,7 +381,7 @@ async function getOpenPurchaseSupplyForItemsInTx(
       orderNumber: purchaseOrders.orderNumber,
       expectedDate: purchaseOrders.expectedDate,
       quantity: trimScale(
-        sql`GREATEST(${purchaseOrderLines.stockQuantityOrdered} - ${purchaseOrderLines.stockQuantityReceived}, 0)`
+        sql`GREATEST(${purchaseOrderLines.stockQuantityOrdered} - ${purchaseOrderLines.stockQuantityReceived} - ${purchaseOrderLines.stockQuantityClosed}, 0)`
       ).as("quantity"),
     })
     .from(purchaseOrderLines)
@@ -392,7 +392,7 @@ async function getOpenPurchaseSupplyForItemsInTx(
         inArray(purchaseOrderLines.itemId, itemIds),
         inArray(purchaseOrders.status, ["not_received", "partial"]),
         isNull(purchaseOrders.deletedAt),
-        sql`${purchaseOrderLines.stockQuantityOrdered} > ${purchaseOrderLines.stockQuantityReceived}`
+        sql`${purchaseOrderLines.stockQuantityOrdered} > ${purchaseOrderLines.stockQuantityReceived} + ${purchaseOrderLines.stockQuantityClosed}`
       )
     )
     .orderBy(

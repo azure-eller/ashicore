@@ -38,13 +38,19 @@ export const PATCH = apiHandler(async (request: Request, ctx: unknown) => {
         disposition: "available" as const,
       }));
 
-    if (receivableLines.length === 0) {
-      return NextResponse.json({ id });
-    }
-
+    // No early return when nothing is receivable: an order can sit in `partial`
+    // with no outstanding balance, and reporting success while leaving the status
+    // untouched is how a purchase order becomes impossible to close.
     const result = await receivePurchaseOrder(
       id,
-      { lines: receivableLines, confirmOverReceipt: false, locationId: null },
+      {
+        lines: receivableLines,
+        confirmOverReceipt: false,
+        // This route is the operator declaring the order received, so any balance
+        // that cannot be received is closed rather than left outstanding.
+        closeRemaining: true,
+        locationId: null,
+      },
       { idempotencyKey: `${idempotencyKey}:receive` },
     );
     if (!result) {

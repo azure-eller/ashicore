@@ -33,6 +33,8 @@ export type ReceivePurchaseOrderInput = {
     disposition?: "available" | "blocked";
   }>;
   confirmOverReceipt?: boolean;
+  /** Write off whatever is still outstanding and close the order as received. */
+  closeRemaining?: boolean;
   locationId?: string | null;
 };
 

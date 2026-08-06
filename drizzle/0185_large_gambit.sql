@@ -1,0 +1,2 @@
+ALTER TABLE "purchasing"."purchase_order_lines" ADD COLUMN IF NOT EXISTS "quantity_closed" numeric(12, 4) DEFAULT '0' NOT NULL;--> statement-breakpoint
+ALTER TABLE "purchasing"."purchase_order_lines" ADD COLUMN IF NOT EXISTS "stock_quantity_closed" numeric(12, 4) DEFAULT '0' NOT NULL;

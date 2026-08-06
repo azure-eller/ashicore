@@ -1221,7 +1221,7 @@ function getInventorySupplyFacts(
 
 async function getPurchaseSupplyFactsInTx(tx: Tx): Promise<SupplyFact[]> {
   const remainingQuantity = trimScale(
-    sql`GREATEST(${purchaseOrderLines.stockQuantityOrdered} - ${purchaseOrderLines.stockQuantityReceived}, 0)`
+    sql`GREATEST(${purchaseOrderLines.stockQuantityOrdered} - ${purchaseOrderLines.stockQuantityReceived} - ${purchaseOrderLines.stockQuantityClosed}, 0)`
   );
 
   const rows = await tx
@@ -1242,7 +1242,7 @@ async function getPurchaseSupplyFactsInTx(tx: Tx): Promise<SupplyFact[]> {
       and(
         inArray(purchaseOrders.status, ["not_received", "partial"]),
         isNull(purchaseOrders.deletedAt),
-        sql`${purchaseOrderLines.stockQuantityOrdered} > ${purchaseOrderLines.stockQuantityReceived}`
+        sql`${purchaseOrderLines.stockQuantityOrdered} > ${purchaseOrderLines.stockQuantityReceived} + ${purchaseOrderLines.stockQuantityClosed}`
       )
     )
     .orderBy(

@@ -549,13 +549,24 @@ export async function getPurchaseOrderInTx(
             lineCosts.allocatedAdditionalCost,
           ),
           landedCost: normalizeLandedMoney(lineCosts.landedLineTotal),
+          // A short-closed balance is settled, not outstanding. Both clients drive
+          // their receive dialogs off these fields, so a closed line must report
+          // nothing remaining or it keeps offering stock that is never arriving.
           quantityRemaining: normalizeNumeric(
-            parseFloat(line.quantityOrdered) -
-              parseFloat(line.quantityReceived),
+            Math.max(
+              parseFloat(line.quantityOrdered) -
+                parseFloat(line.quantityReceived) -
+                parseFloat(line.quantityClosed),
+              0,
+            ),
           ),
           stockQuantityRemaining: normalizeNumeric(
-            parseFloat(line.stockQuantityOrdered) -
-              parseFloat(line.stockQuantityReceived),
+            Math.max(
+              parseFloat(line.stockQuantityOrdered) -
+                parseFloat(line.stockQuantityReceived) -
+                parseFloat(line.stockQuantityClosed),
+              0,
+            ),
           ),
         };
       }) as PurchaseOrderDetailLine[],

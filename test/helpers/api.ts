@@ -883,6 +883,7 @@ export async function receivePurchaseOrder(
   id: string,
   data: {
     confirmOverReceipt?: boolean;
+    closeRemaining?: boolean;
     lines: Array<{
       lineId: string;
       quantityReceived: string;

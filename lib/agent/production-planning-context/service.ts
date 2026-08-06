@@ -406,6 +406,7 @@ async function loadOpenPurchaseOrdersInTx(
       stockingUnitName: purchaseOrderLines.stockingUnitName,
       orderedQty: trimScale(purchaseOrderLines.stockQuantityOrdered).as("orderedQty"),
       receivedQty: trimScale(purchaseOrderLines.stockQuantityReceived).as("receivedQty"),
+      closedQty: trimScale(purchaseOrderLines.stockQuantityClosed).as("closedQty"),
       sortOrder: purchaseOrderLines.sortOrder,
     })
     .from(purchaseOrders)
@@ -425,8 +426,12 @@ async function loadOpenPurchaseOrdersInTx(
 
   const byOrder = new Map<string, AgentOpenPurchaseOrderContext>();
   for (const row of rows) {
+    // A short-closed balance is never arriving, so it must not reach the agent
+    // as incoming supply — a reopened order can be partial with lines closed.
     const remainingQty = roundQuantity(
-      toQuantity(row.orderedQty) - toQuantity(row.receivedQty)
+      toQuantity(row.orderedQty) -
+        toQuantity(row.receivedQty) -
+        toQuantity(row.closedQty)
     );
     if (remainingQty <= 0) continue;
 

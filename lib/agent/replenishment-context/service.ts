@@ -457,11 +457,11 @@ async function loadIncomingPurchasesInTx(
       expectedDate: purchaseOrders.expectedDate,
       itemId: purchaseOrderLines.itemId,
       purchaseQty: trimScale(
-        sql`GREATEST(${purchaseOrderLines.quantityOrdered} - ${purchaseOrderLines.quantityReceived}, 0)`
+        sql`GREATEST(${purchaseOrderLines.quantityOrdered} - ${purchaseOrderLines.quantityReceived} - ${purchaseOrderLines.quantityClosed}, 0)`
       ).as("purchaseQty"),
       purchaseUnit: purchaseOrderLines.purchaseUnitName,
       stockQtyEquivalent: trimScale(
-        sql`GREATEST(${purchaseOrderLines.stockQuantityOrdered} - ${purchaseOrderLines.stockQuantityReceived}, 0)`
+        sql`GREATEST(${purchaseOrderLines.stockQuantityOrdered} - ${purchaseOrderLines.stockQuantityReceived} - ${purchaseOrderLines.stockQuantityClosed}, 0)`
       ).as("stockQtyEquivalent"),
     })
     .from(purchaseOrderLines)
@@ -471,7 +471,7 @@ async function loadIncomingPurchasesInTx(
         inArray(purchaseOrderLines.itemId, itemIds),
         inArray(purchaseOrders.status, ["not_received", "partial"]),
         isNull(purchaseOrders.deletedAt),
-        sql`${purchaseOrderLines.stockQuantityOrdered} > ${purchaseOrderLines.stockQuantityReceived}`
+        sql`${purchaseOrderLines.stockQuantityOrdered} > ${purchaseOrderLines.stockQuantityReceived} + ${purchaseOrderLines.stockQuantityClosed}`
       )
     )
     .orderBy(

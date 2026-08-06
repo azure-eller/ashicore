@@ -38,7 +38,7 @@ Receiving is the most consequential action in purchasing — it's where a promis
 
 4. **Expected supply for what you received is released.** Planning instantly reflects what actually landed instead of what was still due.
 
-5. **The status advances only when the receipt completes the order.** Receiving part of a not received order makes it <Pill status="partial" />. Receiving another partial batch keeps it <Pill status="partial" /> until every line is complete, then it becomes <Pill status="received" />.
+5. **The status you choose says whether more is coming.** Receiving under **Partially received** leaves the balance expected, so the order stays <Pill status="partial" /> until the rest arrives. Receiving under **Received** means the order is finished: anything still outstanding is closed as not arriving and the order becomes <Pill status="received" />.
 
 </Steps>
 
@@ -47,7 +47,7 @@ The receive dialog caps each line at its remaining quantity. A larger value is f
 </Aside>
 
 <Aside type="note">
-Blank quantities are ignored, and a received quantity must be greater than zero. Marking an order **Received** from the status control isn't a shortcut that skips receiving — it opens the same receive dialog and prefills every remaining line. If you leave the prefill unchanged, the order completes; if you reduce or clear rows, it records only those quantities and may remain <Pill status="partial" />. Stock lands in the **Receive into** location you choose, while expected supply is released from the default planning location.
+Blank quantities are ignored, and a received quantity must be greater than zero. Marking an order **Received** from the status control isn't a shortcut that skips receiving — it opens the same receive dialog and prefills every remaining line. Leave the prefill alone and the whole order lands. Reduce a line to what actually turned up and only that quantity is received, with the shortfall closed as not arriving. Stock lands in the **Receive into** location you choose, while expected supply is released from the default planning location.
 </Aside>
 
 ## Valid & invalid transitions
@@ -61,6 +61,7 @@ These are the only moves the system allows. Anything not listed is blocked to pr
 | Receive all | <Pill status="not_received" /> | <Pill status="received" /> | The receive dialog is prefilled with the remaining quantities. |
 | Receive another partial batch | <Pill status="partial" /> | <Pill status="partial" /> | More stock arrives, but a remainder still exists. |
 | Receive the rest | <Pill status="partial" /> | <Pill status="received" /> | Completes the remaining lines. |
+| Close a short shipment | <Pill status="not_received" /> or <Pill status="partial" /> | <Pill status="received" /> | Receive under **Received** with less than the full amount, or with nothing left to receive. The outstanding balance is closed as not arriving and stops counting as expected supply; the ordered quantity is kept so the order still shows what was ordered against what came. |
 | Add a line / increase a quantity | <Pill status="received" /> | <Pill status="partial" /> | Reopens the remainder. |
 | Delete | <span class="po-tok po-tok--muted">Any status</span> | <span class="po-tok po-tok--muted">Removed</span> | Releases expected supply; received stock still on hand is removed from stock. |
 | Correct below received | <Pill status="partial" /> or <Pill status="received" /> | Receiving progress recalculated | Shows how much available stock will be removed and how much used quantity remains in history before you confirm. |

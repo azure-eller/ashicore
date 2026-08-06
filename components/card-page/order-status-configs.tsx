@@ -725,6 +725,10 @@ function ReceiveForm({
     mutationFn: () =>
       receivePurchaseOrder(orderId, {
         locationId,
+        // "Received" is the operator saying the order is finished, so anything
+        // still outstanding is closed rather than left waiting on a delivery.
+        // "Partially received" leaves the balance expected.
+        closeRemaining: mode === "received",
         lines: rows
           .map((row) => ({
             lineId: row.lineId,
@@ -744,25 +748,50 @@ function ReceiveForm({
     );
   });
   const selectedRows = rows.filter((row) => Number(normalizeDialogQuantity(row.quantity)) > 0);
+  // Only "Received" writes the balance off, so only it warns about the shortfall.
+  const shortfallRows =
+    mode === "received"
+      ? rows.flatMap((row) => {
+          const entered = Number(normalizeDialogQuantity(row.quantity)) || 0;
+          const shortfall = Number(row.remainingQuantity) - entered;
+          return shortfall > 0
+            ? [{ itemName: row.itemName, unitName: row.unitName, shortfall: String(shortfall) }]
+            : [];
+        })
+      : [];
   // Wait for the first locations fetch so a multi-location org cannot
   // submit before its picker has had a chance to render.
   const locationsPending = useActiveLocations().isPending;
   const canSubmit =
     !mutation.isPending &&
     !locationsPending &&
-    selectedRows.length > 0 &&
+    // Marking an order received is a valid decision even with nothing new to
+    // receive: the operator is closing an outstanding balance, not booking stock.
+    (selectedRows.length > 0 || mode === "received") &&
     invalidRows.length === 0;
 
   if (rows.length === 0) {
     return (
       <>
         <p className="text-sm text-[var(--color-ink-faint)]">
-          There are no remaining quantities to receive.
+          {mode === "received"
+            ? "Everything on this order has been received. Marking it received closes it out."
+            : "There are no remaining quantities to receive."}
         </p>
+        {mutation.isError ? (
+          <p className="text-sm text-[var(--status-danger-ink)]">
+            {mutation.error instanceof Error ? mutation.error.message : "Failed to receive."}
+          </p>
+        ) : null}
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Close
+          <Button variant="outline" onClick={onClose} disabled={mutation.isPending}>
+            {mode === "received" ? "Cancel" : "Close"}
           </Button>
+          {mode === "received" ? (
+            <Button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+              {mutation.isPending ? "Receiving..." : "Mark received"}
+            </Button>
+          ) : null}
         </DialogFooter>
       </>
     );
@@ -835,6 +864,13 @@ function ReceiveForm({
           value={locationId}
           onValueChange={setLocationId}
         />
+        {shortfallRows.length > 0 ? (
+          <p className="text-sm text-[var(--color-ink-faint)]">
+            {shortfallRows.length === 1
+              ? `${formatQuantity(shortfallRows[0].shortfall)} ${shortfallRows[0].unitName} of ${shortfallRows[0].itemName} will be closed as not arriving.`
+              : `${shortfallRows.length} lines are short of the ordered quantity. The outstanding balance will be closed as not arriving.`}
+          </p>
+        ) : null}
         {mutation.isError ? (
           <p className="text-sm text-[var(--status-danger-ink)]">
             {mutation.error instanceof Error ? mutation.error.message : "Failed to receive."}

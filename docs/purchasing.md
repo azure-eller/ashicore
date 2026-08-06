@@ -207,12 +207,39 @@ Valid transitions:
 - receive `not_received` -> `received`
 - receive `partial` -> `partial`
 - receive `partial` -> `received`
+- close remaining `not_received`/`partial` -> `received`
 - soft-delete any status
 
 Invalid transitions:
 
 - reduce ordered quantity below already received quantity through ordinary autosave
 - remove received purchase order lines
+
+## Closing a short shipment
+
+`partial` means the balance is still expected, not that the order is unfinished.
+When a supplier short-ships and the rest is never arriving, the operator closes
+the balance instead of receiving stock that never showed up.
+
+- the receive request carries `closeRemaining`, which is operator intent rather
+  than arithmetic: `true` means "this order is done, whatever is outstanding is
+  never arriving." It is optional and defaults to `false`, so the Android client
+  — which does not send it — keeps its existing partial-receipt behaviour
+- the web status control sets it from the chosen status: `Partially received`
+  sends `false` and leaves the balance expected; `Received` sends `true`
+- closing writes each line's outstanding balance to `quantity_closed` /
+  `stock_quantity_closed` and leaves `quantity_ordered` alone, so the line still
+  records what was ordered against what arrived
+- closed balances are removed from expected supply, and the edit path subtracts
+  them when it re-books supply so a later card save cannot resurrect them
+- order status counts received **plus** closed against ordered, in both the
+  receive path and the edit-path recompute
+- `closeRemaining` is valid with an empty `lines` array: closing an order that
+  was partially received days ago is a decision, not a receipt. Every other
+  receive still requires at least one quantity
+- `PATCH /api/purchase-orders/[id]/status` with `received` closes remaining too.
+  It no longer returns success without changing status when nothing is
+  receivable
 
 ## Correcting received quantities
 
@@ -268,11 +295,12 @@ Delete is always available and runs in one transaction:
 
 Setting status to `received` through `PATCH /api/purchase-orders/[id]/status` is not a
 flag flip — it runs the real `receivePurchaseOrder` path, receiving every remaining line at
-the default location into `available`. Setting `not_received` is a no-op when the PO is already
+the default location into `available` and closing any balance it cannot receive. Setting
+`not_received` is a no-op when the PO is already
 not received and is not a submit gate. The
 operator UI does not call that direct status-receive shortcut: choosing `partial` or
 `received` in the status control opens the receive dialog, where the selected `Receive
-into` location is posted to the receive endpoint. The `/email` route sends the existing
+into` location is posted to the receive endpoint along with the chosen intent. The `/email` route sends the existing
 created PO. The `cancelledAt` column on
 `purchase_orders` is vestigial: no purchasing code writes or reads it, and removal is
 soft-delete (`deletedAt`) only.

@@ -258,6 +258,18 @@ export const purchaseOrderLines = purchasingSchema
         scale: 4,
       }).notNull()
         .default("0"),
+      // Short-close: the ordered balance the operator declared is never arriving.
+      // Kept alongside quantityOrdered so the order still records what was ordered
+      // versus what actually showed up. Status counts received + closed.
+      quantityClosed: numeric("quantity_closed", { precision: 12, scale: 4 })
+        .notNull()
+        .default("0"),
+      stockQuantityClosed: numeric("stock_quantity_closed", {
+        precision: 12,
+        scale: 4,
+      })
+        .notNull()
+        .default("0"),
       unitCost: numeric("unit_cost", { precision: 10, scale: 4 }).notNull(),
       stockUnitCost: numeric("stock_unit_cost", { precision: 18, scale: 6 }).notNull(),
       taxRateId: uuid("tax_rate_id").references(() => taxRates.id, {

@@ -29,7 +29,7 @@ An order has one status at a time. The status decides what you can edit, receive
 |--------|---------------|------|---------|--------|
 | <Pill status="not_received" /> | Not received yet. Already counted as expected supply. | <span class="tbl-can good">yes</span> | <span class="tbl-can good">yes</span> | <span class="tbl-can good">before receipt</span> |
 | <Pill status="partial" /> | Some lines received into inventory. | <span class="tbl-can good">yes</span> | <span class="tbl-can good">yes</span> | <span class="tbl-can no">blocked</span> |
-| <Pill status="received" /> | Every line received. Editing up reverts to Partial. | <span class="tbl-can good">yes</span> | <span class="tbl-can">—</span> | <span class="tbl-can no">blocked</span> |
+| <Pill status="received" /> | Finished: each line was received or its shortfall was closed. Editing up reverts to Partial. | <span class="tbl-can good">yes</span> | <span class="tbl-can">—</span> | <span class="tbl-can no">blocked</span> |
 
 ## How-tos
 

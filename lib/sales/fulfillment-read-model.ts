@@ -217,7 +217,7 @@ async function getSalesItemAvailabilityByOrderIdInTx(
       itemId: purchaseOrderLines.itemId,
       expectedDate: purchaseOrders.expectedDate,
       quantity: trimScale(
-        sql`COALESCE(SUM(${purchaseOrderLines.stockQuantityOrdered} - ${purchaseOrderLines.stockQuantityReceived}), 0)`
+        sql`COALESCE(SUM(GREATEST(${purchaseOrderLines.stockQuantityOrdered} - ${purchaseOrderLines.stockQuantityReceived} - ${purchaseOrderLines.stockQuantityClosed}, 0)), 0)`
       ).as("quantity"),
     })
     .from(purchaseOrders)
@@ -768,7 +768,7 @@ async function getIngredientSupplyByItemIdInTx(
       itemId: purchaseOrderLines.itemId,
       expectedDate: purchaseOrders.expectedDate,
       quantity: trimScale(
-        sql`COALESCE(SUM(${purchaseOrderLines.stockQuantityOrdered} - ${purchaseOrderLines.stockQuantityReceived}), 0)`
+        sql`COALESCE(SUM(GREATEST(${purchaseOrderLines.stockQuantityOrdered} - ${purchaseOrderLines.stockQuantityReceived} - ${purchaseOrderLines.stockQuantityClosed}, 0)), 0)`
       ).as("quantity"),
     })
     .from(purchaseOrders)

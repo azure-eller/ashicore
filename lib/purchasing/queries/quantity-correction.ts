@@ -219,6 +219,12 @@ export async function correctPurchaseOrderQuantity(
             quantityReceived: normalizeNumeric(correctedQuantity),
             stockQuantityOrdered: normalizeNumeric(correctedStockQuantity),
             stockQuantityReceived: normalizeNumeric(correctedStockQuantity),
+            // A correction restates ordered as what actually arrived, so there
+            // is no shortfall left to write off. Carrying the old closure
+            // forward would keep suppressing supply the next time the line is
+            // ordered back up, leaving it stuck at zero receivable.
+            quantityClosed: "0",
+            stockQuantityClosed: "0",
           }
         : line,
     );
@@ -263,6 +269,8 @@ export async function correctPurchaseOrderQuantity(
           quantityReceived: line.quantityReceived,
           stockQuantityOrdered: line.stockQuantityOrdered,
           stockQuantityReceived: line.stockQuantityReceived,
+          quantityClosed: line.quantityClosed,
+          stockQuantityClosed: line.stockQuantityClosed,
           stockUnitCost,
           lineSubtotal: subtotal,
           lineTaxAmount: lineTax,
@@ -284,7 +292,9 @@ export async function correctPurchaseOrderQuantity(
         purchaseOrderLineId: line.id,
         itemId: line.itemId,
         quantity: Math.max(
-          Number(line.stockQuantityOrdered) - Number(line.stockQuantityReceived),
+          Number(line.stockQuantityOrdered) -
+            Number(line.stockQuantityReceived) -
+            Number(line.stockQuantityClosed),
           0,
         ),
       })),
@@ -303,7 +313,9 @@ export async function correctPurchaseOrderQuantity(
       });
     }
     const allReceived = nextLines.every(
-      (line) => Number(line.quantityReceived) >= Number(line.quantityOrdered),
+      (line) =>
+        Number(line.quantityReceived) + Number(line.quantityClosed) >=
+        Number(line.quantityOrdered),
     );
     const anyReceived = nextLines.some((line) => Number(line.quantityReceived) > 0);
     const status = allReceived ? "received" : anyReceived ? "partial" : "not_received";
