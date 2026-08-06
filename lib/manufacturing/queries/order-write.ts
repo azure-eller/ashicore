@@ -342,10 +342,12 @@ export async function swapManufacturingIngredientMaterial(
       );
     }
 
-    const [ingredient] = await tx
+    const orderIngredients = await tx
       .select({
         id: manufacturingOrderIngredients.id,
         itemId: manufacturingOrderIngredients.itemId,
+        manufacturingOrderBatchId:
+          manufacturingOrderIngredients.manufacturingOrderBatchId,
         bomRevisionComponentId: manufacturingOrderIngredients.bomRevisionComponentId,
         pickStatus: manufacturingOrderIngredients.pickStatus,
         pickedQuantity: trimScale(manufacturingOrderIngredients.pickedQuantity).as(
@@ -354,22 +356,36 @@ export async function swapManufacturingIngredientMaterial(
         actualQuantity: manufacturingOrderIngredients.actualQuantity,
       })
       .from(manufacturingOrderIngredients)
-      .where(
-        and(
-          eq(manufacturingOrderIngredients.id, ingredientId),
-          eq(manufacturingOrderIngredients.manufacturingOrderId, orderId)
-        )
-      );
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
+
+    const ingredient = orderIngredients.find((row) => row.id === ingredientId);
 
     if (!ingredient) {
       throw new ManufacturingError("Ingredient not found", 404);
     }
 
-    if (
-      ingredient.pickStatus !== "not_picked" ||
-      Number(ingredient.pickedQuantity ?? 0) > 0 ||
-      ingredient.actualQuantity != null
-    ) {
+    if (!ingredient.bomRevisionComponentId) {
+      throw new ManufacturingError(
+        "This order predates recipe-line tracking, so its materials cannot be swapped. Delete and recreate the order to use a different one.",
+        409
+      );
+    }
+
+    // A batch order fans one recipe line out into a row per batch, and the screen shows those
+    // rows collapsed into one. Swapping only the row behind the aggregate would leave the other
+    // batches on the old material while the UI reported the whole line as swapped, so the swap
+    // moves every row that came from this recipe line.
+    const lineIngredients = orderIngredients.filter(
+      (row) => row.bomRevisionComponentId === ingredient.bomRevisionComponentId
+    );
+
+    const pickedLineIngredient = lineIngredients.find(
+      (row) =>
+        row.pickStatus !== "not_picked" ||
+        Number(row.pickedQuantity ?? 0) > 0 ||
+        row.actualQuantity != null
+    );
+    if (pickedLineIngredient) {
       throw new ManufacturingError(
         "This ingredient has already been picked, so its material is locked. Delete and recreate the order to use a different one.",
         400
@@ -439,47 +455,56 @@ export async function swapManufacturingIngredientMaterial(
       component.quantity
     );
     const recipeBasis = normalizeRecipeBasis(revision.recipeBasis);
-    const plannedQuantity = calculatePlannedIngredientQuantity({
+    const orderPlannedQuantity = calculatePlannedIngredientQuantity({
       recipeBasis,
       quantityPerUnit,
       outputQuantity: Number(order.plannedQuantity),
       recipeOutputQuantity: revision.outputQuantity,
       batchCount: order.numberOfBatches,
     });
+    // A batch row holds one batch's worth, the way the fan-out wrote it; only the pre-execution
+    // template row holds the whole order's. Writing the order total into a batch row would book
+    // every batch's material against a single batch.
+    const plannedQuantityFor = (batchId: string | null) =>
+      batchId == null ? orderPlannedQuantity : quantityPerUnit;
 
     await releaseIngredientDemandForManufacturingInTx(tx, {
       organizationId: orgId,
       manufacturingOrderId: orderId,
       actorUserId: userId,
       reason: "edited",
-      ingredientIds: [ingredient.id],
+      ingredientIds: lineIngredients.map((row) => row.id),
     });
 
-    await tx
-      .update(manufacturingOrderIngredients)
-      .set({
-        itemId: selected.itemId,
-        itemName: selected.itemName,
-        itemSku: selected.itemSku,
-        itemType: selected.itemType,
-        unitName: selected.unitName,
-        quantityPerUnit,
-        plannedQuantity,
-        updatedAt: new Date(),
-      })
-      .where(eq(manufacturingOrderIngredients.id, ingredient.id));
+    for (const lineIngredient of lineIngredients) {
+      await tx
+        .update(manufacturingOrderIngredients)
+        .set({
+          itemId: selected.itemId,
+          itemName: selected.itemName,
+          itemSku: selected.itemSku,
+          itemType: selected.itemType,
+          unitName: selected.unitName,
+          quantityPerUnit,
+          plannedQuantity: plannedQuantityFor(
+            lineIngredient.manufacturingOrderBatchId
+          ),
+          updatedAt: new Date(),
+        })
+        .where(eq(manufacturingOrderIngredients.id, lineIngredient.id));
+    }
 
     await addIngredientDemandForManufacturingInTx(tx, {
       organizationId: orgId,
       manufacturingOrderId: orderId,
       actorUserId: userId,
-      ingredients: [
-        {
-          ingredientId: ingredient.id,
-          itemId: selected.itemId,
-          quantity: parseFloat(plannedQuantity),
-        },
-      ],
+      ingredients: lineIngredients.map((lineIngredient) => ({
+        ingredientId: lineIngredient.id,
+        itemId: selected.itemId,
+        quantity: parseFloat(
+          plannedQuantityFor(lineIngredient.manufacturingOrderBatchId)
+        ),
+      })),
     });
 
     return {

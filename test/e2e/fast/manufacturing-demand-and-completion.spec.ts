@@ -2879,4 +2879,140 @@ test.describe("manufacturing demand and completion heartbeat", () => {
     expect(refused.status).toBe(400);
     expect(await refused.text()).toContain("picked");
   });
+
+  test("swapping a batch order's ingredient moves every batch, at one batch's quantity", async ({
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const base = await createItem({
+      itemType: "material",
+      name: `Batch Alt Base ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `BATCH-ALT-BASE-${unique}`,
+      category: `Batch Alt ${ts}`,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "5000",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(base.status).toBe(201);
+
+    const [familyRow] = await db
+      .select({ id: itemFamilies.id })
+      .from(items)
+      .innerJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
+      .where(eq(items.id, base.body.id));
+
+    const [alt] = await db
+      .insert(items)
+      .values({
+        organizationId: orgId,
+        familyId: familyRow.id,
+        name: `Batch Alt Large ${unique}`,
+        sku: `BATCH-ALT-LARGE-${unique}`,
+        itemType: "material",
+        unitDefinitionId: unitId,
+        safetyStock: "0",
+        defaultPurchasePrice: "8.00",
+        defaultSellingPrice: null,
+        sellable: false,
+        manufacturingMode: "discrete",
+        optionCombinationKey: `batch-alt-large-${unique}`,
+        isMaster: false,
+        sortOrder: 1,
+      })
+      .returning({ id: items.id });
+
+    const bom = [
+      {
+        componentId: base.body.id,
+        quantity: "12",
+        alternates: [{ itemId: alt.id, quantity: "3" }],
+      },
+    ];
+    const product = await createItem({
+      itemType: "product",
+      name: `Batch Alt Product ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `BATCH-ALT-PRODUCT-${unique}`,
+      category: `Batch Alt ${ts}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "25.00",
+      stock: "0",
+      safetyStock: "0",
+      bom,
+    });
+    expect(product.status, JSON.stringify(product.body)).toBe(201);
+
+    // The Recipe tab saves through this route rather than the heavy item PUT, so it is its own
+    // seam for the alternate's quantity: dropping it here rejects every recipe with a variant.
+    const batchRevision = await testFetch(
+      `/api/items/${product.body.id}/bom-revisions`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          recipeBasis: "batch",
+          expectedBatchYield: "10",
+          outputQuantity: "10",
+          bom,
+        }),
+      },
+    );
+    expect([200, 201], await batchRevision.text()).toContain(batchRevision.status);
+
+    // 30 planned at 10 a batch is three batches, each taking 12 of the base material.
+    const order = await createManufacturingOrder({
+      productId: product.body.id,
+      plannedQuantity: "30",
+      ingredients: [{ itemId: base.body.id, quantityPerUnit: "12" }],
+      confirmShortage: false,
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+    const orderId = order.body.id as string;
+    expect(
+      (await releaseManufacturingOrder(orderId, { confirmShortage: true })).status,
+    ).toBe(200);
+
+    // Reading execution is what fans the one recipe line out into a row per batch.
+    expect(
+      (await testFetch(`/api/manufacturing-orders/${orderId}/execution`)).status,
+    ).toBe(200);
+
+    const beforeSwap = await db
+      .select({
+        id: manufacturingOrderIngredients.id,
+        batchId: manufacturingOrderIngredients.manufacturingOrderBatchId,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
+    expect(beforeSwap).toHaveLength(3);
+    expect(beforeSwap.every((row) => row.batchId != null)).toBe(true);
+
+    // Execution collapses those rows into one line, so the swap carries whichever row's id the
+    // aggregate kept. Moving only that row leaves the other batches quietly on the old material.
+    const swap = await testFetch(
+      `/api/manufacturing-orders/${orderId}/ingredients/${beforeSwap[0].id}/material`,
+      { method: "PATCH", body: JSON.stringify({ itemId: alt.id }) },
+    );
+    expect(swap.status, await swap.text()).toBe(200);
+
+    const afterSwap = await db
+      .select({
+        itemId: manufacturingOrderIngredients.itemId,
+        quantityPerUnit: manufacturingOrderIngredients.quantityPerUnit,
+        plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
+    expect(afterSwap.map((row) => row.itemId)).toEqual([alt.id, alt.id, alt.id]);
+    // A batch row holds one batch's worth; the order total here would book three batches of
+    // material against every batch.
+    for (const row of afterSwap) {
+      expect(row.quantityPerUnit).toBe("3.0000");
+      expect(row.plannedQuantity).toBe("3.0000");
+    }
+  });
 });
