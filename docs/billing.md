@@ -53,6 +53,12 @@ subscription projects to active Free, clears the current subscription ID, keeps
 all data, and preserves the original SKU-limit date. An over-30 downgrade sends
 a founder alert but is not workspace-locked.
 
+Stripe webhooks remain the primary source of real-time subscription updates.
+Opening Settings → Billing also performs a best-effort reconciliation before
+rendering when the organization has a Stripe customer. If Stripe is temporarily
+unavailable, the page renders the last-known database state and reports the
+failure internally; recovery controls are not exposed in customer UI.
+
 During the compatibility release, legacy Core, package, plugin, location, and
 annual lookup keys still project to Pro. New checkout never creates them. Remove
 that recognition only after every active subscription uses `pro_monthly`.

@@ -26,6 +26,7 @@ import {
   assertSkuCapacityInTx,
   SkuCapacityError,
 } from "../../../lib/billing/sku-capacity";
+import { reconcileBillingPageState } from "../../../lib/billing/page-reconciliation";
 import { withOrgContext } from "../../../lib/db/with-org-context";
 import { getBaseUrl, getOrgId } from "../../helpers/api";
 
@@ -195,6 +196,42 @@ test("only the Pro catalog offer is sellable", () => {
     PRO_PLAN_LOOKUP_KEY
   );
   expect(getSellableBillingOffer("core_starter_monthly")).toBeNull();
+});
+
+test("billing page reconciliation refreshes after Stripe sync and falls back when Stripe is unavailable", async () => {
+  const current = { plan: "free", revision: 1 };
+  const refreshed = { plan: "pro", revision: 2 };
+  let reconciled = false;
+
+  await expect(
+    reconcileBillingPageState({
+      current,
+      reconcile: async () => {
+        reconciled = true;
+      },
+      reread: async () => refreshed,
+      onError: () => {
+        throw new Error("Unexpected reconciliation error.");
+      },
+    }),
+  ).resolves.toBe(refreshed);
+  expect(reconciled).toBe(true);
+
+  const stripeError = new Error("Stripe unavailable");
+  let reported: unknown;
+  await expect(
+    reconcileBillingPageState({
+      current,
+      reconcile: async () => {
+        throw stripeError;
+      },
+      reread: async () => refreshed,
+      onError: (error) => {
+        reported = error;
+      },
+    }),
+  ).resolves.toBe(current);
+  expect(reported).toBe(stripeError);
 });
 
 test("every paid checkout selection resolves to one flat Pro item", () => {
