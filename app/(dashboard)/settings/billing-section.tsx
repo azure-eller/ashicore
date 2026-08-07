@@ -9,7 +9,6 @@ import { FieldError } from "@/components/ui/field";
 import {
   SettingsBlock,
   SettingsCard,
-  SettingsFootnote,
   SettingsPageHeader,
   SettingsQuietRow,
 } from "@/components/settings-panel";
@@ -47,13 +46,13 @@ export function BillingSection({
   const overLimit = initialData.skuLimit != null && initialData.skuCount > initialData.skuLimit;
 
   const runBillingAction = useCallback(
-    async (action: "portal" | "resync" | "cancel_at_period_end" | "resume") => {
+    async (action: "portal" | "cancel_at_period_end" | "resume") => {
       setError(null);
       setPending(action);
       try {
         const response =
-          action === "portal" || action === "resync"
-            ? await apiJson<BillingActionResponse>(`/api/billing/${action}`, {
+          action === "portal"
+            ? await apiJson<BillingActionResponse>("/api/billing/portal", {
                 method: "POST",
                 fallbackError: "Billing request failed.",
               })
@@ -238,20 +237,6 @@ export function BillingSection({
         </SettingsCard>
       ) : null}
 
-      <SettingsFootnote>
-        Plan out of date?{" "}
-        <Button
-          type="button"
-          variant="link"
-          size="sm"
-          className="h-auto p-0 text-[length:var(--text-xs)]"
-          onClick={() => void runBillingAction("resync")}
-          disabled={!initialData.billingConfigured || pending != null}
-        >
-          <HugeiconsIcon icon={RefreshIcon} data-icon="inline-start" />
-          Resync with Stripe
-        </Button>
-      </SettingsFootnote>
     </div>
   );
 }

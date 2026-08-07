@@ -1,7 +1,13 @@
 import { redirect } from "next/navigation";
 import { canManageTeam } from "@/lib/authz";
 import { getAuthedMemberContext } from "@/lib/dal/auth";
-import { isCheckoutConfigured, isStripeConfigured } from "@/lib/billing/stripe";
+import { captureAppError } from "@/lib/observability/sentry";
+import { reconcileBillingPageState } from "@/lib/billing/page-reconciliation";
+import {
+  isCheckoutConfigured,
+  isStripeConfigured,
+  syncOrgBillingFromStripe,
+} from "@/lib/billing/stripe";
 import { BillingSection } from "../billing-section";
 import { getBillingStateForCurrentOrg } from "../queries";
 import type { BillingPageData } from "../types";
@@ -17,7 +23,19 @@ export default async function SettingsBillingPage({
     redirect("/settings/account");
   }
 
-  const billing = await getBillingStateForCurrentOrg();
+  const currentBilling = await getBillingStateForCurrentOrg();
+  const billing = currentBilling.stripeCustomerId
+    ? await reconcileBillingPageState({
+        current: currentBilling,
+        reconcile: () => syncOrgBillingFromStripe(context.orgId),
+        reread: getBillingStateForCurrentOrg,
+        onError: (error) =>
+          captureAppError(error, {
+            source: "billing_page_reconciliation",
+            operation: "sync_from_stripe",
+          }),
+      })
+    : currentBilling;
   const params = await searchParams;
   const initialData: BillingPageData = {
     ...billing,
