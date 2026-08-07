@@ -10,6 +10,7 @@ import {
   updateOrgBillingState,
 } from "./dal";
 import { sendFounderAlert } from "@/lib/internal-alerts";
+import { captureAppError } from "@/lib/observability/sentry";
 import {
   STRIPE_BILLING_CATALOG,
   DEFAULT_BILLING_INTERVAL,
@@ -48,10 +49,19 @@ type BillingConfig = {
 
 export class BillingConfigError extends Error {
   status = 503;
+  // Customer-safe text for API responses. `message` keeps the operator-facing
+  // detail (which lookup key is missing, which script to run) for logs/Sentry;
+  // `publicMessage` is what a signed-in user is allowed to read. Defaults to
+  // `message` so existing throws that already use a safe message are unchanged.
+  publicMessage: string;
 
-  constructor(message = "Stripe billing is not configured.") {
+  constructor(
+    message = "Stripe billing is not configured.",
+    options?: { publicMessage?: string }
+  ) {
     super(message);
     this.name = "BillingConfigError";
+    this.publicMessage = options?.publicMessage ?? message;
   }
 }
 
@@ -285,9 +295,22 @@ async function getActivePriceForLookupKey(stripe: Stripe, lookupKey: string) {
   });
   const price = prices.data[0];
   if (!price) {
-    throw new BillingConfigError(
-      `No active Stripe price has the lookup key ${lookupKey}. Run scripts/stripe-create-catalog.ts.`
+    const error = new BillingConfigError(
+      `No active Stripe price has the lookup key ${lookupKey}. Run scripts/stripe-create-catalog.ts.`,
+      {
+        publicMessage:
+          "Pro isn't available to start right now. Please try again shortly or contact support.",
+      }
     );
+    // Routes catch BillingConfigError and return early, so this misconfiguration
+    // never reaches the api handler's Sentry capture. Alert operators here — the
+    // lookup key is a stable catalog identifier, not customer data.
+    captureAppError(error, {
+      source: "billing_catalog",
+      operation: "resolve_active_price",
+      appDebug: { lookup_key: lookupKey },
+    });
+    throw error;
   }
   return price;
 }

@@ -91,7 +91,7 @@ export const POST = apiHandler(async (request) => {
     return NextResponse.json({ ok: true });
   } catch (error) {
     if (error instanceof BillingConfigError) {
-      return jsonError(error.message, error.status);
+      return jsonError(error.publicMessage, error.status);
     }
     if (error instanceof BillingSubscriptionError) {
       return jsonError(error.message, error.status);
