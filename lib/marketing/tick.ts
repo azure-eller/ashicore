@@ -35,7 +35,6 @@ import {
   readNewGmailMessages,
   sendGmailMessage,
 } from "./gmail";
-import { isMarketingTestMode } from "./runtime-policy";
 
 const PROCESSING_LEASE_MS = 15 * 60 * 1_000;
 const FOLLOW_UP_AFTER_MS = 5 * 24 * 60 * 60 * 1_000;
@@ -65,8 +64,7 @@ function localParts(date: Date, timeZone: string) {
   };
 }
 
-async function sendWindowOpen(now: Date, timeZone: string) {
-  if (await isMarketingTestMode()) return true;
+function sendWindowOpen(now: Date, timeZone: string) {
   const { weekday, hour } = localParts(now, timeZone);
   return !["Sat", "Sun"].includes(weekday) && hour >= 8 && hour < 10;
 }
@@ -387,7 +385,9 @@ async function processCandidate(args: {
 
   try {
     if (!activity) {
-      const corpus = await assertMarketingCorpusReady();
+      const corpus = await assertMarketingCorpusReady(
+        args.experiment.config.corpusExampleIds,
+      );
       let draft = await generateMarketingDraft({
         company: candidate.company,
         recipient: candidate.name,
@@ -751,7 +751,9 @@ async function sendDueFollowUps(args: {
       .where(eq(marketingExperiments.id, args.experiment.id));
     return claimed;
   });
-  const corpus = await assertMarketingCorpusReady();
+  const corpus = await assertMarketingCorpusReady(
+    args.experiment.config.corpusExampleIds,
+  );
   let sentTotal = 0;
   for (const [contactId, progress] of due) {
     const candidate = await loadCandidate(args.orgId, contactId);

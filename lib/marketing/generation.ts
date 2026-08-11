@@ -6,7 +6,6 @@ import { defineAgentTask, runAgentTask } from "@/lib/agent/core";
 import { createOpenAIResponsesAgentProvider } from "@/lib/agent/providers/openai-responses";
 import { env } from "@/lib/env";
 import type { MarketingEmailCorpus } from "@/lib/schemas/marketing";
-import { isMarketingTestMode } from "./runtime-policy";
 
 const draftSchema = z.object({
   subject: z.string().trim().min(1).max(120),
@@ -106,13 +105,6 @@ export async function generateMarketingDraft(args: {
   corpus: MarketingEmailCorpus;
   rewriteFeedback?: DraftEvaluation;
 }): Promise<Draft> {
-  if (await isMarketingTestMode()) {
-    return {
-      subject: "how are you handling production planning?",
-      body: `Hey ${args.recipient.split(" ")[0]} — I came across ${args.company} while looking at smaller soil manufacturers. Not sure how you handle ${args.painAngle.toLowerCase()} today, but I’d be curious to hear what holds it together.`,
-      evidence: args.evidence.slice(0, 2),
-    };
-  }
   return runFreshStructured({
     taskId: args.rewriteFeedback ? "marketing.email.rewrite" : "marketing.email.generate",
     purpose: "Write a plain founder email grounded only in supplied CRM research.",
@@ -143,16 +135,6 @@ export async function evaluateMarketingDraft(args: {
   allowedClaims: string[];
   corpus: MarketingEmailCorpus;
 }): Promise<DraftEvaluation> {
-  if (await isMarketingTestMode()) {
-    const offending = args.corpus.blacklist.filter((phrase) =>
-      `${args.draft.subject}\n${args.draft.body}`.toLowerCase().includes(phrase.toLowerCase()),
-    );
-    return {
-      verdict: offending.length === 0 ? "pass" : "rewrite",
-      reasons: offending.length === 0 ? [] : ["Draft contains blocked AI-shaped language."],
-      offendingPhrases: offending,
-    };
-  }
   return runFreshStructured({
     taskId: "marketing.email.evaluate",
     purpose: "Skeptically compare a proposed email with founder-written examples.",
@@ -176,13 +158,6 @@ export async function generateMarketingFollowUp(args: {
   cta: string;
   corpus: MarketingEmailCorpus;
 }): Promise<Draft> {
-  if (await isMarketingTestMode()) {
-    return {
-      subject: `Re: ${args.originalSubject}`,
-      body: `Hey ${args.recipient.split(" ")[0]} — just following up in case this got buried. Still curious how you handle it today.`,
-      evidence: ["Follow-up to the previously sent message."],
-    };
-  }
   return runFreshStructured({
     taskId: "marketing.email.follow_up",
     purpose: "Write one restrained follow-up to a founder's unanswered email.",
@@ -209,11 +184,6 @@ export async function classifyMarketingReply(args: {
   if (/mailer-daemon|delivery status notification|undeliverable/.test(normalized)) {
     return { outcome: "automated" as const, reason: "Automated delivery response." };
   }
-  if (await isMarketingTestMode()) {
-    return /interested|show me|tell me more|let's talk|lets talk/.test(normalized)
-      ? { outcome: "positive" as const, reason: "Expressed interest." }
-      : { outcome: "unknown" as const, reason: "Human reply needs review." };
-  }
   return runFreshStructured({
     taskId: "marketing.reply.classify",
     purpose: "Classify a reply without drafting a response.",
@@ -224,12 +194,6 @@ export async function classifyMarketingReply(args: {
 }
 
 export async function analyzeMarketingExperiment(input: Record<string, unknown>) {
-  if (await isMarketingTestMode()) {
-    return {
-      learning: "The result is recorded; do not infer more than the observed replies support.",
-      nextChange: "Change one founder-approved variable in the next experiment.",
-    };
-  }
   return runFreshStructured({
     taskId: "marketing.experiment.analyze",
     purpose: "State one bounded learning from externally observed outcomes.",

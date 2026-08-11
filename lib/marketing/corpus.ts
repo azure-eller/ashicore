@@ -1,41 +1,22 @@
 import "server-only";
 
-import fs from "node:fs/promises";
 import rawCorpus from "./email-corpus.json";
-import { marketingEmailCorpusSchema, type MarketingEmailCorpus } from "@/lib/schemas/marketing";
-import { MARKETING_TEST_MODE_FLAG } from "./test-mode";
-
-const TEST_CORPUS: MarketingEmailCorpus = {
-  version: "test-v1",
-  blacklist: ["streamline", "I was impressed by"],
-  examples: Array.from({ length: 5 }, (_, index) => ({
-    id: `test-${index + 1}`,
-    situation: "A technical founder asks a researched operator one honest question.",
-    subject: `how are you handling this ${index + 1}`,
-    body: "Hey — I came across your company while looking at smaller soil manufacturers. Not sure how you handle production planning today, but I’d be curious to hear what holds it together.",
-  })),
-};
-
-async function isTestMode() {
-  try {
-    await fs.access(MARKETING_TEST_MODE_FLAG);
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { marketingEmailCorpusSchema } from "@/lib/schemas/marketing";
 
 export async function getMarketingEmailCorpus() {
-  if (await isTestMode()) return TEST_CORPUS;
   return marketingEmailCorpusSchema.parse(rawCorpus);
 }
 
-export async function assertMarketingCorpusReady() {
+export async function assertMarketingCorpusReady(exampleIds?: string[]) {
   const corpus = await getMarketingEmailCorpus();
-  if (corpus.examples.length < 5) {
-    throw new Error(
-      "The founder email corpus must contain at least five canonical examples before activation.",
-    );
+  const standardExamples = corpus.examples.filter((example) => !example.experimental);
+  if (standardExamples.length === 0) throw new Error("The email reference corpus is empty.");
+  if (!exampleIds) return { ...corpus, examples: standardExamples };
+
+  const selectedIds = new Set(exampleIds);
+  const examples = corpus.examples.filter((example) => selectedIds.has(example.id));
+  if (examples.length !== selectedIds.size) {
+    throw new Error("The experiment references an unknown email corpus example.");
   }
-  return corpus;
+  return { ...corpus, examples };
 }

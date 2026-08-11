@@ -2,7 +2,7 @@
 read_when:
   - Configuring or operating autonomous marketing experiments
   - Changing Gmail outreach, contact suppression, or marketing cron behavior
-  - Editing the founder cold-email corpus
+  - Editing the cold-email reference corpus
 ---
 
 # Autonomous Marketing
@@ -59,12 +59,22 @@ reply, pause, and completion notices to reach the founder.
 Google OAuth consent screen for `gmail.send` and `gmail.readonly`, then register
 the exact redirect URI above.
 
-## Founder Corpus
+## Email Reference Corpus
 
-Edit `lib/marketing/email-corpus.json`. Activation fails closed until it holds
-at least five examples. Keep the set small and canonical; each item needs an
-ID, situation, subject, and body. The optional blacklist is for a short list of
-recurring phrases that should always fail style evaluation.
+`lib/marketing/email-corpus.json` ships with a small starter set adapted from
+current outbound research to Ashicore's initial manufacturing segment. Each
+item needs an ID, situation, subject, and body. The optional blacklist is for a
+short list of recurring phrases that should always fail style evaluation.
+
+Treat the starter set as a bootstrap, not permanent founder authorship. Replace
+weak examples with sent messages that produce qualified replies, and remove
+examples whose voice or behavior is wrong. Keep the set small and canonical.
+
+Examples marked `experimental` are excluded by default. A deliberately
+high-variance experiment can opt into one or more examples with
+`corpusExampleIds`; this keeps wildcard voice from leaking into normal sends.
+The bundled `wildcard-boom` example preserves the founder-supplied wording and
+must be selected explicitly.
 
 The model receives CRM evidence, the experiment's one pain angle and CTA, and
 the corpus. It may not introduce product claims outside `allowedClaims`.
@@ -97,9 +107,14 @@ Create payload:
   "allowedClaims": [
     "Ashicore is operations software for smaller batch manufacturers."
   ],
+  "corpusExampleIds": ["wildcard-boom"],
   "contactIds": ["<crm-contact-uuid>"]
 }
 ```
+
+Omit `corpusExampleIds` for the standard corpus. Even wildcard experiments keep
+the normal contact limits, canaries, suppression rules, compliance footer, and
+independent factuality evaluation.
 
 Suppression payloads are `{ "suppressed": true, "reason": "manual" }` and
 `{ "suppressed": false }`. Clearing suppression is deliberately an owner-only

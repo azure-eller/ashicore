@@ -11,11 +11,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import { EMAIL_OUTBOX_DIR, EMAIL_OUTBOX_MODE_FLAG } from "../lib/email/outbox";
-import {
-  MARKETING_GMAIL_INBOX_DIR,
-  MARKETING_GMAIL_OUTBOX_DIR,
-  MARKETING_TEST_MODE_FLAG,
-} from "../lib/marketing/test-mode";
 import { startAgentSessionLease } from "../scripts/agent-session";
 import { ensureTestAccount } from "./helpers/test-account-setup";
 import { resolveBaseUrl } from "./helpers/test-env";
@@ -27,10 +22,6 @@ export default async function setup() {
   fs.rmSync(EMAIL_OUTBOX_DIR, { recursive: true, force: true });
   fs.mkdirSync(path.dirname(EMAIL_OUTBOX_MODE_FLAG), { recursive: true });
   fs.writeFileSync(EMAIL_OUTBOX_MODE_FLAG, "1");
-  fs.rmSync(MARKETING_GMAIL_OUTBOX_DIR, { recursive: true, force: true });
-  fs.rmSync(MARKETING_GMAIL_INBOX_DIR, { recursive: true, force: true });
-  fs.mkdirSync(MARKETING_GMAIL_INBOX_DIR, { recursive: true });
-  fs.writeFileSync(MARKETING_TEST_MODE_FLAG, "1");
 
   await ensureTestAccount({
     baseUrl: BASE_URL,

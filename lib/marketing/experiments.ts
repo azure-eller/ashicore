@@ -10,7 +10,6 @@ import {
 import { withOrgContext } from "@/lib/db/with-org-context";
 import type { MarketingExperimentConfig } from "@/lib/schemas/marketing";
 import { assertMarketingCorpusReady } from "./corpus";
-import { isMarketingTestMode } from "./runtime-policy";
 
 function initialState(config: MarketingExperimentConfig) {
   return {
@@ -42,6 +41,7 @@ export async function createMarketingExperiment(args: {
   userId: string;
   config: MarketingExperimentConfig;
 }) {
+  await assertMarketingCorpusReady(args.config.corpusExampleIds);
   const contactIds = [...new Set(args.config.contactIds)];
   if (contactIds.length !== args.config.contactIds.length) {
     throw new DomainError("Experiment contact IDs must be unique.", 400);
@@ -118,14 +118,13 @@ export async function activateMarketingExperiment(
   userId: string,
   experimentId: string,
 ) {
-  await assertMarketingCorpusReady();
-
   return withOrgContext(orgId, async (tx) => {
     const [experiment] = await tx
       .select()
       .from(marketingExperiments)
       .where(eq(marketingExperiments.id, experimentId));
     if (!experiment) throw new DomainError("Marketing experiment not found.", 404);
+    await assertMarketingCorpusReady(experiment.config.corpusExampleIds);
     if (experiment.status === "completed") {
       throw new DomainError("Completed experiments cannot be reactivated.", 409);
     }
@@ -139,18 +138,16 @@ export async function activateMarketingExperiment(
       }
     }
 
-    if (!(await isMarketingTestMode())) {
-      const [mailbox] = await tx
-        .select({ id: marketingMailboxes.id })
-        .from(marketingMailboxes)
-        .where(
-          and(
-            eq(marketingMailboxes.organizationId, orgId),
-            isNull(marketingMailboxes.disabledAt),
-          ),
-        );
-      if (!mailbox) throw new DomainError("Connect the founder Gmail mailbox first.", 409);
-    }
+    const [mailbox] = await tx
+      .select({ id: marketingMailboxes.id })
+      .from(marketingMailboxes)
+      .where(
+        and(
+          eq(marketingMailboxes.organizationId, orgId),
+          isNull(marketingMailboxes.disabledAt),
+        ),
+      );
+    if (!mailbox) throw new DomainError("Connect the founder Gmail mailbox first.", 409);
 
     const now = new Date();
     const [updated] = await tx

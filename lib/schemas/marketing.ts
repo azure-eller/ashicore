@@ -32,6 +32,7 @@ export const marketingExperimentConfigSchema = z.object({
   painAngle: z.string().trim().min(1).max(1_000),
   cta: z.string().trim().min(1).max(500),
   allowedClaims: z.array(z.string().trim().min(1).max(1_000)).min(1).max(20),
+  corpusExampleIds: z.array(z.string().trim().min(1)).min(1).max(10).optional(),
   contactIds: z.array(z.string().uuid()).min(1).max(30),
 });
 
@@ -99,8 +100,10 @@ export const marketingEmailCorpusSchema = z.object({
         situation: z.string().trim().min(1),
         subject: z.string().trim().min(1),
         body: z.string().trim().min(1),
+        experimental: z.boolean().default(false),
       }),
     )
+    .min(1)
     .max(20),
 });
 

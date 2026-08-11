@@ -1,19 +1,12 @@
 import "server-only";
 
-import { createHash, randomUUID } from "node:crypto";
-import fs from "node:fs/promises";
-import path from "node:path";
+import { createHash } from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
 import { marketingMailboxes } from "@/lib/db/schema";
 import { withOrgContext } from "@/lib/db/with-org-context";
 import { DomainError } from "@/lib/errors/domain-error";
 import { env } from "@/lib/env";
 import { decryptGoogleToken, encryptGoogleToken } from "./token-crypto";
-import {
-  MARKETING_GMAIL_INBOX_DIR,
-  MARKETING_GMAIL_OUTBOX_DIR,
-} from "./test-mode";
-import { isMarketingTestMode } from "./runtime-policy";
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
@@ -266,26 +259,6 @@ export async function sendGmailMessage(args: {
   inReplyTo?: string;
 }) {
   const stableId = `${createHash("sha256").update(args.idempotencyKey).digest("hex").slice(0, 32)}@ashicore.app`;
-  if (await isMarketingTestMode()) {
-    await fs.mkdir(MARKETING_GMAIL_OUTBOX_DIR, { recursive: true });
-    const filePath = path.join(
-      MARKETING_GMAIL_OUTBOX_DIR,
-      `${createHash("sha256").update(args.idempotencyKey).digest("hex")}.json`,
-    );
-    const value = {
-      ...args,
-      messageId: stableId,
-      threadId: args.threadId ?? randomUUID(),
-      createdAt: new Date().toISOString(),
-    };
-    await fs.writeFile(filePath, JSON.stringify(value, null, 2), { flag: "wx" }).catch(
-      async (error: NodeJS.ErrnoException) => {
-        if (error.code !== "EEXIST") throw error;
-      },
-    );
-    return { id: stableId, threadId: value.threadId, rfcMessageId: stableId };
-  }
-
   const { accessToken, mailbox } = await activeAccessToken(args.orgId);
   const existing = await gmailFetch<{
     messages?: Array<{ id: string; threadId: string }>;
@@ -331,17 +304,6 @@ function decodeBody(payload: GmailMessagePart): string {
 }
 
 export async function readNewGmailMessages(orgId: string) {
-  if (await isMarketingTestMode()) {
-    const names = await fs.readdir(MARKETING_GMAIL_INBOX_DIR).catch(() => []);
-    return { messages: await Promise.all(
-      names.filter((name) => name.endsWith(".json")).map(async (name) =>
-        JSON.parse(
-          await fs.readFile(path.join(MARKETING_GMAIL_INBOX_DIR, name), "utf8"),
-        ) as GmailInboundMessage,
-      ),
-    ) };
-  }
-
   const { accessToken, mailbox } = await activeAccessToken(orgId);
   if (!mailbox.historyId) return { messages: [] };
   type GmailHistoryPage = {
