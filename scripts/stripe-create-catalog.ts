@@ -16,6 +16,7 @@ import {
 } from "../lib/billing/types";
 
 const STRIPE_LOOKUP_KEY_LIMIT = 10;
+const STRIPE_PRICE_PAGE_LIMIT = 100;
 
 function chunks<T>(values: readonly T[], size: number) {
   const result: T[][] = [];
@@ -56,15 +57,19 @@ async function main() {
       chunks(
         STRIPE_BILLING_CATALOG.map((offer) => offer.lookupKey),
         STRIPE_LOOKUP_KEY_LIMIT
-      ).map((lookupKeys) =>
-        stripe.prices.list({
+      ).map(async (lookupKeys) => {
+        const prices: Stripe.Price[] = [];
+        for await (const price of stripe.prices.list({
           lookup_keys: lookupKeys,
           active: true,
-          limit: STRIPE_LOOKUP_KEY_LIMIT,
-        })
-      )
+          limit: STRIPE_PRICE_PAGE_LIMIT,
+        })) {
+          prices.push(price);
+        }
+        return prices;
+      })
     )
-  ).flatMap((page) => page.data);
+  ).flat();
   for (const offer of STRIPE_BILLING_CATALOG) {
     const interval = offer.interval === "annual" ? "year" : "month";
     const isAnnual = offer.interval === "annual";
