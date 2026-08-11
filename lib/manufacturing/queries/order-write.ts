@@ -838,7 +838,7 @@ async function prepareCreateIngredientsInTx(
         row.itemId,
         row.alternates,
         selected.itemId,
-        row.quantity,
+        row.quantityPerUnit,
         submittedQuantityPerUnit
       );
       const recipeBasis = normalizeRecipeBasis(row.recipeBasis);
