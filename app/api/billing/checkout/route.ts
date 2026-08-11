@@ -77,7 +77,7 @@ export const POST = apiHandler(async (request) => {
     return NextResponse.json({ url: session.url });
   } catch (error) {
     if (error instanceof BillingConfigError) {
-      return jsonError(error.publicMessage, error.status);
+      return jsonError(error.message, error.status);
     }
     if (error instanceof BillingConflictError) {
       return jsonError(error.message, error.status);
