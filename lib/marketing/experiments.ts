@@ -1,6 +1,6 @@
 import "server-only";
 
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne } from "drizzle-orm";
 import { DomainError } from "@/lib/errors/domain-error";
 import {
   customerContacts,
@@ -172,12 +172,28 @@ export async function pauseMarketingExperiment(
   experimentId: string,
 ) {
   return withOrgContext(orgId, async (tx) => {
+    const [experiment] = await tx
+      .select({ status: marketingExperiments.status })
+      .from(marketingExperiments)
+      .where(eq(marketingExperiments.id, experimentId));
+    if (!experiment) throw new DomainError("Marketing experiment not found.", 404);
+    if (experiment.status === "completed") {
+      throw new DomainError("Completed experiments cannot be paused.", 409);
+    }
+
     const [updated] = await tx
       .update(marketingExperiments)
       .set({ status: "paused", updatedAt: new Date() })
-      .where(eq(marketingExperiments.id, experimentId))
+      .where(
+        and(
+          eq(marketingExperiments.id, experimentId),
+          ne(marketingExperiments.status, "completed"),
+        ),
+      )
       .returning();
-    if (!updated) throw new DomainError("Marketing experiment not found.", 404);
+    if (!updated) {
+      throw new DomainError("Completed experiments cannot be paused.", 409);
+    }
     return updated;
   }, { userId });
 }
