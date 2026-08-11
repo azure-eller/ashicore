@@ -1337,6 +1337,20 @@ async function prepareUpdatedIngredientsInTx(
     tx,
     bomRows.map((row) => row.componentId)
   );
+  const existingIngredients = await tx
+    .select({
+      bomRevisionComponentId: manufacturingOrderIngredients.bomRevisionComponentId,
+      itemId: manufacturingOrderIngredients.itemId,
+    })
+    .from(manufacturingOrderIngredients)
+    .where(eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrderId));
+  const existingItemByComponentId = new Map(
+    existingIngredients.flatMap((ingredient) =>
+      ingredient.bomRevisionComponentId
+        ? [[ingredient.bomRevisionComponentId, ingredient.itemId] as const]
+        : [],
+    ),
+  );
 
   return sortedSubmittedIngredients.map(({ submitted, row }, index) => {
     const activeItem = activeItemById.get(submitted.itemId);
@@ -1358,16 +1372,19 @@ async function prepareUpdatedIngredientsInTx(
         400
       );
     }
-    const quantityPerUnit = resolveIngredientQuantityPerUnit(
-      row.componentId,
-      row.alternates.map((alternate) => ({
-        itemId: alternate.alternateItemId,
-        quantity: alternate.quantity,
-      })),
-      selected.itemId,
-      row.quantity,
-      submitted.quantityPerUnit
-    );
+    const materialChanged = existingItemByComponentId.get(row.id) !== selected.itemId;
+    const quantityPerUnit = materialChanged
+      ? resolveIngredientQuantityPerUnit(
+          row.componentId,
+          row.alternates.map((alternate) => ({
+            itemId: alternate.alternateItemId,
+            quantity: alternate.quantity,
+          })),
+          selected.itemId,
+          row.quantity,
+          submitted.quantityPerUnit
+        )
+      : normalizeNumeric(Number(submitted.quantityPerUnit));
 
     return {
       bomRevisionComponentId: row.id,
