@@ -101,7 +101,7 @@ leave it unset for enforcement or set it to `0` only for an incident rollback.
 
 Stripe setup checklist:
 
-1. Reconcile the live `pro_monthly` $199 price: `STRIPE_SECRET_KEY=sk_live_... pnpm tsx scripts/stripe-create-catalog.ts`. The script retains one matching active price, deactivates other active prices with that lookup key, and creates the canonical price when none matches.
+1. Create the live `pro_monthly` $199 price: `STRIPE_SECRET_KEY=sk_live_... pnpm tsx scripts/stripe-create-catalog.ts`. The script is idempotent and resolves the price by lookup key.
 2. Create a live webhook endpoint for `https://ashicore.app/api/stripe/webhook`.
 3. Subscribe the webhook to:
    - `checkout.session.completed`
@@ -128,11 +128,8 @@ Verification before marketing paid signup:
 - Vercel Runtime Logs show no `Stripe billing is not configured.` errors.
 - Founder alert email arrives for checkout start, subscription activation, and an over-30 downgrade when `ASHICORE_ALERT_EMAILS` is set.
 
-Use the launch checker to verify required production env names, the live Stripe
-catalog, and public-site analytics markup. When `STRIPE_CATALOG_READY=1`, the
-checker requires the configured live Stripe account to contain exactly one
-active canonical USD/month `pro_monthly` price; it does not create a checkout,
-subscription, or charge.
+Use the launch checker to verify required production env names and public-site
+analytics markup:
 
 ```bash
 pnpm launch:check -- \
