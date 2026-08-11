@@ -374,6 +374,18 @@ export type PickManufacturingIngredient = z.infer<
   typeof pickManufacturingIngredientSchema
 >;
 
+/**
+ * Material-only swap on a released order. Deliberately narrow: it carries no quantity,
+ * planning fields or batch shape, so it cannot be used to reopen planning edits that the
+ * execution lock exists to prevent. The recipe supplies the quantity for the chosen variant.
+ */
+export const swapManufacturingIngredientMaterialSchema = z.object({
+  itemId: z.string().uuid(),
+});
+export type SwapManufacturingIngredientMaterial = z.infer<
+  typeof swapManufacturingIngredientMaterialSchema
+>;
+
 export const reorderManufacturingIngredientsSchema = z.object({
   ingredientIds: z
     .array(z.string().min(1, "Ingredient is required"))

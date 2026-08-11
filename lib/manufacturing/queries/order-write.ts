@@ -130,6 +130,7 @@ async function assertManufacturingPlanningUpdateAllowedInTx(
 }
 
 type ValidatedIngredient = {
+  bomRevisionComponentId: string | null;
   itemId: string;
   itemName: string;
   itemSku: string | null;
@@ -312,6 +313,236 @@ export async function getValidatedProductInTx(
 
 async function getCurrentBomIngredientsInTx(tx: Tx, productId: string) {
   return getCurrentActiveBomIngredientsInTx(tx, productId);
+}
+
+/**
+ * Swaps the material on a single released-order ingredient, and nothing else.
+ *
+ * Kept separate from the planning update on purpose. The planning lock exists to protect
+ * execution history, and relaxing it wholesale would also reopen quantity, product and batch
+ * edits mid-run. This path only moves an ingredient row to a sibling variant, and only while
+ * that row is untouched: once anything is picked the material is fixed, because unwinding it
+ * would mean reversing consumed stock by lot, location and cost layer. Callers change a picked
+ * order by deleting and recreating it.
+ */
+export async function swapManufacturingIngredientMaterial(
+  orderId: string,
+  ingredientId: string,
+  data: { itemId: string }
+): Promise<{ id: string; itemId: string; quantityPerUnit: string }> {
+  return withAuthedOrgContext(async (tx, orgId, userId) => {
+    const order = await getLockedManufacturingOrderInTx(tx, orderId);
+    if (!order) {
+      throw new ManufacturingError("Manufacturing order not found", 404);
+    }
+    if (!isOpenManufacturingOrder(order)) {
+      throw new ManufacturingError(
+        "Completed manufacturing orders cannot change materials.",
+        400
+      );
+    }
+
+    const orderIngredients = await tx
+      .select({
+        id: manufacturingOrderIngredients.id,
+        itemId: manufacturingOrderIngredients.itemId,
+        manufacturingOrderBatchId:
+          manufacturingOrderIngredients.manufacturingOrderBatchId,
+        bomRevisionComponentId: manufacturingOrderIngredients.bomRevisionComponentId,
+        pickStatus: manufacturingOrderIngredients.pickStatus,
+        pickedQuantity: trimScale(manufacturingOrderIngredients.pickedQuantity).as(
+          "pickedQuantity"
+        ),
+        actualQuantity: manufacturingOrderIngredients.actualQuantity,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
+
+    const ingredient = orderIngredients.find((row) => row.id === ingredientId);
+
+    if (!ingredient) {
+      throw new ManufacturingError("Ingredient not found", 404);
+    }
+
+    if (!ingredient.bomRevisionComponentId) {
+      throw new ManufacturingError(
+        "This order predates recipe-line tracking, so its materials cannot be swapped. Delete and recreate the order to use a different one.",
+        409
+      );
+    }
+
+    // A batch order fans one recipe line out into a row per batch, and the screen shows those
+    // rows collapsed into one. Swapping only the row behind the aggregate would leave the other
+    // batches on the old material while the UI reported the whole line as swapped, so the swap
+    // moves every row that came from this recipe line.
+    const lineIngredients = orderIngredients.filter(
+      (row) => row.bomRevisionComponentId === ingredient.bomRevisionComponentId
+    );
+
+    const pickedLineIngredient = lineIngredients.find(
+      (row) =>
+        row.pickStatus !== "not_picked" ||
+        Number(row.pickedQuantity ?? 0) > 0 ||
+        row.actualQuantity != null
+    );
+    if (pickedLineIngredient) {
+      throw new ManufacturingError(
+        "This ingredient has already been picked, so its material is locked. Delete and recreate the order to use a different one.",
+        400
+      );
+    }
+
+    if (!order.bomRevisionId) {
+      throw new ManufacturingError("This order has no recipe to check against.", 409);
+    }
+
+    const components = await getBomRevisionComponentsInTx(tx, order.bomRevisionId);
+    const component = components.find(
+      (row) => row.id === ingredient.bomRevisionComponentId
+    );
+    if (!component) {
+      throw new ManufacturingError("The product BOM changed. Reload and try again.", 409);
+    }
+
+    // Basis comes from the revision the order was snapshotted against, not the current BOM.
+    const [revision] = await tx
+      .select({
+        recipeBasis: bomRevisions.recipeBasis,
+        outputQuantity: trimScale(bomRevisions.outputQuantity).as("outputQuantity"),
+      })
+      .from(bomRevisions)
+      .where(eq(bomRevisions.id, order.bomRevisionId));
+    if (!revision) {
+      throw new ManufacturingError("This order has no recipe to check against.", 409);
+    }
+
+    const siblingVariantsByItemId = await getActiveSiblingVariantsByItemIdInTx(tx, [
+      component.componentId,
+    ]);
+    const itemDisplayById = await getManufacturingItemDisplayMetadataInTx(tx, [
+      component.componentId,
+    ]);
+    const selected = getAllowedSiblingBomMaterialOption(
+      {
+        componentId: component.componentId,
+        componentName: canonicalItemName(
+          itemDisplayById,
+          component.componentId,
+          component.componentName
+        ),
+        componentSku: component.componentSku,
+        componentItemType: component.componentItemType,
+        unitName: component.unitName,
+      },
+      siblingVariantsByItemId.get(component.componentId) ?? [],
+      component.alternates.map((alternate) => alternate.alternateItemId),
+      data.itemId
+    );
+
+    if (!selected) {
+      throw new ManufacturingError(
+        "Select the recipe default or a configured alternate for this ingredient.",
+        400
+      );
+    }
+
+    const quantityPerUnit = resolveIngredientQuantityPerUnit(
+      component.componentId,
+      component.alternates.map((alternate) => ({
+        itemId: alternate.alternateItemId,
+        quantity: alternate.quantity,
+      })),
+      selected.itemId,
+      component.quantity,
+      component.quantity
+    );
+    const recipeBasis = normalizeRecipeBasis(revision.recipeBasis);
+    const orderPlannedQuantity = calculatePlannedIngredientQuantity({
+      recipeBasis,
+      quantityPerUnit,
+      outputQuantity: Number(order.plannedQuantity),
+      recipeOutputQuantity: revision.outputQuantity,
+      batchCount: order.numberOfBatches,
+    });
+    // A batch row holds one batch's worth, the way the fan-out wrote it; only the pre-execution
+    // template row holds the whole order's. Writing the order total into a batch row would book
+    // every batch's material against a single batch.
+    const plannedQuantityFor = (batchId: string | null) =>
+      batchId == null ? orderPlannedQuantity : quantityPerUnit;
+
+    await releaseIngredientDemandForManufacturingInTx(tx, {
+      organizationId: orgId,
+      manufacturingOrderId: orderId,
+      actorUserId: userId,
+      reason: "edited",
+      ingredientIds: lineIngredients.map((row) => row.id),
+    });
+
+    for (const lineIngredient of lineIngredients) {
+      await tx
+        .update(manufacturingOrderIngredients)
+        .set({
+          itemId: selected.itemId,
+          itemName: selected.itemName,
+          itemSku: selected.itemSku,
+          itemType: selected.itemType,
+          unitName: selected.unitName,
+          quantityPerUnit,
+          plannedQuantity: plannedQuantityFor(
+            lineIngredient.manufacturingOrderBatchId
+          ),
+          updatedAt: new Date(),
+        })
+        .where(eq(manufacturingOrderIngredients.id, lineIngredient.id));
+    }
+
+    await addIngredientDemandForManufacturingInTx(tx, {
+      organizationId: orgId,
+      manufacturingOrderId: orderId,
+      actorUserId: userId,
+      ingredients: lineIngredients.map((lineIngredient) => ({
+        ingredientId: lineIngredient.id,
+        itemId: selected.itemId,
+        quantity: parseFloat(
+          plannedQuantityFor(lineIngredient.manufacturingOrderBatchId)
+        ),
+      })),
+    });
+
+    return {
+      id: ingredient.id,
+      itemId: selected.itemId,
+      quantityPerUnit,
+    };
+  });
+}
+
+/**
+ * The recipe owns an ingredient's quantity.
+ *
+ * When an operator selects a variant the BOM lists with its own number, that number wins over
+ * whatever the client submitted. A larger package is a different amount, not the same count of
+ * a different thing — carrying the base line's number across a swap is what books far more
+ * material than physically goes in and drifts stock every batch. Legacy alternates without a
+ * stored quantity keep the client's number as before.
+ */
+function resolveIngredientQuantityPerUnit(
+  componentItemId: string,
+  alternates: Array<{ itemId: string; quantity: string | null }> | undefined,
+  selectedItemId: string,
+  componentQuantityPerUnit: string,
+  submittedQuantityPerUnit: string
+) {
+  if (selectedItemId === componentItemId) {
+    return normalizeNumeric(Number(componentQuantityPerUnit));
+  }
+  if (selectedItemId !== componentItemId) {
+    const alternate = alternates?.find((entry) => entry.itemId === selectedItemId);
+    if (alternate?.quantity != null) {
+      return normalizeNumeric(Number(alternate.quantity));
+    }
+  }
+  return normalizeNumeric(Number(submittedQuantityPerUnit));
 }
 
 async function assertNoOtherActiveMoClaimsLineInTx(
@@ -592,20 +823,28 @@ async function prepareCreateIngredientsInTx(
           unitName: row.unitName,
         },
         siblingVariantsByItemId.get(row.itemId) ?? [],
+        row.alternates.map((alternate) => alternate.itemId),
         submittedItemId
       );
 
       if (!selected) {
         throw new ManufacturingError(
-          "Select a variant from the same item family for this ingredient.",
+          "Select the recipe default or a configured alternate for this ingredient.",
           400
         );
       }
 
-      const quantityPerUnit = normalizeNumeric(Number(submittedQuantityPerUnit));
+      const quantityPerUnit = resolveIngredientQuantityPerUnit(
+        row.itemId,
+        row.alternates,
+        selected.itemId,
+        row.quantityPerUnit,
+        submittedQuantityPerUnit
+      );
       const recipeBasis = normalizeRecipeBasis(row.recipeBasis);
 
       return {
+        bomRevisionComponentId: row.bomRevisionComponentId,
         itemId: selected.itemId,
         itemName: selected.itemName,
         itemSku: selected.itemSku,
@@ -640,8 +879,21 @@ function getAllowedSiblingBomMaterialOption(
     itemType: string;
     unitName: string;
   }>,
+  configuredAlternateItemIds: readonly string[],
   itemId: string
 ) {
+  if (itemId === row.componentId) {
+    return {
+      itemId: row.componentId,
+      itemName: row.componentName,
+      itemSku: row.componentSku,
+      itemType: row.componentItemType,
+      unitName: row.unitName,
+    };
+  }
+
+  if (!configuredAlternateItemIds.includes(itemId)) return null;
+
   const sibling = siblings.find((candidate) => candidate.itemId === itemId);
   if (sibling) {
     return {
@@ -650,16 +902,6 @@ function getAllowedSiblingBomMaterialOption(
       itemSku: sibling.itemSku,
       itemType: sibling.itemType,
       unitName: sibling.unitName,
-    };
-  }
-
-  if (itemId === row.componentId) {
-    return {
-      itemId: row.componentId,
-      itemName: row.componentName,
-      itemSku: row.componentSku,
-      itemType: row.componentItemType,
-      unitName: row.unitName,
     };
   }
 
@@ -744,6 +986,7 @@ async function prepareCreateIngredientsFromBomInTx(
       const recipeBasis = normalizeRecipeBasis(row.recipeBasis);
 
       return {
+        bomRevisionComponentId: row.bomRevisionComponentId,
         itemId: row.itemId,
         itemName: row.itemName,
         itemSku: row.itemSku,
@@ -779,6 +1022,7 @@ async function insertManufacturingIngredientsInTx(
     .values(
       ingredients.map((ingredient) => ({
         manufacturingOrderId,
+        bomRevisionComponentId: ingredient.bomRevisionComponentId,
         itemId: ingredient.itemId,
         itemName: ingredient.itemName,
         itemSku: ingredient.itemSku,
@@ -1093,6 +1337,20 @@ async function prepareUpdatedIngredientsInTx(
     tx,
     bomRows.map((row) => row.componentId)
   );
+  const existingIngredients = await tx
+    .select({
+      bomRevisionComponentId: manufacturingOrderIngredients.bomRevisionComponentId,
+      itemId: manufacturingOrderIngredients.itemId,
+    })
+    .from(manufacturingOrderIngredients)
+    .where(eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrderId));
+  const existingItemByComponentId = new Map(
+    existingIngredients.flatMap((ingredient) =>
+      ingredient.bomRevisionComponentId
+        ? [[ingredient.bomRevisionComponentId, ingredient.itemId] as const]
+        : [],
+    ),
+  );
 
   return sortedSubmittedIngredients.map(({ submitted, row }, index) => {
     const activeItem = activeItemById.get(submitted.itemId);
@@ -1105,17 +1363,31 @@ async function prepareUpdatedIngredientsInTx(
     const selected = getAllowedSiblingBomMaterialOption(
       row,
       siblingVariantsByItemId.get(row.componentId) ?? [],
+      row.alternates.map((alternate) => alternate.alternateItemId),
       submitted.itemId
     );
     if (!selected) {
       throw new ManufacturingError(
-        "Select a variant from the same item family for this ingredient.",
+        "Select the recipe default or a configured alternate for this ingredient.",
         400
       );
     }
-    const quantityPerUnit = normalizeNumeric(Number(submitted.quantityPerUnit));
+    const materialChanged = existingItemByComponentId.get(row.id) !== selected.itemId;
+    const quantityPerUnit = materialChanged
+      ? resolveIngredientQuantityPerUnit(
+          row.componentId,
+          row.alternates.map((alternate) => ({
+            itemId: alternate.alternateItemId,
+            quantity: alternate.quantity,
+          })),
+          selected.itemId,
+          row.quantity,
+          submitted.quantityPerUnit
+        )
+      : normalizeNumeric(Number(submitted.quantityPerUnit));
 
     return {
+      bomRevisionComponentId: row.id,
       itemId: selected.itemId,
       itemName: selected.itemName,
       itemSku: selected.itemSku,
@@ -1157,6 +1429,7 @@ async function prepareFreeformUpdatedIngredientsInTx(
     }
     const quantityPerUnit = normalizeNumeric(Number(submitted.quantityPerUnit));
     return {
+      bomRevisionComponentId: null,
       itemId: activeItem.id,
       itemName: activeItem.name,
       itemSku: activeItem.sku,

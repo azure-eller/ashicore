@@ -38,7 +38,19 @@ const bomRowSchema = z.object({
     }, "Minimum lot age must be a positive whole number of days")
     .transform((value) => normalizeMinimumLotAgeDays(value)),
   alternates: z
-    .array(z.object({ itemId: z.string().uuid() }))
+    .array(
+      z.object({
+        itemId: z.string().uuid(),
+        // The Recipe tab saves through this route, so it has to carry the alternate's own
+        // quantity too. Zod strips unknown keys, so leaving it out here silently dropped
+        // what the editor sent. Optional: recipes saved before alternates carried a
+        // quantity fall back to the component's own number.
+        quantity: z
+          .string()
+          .refine(isPositiveNumberString, "Quantity must be a positive number")
+          .optional(),
+      })
+    )
     .optional()
     .default([]),
 }).strict();

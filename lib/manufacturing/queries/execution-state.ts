@@ -16,6 +16,7 @@ import { type LockedManufacturingOrder, getPickProgressStatus, getRemainingQuant
 export type ExecutionIngredientRow = {
   id: string;
   manufacturingOrderBatchId: string | null;
+  bomRevisionComponentId: string | null;
   itemId: string;
   itemName: string;
   itemSku: string | null;
@@ -138,6 +139,7 @@ export async function getTemplateIngredientsInTx(tx: Tx, orderId: string) {
     .select({
       id: manufacturingOrderIngredients.id,
       manufacturingOrderBatchId: manufacturingOrderIngredients.manufacturingOrderBatchId,
+      bomRevisionComponentId: manufacturingOrderIngredients.bomRevisionComponentId,
       itemId: manufacturingOrderIngredients.itemId,
       itemName: manufacturingOrderIngredients.itemName,
       itemSku: manufacturingOrderIngredients.itemSku,
@@ -189,6 +191,7 @@ export async function getBatchIngredientsInTx(tx: Tx, batchId: string) {
     .select({
       id: manufacturingOrderIngredients.id,
       manufacturingOrderBatchId: manufacturingOrderIngredients.manufacturingOrderBatchId,
+      bomRevisionComponentId: manufacturingOrderIngredients.bomRevisionComponentId,
       itemId: manufacturingOrderIngredients.itemId,
       itemName: manufacturingOrderIngredients.itemName,
       itemSku: manufacturingOrderIngredients.itemSku,
@@ -332,6 +335,7 @@ export async function ensureBatchExecutionRowsInTx(
         values: {
           manufacturingOrderId: order.id,
           manufacturingOrderBatchId: batch.id,
+          bomRevisionComponentId: ingredient.bomRevisionComponentId,
           itemId: ingredient.itemId,
           itemName: ingredient.itemName,
           itemSku: ingredient.itemSku,
@@ -831,8 +835,22 @@ export async function getExecutionLotPickPlansByIngredientInTx(
   return plans;
 }
 
-export function getExecutionLotAllocationsByItemId(
-  rows: Array<{ id: string; itemId: string }>,
+/**
+ * The recipe line a row belongs to, which is what execution collapses batch rows by.
+ *
+ * Item identity is not enough: two lines of the same family can both be switched to the same
+ * variant, and keying by item would merge them. Legacy rows recorded before the column existed
+ * fall back to the item, which is the best identity they have.
+ */
+export function getExecutionIngredientLineKey(row: {
+  itemId: string;
+  bomRevisionComponentId?: string | null;
+}) {
+  return row.bomRevisionComponentId ?? row.itemId;
+}
+
+export function getExecutionLotAllocationsByLine(
+  rows: Array<{ id: string; itemId: string; bomRevisionComponentId?: string | null }>,
   allocationsByIngredientId: Map<string, ExecutionIngredientLotAllocation[]>
 ) {
   const itemAllocations = new Map<string, ExecutionIngredientLotAllocation[]>();
@@ -841,7 +859,8 @@ export function getExecutionLotAllocationsByItemId(
     const allocations = allocationsByIngredientId.get(row.id) ?? [];
     if (allocations.length === 0) continue;
 
-    const existingAllocations = itemAllocations.get(row.itemId) ?? [];
+    const lineKey = getExecutionIngredientLineKey(row);
+    const existingAllocations = itemAllocations.get(lineKey) ?? [];
     for (const allocation of allocations) {
       const existing = existingAllocations.find(
         (candidate) =>
@@ -857,7 +876,7 @@ export function getExecutionLotAllocationsByItemId(
         existingAllocations.push({ ...allocation });
       }
     }
-    itemAllocations.set(row.itemId, existingAllocations);
+    itemAllocations.set(lineKey, existingAllocations);
   }
 
   return itemAllocations;
@@ -869,10 +888,12 @@ export function aggregateBatchIngredients(
   const ingredientMap = new Map<string, ManufacturingOrderIngredientDetail>();
 
   for (const row of rows) {
-    const existing = ingredientMap.get(row.itemId);
+    const ingredientKey = getExecutionIngredientLineKey(row);
+    const existing = ingredientMap.get(ingredientKey);
     if (!existing) {
-      ingredientMap.set(row.itemId, {
+      ingredientMap.set(ingredientKey, {
         id: row.id,
+        bomRevisionComponentId: row.bomRevisionComponentId,
         itemId: row.itemId,
         itemName: row.itemName,
         itemSku: row.itemSku,

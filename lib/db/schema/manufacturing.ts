@@ -16,6 +16,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import {
+  bomRevisionComponents,
   bomRevisionOperationCosts,
   bomRevisions,
   type BomComponentConstraintConfig,
@@ -128,6 +129,10 @@ export const manufacturingOrderIngredients = manufacturingSchema
         () => manufacturingOrderBatches.id,
         { onDelete: "cascade" }
       ),
+      bomRevisionComponentId: uuid("bom_revision_component_id").references(
+        () => bomRevisionComponents.id,
+        { onDelete: "restrict" }
+      ),
       itemId: uuid("item_id")
         .notNull()
         .references(() => items.id),
@@ -164,6 +169,9 @@ export const manufacturingOrderIngredients = manufacturingSchema
         table.manufacturingOrderBatchId
       ),
       index("manufacturing_order_ingredients_item_id_idx").on(table.itemId),
+      index("manufacturing_order_ingredients_bom_component_id_idx").on(
+        table.bomRevisionComponentId
+      ),
       uniqueIndex("manufacturing_order_ingredients_template_item_uidx")
         .on(table.manufacturingOrderId, table.itemId)
         .where(sql`${table.manufacturingOrderBatchId} IS NULL`),

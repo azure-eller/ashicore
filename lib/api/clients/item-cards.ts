@@ -386,7 +386,7 @@ export type SaveBomRevisionInput = {
     componentId: string;
     quantity: string;
     minimumLotAgeDays?: string | number | null;
-    alternates?: Array<{ itemId: string }>;
+    alternates?: Array<{ itemId: string; quantity?: string | null }> | null;
   }>;
   operationCosts?: Array<{
     operationName: string;
@@ -405,7 +405,7 @@ export type ProductRecipeTabPayload = {
     componentId: string | null;
     quantity: string | null;
     minimumLotAgeDays?: string | number | null;
-    alternates?: Array<{ itemId: string }>;
+    alternates?: Array<{ itemId: string; quantity?: string | null }> | null;
   }>;
   initialBomRevisionId: string | null;
   initialOutputQuantity: string;
@@ -431,6 +431,7 @@ export type ProductRecipeTabPayload = {
   availableComponents: Array<{
     id: string;
     name: string;
+    familyId: string | null;
     displayName: string;
     itemType: string;
     unit: string;

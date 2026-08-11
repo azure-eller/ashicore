@@ -56,6 +56,7 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
       minimumLotAgeDays: row.minimumLotAgeDays ?? null,
       alternates: row.alternates.map((alternate) => ({
         itemId: alternate.itemId,
+        quantity: alternate.quantity,
       })),
     })),
     initialBomRevisionId: currentRevision?.id ?? null,
@@ -66,6 +67,7 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
     availableComponents: availableComponents.map((component) => ({
       id: component.id,
       name: component.name,
+      familyId: component.familyId,
       displayName: component.displayName,
       itemType: component.itemType,
       unit: component.unit,

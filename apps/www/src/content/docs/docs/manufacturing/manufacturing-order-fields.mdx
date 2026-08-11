@@ -40,7 +40,7 @@ This reference names the user-facing fields and the underlying concepts that mat
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| Ingredient | item reference | recipe component | Component item copied from the current product recipe, swapped to an active same-family variant, or added as a one-off line. |
+| Ingredient | item reference | recipe component | Component item copied from the current product recipe, swapped while unpicked to a same-family variant configured on that recipe line, or added as a one-off line. |
 | Default ingredient | item reference | recipe component | The original BOM component identity used to keep BOM-backed rows aligned when saving. |
 | SKU | text snapshot | current item SKU | Component SKU snapshot for history. |
 | Basis | enum | recipe basis | `per_unit` for discrete output or `per_batch` for batch output. |

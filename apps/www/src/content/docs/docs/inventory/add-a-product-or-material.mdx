@@ -86,7 +86,7 @@ The app treats **item type** as a creation-time decision. The item-card UI can c
    The create form accepts an initial **stock** quantity. Later stock edits are treated as adjustments, not silent quantity rewrites. Use [Adjust stock](/docs/inventory/adjust-stock) when you are correcting physical inventory.
    </Aside>
 
-5. **For products, add manufacturing details and a recipe.** Products can carry a manufacturing mode, batch yield fields, operation costs, and BOM rows. Batch mode requires an expected batch yield. A valid recipe records components, lot-age constraints, and operation costs as BOM revision history. The Recipe tab shows each ingredient's current estimated cost contribution per finished unit; manufacturing orders can swap a BOM component to another active variant in the same item family.
+5. **For products, add manufacturing details and a recipe.** Products can carry a manufacturing mode, batch yield fields, operation costs, and BOM rows. Batch mode requires an expected batch yield. A valid recipe records components, configured same-family replacement variants and their quantities, lot-age constraints, and operation costs as BOM revision history. The Recipe tab shows each ingredient's current estimated cost contribution per finished unit. See [Build a recipe](/docs/manufacturing/build-a-recipe) for recipe setup and variant rules.
 
    <Frame title="<b>Premium Potting Mix</b> / Recipe">
      <Grid>

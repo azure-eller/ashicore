@@ -128,7 +128,13 @@ export const bomRevisionComponentAlternates = inventorySchema
       alternateItemSku: varchar("alternate_item_sku", { length: 50 }),
       alternateItemType: varchar("alternate_item_type", { length: 20 }).notNull(),
       unitName: varchar("unit_name", { length: 50 }).notNull(),
-      quantityFactor: numeric("quantity_factor", { precision: 12, scale: 4 }).notNull(),
+      // The quantity of this alternate that replaces the component line, in the alternate's
+      // own unit, exactly as the recipe author typed it. Nothing is scaled or derived: a
+      // bigger package is a different number, not a multiple of the base one.
+      quantity: numeric("quantity", { precision: 12, scale: 4 }),
+      // Legacy multiplier from the superseded alternate-yield design. Retained so rows
+      // written before quantity existed still read; new writes set quantity instead.
+      quantityFactor: numeric("quantity_factor", { precision: 12, scale: 4 }),
       sortOrder: integer("sort_order").notNull().default(0),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
       updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -146,7 +152,16 @@ export const bomRevisionComponentAlternates = inventorySchema
       ),
       check(
         "bom_revision_component_alternates_quantity_factor_check",
-        sql`quantity_factor > 0`
+        sql`quantity_factor IS NULL OR quantity_factor > 0`
+      ),
+      check(
+        "bom_revision_component_alternates_quantity_check",
+        sql`quantity IS NULL OR quantity > 0`
+      ),
+      // One of the two must describe the alternate, or the row says nothing.
+      check(
+        "bom_revision_component_alternates_amount_present_check",
+        sql`quantity IS NOT NULL OR quantity_factor IS NOT NULL`
       ),
       pgPolicy("bom_revision_component_alternates_org_isolation", {
         for: "all",

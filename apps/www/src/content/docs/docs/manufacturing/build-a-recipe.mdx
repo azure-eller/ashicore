@@ -62,7 +62,7 @@ Manufacturing orders use BOM revisions, but the UI does not expose a separate Ma
 
    Material rates use the current stock cost when available, then the converted default purchase price. A product used as an ingredient uses its current recipe and operation estimate. The underlying rate is used for the calculation but is not shown as another grid column. An em dash means Ashicore cannot resolve the current estimate. Changing a quantity or batch yield updates row contributions and the estimated ingredient and product totals immediately; you do not need to save the draft to inspect it. The operation row in the summary remains the current saved operation cost from the **Production** tab.
 
-3. **Add constraints.** Add a minimum lot-age rule in positive whole days when an ingredient must use lots old enough based on received date. If a component belongs to an item family, manufacturing orders can swap it to another active variant in that same family while planning; that swap is not configured on the recipe.
+3. **Configure variants and constraints.** For a component that belongs to an item family, use **Variants** to choose which active sibling variants may replace it. Enter a positive quantity for each chosen variant in that variant's own unit; Ashicore does not derive this number from the base ingredient or package size. Add a minimum lot-age rule in positive whole days when an ingredient must use lots old enough based on received date.
 
    <Frame title="<b>Coir Pith</b> · constraints">
      <Grid>

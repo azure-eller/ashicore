@@ -16,11 +16,12 @@ import { demandQueueCoverageKey, getDemandQueueCoverageByDemandKeyForItemsInTx }
 import { measureObservedOperation } from "@/lib/observability/request-log";
 import type { ManufacturingBatchStatus, ManufacturingLotStrategy, ManufacturingOrderStatus, ManufacturingPickStatus } from "@/lib/schemas/manufacturing-orders";
 import type { ManufacturingOrderDetail, ManufacturingOrderEditData, ManufacturingOrderListRow, ManufacturingIngredientReadiness, ManufacturingPickProgressStatus, ManufacturingProductOption, ManufacturingSalesOrderOption, ManufacturingSalesOrderPreview, ManufacturingSalesLineOption } from "../types";
-import { type ExecutionIngredientRow, aggregateBatchIngredients, getBatchPickProgressStatus, getBatchRowsInTx, getExecutionLotAllocationsByIngredientInTx, getExecutionLotAllocationsByItemId, getExecutionLotPickPlansByIngredientInTx, getIngredientConstraintsByIdInTx, getTemplateIngredientsInTx, toIngredientDetail, withIngredientLotTrackingModesInTx } from "./execution-state";
+import { type ExecutionIngredientRow, aggregateBatchIngredients, getBatchPickProgressStatus, getBatchRowsInTx, getExecutionIngredientLineKey, getExecutionLotAllocationsByIngredientInTx, getExecutionLotAllocationsByLine, getExecutionLotPickPlansByIngredientInTx, getIngredientConstraintsByIdInTx, getTemplateIngredientsInTx, toIngredientDetail, withIngredientLotTrackingModesInTx } from "./execution-state";
 import { type IngredientProgressRow, canonicalItemName, effectiveManufacturingPriorityRankSql, getActiveSiblingVariantsByItemIdInTx, getManufacturingItemDisplayMetadataInTx, getPickProgressStatus, getRemainingQuantityNumber, sumNumericStrings } from "./shared";
 
 type EditableManufacturingIngredientSnapshotRow = {
   id: string;
+  bomRevisionComponentId: string | null;
   itemId: string;
   itemName: string;
   itemSku: string | null;
@@ -76,6 +77,7 @@ async function getEditableManufacturingIngredientSnapshotInTx(
   const templateRows = await tx
     .select({
       id: manufacturingOrderIngredients.id,
+      bomRevisionComponentId: manufacturingOrderIngredients.bomRevisionComponentId,
       itemId: manufacturingOrderIngredients.itemId,
       itemName: manufacturingOrderIngredients.itemName,
       itemSku: manufacturingOrderIngredients.itemSku,
@@ -120,6 +122,7 @@ async function getEditableManufacturingIngredientSnapshotInTx(
   const batchRows = await tx
     .select({
       id: manufacturingOrderIngredients.id,
+      bomRevisionComponentId: manufacturingOrderIngredients.bomRevisionComponentId,
       itemId: manufacturingOrderIngredients.itemId,
       itemName: manufacturingOrderIngredients.itemName,
       itemSku: manufacturingOrderIngredients.itemSku,
@@ -168,6 +171,7 @@ async function getEditableManufacturingIngredientSnapshotInTx(
 
     rows.push({
       id: row.id,
+      bomRevisionComponentId: row.bomRevisionComponentId,
       itemId: row.itemId,
       itemName: row.itemName,
       itemSku: row.itemSku,
@@ -671,7 +675,8 @@ export async function getManufacturingProductTemplates(): Promise<
           itemSku: string | null;
           itemType: string;
           unitName: string;
-          quantityFactor: string;
+          quantity: string | null;
+          quantityFactor: string | null;
           sortOrder: number;
         }>;
       }>;
@@ -767,7 +772,8 @@ export async function getManufacturingProductTemplates(): Promise<
               itemSku: alternate.alternateItemSku,
               itemType: alternate.alternateItemType,
               unitName: alternate.unitName,
-              quantityFactor: alternate.quantityFactor,
+              quantity: alternate.quantity,
+              quantityFactor: alternate.quantityFactor ?? "1",
               sortOrder: alternate.sortOrder,
             })),
           })),
@@ -990,6 +996,7 @@ export async function getManufacturingOrder(
         ? await tx
             .select({
               id: manufacturingOrderIngredients.id,
+              bomRevisionComponentId: manufacturingOrderIngredients.bomRevisionComponentId,
               manufacturingOrderBatchId:
                 manufacturingOrderIngredients.manufacturingOrderBatchId,
               itemId: manufacturingOrderIngredients.itemId,
@@ -1083,7 +1090,7 @@ export async function getManufacturingOrder(
           (ingredient) => ingredient.id
         )
       );
-    const lotAllocationsByItemId = getExecutionLotAllocationsByItemId(
+    const lotAllocationsByLine = getExecutionLotAllocationsByLine(
       batchIngredientsWithDetails ?? (rawIngredients as ExecutionIngredientRow[]),
       lotAllocationsByIngredientId
     );
@@ -1097,19 +1104,27 @@ export async function getManufacturingOrder(
                 bomRows.map((row) => row.componentId)
               );
             return ingredients.map((ingredient) => {
-              const bomRow = bomRows.find((row) => row.sortOrder === ingredient.sortOrder);
+              const bomRow = bomRows.find(
+                (row) => row.id === ingredient.bomRevisionComponentId
+              );
 
               if (!bomRow) {
                 return {
                   ...ingredient,
-                  lotAllocations: lotAllocationsByItemId.get(ingredient.itemId) ?? [],
+                  lotAllocations:
+                    lotAllocationsByLine.get(
+                      getExecutionIngredientLineKey(ingredient)
+                    ) ?? [],
                   siblingVariants: [],
                 };
               }
 
               return {
                 ...ingredient,
-                lotAllocations: lotAllocationsByItemId.get(ingredient.itemId) ?? [],
+                lotAllocations:
+                    lotAllocationsByLine.get(
+                      getExecutionIngredientLineKey(ingredient)
+                    ) ?? [],
                 defaultItemId: bomRow.componentId,
                 defaultItemName: bomRow.componentName,
                 defaultItemSku: bomRow.componentSku,
@@ -1125,7 +1140,8 @@ export async function getManufacturingOrder(
                   itemSku: alternate.alternateItemSku,
                   itemType: alternate.alternateItemType,
                   unitName: alternate.unitName,
-                  quantityFactor: alternate.quantityFactor,
+                  quantity: alternate.quantity,
+                  quantityFactor: alternate.quantityFactor ?? "1",
                   sortOrder: alternate.sortOrder,
                 })),
               };
@@ -1133,7 +1149,10 @@ export async function getManufacturingOrder(
           })()
         : ingredients.map((ingredient) => ({
             ...ingredient,
-            lotAllocations: lotAllocationsByItemId.get(ingredient.itemId) ?? [],
+            lotAllocations:
+                    lotAllocationsByLine.get(
+                      getExecutionIngredientLineKey(ingredient)
+                    ) ?? [],
             siblingVariants: [],
           }));
     const itemDisplayById = await getManufacturingItemDisplayMetadataInTx(tx, [
@@ -1305,7 +1324,7 @@ export async function getManufacturingOrderEditData(
         ? []
         : await getBomRevisionComponentsInTx(tx, order.bomRevisionId);
 
-    const bomBySortOrder = new Map(bomRows.map((row) => [row.sortOrder, row]));
+    const bomById = new Map(bomRows.map((row) => [row.id, row]));
     const itemDisplayById = await getManufacturingItemDisplayMetadataInTx(tx, [
       order.productId,
       ...editableIngredients.flatMap((ingredient) => [ingredient.itemId]),
@@ -1323,7 +1342,9 @@ export async function getManufacturingOrderEditData(
       ...order,
       productName: canonicalItemName(itemDisplayById, order.productId, order.productName),
       ingredients: editableIngredients.map((ingredient) => {
-        const bomRow = bomBySortOrder.get(ingredient.sortOrder);
+        const bomRow = ingredient.bomRevisionComponentId
+          ? bomById.get(ingredient.bomRevisionComponentId)
+          : undefined;
         return {
           id: ingredient.id,
           itemId: ingredient.itemId,
@@ -1359,7 +1380,8 @@ export async function getManufacturingOrderEditData(
             itemSku: alternate.alternateItemSku,
             itemType: alternate.alternateItemType,
             unitName: alternate.unitName,
-            quantityFactor: alternate.quantityFactor,
+            quantity: alternate.quantity,
+            quantityFactor: alternate.quantityFactor ?? "1",
             sortOrder: alternate.sortOrder,
           })),
         };

@@ -202,7 +202,7 @@ test.describe("manufacturing demand and completion heartbeat", () => {
     expect(rows).toHaveLength(1);
   });
 
-  test("BOM ingredient can swap to an active same-family variant and keeps submitted quantity", async ({
+  test("BOM ingredient can swap to a configured same-family variant and keeps recipe quantity", async ({
     db,
   }) => {
     const unique = randomUUID().slice(0, 8);
@@ -274,7 +274,13 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       defaultSellingPrice: "25.00",
       stock: "0",
       safetyStock: "0",
-      bom: [{ componentId: defaultMaterial.body.id, quantity: "2" }],
+      bom: [
+        {
+          componentId: defaultMaterial.body.id,
+          quantity: "2",
+          alternates: [{ itemId: largeSibling.id, quantity: "7" }],
+        },
+      ],
     });
     expect(product.status).toBe(201);
 
@@ -307,7 +313,7 @@ test.describe("manufacturing demand and completion heartbeat", () => {
           {
             itemId: largeSibling.id,
             defaultItemId: defaultMaterial.body.id,
-            quantityPerUnit: "7",
+            quantityPerUnit: "99",
           },
         ],
       }),
@@ -317,6 +323,7 @@ test.describe("manufacturing demand and completion heartbeat", () => {
     const [savedIngredient] = await db
       .select({
         id: manufacturingOrderIngredients.id,
+        bomRevisionComponentId: manufacturingOrderIngredients.bomRevisionComponentId,
         itemId: manufacturingOrderIngredients.itemId,
         quantityPerUnit: manufacturingOrderIngredients.quantityPerUnit,
         plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
@@ -329,17 +336,55 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       plannedQuantity: "21.0000",
     });
 
+    const deliberateQuantityUpdate = await testFetch(
+      `/api/manufacturing-orders/${orderId}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          productId: product.body.id,
+          plannedQuantity: "3",
+          plannedDate: null,
+          notes: null,
+          salesOrderId: null,
+          salesOrderLineId: null,
+          ingredients: [
+            {
+              itemId: largeSibling.id,
+              defaultItemId: defaultMaterial.body.id,
+              quantityPerUnit: "8",
+            },
+          ],
+        }),
+      },
+    );
+    expect(deliberateQuantityUpdate.status, await deliberateQuantityUpdate.text()).toBe(200);
+
+    const [deliberatelyEditedIngredient] = await db
+      .select({
+        id: manufacturingOrderIngredients.id,
+        itemId: manufacturingOrderIngredients.itemId,
+        quantityPerUnit: manufacturingOrderIngredients.quantityPerUnit,
+        plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
+    expect(deliberatelyEditedIngredient).toMatchObject({
+      itemId: largeSibling.id,
+      quantityPerUnit: "8.0000",
+      plannedQuantity: "24.0000",
+    });
+
     const [demand] = await db
       .select({ quantity: inventoryDemandSummary.quantity })
       .from(inventoryDemandSummary)
       .where(
         and(
           eq(inventoryDemandSummary.referenceType, "manufacturing_order_ingredient"),
-          eq(inventoryDemandSummary.referenceId, savedIngredient.id),
+          eq(inventoryDemandSummary.referenceId, deliberatelyEditedIngredient.id),
           eq(inventoryDemandSummary.itemId, largeSibling.id),
         ),
       );
-    expect(demand.quantity).toBe("21.0000");
+    expect(demand.quantity).toBe("24.0000");
 
     const crossFamilyUpdate = await testFetch(`/api/manufacturing-orders/${orderId}`, {
       method: "PUT",
@@ -368,11 +413,11 @@ test.describe("manufacturing demand and completion heartbeat", () => {
         plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
       })
       .from(manufacturingOrderIngredients)
-      .where(eq(manufacturingOrderIngredients.id, savedIngredient.id));
+      .where(eq(manufacturingOrderIngredients.id, deliberatelyEditedIngredient.id));
     expect(ingredientAfterRejectedUpdate).toMatchObject({
       itemId: largeSibling.id,
-      quantityPerUnit: "7.0000",
-      plannedQuantity: "21.0000",
+      quantityPerUnit: "8.0000",
+      plannedQuantity: "24.0000",
     });
 
     const leftoverDemand = await db
@@ -381,7 +426,7 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       .where(
         and(
           eq(inventoryDemandSummary.referenceType, "manufacturing_order_ingredient"),
-          eq(inventoryDemandSummary.referenceId, savedIngredient.id),
+          eq(inventoryDemandSummary.referenceId, deliberatelyEditedIngredient.id),
           ne(inventoryDemandSummary.itemId, largeSibling.id),
         ),
       );
@@ -2733,5 +2778,400 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       lines: [{ itemId: product.body.id, quantity: "3", unitPrice: "20.00" }],
     });
     expect(freedLineEdit.status, JSON.stringify(freedLineEdit.body)).toBe(200);
+  });
+
+  test("BOM alternate quantity is server-owned, and swapping is allowed until the ingredient is picked", async ({
+    db,
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const baseName = `Alt Base ${unique}`;
+    const base = await createItem({
+      itemType: "material",
+      name: baseName,
+      unitDefinitionId: unitId,
+      sku: `ALT-BASE-${unique}`,
+      category: `Alt Qty ${ts}`,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "500",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(base.status).toBe(201);
+
+    const [familyRow] = await db
+      .select({ id: itemFamilies.id })
+      .from(items)
+      .innerJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
+      .where(eq(items.id, base.body.id));
+
+    const [alt] = await db
+      .insert(items)
+      .values({
+        organizationId: orgId,
+        familyId: familyRow.id,
+        name: `Alt Large ${unique}`,
+        sku: `ALT-LARGE-${unique}`,
+        itemType: "material",
+        unitDefinitionId: unitId,
+        safetyStock: "0",
+        defaultPurchasePrice: "8.00",
+        defaultSellingPrice: null,
+        sellable: false,
+        manufacturingMode: "discrete",
+        optionCombinationKey: `alt-large-${unique}`,
+        isMaster: false,
+        sortOrder: 1,
+      })
+      .returning({ id: items.id });
+
+    const [unconfiguredAlt] = await db
+      .insert(items)
+      .values({
+        organizationId: orgId,
+        familyId: familyRow.id,
+        name: `Alt Unconfigured ${unique}`,
+        sku: `ALT-UNCONFIGURED-${unique}`,
+        itemType: "material",
+        unitDefinitionId: unitId,
+        safetyStock: "0",
+        defaultPurchasePrice: "4.00",
+        defaultSellingPrice: null,
+        sellable: false,
+        manufacturingMode: "discrete",
+        optionCombinationKey: `alt-unconfigured-${unique}`,
+        isMaster: false,
+        sortOrder: 2,
+      })
+      .returning({ id: items.id });
+
+    // Base line takes 12; the larger package takes 3 for the same output.
+    const product = await createItem({
+      itemType: "product",
+      name: `Alt Product ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `ALT-PRODUCT-${unique}`,
+      category: `Alt Qty ${ts}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "25.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [
+        {
+          componentId: base.body.id,
+          quantity: "12",
+          alternates: [{ itemId: alt.id, quantity: "3" }],
+        },
+      ],
+    });
+    expect(product.status, JSON.stringify(product.body)).toBe(201);
+
+    // A same-family sibling without a recipe-owned quantity must not inherit the base
+    // line's count. That was the bypass that could recreate package-size stock drift.
+    const refusedUnconfigured = await createManufacturingOrder({
+      productId: product.body.id,
+      plannedQuantity: "2",
+      ingredients: [
+        {
+          itemId: unconfiguredAlt.id,
+          defaultItemId: base.body.id,
+          quantityPerUnit: "12",
+        },
+      ],
+      confirmShortage: false,
+    });
+    expect(refusedUnconfigured.status).toBe(400);
+
+    const defaultOrder = await createManufacturingOrder({
+      productId: product.body.id,
+      plannedQuantity: "2",
+      ingredients: [
+        { itemId: base.body.id, defaultItemId: base.body.id, quantityPerUnit: "99" },
+      ],
+      confirmShortage: false,
+    });
+    expect(defaultOrder.status, JSON.stringify(defaultOrder.body)).toBe(201);
+    const [defaultIngredient] = await db
+      .select({ quantityPerUnit: manufacturingOrderIngredients.quantityPerUnit })
+      .from(manufacturingOrderIngredients)
+      .where(
+        eq(
+          manufacturingOrderIngredients.manufacturingOrderId,
+          defaultOrder.body.id as string,
+        ),
+      );
+    expect(defaultIngredient.quantityPerUnit).toBe("12.0000");
+
+    // The client submits the base line's number, as the mobile picker used to. The recipe
+    // owns the alternate's quantity, so 3 wins over 12 — carrying 12 across the swap books a
+    // much larger package at the small package's count and drifts stock every batch.
+    const order = await createManufacturingOrder({
+      productId: product.body.id,
+      plannedQuantity: "2",
+      ingredients: [
+        { itemId: alt.id, defaultItemId: base.body.id, quantityPerUnit: "12" },
+      ],
+      confirmShortage: false,
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+    const orderId = order.body.id as string;
+
+    const [created] = await db
+      .select({
+        id: manufacturingOrderIngredients.id,
+        bomRevisionComponentId: manufacturingOrderIngredients.bomRevisionComponentId,
+        itemId: manufacturingOrderIngredients.itemId,
+        quantityPerUnit: manufacturingOrderIngredients.quantityPerUnit,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
+    expect(created).toMatchObject({
+      itemId: alt.id,
+      quantityPerUnit: "3.0000",
+      bomRevisionComponentId: expect.any(String),
+    });
+
+    const released = await releaseManufacturingOrder(orderId, { confirmShortage: true });
+    expect([200, 201]).toContain(released.status);
+
+    // Still unpicked: production may switch package after release.
+    const swapBack = await testFetch(
+      `/api/manufacturing-orders/${orderId}/ingredients/${created.id}/material`,
+      { method: "PATCH", body: JSON.stringify({ itemId: base.body.id }) },
+    );
+    expect(swapBack.status, await swapBack.text()).toBe(200);
+
+    const [swapped] = await db
+      .select({
+        itemId: manufacturingOrderIngredients.itemId,
+        quantityPerUnit: manufacturingOrderIngredients.quantityPerUnit,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
+    expect(swapped).toMatchObject({ itemId: base.body.id, quantityPerUnit: "12.0000" });
+
+    const started = await testFetch(`/api/manufacturing-orders/${orderId}/start`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    expect(started.status, await started.text()).toBe(200);
+
+    // Once execution locks planning, the bespoke material PATCH must also refresh the card
+    // kernel. Otherwise the next metadata autosave resubmits the old ingredient and either
+    // reverts the swap or is rejected as a locked planning change.
+    await page.goto(`/manufacturing/orders/${orderId}`);
+    const variantTrigger = page.getByLabel(/Choose variant for/).first();
+    await expect(variantTrigger).toBeVisible();
+    const swapResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PATCH" &&
+        response.url().includes(`/api/manufacturing-orders/${orderId}/ingredients/`) &&
+        response.url().endsWith("/material"),
+    );
+    await variantTrigger.click();
+    const variantOption = page.getByRole("option").filter({ hasText: "Variant" });
+    await variantOption.dispatchEvent("pointerdown", {
+      button: 0,
+      pointerType: "mouse",
+    });
+    await variantOption.dispatchEvent("pointerup", {
+      button: 0,
+      pointerType: "mouse",
+    });
+    expect((await swapResponse).status()).toBe(200);
+
+    const notes = `alternate swap retained ${unique}`;
+    const saveResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        response.url().endsWith(`/api/manufacturing-orders/${orderId}`),
+    );
+    await page.getByLabel("Notes").fill(notes);
+    await page.getByLabel("Notes").blur();
+    expect((await saveResponse).status()).toBe(200);
+
+    const [afterAutosave] = await db
+      .select({
+        notes: manufacturingOrders.notes,
+        itemId: manufacturingOrderIngredients.itemId,
+      })
+      .from(manufacturingOrders)
+      .innerJoin(
+        manufacturingOrderIngredients,
+        eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrders.id),
+      )
+      .where(eq(manufacturingOrders.id, orderId));
+    expect(afterAutosave).toMatchObject({ notes, itemId: alt.id });
+
+    const restoreDefault = await testFetch(
+      `/api/manufacturing-orders/${orderId}/ingredients/${created.id}/material`,
+      { method: "PATCH", body: JSON.stringify({ itemId: base.body.id }) },
+    );
+    expect(restoreDefault.status, await restoreDefault.text()).toBe(200);
+
+    const evidenceDir = process.env.NO_MISTAKES_EVIDENCE_DIR;
+    if (evidenceDir) {
+      await page.reload();
+      await expect(page.getByText(baseName, { exact: false }).first()).toBeVisible();
+      await fs.mkdir(evidenceDir, { recursive: true });
+      await page.screenshot({
+        path: path.join(evidenceDir, "bom-alternate-unpicked-swap.png"),
+        fullPage: true,
+      });
+    }
+
+    const picked = await testFetch(
+      `/api/manufacturing-orders/${orderId}/ingredients/${created.id}/pick`,
+      { method: "POST", body: JSON.stringify({}) },
+    );
+    expect([200, 201]).toContain(picked.status);
+
+    // Once picked the material is fixed: reversing consumed stock by lot, location and cost
+    // layer is out of scope, so the order is changed by deleting and recreating it.
+    const refused = await testFetch(
+      `/api/manufacturing-orders/${orderId}/ingredients/${created.id}/material`,
+      { method: "PATCH", body: JSON.stringify({ itemId: alt.id }) },
+    );
+    expect(refused.status).toBe(400);
+    expect(await refused.text()).toContain("picked");
+  });
+
+  test("swapping a batch order's ingredient moves every batch, at one batch's quantity", async ({
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const base = await createItem({
+      itemType: "material",
+      name: `Batch Alt Base ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `BATCH-ALT-BASE-${unique}`,
+      category: `Batch Alt ${ts}`,
+      description: null,
+      defaultPurchasePrice: "2.00",
+      defaultSellingPrice: null,
+      stock: "5000",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(base.status).toBe(201);
+
+    const [familyRow] = await db
+      .select({ id: itemFamilies.id })
+      .from(items)
+      .innerJoin(itemFamilies, eq(items.familyId, itemFamilies.id))
+      .where(eq(items.id, base.body.id));
+
+    const [alt] = await db
+      .insert(items)
+      .values({
+        organizationId: orgId,
+        familyId: familyRow.id,
+        name: `Batch Alt Large ${unique}`,
+        sku: `BATCH-ALT-LARGE-${unique}`,
+        itemType: "material",
+        unitDefinitionId: unitId,
+        safetyStock: "0",
+        defaultPurchasePrice: "8.00",
+        defaultSellingPrice: null,
+        sellable: false,
+        manufacturingMode: "discrete",
+        optionCombinationKey: `batch-alt-large-${unique}`,
+        isMaster: false,
+        sortOrder: 1,
+      })
+      .returning({ id: items.id });
+
+    const bom = [
+      {
+        componentId: base.body.id,
+        quantity: "12",
+        alternates: [{ itemId: alt.id, quantity: "3" }],
+      },
+    ];
+    const product = await createItem({
+      itemType: "product",
+      name: `Batch Alt Product ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `BATCH-ALT-PRODUCT-${unique}`,
+      category: `Batch Alt ${ts}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "25.00",
+      stock: "0",
+      safetyStock: "0",
+      bom,
+    });
+    expect(product.status, JSON.stringify(product.body)).toBe(201);
+
+    // The Recipe tab saves through this route rather than the heavy item PUT, so it is its own
+    // seam for the alternate's quantity: dropping it here rejects every recipe with a variant.
+    const batchRevision = await testFetch(
+      `/api/items/${product.body.id}/bom-revisions`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          recipeBasis: "batch",
+          expectedBatchYield: "10",
+          outputQuantity: "10",
+          bom,
+        }),
+      },
+    );
+    expect([200, 201], await batchRevision.text()).toContain(batchRevision.status);
+
+    // 30 planned at 10 a batch is three batches, each taking 12 of the base material.
+    const order = await createManufacturingOrder({
+      productId: product.body.id,
+      plannedQuantity: "30",
+      ingredients: [{ itemId: base.body.id, quantityPerUnit: "12" }],
+      confirmShortage: false,
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+    const orderId = order.body.id as string;
+    expect(
+      (await releaseManufacturingOrder(orderId, { confirmShortage: true })).status,
+    ).toBe(200);
+
+    // Reading execution is what fans the one recipe line out into a row per batch.
+    expect(
+      (await testFetch(`/api/manufacturing-orders/${orderId}/execution`)).status,
+    ).toBe(200);
+
+    const beforeSwap = await db
+      .select({
+        id: manufacturingOrderIngredients.id,
+        batchId: manufacturingOrderIngredients.manufacturingOrderBatchId,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
+    expect(beforeSwap).toHaveLength(3);
+    expect(beforeSwap.every((row) => row.batchId != null)).toBe(true);
+
+    // Execution collapses those rows into one line, so the swap carries whichever row's id the
+    // aggregate kept. Moving only that row leaves the other batches quietly on the old material.
+    const swap = await testFetch(
+      `/api/manufacturing-orders/${orderId}/ingredients/${beforeSwap[0].id}/material`,
+      { method: "PATCH", body: JSON.stringify({ itemId: alt.id }) },
+    );
+    expect(swap.status, await swap.text()).toBe(200);
+
+    const afterSwap = await db
+      .select({
+        itemId: manufacturingOrderIngredients.itemId,
+        quantityPerUnit: manufacturingOrderIngredients.quantityPerUnit,
+        plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
+    expect(afterSwap.map((row) => row.itemId)).toEqual([alt.id, alt.id, alt.id]);
+    // A batch row holds one batch's worth; the order total here would book three batches of
+    // material against every batch.
+    for (const row of afterSwap) {
+      expect(row.quantityPerUnit).toBe("3.0000");
+      expect(row.plannedQuantity).toBe("3.0000");
+    }
   });
 });

@@ -73,6 +73,10 @@ export default async function ProductRecipePage({
         componentId: row.componentId,
         quantity: row.quantity,
         minimumLotAgeDays: row.minimumLotAgeDays ?? null,
+        alternates: row.alternates.map((alternate) => ({
+          itemId: alternate.itemId,
+          quantity: alternate.quantity,
+        })),
       }))}
       initialBomRevisionId={currentRevision?.id ?? null}
       initialOutputQuantity={currentRevision?.outputQuantity ?? "1"}
@@ -82,6 +86,7 @@ export default async function ProductRecipePage({
       availableComponents={availableComponents.map((component) => ({
         id: component.id,
         name: component.name,
+        familyId: component.familyId,
         displayName: component.displayName,
         itemType: component.itemType,
         unit: component.unit,

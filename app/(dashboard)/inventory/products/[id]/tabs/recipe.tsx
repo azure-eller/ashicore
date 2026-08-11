@@ -57,6 +57,7 @@ import {
 type AvailableComponent = {
   id: string;
   name: string;
+  familyId: string | null;
   displayName: string;
   itemType: string;
   unit: string;

@@ -86,7 +86,8 @@ export async function getBomComponents(itemId: string) {
         itemSku: alternate.alternateItemSku,
         itemType: alternate.alternateItemType,
         unitName: alternate.unitName,
-        quantityFactor: alternate.quantityFactor,
+        quantity: alternate.quantity,
+        quantityFactor: alternate.quantityFactor ?? "1",
       })),
     }));
   });
@@ -210,6 +211,9 @@ export async function getAvailableComponents(
       .select({
         id: items.id,
         name: items.name,
+        // Exposed so the recipe editor can group an ingredient's swappable variants without
+        // a second round trip: the options list already holds every candidate.
+        familyId: items.familyId,
         familyName: itemFamilies.name,
         itemType: items.itemType,
         unit: unitDefinitions.name,
@@ -244,6 +248,7 @@ export async function getAvailableComponents(
       return {
         id: row.id,
         name: row.name,
+        familyId: row.familyId,
         displayName: formatNormalizedVariantDisplay(
           row.familyName,
           row.name,

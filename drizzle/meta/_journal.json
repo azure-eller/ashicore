@@ -1310,6 +1310,13 @@
       "when": 1786052034089,
       "tag": "0186_free_grace_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 187,
+      "version": "7",
+      "when": 1786059595904,
+      "tag": "0187_open_supernaut",
+      "breakpoints": true
     }
   ]
 }

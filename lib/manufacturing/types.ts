@@ -217,6 +217,7 @@ export type ManufacturingIngredientSiblingVariant = {
 
 export type ManufacturingOrderIngredientDetail = {
   id: string;
+  bomRevisionComponentId?: string | null;
   itemId: string;
   itemName: string;
   itemSku: string | null;
@@ -254,7 +255,8 @@ export type ManufacturingOrderIngredientDetail = {
     itemSku: string | null;
     itemType: string;
     unitName: string;
-    quantityFactor: string;
+    quantity: string | null;
+    quantityFactor: string | null;
     sortOrder: number;
   }>;
 };
@@ -423,7 +425,8 @@ export type ManufacturingOrderEditData = {
       itemSku: string | null;
       itemType: string;
       unitName: string;
-      quantityFactor: string;
+      quantity: string | null;
+      quantityFactor: string | null;
       sortOrder: number;
     }>;
   }>;

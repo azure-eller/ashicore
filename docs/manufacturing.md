@@ -253,14 +253,28 @@ Batch picking rules:
 
 ## Material Variant Swaps
 
-Material alternates may exist in historical BOM data, but the current setup UI
-does not expose explicit alternate lists. A BOM line stores one concrete item
-variant as the default ingredient. While planning a manufacturing order, users
-may swap that ingredient only to another active variant in the same item family.
-The swap preserves the submitted quantity; users edit quantity directly when a
-different package size needs a different amount.
+Each BOM line stores one concrete item variant as its default ingredient and may
+configure active variants from the same item family as alternates. Every alternate
+has its own positive quantity in that variant's unit; the amount is entered directly,
+not derived from the default line quantity or package size. On a manufacturing order,
+users may swap an unpicked ingredient to one of those configured alternates during
+planning or execution. The swap applies the alternate's configured quantity; users
+configure a different amount on the recipe when a package variant needs one.
+Same-family variants that are not configured on the BOM line are not valid material
+choices for that line.
 
-Released execution does not change materials. Picking consumes the ingredient on the order row through the normal inventory kernel flow, and completion still requires all ingredients to be picked first.
+Recipe quantities take precedence when an order is created or a BOM-backed row's
+material changes: the default uses the component quantity and an alternate uses its
+own configured quantity, regardless of a stale quantity submitted by the client. An
+ordinary planning save that keeps the same material preserves a deliberate order-level
+quantity edit. The released-order material endpoint carries no quantity and runs
+through the card kernel's external-mutation barrier, which flushes pending autosave
+work before the swap and adopts the refreshed server document afterward.
+
+Released execution permits only this material swap while the ingredient remains
+unpicked. Picking consumes the ingredient on the order row through the normal
+inventory kernel flow, and completion still requires all ingredients to be picked
+first.
 
 ## Batch Output Overrides
 
