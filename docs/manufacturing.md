@@ -263,6 +263,14 @@ configure a different amount on the recipe when a package variant needs one.
 Same-family variants that are not configured on the BOM line are not valid material
 choices for that line.
 
+Recipe quantities take precedence when an order is created or a BOM-backed row's
+material changes: the default uses the component quantity and an alternate uses its
+own configured quantity, regardless of a stale quantity submitted by the client. An
+ordinary planning save that keeps the same material preserves a deliberate order-level
+quantity edit. The released-order material endpoint carries no quantity and runs
+through the card kernel's external-mutation barrier, which flushes pending autosave
+work before the swap and adopts the refreshed server document afterward.
+
 Released execution permits only this material swap while the ingredient remains
 unpicked. Picking consumes the ingredient on the order row through the normal
 inventory kernel flow, and completion still requires all ingredients to be picked

@@ -336,17 +336,55 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       plannedQuantity: "21.0000",
     });
 
+    const deliberateQuantityUpdate = await testFetch(
+      `/api/manufacturing-orders/${orderId}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          productId: product.body.id,
+          plannedQuantity: "3",
+          plannedDate: null,
+          notes: null,
+          salesOrderId: null,
+          salesOrderLineId: null,
+          ingredients: [
+            {
+              itemId: largeSibling.id,
+              defaultItemId: defaultMaterial.body.id,
+              quantityPerUnit: "8",
+            },
+          ],
+        }),
+      },
+    );
+    expect(deliberateQuantityUpdate.status, await deliberateQuantityUpdate.text()).toBe(200);
+
+    const [deliberatelyEditedIngredient] = await db
+      .select({
+        id: manufacturingOrderIngredients.id,
+        itemId: manufacturingOrderIngredients.itemId,
+        quantityPerUnit: manufacturingOrderIngredients.quantityPerUnit,
+        plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
+      })
+      .from(manufacturingOrderIngredients)
+      .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
+    expect(deliberatelyEditedIngredient).toMatchObject({
+      itemId: largeSibling.id,
+      quantityPerUnit: "8.0000",
+      plannedQuantity: "24.0000",
+    });
+
     const [demand] = await db
       .select({ quantity: inventoryDemandSummary.quantity })
       .from(inventoryDemandSummary)
       .where(
         and(
           eq(inventoryDemandSummary.referenceType, "manufacturing_order_ingredient"),
-          eq(inventoryDemandSummary.referenceId, savedIngredient.id),
+          eq(inventoryDemandSummary.referenceId, deliberatelyEditedIngredient.id),
           eq(inventoryDemandSummary.itemId, largeSibling.id),
         ),
       );
-    expect(demand.quantity).toBe("21.0000");
+    expect(demand.quantity).toBe("24.0000");
 
     const crossFamilyUpdate = await testFetch(`/api/manufacturing-orders/${orderId}`, {
       method: "PUT",
@@ -375,11 +413,11 @@ test.describe("manufacturing demand and completion heartbeat", () => {
         plannedQuantity: manufacturingOrderIngredients.plannedQuantity,
       })
       .from(manufacturingOrderIngredients)
-      .where(eq(manufacturingOrderIngredients.id, savedIngredient.id));
+      .where(eq(manufacturingOrderIngredients.id, deliberatelyEditedIngredient.id));
     expect(ingredientAfterRejectedUpdate).toMatchObject({
       itemId: largeSibling.id,
-      quantityPerUnit: "7.0000",
-      plannedQuantity: "21.0000",
+      quantityPerUnit: "8.0000",
+      plannedQuantity: "24.0000",
     });
 
     const leftoverDemand = await db
@@ -388,7 +426,7 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       .where(
         and(
           eq(inventoryDemandSummary.referenceType, "manufacturing_order_ingredient"),
-          eq(inventoryDemandSummary.referenceId, savedIngredient.id),
+          eq(inventoryDemandSummary.referenceId, deliberatelyEditedIngredient.id),
           ne(inventoryDemandSummary.itemId, largeSibling.id),
         ),
       );
