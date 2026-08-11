@@ -598,7 +598,7 @@ async function processCandidate(args: {
       contactId: args.contactId,
       leaseId: args.leaseId,
       patch: {
-        status: "skipped",
+        status: activity ? "pending" : "skipped",
         reason: error instanceof Error ? error.message : "Marketing generation failed.",
       },
     });
