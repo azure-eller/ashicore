@@ -178,7 +178,11 @@ export async function classifyMarketingReply(args: {
   text: string;
 }) {
   const normalized = `${args.subject}\n${args.text}`.toLowerCase();
-  if (/unsubscribe|remove me|do not contact|don't contact|stop emailing/.test(normalized)) {
+  if (
+    /unsubscribe|remove me|take me off|do not (?:contact|email)|don't (?:contact|email)|stop emailing|no more emails/.test(
+      normalized,
+    )
+  ) {
     return { outcome: "opt_out" as const, reason: "Explicit opt-out language." };
   }
   if (
