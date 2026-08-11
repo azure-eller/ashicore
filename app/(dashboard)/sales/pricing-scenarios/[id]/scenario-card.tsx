@@ -1318,11 +1318,10 @@ export function PricingScenarioCard({
                 Overhead {viewedRevision.snapshot.globals.overheadPercent ?? "0"}% ·
                 Target margin {viewedRevision.snapshot.globals.targetProfitPercent ?? "0"}%
               </div>
-              <div className="grid grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))] gap-x-(--space-4) gap-y-(--space-2)">
+              <div className="grid grid-cols-[minmax(0,2fr)_repeat(2,minmax(0,1fr))] gap-x-(--space-4) gap-y-(--space-2)">
                 <HeaderCell>Product</HeaderCell>
                 <HeaderCell>Direct costs</HeaderCell>
                 <HeaderCell>Recommended price</HeaderCell>
-                <HeaderCell>Current margin</HeaderCell>
                 {viewedRevision.snapshot.products.map((product) => (
                   <div key={product.itemId} className="contents">
                     <div className="min-w-0 truncate text-[length:var(--text-sm)]">
@@ -1337,11 +1336,6 @@ export function PricingScenarioCard({
                       {product.result.withheld
                         ? "Withheld"
                         : (formatPrice(product.result.sellAt) ?? "—")}
-                    </div>
-                    <div className="font-mono text-[length:var(--text-sm)] tabular-nums">
-                      {!product.result.withheld && product.result.currentMargin != null
-                        ? `${product.result.currentMargin}%`
-                        : "—"}
                     </div>
                   </div>
                 ))}

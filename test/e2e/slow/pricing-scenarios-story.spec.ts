@@ -119,6 +119,10 @@ test.describe("pricing scenario story", () => {
     await expect(page.getByText("Rev 1", { exact: true })).toBeVisible({
       timeout: 20_000,
     });
+    await page.getByText("Rev 1", { exact: true }).click();
+    await expect(page.getByRole("dialog")).toContainText("Recommended price");
+    await expect(page.getByRole("dialog")).not.toContainText("Current margin");
+    await page.getByRole("button", { name: "Close", exact: true }).first().click();
 
     const [scenarioRow] = await db
       .select({ id: pricingScenarios.id })
