@@ -41,6 +41,7 @@ export type ManufacturingOrderDraftController = {
   removeIngredient: (ingredientId: string) => void;
   reorderIngredients: (ingredientIds: string[]) => void;
   flush: () => Promise<FlushOutcome>;
+  runExternalMutation: (mutate: () => Promise<ManufacturingOrderDetail>) => Promise<void>;
   refreshFromServer: () => Promise<void>;
 };
 
@@ -167,6 +168,7 @@ export function useManufacturingOrderDraftController({
 
   const update = kernel.update;
   const flush = kernel.flush;
+  const runKernelExternalMutation = kernel.runExternalMutation;
   const adoptServerDoc = kernel.adoptServerDoc;
   const getPersistedId = kernel.getPersistedId;
 
@@ -364,6 +366,16 @@ export function useManufacturingOrderDraftController({
     adoptServerDoc(next);
   }, [adoptServerDoc, getPersistedId]);
 
+  const runExternalMutation = useCallback(
+    async (mutate: () => Promise<ManufacturingOrderDetail>) => {
+      const outcome = await runKernelExternalMutation(mutate);
+      if (outcome.outcome !== "saved") {
+        throw new Error(outcome.error || "Save changes before continuing.");
+      }
+    },
+    [runKernelExternalMutation],
+  );
+
   return useMemo(
     () => ({
       draft: kernel.draft,
@@ -391,6 +403,7 @@ export function useManufacturingOrderDraftController({
       reorderIngredients,
       updatePlannedOutput,
       flush,
+      runExternalMutation,
       refreshFromServer,
     }),
     [
@@ -399,6 +412,7 @@ export function useManufacturingOrderDraftController({
       kernel,
       patchHeader,
       refreshFromServer,
+      runExternalMutation,
       removeIngredient,
       reorderIngredients,
       selectProduct,

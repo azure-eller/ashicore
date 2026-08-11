@@ -453,6 +453,7 @@ export async function swapManufacturingIngredientMaterial(
         quantity: alternate.quantity,
       })),
       selected.itemId,
+      component.quantity,
       component.quantity
     );
     const recipeBasis = normalizeRecipeBasis(revision.recipeBasis);
@@ -517,20 +518,24 @@ export async function swapManufacturingIngredientMaterial(
 }
 
 /**
- * The recipe owns an alternate's quantity.
+ * The recipe owns an ingredient's quantity.
  *
  * When an operator selects a variant the BOM lists with its own number, that number wins over
  * whatever the client submitted. A larger package is a different amount, not the same count of
  * a different thing — carrying the base line's number across a swap is what books far more
- * material than physically goes in and drifts stock every batch. Alternates without a stored
- * quantity, and plain same-item submissions, keep the client's number as before.
+ * material than physically goes in and drifts stock every batch. Legacy alternates without a
+ * stored quantity keep the client's number as before.
  */
 function resolveIngredientQuantityPerUnit(
   componentItemId: string,
   alternates: Array<{ itemId: string; quantity: string | null }> | undefined,
   selectedItemId: string,
+  componentQuantityPerUnit: string,
   submittedQuantityPerUnit: string
 ) {
+  if (selectedItemId === componentItemId) {
+    return normalizeNumeric(Number(componentQuantityPerUnit));
+  }
   if (selectedItemId !== componentItemId) {
     const alternate = alternates?.find((entry) => entry.itemId === selectedItemId);
     if (alternate?.quantity != null) {
@@ -833,6 +838,7 @@ async function prepareCreateIngredientsInTx(
         row.itemId,
         row.alternates,
         selected.itemId,
+        row.quantity,
         submittedQuantityPerUnit
       );
       const recipeBasis = normalizeRecipeBasis(row.recipeBasis);
@@ -1359,6 +1365,7 @@ async function prepareUpdatedIngredientsInTx(
         quantity: alternate.quantity,
       })),
       selected.itemId,
+      row.quantity,
       submitted.quantityPerUnit
     );
 

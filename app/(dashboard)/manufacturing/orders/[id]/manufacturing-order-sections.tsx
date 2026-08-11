@@ -654,32 +654,32 @@ export function IngredientsSection({
       setSwappingIngredientId(row.id);
       setSwapError(null);
       try {
-        const response = await fetch(
-          `/api/manufacturing-orders/${order.id}/ingredients/${row.id}/material`,
-          {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ itemId }),
-          },
-        );
-        if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as { error?: string } | null;
-          throw new Error(body?.error ?? "Could not change the ingredient material.");
-        }
-        const result = (await response.json()) as {
-          itemId: string;
-          quantityPerUnit: string;
-        };
-        const selected = getSiblingIngredientSelection(row, result.itemId);
-        if (!selected) throw new Error("The selected ingredient variant is unavailable.");
-        await controller.refreshFromServer();
+        await controller.runExternalMutation(async () => {
+          const response = await fetch(
+            `/api/manufacturing-orders/${order.id}/ingredients/${row.id}/material`,
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ itemId }),
+            },
+          );
+          if (!response.ok) {
+            const body = (await response.json().catch(() => null)) as { error?: string } | null;
+            throw new Error(body?.error ?? "Could not change the ingredient material.");
+          }
+          const refreshed = await fetch(`/api/manufacturing-orders/${order.id}`);
+          if (!refreshed.ok) {
+            throw new Error("Could not reload the manufacturing order.");
+          }
+          return (await refreshed.json()) as ManufacturingOrderDetail;
+        });
       } catch (error) {
         setSwapError((error as Error).message);
       } finally {
         setSwappingIngredientId(null);
       }
     },
-    [controller, getSiblingIngredientSelection, order.id],
+    [controller, order.id],
   );
 
   const handleRowsChange = useCallback(

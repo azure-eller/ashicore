@@ -2847,6 +2847,26 @@ test.describe("manufacturing demand and completion heartbeat", () => {
     });
     expect(refusedUnconfigured.status).toBe(400);
 
+    const defaultOrder = await createManufacturingOrder({
+      productId: product.body.id,
+      plannedQuantity: "2",
+      ingredients: [
+        { itemId: base.body.id, defaultItemId: base.body.id, quantityPerUnit: "99" },
+      ],
+      confirmShortage: false,
+    });
+    expect(defaultOrder.status, JSON.stringify(defaultOrder.body)).toBe(201);
+    const [defaultIngredient] = await db
+      .select({ quantityPerUnit: manufacturingOrderIngredients.quantityPerUnit })
+      .from(manufacturingOrderIngredients)
+      .where(
+        eq(
+          manufacturingOrderIngredients.manufacturingOrderId,
+          defaultOrder.body.id as string,
+        ),
+      );
+    expect(defaultIngredient.quantityPerUnit).toBe("12.0000");
+
     // The client submits the base line's number, as the mobile picker used to. The recipe
     // owns the alternate's quantity, so 3 wins over 12 — carrying 12 across the swap books a
     // much larger package at the small package's count and drifts stock every batch.

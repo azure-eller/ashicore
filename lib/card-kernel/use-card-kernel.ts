@@ -13,6 +13,7 @@ import {
 export type CardKernelHandle<TDoc> = KernelSnapshot<TDoc> & {
   update: CardKernel<TDoc, unknown>["update"];
   flush: () => Promise<FlushOutcome>;
+  runExternalMutation: (mutate: () => Promise<TDoc>) => Promise<FlushOutcome>;
   resetToServer: () => void;
   adoptServerDoc: (doc: TDoc) => void;
   /** Server-known id (differs from the kernel id when the server assigns
@@ -50,6 +51,7 @@ export function useCardKernel<TDoc, TPayload>(
     ...snapshot,
     update: kernel.update.bind(kernel),
     flush: kernel.flush,
+    runExternalMutation: kernel.runExternalMutation,
     resetToServer: kernel.resetToServer,
     adoptServerDoc: kernel.adoptServerDoc,
     persistedId: snapshot.serverDoc
