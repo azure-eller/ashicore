@@ -11,6 +11,7 @@ import {
 } from "./dal";
 import { sendFounderAlert } from "@/lib/internal-alerts";
 import { captureAppError } from "@/lib/observability/sentry";
+import { BillingConfigError } from "./errors";
 import {
   STRIPE_BILLING_CATALOG,
   DEFAULT_BILLING_INTERVAL,
@@ -47,23 +48,7 @@ type BillingConfig = {
   webhookSecret: string | null;
 };
 
-export class BillingConfigError extends Error {
-  status = 503;
-  // Customer-safe text for API responses. `message` keeps the operator-facing
-  // detail (which lookup key is missing, which script to run) for logs/Sentry;
-  // `publicMessage` is what a signed-in user is allowed to read. Defaults to
-  // `message` so existing throws that already use a safe message are unchanged.
-  publicMessage: string;
-
-  constructor(
-    message = "Stripe billing is not configured.",
-    options?: { publicMessage?: string }
-  ) {
-    super(message);
-    this.name = "BillingConfigError";
-    this.publicMessage = options?.publicMessage ?? message;
-  }
-}
+export { BillingConfigError } from "./errors";
 
 export class BillingWebhookVerificationError extends Error {
   status = 400;

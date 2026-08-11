@@ -27,7 +27,7 @@ import {
   SkuCapacityError,
 } from "../../../lib/billing/sku-capacity";
 import { reconcileBillingPageState } from "../../../lib/billing/page-reconciliation";
-import { BillingConfigError } from "../../../lib/billing/stripe";
+import { BillingConfigError } from "../../../lib/billing/errors";
 import { withOrgContext } from "../../../lib/db/with-org-context";
 import { getBaseUrl, getOrgId } from "../../helpers/api";
 
