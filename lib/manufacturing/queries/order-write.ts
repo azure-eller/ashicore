@@ -435,12 +435,13 @@ export async function swapManufacturingIngredientMaterial(
         unitName: component.unitName,
       },
       siblingVariantsByItemId.get(component.componentId) ?? [],
+      component.alternates.map((alternate) => alternate.alternateItemId),
       data.itemId
     );
 
     if (!selected) {
       throw new ManufacturingError(
-        "Select a variant from the same item family for this ingredient.",
+        "Select the recipe default or a configured alternate for this ingredient.",
         400
       );
     }
@@ -817,12 +818,13 @@ async function prepareCreateIngredientsInTx(
           unitName: row.unitName,
         },
         siblingVariantsByItemId.get(row.itemId) ?? [],
+        row.alternates.map((alternate) => alternate.itemId),
         submittedItemId
       );
 
       if (!selected) {
         throw new ManufacturingError(
-          "Select a variant from the same item family for this ingredient.",
+          "Select the recipe default or a configured alternate for this ingredient.",
           400
         );
       }
@@ -871,8 +873,21 @@ function getAllowedSiblingBomMaterialOption(
     itemType: string;
     unitName: string;
   }>,
+  configuredAlternateItemIds: readonly string[],
   itemId: string
 ) {
+  if (itemId === row.componentId) {
+    return {
+      itemId: row.componentId,
+      itemName: row.componentName,
+      itemSku: row.componentSku,
+      itemType: row.componentItemType,
+      unitName: row.unitName,
+    };
+  }
+
+  if (!configuredAlternateItemIds.includes(itemId)) return null;
+
   const sibling = siblings.find((candidate) => candidate.itemId === itemId);
   if (sibling) {
     return {
@@ -881,16 +896,6 @@ function getAllowedSiblingBomMaterialOption(
       itemSku: sibling.itemSku,
       itemType: sibling.itemType,
       unitName: sibling.unitName,
-    };
-  }
-
-  if (itemId === row.componentId) {
-    return {
-      itemId: row.componentId,
-      itemName: row.componentName,
-      itemSku: row.componentSku,
-      itemType: row.componentItemType,
-      unitName: row.unitName,
     };
   }
 
@@ -1338,11 +1343,12 @@ async function prepareUpdatedIngredientsInTx(
     const selected = getAllowedSiblingBomMaterialOption(
       row,
       siblingVariantsByItemId.get(row.componentId) ?? [],
+      row.alternates.map((alternate) => alternate.alternateItemId),
       submitted.itemId
     );
     if (!selected) {
       throw new ManufacturingError(
-        "Select a variant from the same item family for this ingredient.",
+        "Select the recipe default or a configured alternate for this ingredient.",
         400
       );
     }

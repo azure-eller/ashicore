@@ -532,11 +532,11 @@ function ingredientSelectionOptions(ingredient: ManufacturingOrderIngredientDeta
     label: "Default",
   });
 
-  for (const sibling of ingredient.siblingVariants) {
-    options.set(sibling.itemId, {
-      itemId: sibling.itemId,
-      itemName: sibling.itemName,
-      label: sibling.itemId === defaultItemId ? "Default" : "Variant",
+  for (const alternate of ingredient.alternates) {
+    options.set(alternate.itemId, {
+      itemId: alternate.itemId,
+      itemName: alternate.itemName,
+      label: "Variant",
     });
   }
 
@@ -619,14 +619,14 @@ export function IngredientsSection({
         };
       }
 
-      const sibling = row.siblingVariants.find((candidate) => candidate.itemId === itemId);
-      if (!sibling) return null;
+      const alternate = row.alternates.find((candidate) => candidate.itemId === itemId);
+      if (!alternate) return null;
       return {
-        itemId: sibling.itemId,
-        itemName: sibling.itemName,
-        itemSku: sibling.itemSku,
-        itemType: sibling.itemType,
-        unitName: sibling.unitName,
+        itemId: alternate.itemId,
+        itemName: alternate.itemName,
+        itemSku: alternate.itemSku,
+        itemType: alternate.itemType,
+        unitName: alternate.unitName,
       };
     },
     [],
@@ -672,28 +672,14 @@ export function IngredientsSection({
         };
         const selected = getSiblingIngredientSelection(row, result.itemId);
         if (!selected) throw new Error("The selected ingredient variant is unavailable.");
-        setRows((current) =>
-          current.map((ingredient) =>
-            ingredient.id === row.id
-              ? {
-                  ...ingredient,
-                  ...selected,
-                  quantityPerUnit: result.quantityPerUnit,
-                  plannedQuantity: multiplyQuantityString(
-                    result.quantityPerUnit,
-                    requirementMultiplier,
-                  ),
-                }
-              : ingredient,
-          ),
-        );
+        await controller.refreshFromServer();
       } catch (error) {
         setSwapError((error as Error).message);
       } finally {
         setSwappingIngredientId(null);
       }
     },
-    [getSiblingIngredientSelection, order.id, requirementMultiplier],
+    [controller, getSiblingIngredientSelection, order.id],
   );
 
   const handleRowsChange = useCallback(

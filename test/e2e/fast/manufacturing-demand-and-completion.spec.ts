@@ -202,7 +202,7 @@ test.describe("manufacturing demand and completion heartbeat", () => {
     expect(rows).toHaveLength(1);
   });
 
-  test("BOM ingredient can swap to an active same-family variant and keeps submitted quantity", async ({
+  test("BOM ingredient can swap to a configured same-family variant and keeps recipe quantity", async ({
     db,
   }) => {
     const unique = randomUUID().slice(0, 8);
@@ -274,7 +274,13 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       defaultSellingPrice: "25.00",
       stock: "0",
       safetyStock: "0",
-      bom: [{ componentId: defaultMaterial.body.id, quantity: "2" }],
+      bom: [
+        {
+          componentId: defaultMaterial.body.id,
+          quantity: "2",
+          alternates: [{ itemId: largeSibling.id, quantity: "7" }],
+        },
+      ],
     });
     expect(product.status).toBe(201);
 
@@ -2783,6 +2789,26 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       })
       .returning({ id: items.id });
 
+    const [unconfiguredAlt] = await db
+      .insert(items)
+      .values({
+        organizationId: orgId,
+        familyId: familyRow.id,
+        name: `Alt Unconfigured ${unique}`,
+        sku: `ALT-UNCONFIGURED-${unique}`,
+        itemType: "material",
+        unitDefinitionId: unitId,
+        safetyStock: "0",
+        defaultPurchasePrice: "4.00",
+        defaultSellingPrice: null,
+        sellable: false,
+        manufacturingMode: "discrete",
+        optionCombinationKey: `alt-unconfigured-${unique}`,
+        isMaster: false,
+        sortOrder: 2,
+      })
+      .returning({ id: items.id });
+
     // Base line takes 12; the larger package takes 3 for the same output.
     const product = await createItem({
       itemType: "product",
@@ -2804,6 +2830,22 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       ],
     });
     expect(product.status, JSON.stringify(product.body)).toBe(201);
+
+    // A same-family sibling without a recipe-owned quantity must not inherit the base
+    // line's count. That was the bypass that could recreate package-size stock drift.
+    const refusedUnconfigured = await createManufacturingOrder({
+      productId: product.body.id,
+      plannedQuantity: "2",
+      ingredients: [
+        {
+          itemId: unconfiguredAlt.id,
+          defaultItemId: base.body.id,
+          quantityPerUnit: "12",
+        },
+      ],
+      confirmShortage: false,
+    });
+    expect(refusedUnconfigured.status).toBe(400);
 
     // The client submits the base line's number, as the mobile picker used to. The recipe
     // owns the alternate's quantity, so 3 wins over 12 — carrying 12 across the swap books a
@@ -2853,9 +2895,68 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
     expect(swapped).toMatchObject({ itemId: base.body.id, quantityPerUnit: "12.0000" });
 
+    const started = await testFetch(`/api/manufacturing-orders/${orderId}/start`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    expect(started.status, await started.text()).toBe(200);
+
+    // Once execution locks planning, the bespoke material PATCH must also refresh the card
+    // kernel. Otherwise the next metadata autosave resubmits the old ingredient and either
+    // reverts the swap or is rejected as a locked planning change.
+    await page.goto(`/manufacturing/orders/${orderId}`);
+    const variantTrigger = page.getByLabel(/Choose variant for/).first();
+    await expect(variantTrigger).toBeVisible();
+    const swapResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PATCH" &&
+        response.url().includes(`/api/manufacturing-orders/${orderId}/ingredients/`) &&
+        response.url().endsWith("/material"),
+    );
+    await variantTrigger.click();
+    const variantOption = page.getByRole("option").filter({ hasText: "Variant" });
+    await variantOption.dispatchEvent("pointerdown", {
+      button: 0,
+      pointerType: "mouse",
+    });
+    await variantOption.dispatchEvent("pointerup", {
+      button: 0,
+      pointerType: "mouse",
+    });
+    expect((await swapResponse).status()).toBe(200);
+
+    const notes = `alternate swap retained ${unique}`;
+    const saveResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "PUT" &&
+        response.url().endsWith(`/api/manufacturing-orders/${orderId}`),
+    );
+    await page.getByLabel("Notes").fill(notes);
+    await page.getByLabel("Notes").blur();
+    expect((await saveResponse).status()).toBe(200);
+
+    const [afterAutosave] = await db
+      .select({
+        notes: manufacturingOrders.notes,
+        itemId: manufacturingOrderIngredients.itemId,
+      })
+      .from(manufacturingOrders)
+      .innerJoin(
+        manufacturingOrderIngredients,
+        eq(manufacturingOrderIngredients.manufacturingOrderId, manufacturingOrders.id),
+      )
+      .where(eq(manufacturingOrders.id, orderId));
+    expect(afterAutosave).toMatchObject({ notes, itemId: alt.id });
+
+    const restoreDefault = await testFetch(
+      `/api/manufacturing-orders/${orderId}/ingredients/${created.id}/material`,
+      { method: "PATCH", body: JSON.stringify({ itemId: base.body.id }) },
+    );
+    expect(restoreDefault.status, await restoreDefault.text()).toBe(200);
+
     const evidenceDir = process.env.NO_MISTAKES_EVIDENCE_DIR;
     if (evidenceDir) {
-      await page.goto(`/manufacturing/orders/${orderId}`);
+      await page.reload();
       await expect(page.getByText(baseName, { exact: false }).first()).toBeVisible();
       await fs.mkdir(evidenceDir, { recursive: true });
       await page.screenshot({

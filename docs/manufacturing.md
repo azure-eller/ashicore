@@ -260,6 +260,8 @@ not derived from the default line quantity or package size. On a manufacturing o
 users may swap an unpicked ingredient to one of those configured alternates during
 planning or execution. The swap applies the alternate's configured quantity; users
 configure a different amount on the recipe when a package variant needs one.
+Same-family variants that are not configured on the BOM line are not valid material
+choices for that line.
 
 Released execution permits only this material swap while the ingredient remains
 unpicked. Picking consumes the ingredient on the order row through the normal
