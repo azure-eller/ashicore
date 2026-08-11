@@ -244,7 +244,7 @@ checks apply to imported sales lines before persistence.
 scenario is a card-kernel document (autosave, versioned saves, standard
 duplicate/soft-delete) holding a product selection plus **sparse overrides**:
 per-leaf-item material price / inbound freight, per-resource labor
-rates, global overhead % and target profit %, and per-product current price
+rates, global overhead % and target margin %, and per-product current price
 plus outbound freight entered as a shipment total over a tote count and
 divided to a per-unit cost.
 
@@ -252,9 +252,10 @@ The worksheet labels every result in the selected product's stock unit. Material
 price and inbound freight remain rates per material stock unit; the
 worksheet multiplies their landed rate by recipe usage to show the derived
 material cost per product unit. Labour similarly shows hours and derived cost
-per product unit. Product and material unit names come from the live baseline,
-so the sticky results rail can keep cost to recover, sell-at, its breakdown, and
-current margin in one explicit unit context.
+per product unit. Product and material unit names come from the live baseline.
+The results rail keeps one recommended price, its direct-cost and overhead
+breakdown, and a plain-language comparison with the current price in one
+explicit unit context.
 
 - The baseline is always **live ERP data**, resolved per request:
   `getProductUsageTermsByItemIdInTx` (`lib/inventory/estimated-cost.ts`)
@@ -264,13 +265,14 @@ current margin in one explicit unit context.
   manufacturing resources, and current price converts the sales-unit
   `items.defaultSellingPrice` back to the worksheet's stock-unit basis.
 - The pure isomorphic engine (`lib/pricing-scenarios/calculations.ts`)
-  implements the target-margin (share) model: overhead and target profit are
+  implements the target-margin (share) model: overhead and target margin are
   both shares of the selling price, matching how an SG&A ratio is measured
   against revenue —
   `sellAt = (directCost + outboundFreight) / (1 − overhead − targetProfit)` —
   with results withheld (never zero/NaN) on recipe issues, missing prices, or
-  overhead + target profit ≥ 100%. Margin at the current price is recomputed
-  against that price (overhead scales with price, not the recommended sell-at).
+  overhead + target margin ≥ 100%. The current price is compared directly with
+  the recommendation; the page does not present a second competing margin or
+  profit result.
 - **Revisions are the history model** (like BOM revisions): committing one
   resolves live baseline + overrides server-side and inserts an immutable
   numbered snapshot carrying inputs *and* results into

@@ -3629,7 +3629,7 @@ test.describe("pricing scenario document seam", () => {
     expect(stale.body.current.scenario.version).toBe(2);
     expect(stale.body.current.scenario.name).toBe("Seam scenario");
 
-    // Commit freezes live baseline + doc. Share model: overhead and profit are
+    // Commit freezes live baseline + doc. Share model: overhead and target margin are
     // both slices of price, so 2 x 30 = 60 cost, sell at 60 / (1 - 0.2 - 0.3) = 120.00.
     const rev1 = await pricingSeamFetch(`/api/pricing-scenarios/${scenarioId}/revisions`, {
       method: "POST",

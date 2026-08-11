@@ -615,7 +615,7 @@ export function PricingScenarioCard({
     overheadDerivedPercent
   );
   const targetProfitInvalid = Number(draft.targetProfitPercent ?? 0) >= 100;
-  // Overhead and profit are both shares of the selling price, so their sum must
+  // Overhead and target margin are both shares of the selling price, so their sum must
   // stay under 100% or the price denominator collapses.
   const combinedAssumptionsInvalid =
     Number(draft.overheadPercent ?? 0) + Number(draft.targetProfitPercent ?? 0) >= 100;
@@ -633,10 +633,6 @@ export function PricingScenarioCard({
       ? selectedResult.result
       : null;
   const resolvedCurrentPrice = selectedResult?.currentPrice ?? null;
-  const currentMarginNumber =
-    completeResult?.currentMargin != null
-      ? Number(completeResult.currentMargin)
-      : null;
   const sellAtDelta =
     completeResult != null && resolvedCurrentPrice != null
       ? Number(completeResult.sellAt) - Number(resolvedCurrentPrice)
@@ -734,7 +730,7 @@ export function PricingScenarioCard({
                     ? ""
                     : result.result.withheld
                       ? "—"
-                      : `Sell at ${formatPrice(result.result.sellAt) ?? result.result.sellAt}`;
+                      : `Recommended ${formatPrice(result.result.sellAt) ?? result.result.sellAt}`;
                 return (
                   <SelectableListFrameItem
                     key={productId}
@@ -1040,7 +1036,7 @@ export function PricingScenarioCard({
 
               <aside className="mt-(--space-8) flex min-w-0 flex-col gap-(--space-4) lg:sticky lg:top-0 lg:mt-0">
                 <RailPanel>
-                  <BlockLabel>Assumptions</BlockLabel>
+                  <BlockLabel>Pricing</BlockLabel>
                   <div className="grid grid-cols-2 gap-(--space-4)">
                     <div className="flex flex-col gap-(--space-2)">
                       <CardField
@@ -1105,13 +1101,13 @@ export function PricingScenarioCard({
                       </div>
                     </div>
                     <CardField
-                      label="Target profit %"
+                      label="Target margin %"
                       htmlFor="scenario-profit"
                       invalid={targetProfitInvalid || combinedAssumptionsInvalid}
                     >
                       <CommitInput
                         id="scenario-profit"
-                        label="Target profit %"
+                        label="Target margin %"
                         inputMode="decimal"
                         value={draft.targetProfitPercent}
                         placeholder="0"
@@ -1134,8 +1130,8 @@ export function PricingScenarioCard({
                     )}
                   >
                     {combinedAssumptionsInvalid
-                      ? "Overhead plus target profit must stay under 100% of the selling price."
-                      : "Overhead and profit are both shares of the selling price."}
+                      ? "Overhead plus target margin must stay under 100% of the selling price."
+                      : "Both are percentages of the recommended price."}
                   </p>
                 </RailPanel>
 
@@ -1175,36 +1171,26 @@ export function PricingScenarioCard({
 
                 {completeResult && buckets != null ? (
                   <>
-                    <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-line-soft)]">
-                      <div className="p-(--space-5)">
-                        <BlockLabel className="mb-(--space-1)">
-                          Cost to recover / {productUnit}
-                        </BlockLabel>
-                        <div className="font-mono text-[length:var(--text-lg)] font-semibold tabular-nums">
-                          {fmtMoney(buckets.costToRecover)}
-                        </div>
+                    <div className="rounded-[var(--radius-md)] border border-[var(--color-line-soft)] bg-[var(--color-accent-soft)] p-(--space-5)">
+                      <BlockLabel className="mb-(--space-1)">
+                        Recommended price / {productUnit}
+                      </BlockLabel>
+                      <div className="font-mono text-[length:var(--text-xl)] font-semibold tabular-nums">
+                        {fmtMoney(completeResult.sellAt)}
                       </div>
-                      <div className="bg-[var(--color-accent-soft)] p-(--space-5)">
-                        <div className="flex items-baseline justify-between gap-(--space-3)">
-                          <BlockLabel className="mb-(--space-1)">Sell at</BlockLabel>
-                          <span className="text-[length:var(--text-2xs)] text-[var(--color-ink-muted)]">
-                            {trimDecimal(draft.overheadPercent, 2) ?? "0"}% overhead ·{" "}
-                            {trimDecimal(draft.targetProfitPercent, 2) ?? "0"}% profit
-                          </span>
-                        </div>
-                        <div className="font-mono text-[length:var(--text-xl)] font-semibold tabular-nums">
-                          {fmtMoney(completeResult.sellAt)}
-                        </div>
-                        {sellAtDelta != null && resolvedCurrentPrice != null ? (
-                          <p className="mt-(--space-2) text-[length:var(--text-2xs)] text-[var(--color-ink-muted)]">
-                            {sellAtDelta > 0.005
-                              ? `Raise ${fmtMoney(sellAtDelta.toFixed(2))} from current ${fmtMoney(resolvedCurrentPrice)}`
-                              : sellAtDelta < -0.005
-                                ? `Current ${fmtMoney(resolvedCurrentPrice)} already clears this by ${fmtMoney(Math.abs(sellAtDelta).toFixed(2))}`
-                                : `Matches the current price`}
-                          </p>
-                        ) : null}
-                      </div>
+                      <p className="mt-(--space-1) text-[length:var(--text-2xs)] text-[var(--color-ink-muted)]">
+                        Targets {trimDecimal(draft.targetProfitPercent, 2) ?? "0"}% margin
+                        after {trimDecimal(draft.overheadPercent, 2) ?? "0"}% overhead
+                      </p>
+                      {sellAtDelta != null && resolvedCurrentPrice != null ? (
+                        <p className="mt-(--space-2) text-[length:var(--text-2xs)] text-[var(--color-ink-muted)]">
+                          {sellAtDelta > 0.005
+                            ? `Raise ${fmtMoney(sellAtDelta.toFixed(2))} from current ${fmtMoney(resolvedCurrentPrice)}`
+                            : sellAtDelta < -0.005
+                              ? `Current ${fmtMoney(resolvedCurrentPrice)} is ${fmtMoney(Math.abs(sellAtDelta).toFixed(2))} above this recommendation`
+                              : `Matches the current price`}
+                        </p>
+                      ) : null}
                     </div>
 
                     <RailPanel>
@@ -1215,17 +1201,11 @@ export function PricingScenarioCard({
                       />
                       <BreakdownRow label="Labor" value={fmtMoney(buckets.labor)} />
                       <BreakdownRow
-                        label="Direct cost"
-                        value={fmtMoney(buckets.directCost)}
-                        strong
-                        rule
-                      />
-                      <BreakdownRow
                         label="Outbound freight"
                         value={fmtMoney(selectedResult?.outboundFreight ?? "0")}
                       />
                       <BreakdownRow
-                        label="Cost to recover"
+                        label="Total direct costs"
                         value={fmtMoney(buckets.costToRecover)}
                         strong
                         rule
@@ -1234,36 +1214,7 @@ export function PricingScenarioCard({
                         label={`Overhead (${trimDecimal(draft.overheadPercent, 2) ?? "0"}% of price)`}
                         value={fmtMoney(completeResult.overheadDollars)}
                       />
-                      <BreakdownRow
-                        label={`Profit at ${fmtMoney(completeResult.sellAt)}`}
-                        value={fmtMoney(completeResult.profitDollars)}
-                      />
                     </RailPanel>
-
-                    {currentMarginNumber != null ? (
-                      <RailPanel>
-                        <BlockLabel className="mb-(--space-1)">
-                          Margin at current price
-                        </BlockLabel>
-                        <div
-                          className={cn(
-                            "font-mono text-[length:var(--text-lg)] font-semibold tabular-nums",
-                            currentMarginNumber < 0
-                              ? "text-[var(--status-danger-ink)]"
-                              : currentMarginNumber <
-                                  Number(draft.targetProfitPercent ?? 0)
-                                ? "text-[var(--color-accent-ink)]"
-                                : "text-[var(--status-success-ink)]"
-                          )}
-                        >
-                          {completeResult.currentMargin}%
-                        </div>
-                        <p className="mt-(--space-1) text-[length:var(--text-2xs)] text-[var(--color-ink-faint)]">
-                          At current {fmtMoney(resolvedCurrentPrice)} · target{" "}
-                          {trimDecimal(draft.targetProfitPercent, 2) ?? "0"}% profit
-                        </p>
-                      </RailPanel>
-                    ) : null}
                   </>
                 ) : null}
               </aside>
@@ -1365,13 +1316,13 @@ export function PricingScenarioCard({
             <div className="max-h-96 overflow-y-auto">
               <div className="mb-(--space-4) text-[length:var(--text-sm)] text-[var(--color-ink-muted)]">
                 Overhead {viewedRevision.snapshot.globals.overheadPercent ?? "0"}% ·
-                Target profit {viewedRevision.snapshot.globals.targetProfitPercent ?? "0"}%
+                Target margin {viewedRevision.snapshot.globals.targetProfitPercent ?? "0"}%
               </div>
               <div className="grid grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))] gap-x-(--space-4) gap-y-(--space-2)">
                 <HeaderCell>Product</HeaderCell>
-                <HeaderCell>Cost to recover</HeaderCell>
-                <HeaderCell>Sell at</HeaderCell>
-                <HeaderCell>Margin</HeaderCell>
+                <HeaderCell>Direct costs</HeaderCell>
+                <HeaderCell>Recommended price</HeaderCell>
+                <HeaderCell>Current margin</HeaderCell>
                 {viewedRevision.snapshot.products.map((product) => (
                   <div key={product.itemId} className="contents">
                     <div className="min-w-0 truncate text-[length:var(--text-sm)]">

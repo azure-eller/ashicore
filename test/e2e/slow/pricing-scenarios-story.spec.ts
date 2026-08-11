@@ -90,12 +90,17 @@ test.describe("pricing scenario story", () => {
       timeout: 20_000,
     });
 
-    // Shared assumptions recalculate live. Share model: overhead and profit are
+    // Shared pricing inputs recalculate live. Overhead and target margin are
     // both shares of price, so 60 / (1 - 0.2 - 0.3) = 120.00.
     await page.locator("#scenario-overhead").fill("20");
     await page.locator("#scenario-overhead").press("Enter");
     await page.locator("#scenario-profit").fill("30");
     await page.locator("#scenario-profit").press("Enter");
+    await expect(page.getByLabel("Target margin %")).toHaveValue("30");
+    await expect(page.getByText(/^Recommended price \/ /)).toBeVisible();
+    await expect(page.getByText("Total direct costs")).toBeVisible();
+    await expect(page.getByText(/Profit at/)).toHaveCount(0);
+    await expect(page.getByText("Margin at current price")).toHaveCount(0);
     await expect(page.getByText("$120.00").first()).toBeVisible();
 
     // A material override carries through: 40 + 30 = 70 => 70 / 0.5 = 140.00.
