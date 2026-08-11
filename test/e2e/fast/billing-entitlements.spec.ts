@@ -26,6 +26,8 @@ import {
   assertSkuCapacityInTx,
   SkuCapacityError,
 } from "../../../lib/billing/sku-capacity";
+import { reconcileBillingPageState } from "../../../lib/billing/page-reconciliation";
+import { BillingConfigError } from "../../../lib/billing/errors";
 import { withOrgContext } from "../../../lib/db/with-org-context";
 import { getBaseUrl, getOrgId } from "../../helpers/api";
 
@@ -197,6 +199,69 @@ test("only the Pro catalog offer is sellable", () => {
   expect(getSellableBillingOffer("core_starter_monthly")).toBeNull();
 });
 
+test("billing page reconciliation refreshes after Stripe sync and falls back when Stripe is unavailable", async () => {
+  const current = { plan: "free", revision: 1 };
+  const refreshed = { plan: "pro", revision: 2 };
+  let reconciled = false;
+
+  await expect(
+    reconcileBillingPageState({
+      current,
+      reconcile: async () => {
+        reconciled = true;
+      },
+      reread: async () => refreshed,
+      onError: () => {
+        throw new Error("Unexpected reconciliation error.");
+      },
+    }),
+  ).resolves.toBe(refreshed);
+  expect(reconciled).toBe(true);
+
+  const rereadError = new Error("Database reread failed");
+  await expect(
+    reconcileBillingPageState({
+      current,
+      reconcile: async () => undefined,
+      reread: async () => {
+        throw rereadError;
+      },
+      onError: () => {
+        throw new Error("A reread failure is not a Stripe reconciliation failure.");
+      },
+    }),
+  ).rejects.toBe(rereadError);
+
+  const stripeError = new Error("Stripe unavailable");
+  let reported: unknown;
+  await expect(
+    reconcileBillingPageState({
+      current,
+      reconcile: async () => {
+        throw stripeError;
+      },
+      reread: async () => refreshed,
+      onError: (error) => {
+        reported = error;
+      },
+    }),
+  ).resolves.toBe(current);
+  expect(reported).toBe(stripeError);
+
+  await expect(
+    reconcileBillingPageState({
+      current,
+      reconcile: async () => {
+        throw stripeError;
+      },
+      reread: async () => refreshed,
+      onError: async () => {
+        throw new Error("Reporting unavailable");
+      },
+    }),
+  ).resolves.toBe(current);
+});
+
 test("every paid checkout selection resolves to one flat Pro item", () => {
   expect(
     billingLineItemsForCoreSelection({
@@ -207,6 +272,27 @@ test("every paid checkout selection resolves to one flat Pro item", () => {
       addonLookupKeys: ["everything"],
     })
   ).toEqual([{ lookupKey: PRO_PLAN_LOOKUP_KEY, quantity: 1 }]);
+});
+
+test("a missing catalog price never leaks the operator script hint to customers", () => {
+  const safe =
+    "Pro isn't available to start right now. Please try again shortly or contact support.";
+  const error = new BillingConfigError(
+    `No active Stripe price has the lookup key ${PRO_PLAN_LOOKUP_KEY}. Run scripts/stripe-create-catalog.ts.`,
+    { publicMessage: safe }
+  );
+  // Operators keep the actionable detail in `message` (logs/Sentry)...
+  expect(error.message).toContain("scripts/stripe-create-catalog.ts");
+  // ...but the API returns `publicMessage`, which must not carry internal
+  // instructions or the raw lookup key.
+  expect(error.publicMessage).toBe(safe);
+  expect(error.publicMessage).not.toContain("scripts/stripe-create-catalog.ts");
+  expect(error.publicMessage).not.toContain(PRO_PLAN_LOOKUP_KEY);
+});
+
+test("BillingConfigError public message defaults to its operator message", () => {
+  const error = new BillingConfigError("Stripe checkout catalog is not configured.");
+  expect(error.publicMessage).toBe("Stripe checkout catalog is not configured.");
 });
 
 test("commercial features are available to everyone while beta remains allowlisted", async ({ db }) => {
