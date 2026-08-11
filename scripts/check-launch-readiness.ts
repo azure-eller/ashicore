@@ -2,6 +2,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import Stripe from "stripe";
+import { PRO_PLAN_LOOKUP_KEY } from "../lib/billing/types";
 
 type Check = {
   name: string;
@@ -164,6 +166,32 @@ function localEnvValues() {
   );
 }
 
+// STRIPE_CATALOG_READY is a manually set flag. On its own it only proves someone
+// typed "1"; it does not prove the catalog was actually created in the Stripe
+// account this deployment authenticates with. When a deploy claims readiness,
+// confirm the sellable price really exists so "Start Pro" can't 503 in production.
+async function checkStripeCatalogPrice(secretKey: string): Promise<Check> {
+  const name = `Stripe ${PRO_PLAN_LOOKUP_KEY} price exists`;
+  try {
+    const stripe = new Stripe(secretKey);
+    const prices = await stripe.prices.list({
+      lookup_keys: [PRO_PLAN_LOOKUP_KEY],
+      active: true,
+      limit: 1,
+    });
+    const exists = Boolean(prices.data[0]);
+    return check(
+      name,
+      exists,
+      exists
+        ? `${secretKey.startsWith("sk_live") ? "live" : "test"} mode`
+        : "no active price for this lookup key — run scripts/stripe-create-catalog.ts against this Stripe account"
+    );
+  } catch (error) {
+    return check(name, false, error instanceof Error ? error.message : String(error));
+  }
+}
+
 async function checkMarketingSite(url: string): Promise<Check[]> {
   const response = await fetch(url);
   if (!response.ok) {
@@ -223,6 +251,13 @@ async function main() {
         "STRIPE_CATALOG_READY must be exactly 1 after catalog creation"
       )
     );
+  }
+
+  // When the deploy claims the catalog is ready, verify it against Stripe itself
+  // rather than trusting the flag. Skipped when no secret key is available.
+  const stripeSecretKey = envValues.get("STRIPE_SECRET_KEY");
+  if (envValues.get("STRIPE_CATALOG_READY") === "1" && stripeSecretKey) {
+    checks.push(await checkStripeCatalogPrice(stripeSecretKey));
   }
 
   if (options.marketingUrl) {

@@ -27,6 +27,7 @@ import {
   SkuCapacityError,
 } from "../../../lib/billing/sku-capacity";
 import { reconcileBillingPageState } from "../../../lib/billing/page-reconciliation";
+import { BillingConfigError } from "../../../lib/billing/errors";
 import { withOrgContext } from "../../../lib/db/with-org-context";
 import { getBaseUrl, getOrgId } from "../../helpers/api";
 
@@ -271,6 +272,27 @@ test("every paid checkout selection resolves to one flat Pro item", () => {
       addonLookupKeys: ["everything"],
     })
   ).toEqual([{ lookupKey: PRO_PLAN_LOOKUP_KEY, quantity: 1 }]);
+});
+
+test("a missing catalog price never leaks the operator script hint to customers", () => {
+  const safe =
+    "Pro isn't available to start right now. Please try again shortly or contact support.";
+  const error = new BillingConfigError(
+    `No active Stripe price has the lookup key ${PRO_PLAN_LOOKUP_KEY}. Run scripts/stripe-create-catalog.ts.`,
+    { publicMessage: safe }
+  );
+  // Operators keep the actionable detail in `message` (logs/Sentry)...
+  expect(error.message).toContain("scripts/stripe-create-catalog.ts");
+  // ...but the API returns `publicMessage`, which must not carry internal
+  // instructions or the raw lookup key.
+  expect(error.publicMessage).toBe(safe);
+  expect(error.publicMessage).not.toContain("scripts/stripe-create-catalog.ts");
+  expect(error.publicMessage).not.toContain(PRO_PLAN_LOOKUP_KEY);
+});
+
+test("BillingConfigError public message defaults to its operator message", () => {
+  const error = new BillingConfigError("Stripe checkout catalog is not configured.");
+  expect(error.publicMessage).toBe("Stripe checkout catalog is not configured.");
 });
 
 test("commercial features are available to everyone while beta remains allowlisted", async ({ db }) => {
