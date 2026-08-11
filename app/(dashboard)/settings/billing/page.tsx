@@ -12,6 +12,8 @@ import { BillingSection } from "../billing-section";
 import { getBillingStateForCurrentOrg } from "../queries";
 import type { BillingPageData } from "../types";
 
+const BILLING_PAGE_STRIPE_TIMEOUT_MS = 5_000;
+
 export default async function SettingsBillingPage({
   searchParams,
 }: {
@@ -27,7 +29,10 @@ export default async function SettingsBillingPage({
   const billing = currentBilling.stripeCustomerId
     ? await reconcileBillingPageState({
         current: currentBilling,
-        reconcile: () => syncOrgBillingFromStripe(context.orgId),
+        reconcile: () =>
+          syncOrgBillingFromStripe(context.orgId, {
+            stripeRequestTimeoutMs: BILLING_PAGE_STRIPE_TIMEOUT_MS,
+          }),
         reread: getBillingStateForCurrentOrg,
         onError: (error) =>
           captureAppError(error, {
