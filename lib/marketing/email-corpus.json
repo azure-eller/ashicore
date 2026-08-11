@@ -1,0 +1,86 @@
+{
+  "version": "outbound-starter-v1",
+  "blacklist": [
+    "I was impressed by",
+    "I noticed that",
+    "streamline",
+    "optimize",
+    "leverage",
+    "pain points",
+    "innovative solution",
+    "I'd love to explore",
+    "quick 15-minute call",
+    "touch base",
+    "circle back",
+    "synergy"
+  ],
+  "examples": [
+    {
+      "id": "soil-production-planning",
+      "situation": "The company makes several soil blends and the recipient owns operations. The sender is unsure how production is currently planned.",
+      "subject": "production planning",
+      "body": "Hey Sam — came across Ridge Soil while looking at smaller soil manufacturers. Looks like you make quite a few different blends. Not sure how you plan production when ingredient availability changes, but I'm curious what you use today. I'm building operations software for smaller manufacturers and trying to understand where the spreadsheets start to break."
+    },
+    {
+      "id": "package-sizes",
+      "situation": "The product catalog shows the same blends sold in several package sizes. Ask a narrow operational question without asserting that a problem exists.",
+      "subject": "bag sizes",
+      "body": "Hey Mia — saw that Mesa Growers sells the same mixes in a bunch of bag sizes. Do the recipes and packaging materials live in the same system for you, or is that still split across a few places? I'm working on this exact problem for smaller batch manufacturers, so I figured it was worth asking."
+    },
+    {
+      "id": "raw-material-availability",
+      "situation": "The company publishes many ingredient-heavy products, but there is no evidence about its software. Lead with honest uncertainty.",
+      "subject": "raw materials",
+      "body": "Hey Chris — I found North Fork while researching smaller fertilizer and soil producers. You have enough different products that I wondered how you keep raw-material availability tied to what can actually be made. You may already have this handled cleanly. If not, I'd be curious what holds it together today."
+    },
+    {
+      "id": "xero-spreadsheets",
+      "situation": "Research confirms the company uses Xero, but does not confirm how it manages production. Ask about the boundary between accounting and operations.",
+      "subject": "outside xero",
+      "body": "Hey Jordan — looks like Cedar Works uses Xero. I'm curious what you use for the operational side before bills and invoices get there — inventory, purchasing, and production. I'm building software for manufacturers that want to keep Xero as the accounting system, and I'm trying to understand how much still lives in spreadsheets."
+    },
+    {
+      "id": "landed-cost",
+      "situation": "The company buys bulky ingredients from multiple suppliers. The message explores freight allocation without claiming its costs are inaccurate.",
+      "subject": "inbound freight",
+      "body": "Hey Taylor — quick question after looking through Valley Blend's product line: when a truck brings in several ingredients, how do you split the freight into the actual cost of each one? We ran into that problem with a soil manufacturer and it got messy fast. I'm curious whether you have a clean way to handle it."
+    },
+    {
+      "id": "lots-and-batches",
+      "situation": "The company describes batch production and lot-tracked products publicly. Ask how the operator connects consumed ingredients to finished output.",
+      "subject": "batch records",
+      "body": "Hey Alex — saw that Prairie Organics produces in batches and tracks finished lots. How are you connecting the ingredient lots used in a run to the finished product today? I'm building an ERP around these smaller manufacturing workflows and would genuinely like to know what works for you."
+    },
+    {
+      "id": "shipping-handoff",
+      "situation": "The company ships palletized products and publishes freight information. Ask about the handoff from sales order to warehouse paperwork.",
+      "subject": "shipping paperwork",
+      "body": "Hey Morgan — looks like a lot of your orders leave by pallet or truck. I'm curious what happens between the sales order and the loading instructions or BOL. Is that one workflow for you, or does the warehouse end up rebuilding the details somewhere else?"
+    },
+    {
+      "id": "spreadsheet-audit",
+      "situation": "A strongly qualified owner may be using spreadsheets, but that is not publicly verified. Offer a useful review instead of asking directly for a meeting.",
+      "subject": "your spreadsheets",
+      "body": "Hey Jamie — I'm building an ERP for smaller batch manufacturers, initially soil and fertilizer companies. If purchasing, inventory, or production still runs through spreadsheets at Green County, I'd be happy to map one of those workflows into Ashicore and tell you honestly whether it fits. Useful, or are you already set?"
+    },
+    {
+      "id": "modest-research",
+      "situation": "Only segment fit and the recipient role are verified. Keep the email modest rather than manufacturing fake personalization.",
+      "subject": "operations question",
+      "body": "Hey Casey — I'm talking with people who run smaller batch manufacturing businesses. Ashicore came out of dealing with the inventory and production work that tends to sit between spreadsheets and accounting software. Not sure if that describes your setup at all, but what do you use to run it today?"
+    },
+    {
+      "id": "plain-follow-up",
+      "situation": "One follow-up to an unanswered operational question. Add no new claim or pressure.",
+      "subject": "Re: production planning",
+      "body": "Hey Sam — just following up in case this got buried. Still curious how you handle production planning today."
+    },
+    {
+      "id": "wildcard-boom",
+      "situation": "A deliberately absurd, high-variance message for an explicitly selected moonshot experiment. Never use this voice unless the experiment selects this example by ID.",
+      "subject": "business",
+      "body": "buddy,\n\nive seen u SUCKING at business.\n\nmy app, it makes ur business B00000M.\n\ncome by it now!!! 1.99 per month.\n\n199 per month i mean\n\nashicore.app",
+      "experimental": true
+    }
+  ]
+}

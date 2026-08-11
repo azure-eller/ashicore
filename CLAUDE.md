@@ -78,6 +78,7 @@ This file is a constitution + map. Deep reference lives in `docs/` — read the 
 | Auth, roles, team invites | `docs/auth-team.md` |
 | Free/Pro billing, SKU capacity, beta access | `docs/billing.md` |
 | Production launch, auth protection, observability | `docs/production-ops.md` |
+| Scheduled marketing agent | `docs/marketing-automation.md` |
 | Sentry triage, autofix, vocabulary | `docs/observability/sentry-triage.md` |
 | Xero App Store / partner readiness | `docs/xero-partner-readiness.md` |
 | Xero security evidence / key rotation | `docs/xero-security-evidence.md` |
