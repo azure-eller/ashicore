@@ -635,7 +635,7 @@ async function syncReplies(orgId: string) {
     const classification = await classifyMarketingReply(message);
     const isBounce =
       classification.outcome === "automated" &&
-      /mailer-daemon|delivery status notification|undeliverable/i.test(
+      /mailer-daemon|postmaster|delivery status notification|delivery (?:has )?fail(?:ed|ure)|undeliverable/i.test(
         `${message.from}\n${message.subject}\n${message.text}`,
       );
     const status = isBounce ? "bounced" : "replied";

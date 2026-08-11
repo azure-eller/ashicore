@@ -181,7 +181,11 @@ export async function classifyMarketingReply(args: {
   if (/unsubscribe|remove me|do not contact|don't contact|stop emailing/.test(normalized)) {
     return { outcome: "opt_out" as const, reason: "Explicit opt-out language." };
   }
-  if (/mailer-daemon|delivery status notification|undeliverable/.test(normalized)) {
+  if (
+    /mailer-daemon|postmaster|delivery status notification|delivery (?:has )?fail(?:ed|ure)|undeliverable/.test(
+      normalized,
+    )
+  ) {
     return { outcome: "automated" as const, reason: "Automated delivery response." };
   }
   return runFreshStructured({
