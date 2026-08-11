@@ -47,8 +47,6 @@ const schema = z.object({
   XERO_SIGNUP_CLEANUP_SECRET: z.string().optional(),
   ACCOUNTING_PURCHASE_ORDER_SYNC_SECRET: z.string().optional(),
   BILLING_ADJUSTMENTS_SECRET: z.string().optional(),
-  MARKETING_AUTOMATION_ORG_ID: z.string().optional(),
-  MARKETING_AUTOMATION_SECRET: z.string().optional(),
 
   // Billing
   STRIPE_SECRET_KEY: z.string().optional(),
@@ -71,13 +69,6 @@ const schema = z.object({
   APP_NAME: z.string().optional(),
   ASHICORE_ALERT_EMAILS: z.string().optional(),
   INTERNAL_ALERT_EMAILS: z.string().optional(),
-  MARKETING_SENDER_NAME: z.string().optional(),
-  MARKETING_POSTAL_ADDRESS: z.string().optional(),
-
-  // Founder Gmail OAuth
-  GOOGLE_REDIRECT_URI: z.string().optional(),
-  GOOGLE_TOKEN_ENCRYPTION_KEYS: z.string().optional(),
-  GOOGLE_TOKEN_ENCRYPTION_KEY_ID: z.string().optional(),
 
   // Notifications
   FIREBASE_SERVICE_ACCOUNT_KEY: z.string().optional(),
@@ -109,7 +100,6 @@ const schema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_AGENT_MODEL: z.string().optional(),
   OPENAI_IMPORT_MODEL: z.string().optional(),
-  MARKETING_AGENT_MODEL: z.string().optional(),
 
   // Onboarding import knobs
   IMPORT_EXTRACTION_FILES_PER_TICK: z.string().optional(),

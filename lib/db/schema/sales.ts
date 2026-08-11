@@ -22,7 +22,6 @@ import type {
   PricingScenarioDoc,
   PricingScenarioRevisionSnapshot,
 } from "@/lib/schemas/pricing-scenarios";
-import type { MarketingActivityMetadata } from "@/lib/schemas/marketing";
 
 export const salesSchema = pgSchema("sales");
 
@@ -203,10 +202,6 @@ export const customerContacts = salesSchema
       receivesInvoices: boolean("receives_invoices").notNull().default(false),
       receivesBillingCc: boolean("receives_billing_cc").notNull().default(false),
       isOnSite: boolean("is_on_site").notNull().default(false),
-      outreachSuppressedAt: timestamp("outreach_suppressed_at", {
-        withTimezone: true,
-      }),
-      outreachSuppressionReason: text("outreach_suppression_reason"),
       deletedAt: timestamp("deleted_at", { withTimezone: true }),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
       updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -287,11 +282,6 @@ export const customerActivities = salesSchema
       completedAt: timestamp("completed_at", { withTimezone: true }),
       createdByUserId: text("created_by_user_id").notNull(),
       createdByName: varchar("created_by_name", { length: 255 }),
-      marketingExperimentId: uuid("marketing_experiment_id"),
-      marketingContactId: uuid("marketing_contact_id").references(
-        () => customerContacts.id,
-      ),
-      marketingMetadata: jsonb("marketing_metadata").$type<MarketingActivityMetadata>(),
       deletedAt: timestamp("deleted_at", { withTimezone: true }),
       createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
       updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -300,9 +290,6 @@ export const customerActivities = salesSchema
       index("sales_customer_activities_org_id_idx").on(table.organizationId),
       index("sales_customer_activities_customer_id_idx").on(table.customerId),
       index("sales_customer_activities_occurred_at_idx").on(table.occurredAt),
-      uniqueIndex("sales_customer_activities_marketing_contact_uidx")
-        .on(table.marketingExperimentId, table.marketingContactId)
-        .where(sql`marketing_experiment_id IS NOT NULL AND marketing_contact_id IS NOT NULL`),
       check(
         "sales_customer_activities_type_check",
         sql`${table.type} IN ('note', 'call', 'email', 'meeting', 'task')`

@@ -1,134 +1,119 @@
 ---
 read_when:
-  - Configuring or operating autonomous marketing experiments
-  - Changing Gmail outreach, contact suppression, or marketing cron behavior
-  - Editing the cold-email reference corpus
+  - Running or changing the scheduled Codex marketing task
+  - Editing the outbound email corpus
 ---
 
-# Autonomous Marketing
+# Scheduled Codex marketing agent
 
-This is a backend-only experiment runner. It uses researched customer contacts
-and customer activities already stored in the Ashicore organization. It does
-not discover companies, expose a dashboard, choose a market, or conduct an
-interested sales conversation.
+Marketing runs as a scheduled Codex task, not as application code. Each run
+starts a fresh Codex session, reads Ashicore customer research through the
+`production-data` skill, uses the Gmail plugin for outreach and replies, records
+a compact handoff in Gmail, and exits.
 
-Each hourly invocation starts with fresh process and model context, reads the
-active experiment from Postgres, performs a bounded unit of work, records the
-result, and exits. Postgres is the durable orchestrator.
+There is no Vercel marketing cron, Gmail OAuth implementation, marketing schema,
+or custom model runner.
 
-## Safety Envelope
+## Setup
 
-- One active experiment per organization.
-- An experiment contains 1–30 explicit CRM contact IDs.
-- The first three sends are canaries, with no further sends on the local day
-  the third canary is sent. Later weekdays send at most five total messages
-  between 08:00 and 10:00 organization-local time.
-- Each recipient can receive one initial message and one follow-up after five
-  days.
-- Generation and evaluation use separate fresh model calls. One rewrite is
-  permitted; a second failure skips the contact.
-- Gmail sends use a stable RFC message ID and search Gmail before retrying.
-- Opt-outs and complaints suppress the CRM contact automatically.
-- Complaints, two bounces among the first ten sends, or Gmail delivery/sync
-  failures pause the experiment.
-- Positive and unknown replies are sent to the configured founder alert email.
-- Interested conversations are never answered automatically.
+Create a scheduled task in ChatGPT/Codex with the ERP project selected. Run it
+once each weekday morning in the local project. The computer must be on and the
+desktop app running. Install and connect the Gmail plugin before enabling the
+schedule.
 
-## Required Configuration
+Use the prompt below. It deliberately authorizes only the bounded Gmail writes
+described in the prompt; it does not authorize other external actions.
 
-Set these on the authenticated `erp` Vercel project, not the public `www`
-project:
+## Scheduled task prompt
 
 ```text
-MARKETING_AUTOMATION_ORG_ID
-MARKETING_SENDER_NAME
-MARKETING_POSTAL_ADDRESS
-GOOGLE_CLIENT_ID
-GOOGLE_CLIENT_SECRET
-GOOGLE_REDIRECT_URI=https://ashicore.app/api/marketing/gmail/callback
-GOOGLE_TOKEN_ENCRYPTION_KEYS={"gmail_v1":"<32-byte-base64-key>"}
-GOOGLE_TOKEN_ENCRYPTION_KEY_ID=gmail_v1
-OPENAI_API_KEY
-ASHICORE_ALERT_EMAILS
+Run one bounded Ashicore marketing cycle, then exit.
+
+You are explicitly authorized to send the campaign emails and follow-ups allowed
+below from my connected Gmail account, apply the listed Gmail labels, and send a
+run-log email to me. Do not request per-message approval. Do not perform any
+other external write.
+
+Durable inputs
+- Repository: /home/aeller/Projects/erp
+- Ashicore production organization slug: ashicore
+- Voice examples: lib/marketing/email-corpus.json
+- Gmail is the outreach ledger. Search in:anywhere, not only the inbox.
+- Run logs use the Gmail label ashicore-marketing/log.
+- Outreach messages use the label ashicore-marketing/outreach.
+- Opt-outs and complaints use the label ashicore-marketing/do-not-contact.
+
+Current strategy envelope
+- Industry: small soil, fertilizer, compost, and agricultural-input manufacturers.
+- Focus: companies making multiple blends, recipes, batches, or package sizes.
+- Approved claims:
+  1. Ashicore is operations software for smaller batch manufacturers.
+  2. Ashicore came from work with a soil manufacturer.
+  3. Ashicore costs $199 per month.
+- Default CTA: ask what they use today for the one operational problem named in
+  the email.
+- Never change industries, price, approved claims, channel, or sending limits.
+
+At the start of every run
+1. Read the production-data skill completely and follow it.
+2. Read the email corpus.
+3. Search Gmail for recent ashicore-marketing/log messages and read the latest
+   one. If none exists, initialize experiment soil-operations-v1 with the angle
+   "recipes, packaging, and raw-material availability."
+4. Search replies and delivery failures associated with prior outreach. Label
+   explicit opt-outs or complaints ashicore-marketing/do-not-contact. Never
+   reply automatically to an interested prospect; report those conversations.
+
+Candidate selection
+1. Use the production-data skill in read-only mode to inspect only the fields
+   needed from sales.customers, sales.customer_contacts, and recent
+   sales.customer_activities in the ashicore organization.
+2. Choose genuinely relevant contacts with a usable email and source-backed
+   evidence. Prefer owners and operations leaders.
+3. Before drafting, search all Gmail for the exact address. Skip anyone already
+   contacted, anyone with a negative reply, bounce, opt-out, complaint, or a
+   do-not-contact label. Gmail history is the duplicate and suppression check.
+
+Writing and sending
+1. Use one honest company observation, one pain angle, and one CTA.
+2. Retrieve two or three relevant non-experimental corpus examples. Write a new
+   short email in that voice. Do not invent facts or use generic sales language.
+3. Compare the draft against the examples in a fresh self-review. Rewrite once
+   if it contains an unsupported claim, fake compliment, obvious AI language,
+   multiple pitches, or multiple CTAs. Otherwise skip it.
+4. The first run may send at most 3 emails. Later weekday runs may send at most
+   5. Never exceed 30 initial emails in one experiment.
+5. Send at most one follow-up, no sooner than 5 days after the initial message.
+6. Apply ashicore-marketing/outreach to each sent message.
+7. An example marked experimental may be used only when the latest run log
+   explicitly names its ID. If wildcard-boom is selected, preserve its subject
+   and body exactly; do not shorten or sanitize it.
+
+Stopping rules
+- Stop the current run immediately after a complaint, an unsupported claim was
+  sent, a Gmail write/sync failure, or 2 bounces among the first 10 messages.
+- An ordinary opt-out suppresses that recipient but does not stop the experiment.
+- Escalate positive replies, product questions, pricing discussions, demo
+  requests, and complaints in the run report. Do not conduct those conversations.
+
+Learning loop
+- Treat opens as irrelevant.
+- Track sent, bounced, replies, positive replies, and meetings visible in Gmail.
+- At 30 initial messages, wait 7 days, summarize the result, and start the next
+  experiment inside the same strategy envelope by changing exactly one of:
+  segment refinement, pain angle, CTA phrasing, or corpus example selection.
+- Never claim a result that Gmail does not verify.
+
+Before exiting
+1. Send me one concise email with subject beginning "[Ashicore marketing log]".
+   Include the active experiment, cumulative counts, contacts messaged this run,
+   replies needing me, failures, the current learning, and the exact next action.
+2. Apply ashicore-marketing/log to that message.
+3. Return the same concise summary as the scheduled-task result, then exit.
 ```
 
-Configure either `MARKETING_AUTOMATION_SECRET` or the shared `CRON_SECRET` for
-the marketing route. `ASHICORE_ALERT_EMAILS` is required for positive/unknown
-reply, pause, and completion notices to reach the founder.
-`MARKETING_AGENT_MODEL` may override the shared agent model. Configure the
-Google OAuth consent screen for `gmail.send` and `gmail.readonly`, then register
-the exact redirect URI above.
+## Corpus
 
-## Email Reference Corpus
-
-`lib/marketing/email-corpus.json` ships with a small starter set adapted from
-current outbound research to Ashicore's initial manufacturing segment. Each
-item needs an ID, situation, subject, and body. The optional blacklist is for a
-short list of recurring phrases that should always fail style evaluation.
-
-Treat the starter set as a bootstrap, not permanent founder authorship. Replace
-weak examples with sent messages that produce qualified replies, and remove
-examples whose voice or behavior is wrong. Keep the set small and canonical.
-
-Examples marked `experimental` are excluded by default. A deliberately
-high-variance experiment can opt into one or more examples with
-`corpusExampleIds`; this keeps wildcard voice from leaking into normal sends.
-The bundled `wildcard-boom` example preserves the founder-supplied wording and
-must be selected explicitly.
-
-The model receives CRM evidence, the experiment's one pain angle and CTA, and
-the corpus. It may not introduce product claims outside `allowedClaims`.
-
-## Owner API
-
-All `/api/marketing/*` routes require an authenticated organization owner and
-are restricted to `MARKETING_AUTOMATION_ORG_ID` in production.
-
-```text
-GET    /api/marketing/experiments
-POST   /api/marketing/experiments
-GET    /api/marketing/experiments/:id
-POST   /api/marketing/experiments/:id/activate
-POST   /api/marketing/experiments/:id/pause
-GET    /api/marketing/gmail/connect
-GET    /api/marketing/gmail/callback
-DELETE /api/marketing/gmail
-PATCH  /api/marketing/contacts/:id/suppression
-```
-
-Create payload:
-
-```json
-{
-  "hypothesis": "Operators will discuss spreadsheet-based production planning.",
-  "segment": "Researched soil manufacturers",
-  "painAngle": "Recipe inputs and raw-material availability",
-  "cta": "Ask how they handle it today",
-  "allowedClaims": [
-    "Ashicore is operations software for smaller batch manufacturers."
-  ],
-  "corpusExampleIds": ["wildcard-boom"],
-  "contactIds": ["<crm-contact-uuid>"]
-}
-```
-
-Omit `corpusExampleIds` for the standard corpus. Even wildcard experiments keep
-the normal contact limits, canaries, suppression rules, compliance footer, and
-independent factuality evaluation.
-
-Suppression payloads are `{ "suppressed": true, "reason": "manual" }` and
-`{ "suppressed": false }`. Clearing suppression is deliberately an owner-only
-manual action.
-
-## Measurement
-
-The source of truth is the experiment row plus CRM email activities. Activity
-metadata records supplied evidence, generated and final copy, evaluator
-verdicts, model/prompt/corpus versions, Gmail IDs, and reply outcome.
-
-The completion report records sent, delivered, bounced, positive replies,
-valid-delivery rate, and positive-reply rate among valid deliveries. It stores
-one bounded learning and proposes one changed variable; it never launches the
-next experiment. The experiment completes only after every contact is terminal
-and seven days have passed since the last initial or follow-up send. Opens are
-not a reward signal.
+The small corpus lives at `lib/marketing/email-corpus.json`. Normal runs exclude
+examples marked `experimental`. The exact founder-supplied `wildcard-boom`
+message remains available only through explicit selection in the latest run log.

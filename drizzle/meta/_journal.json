@@ -1310,13 +1310,6 @@
       "when": 1786052034089,
       "tag": "0186_free_grace_backfill",
       "breakpoints": true
-    },
-    {
-      "idx": 187,
-      "version": "7",
-      "when": 1786052069606,
-      "tag": "0187_chief_raza",
-      "breakpoints": true
     }
   ]
 }
