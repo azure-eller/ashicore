@@ -13,7 +13,11 @@ export async function reconcileBillingPageState<T>({
     await reconcile();
     return await reread();
   } catch (error) {
-    onError(error);
+    try {
+      onError(error);
+    } catch {
+      // Reporting must not prevent Billing from rendering last-known state.
+    }
     return current;
   }
 }

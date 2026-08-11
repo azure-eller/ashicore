@@ -232,6 +232,19 @@ test("billing page reconciliation refreshes after Stripe sync and falls back whe
     }),
   ).resolves.toBe(current);
   expect(reported).toBe(stripeError);
+
+  await expect(
+    reconcileBillingPageState({
+      current,
+      reconcile: async () => {
+        throw stripeError;
+      },
+      reread: async () => refreshed,
+      onError: () => {
+        throw new Error("Reporting unavailable");
+      },
+    }),
+  ).resolves.toBe(current);
 });
 
 test("every paid checkout selection resolves to one flat Pro item", () => {
