@@ -209,6 +209,7 @@ export class CardKernel<TDoc, TPayload> {
   private reloadDraftTimer: ReturnType<typeof setTimeout> | null = null;
   private inFlight: Promise<FlushOutcome> | null = null;
   private externalMutationDepth = 0;
+  private externalMutationQueue: Promise<void> = Promise.resolve();
   private lastAttempt: { key: string; payloadJson: string } | null = null;
 
   constructor(config: CardKernelConfig<TDoc, TPayload>) {
@@ -320,19 +321,26 @@ export class CardKernel<TDoc, TPayload> {
   runExternalMutation = async (
     mutate: () => Promise<TDoc>,
   ): Promise<FlushOutcome> => {
-    this.externalMutationDepth += 1;
-    this.cancelScheduledFlush();
-    try {
-      const outcome = await this.flush();
-      if (outcome.outcome !== "saved") return outcome;
-      this.adoptServerDoc(await mutate());
-      return outcome;
-    } finally {
-      this.externalMutationDepth -= 1;
-      if (this.externalMutationDepth === 0 && this.isPayloadDirty()) {
-        this.scheduleFlush(0);
+    const queuedMutation = this.externalMutationQueue.then(async () => {
+      this.externalMutationDepth += 1;
+      this.cancelScheduledFlush();
+      try {
+        const outcome = await this.flush();
+        if (outcome.outcome !== "saved") return outcome;
+        this.adoptServerDoc(await mutate());
+        return outcome;
+      } finally {
+        this.externalMutationDepth -= 1;
+        if (this.externalMutationDepth === 0 && this.isPayloadDirty()) {
+          this.scheduleFlush(0);
+        }
       }
-    }
+    });
+    this.externalMutationQueue = queuedMutation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return queuedMutation;
   };
 
   resetToServer = () => {
