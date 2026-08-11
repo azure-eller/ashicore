@@ -564,14 +564,14 @@ test.describe("manufacturing demand and completion heartbeat", () => {
     expect(savedIngredients).toMatchObject([
       {
         itemId: firstComponent.body.id,
-        quantityPerUnit: "4.0000",
-        plannedQuantity: "12.0000",
+        quantityPerUnit: "1.0000",
+        plannedQuantity: "3.0000",
         sortOrder: 0,
       },
       {
         itemId: secondComponent.body.id,
-        quantityPerUnit: "5.0000",
-        plannedQuantity: "15.0000",
+        quantityPerUnit: "2.0000",
+        plannedQuantity: "6.0000",
         sortOrder: 1,
       },
     ]);
@@ -597,12 +597,12 @@ test.describe("manufacturing demand and completion heartbeat", () => {
         expect.objectContaining({
           itemId: firstComponent.body.id,
           referenceId: savedIngredients[0].id,
-          quantity: "12.0000",
+          quantity: "3.0000",
         }),
         expect.objectContaining({
           itemId: secondComponent.body.id,
           referenceId: savedIngredients[1].id,
-          quantity: "15.0000",
+          quantity: "6.0000",
         }),
       ])
     );
@@ -1909,7 +1909,7 @@ test.describe("manufacturing demand and completion heartbeat", () => {
     expect(saved.ingredients).toHaveLength(1);
   });
 
-  test("manufacturing order autosave keeps ingredient edits made during an in-flight header save", async ({
+  test("manufacturing order autosave keeps recipe quantities authoritative during an in-flight header save", async ({
     page,
     db,
   }) => {
@@ -1956,7 +1956,7 @@ test.describe("manufacturing demand and completion heartbeat", () => {
     await expect(notesInput).toHaveValue(notes);
     await expect(
       editableGrid(page).locator('.ag-row .ag-cell[col-id="quantityPerUnit"]').first(),
-    ).toContainText("4");
+    ).toContainText("2");
 
     const [savedOrder] = await db
       .select({ notes: manufacturingOrders.notes })
@@ -1971,8 +1971,8 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       })
       .from(manufacturingOrderIngredients)
       .where(eq(manufacturingOrderIngredients.manufacturingOrderId, orderId));
-    expect(ingredient.quantityPerUnit).toBe("4.0000");
-    expect(ingredient.plannedQuantity).toBe("12.0000");
+    expect(ingredient.quantityPerUnit).toBe("2.0000");
+    expect(ingredient.plannedQuantity).toBe("6.0000");
   });
 
   test("manufacturing order autosave surfaces same-field conflicts without overwriting and can recover", async ({

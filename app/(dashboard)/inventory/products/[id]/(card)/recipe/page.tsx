@@ -73,6 +73,10 @@ export default async function ProductRecipePage({
         componentId: row.componentId,
         quantity: row.quantity,
         minimumLotAgeDays: row.minimumLotAgeDays ?? null,
+        alternates: row.alternates.map((alternate) => ({
+          itemId: alternate.itemId,
+          quantity: alternate.quantity,
+        })),
       }))}
       initialBomRevisionId={currentRevision?.id ?? null}
       initialOutputQuantity={currentRevision?.outputQuantity ?? "1"}

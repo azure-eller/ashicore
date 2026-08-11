@@ -9,6 +9,7 @@ JOIN "inventory"."bom_revision_components" AS component
   ON component.bom_revision_id = manufacturing_order.bom_revision_id
 WHERE ingredient.manufacturing_order_id = manufacturing_order.id
   AND component.component_id = ingredient.item_id
+  AND component.sort_order = ingredient.sort_order
   AND ingredient.bom_revision_component_id IS NULL;--> statement-breakpoint
 UPDATE "manufacturing"."manufacturing_order_ingredients" AS ingredient
 SET "bom_revision_component_id" = (
@@ -20,6 +21,7 @@ SET "bom_revision_component_id" = (
     ON manufacturing_order.id = ingredient.manufacturing_order_id
   WHERE component.bom_revision_id = manufacturing_order.bom_revision_id
     AND alternate.alternate_item_id = ingredient.item_id
+    AND component.sort_order = ingredient.sort_order
 )
 WHERE ingredient.bom_revision_component_id IS NULL
   AND (
@@ -31,6 +33,7 @@ WHERE ingredient.bom_revision_component_id IS NULL
       ON manufacturing_order.id = ingredient.manufacturing_order_id
     WHERE component.bom_revision_id = manufacturing_order.bom_revision_id
       AND alternate.alternate_item_id = ingredient.item_id
+      AND component.sort_order = ingredient.sort_order
   ) = 1;--> statement-breakpoint
 ALTER TABLE "purchasing"."purchase_order_lines" ADD COLUMN IF NOT EXISTS "quantity_closed" numeric(12, 4) DEFAULT '0' NOT NULL;--> statement-breakpoint
 ALTER TABLE "purchasing"."purchase_order_lines" ADD COLUMN IF NOT EXISTS "stock_quantity_closed" numeric(12, 4) DEFAULT '0' NOT NULL;--> statement-breakpoint ALTER TABLE "manufacturing"."manufacturing_order_ingredients" DROP CONSTRAINT IF EXISTS "manufacturing_order_ingredients_bom_revision_component_id_bom_revision_components_id_fk";--> statement-breakpoint
