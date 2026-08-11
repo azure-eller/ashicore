@@ -254,7 +254,7 @@ test("billing page reconciliation refreshes after Stripe sync and falls back whe
         throw stripeError;
       },
       reread: async () => refreshed,
-      onError: () => {
+      onError: async () => {
         throw new Error("Reporting unavailable");
       },
     }),
