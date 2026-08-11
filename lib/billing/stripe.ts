@@ -1014,7 +1014,7 @@ export async function syncOrgBillingFromStripe(
       limit: 20,
     },
     options?.stripeRequestTimeoutMs
-      ? { timeout: options.stripeRequestTimeoutMs }
+      ? { timeout: options.stripeRequestTimeoutMs, maxNetworkRetries: 0 }
       : undefined
   );
   const active = subscriptions.data.filter((subscription) =>

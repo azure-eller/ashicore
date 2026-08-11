@@ -65,10 +65,30 @@ async function main() {
       )
     )
   ).flatMap((page) => page.data);
-  const existingKeys = new Set(existing.map((price) => price.lookup_key).filter(Boolean));
-
   for (const offer of STRIPE_BILLING_CATALOG) {
-    if (existingKeys.has(offer.lookupKey)) {
+    const interval = offer.interval === "annual" ? "year" : "month";
+    const isAnnual = offer.interval === "annual";
+    const expectedUnitAmount = offer.monthlyUsd * (isAnnual && offer.kind !== "core" ? 10 : isAnnual ? 12 : 1) * 100;
+    const matching = existing.filter(
+      (price) =>
+        price.lookup_key === offer.lookupKey &&
+        price.currency === "usd" &&
+        price.unit_amount === expectedUnitAmount &&
+        price.billing_scheme === "per_unit" &&
+        price.recurring?.interval === interval &&
+        price.recurring.interval_count === 1
+    );
+    const retained = matching[0];
+    const obsolete = existing.filter(
+      (price) => price.lookup_key === offer.lookupKey && price.id !== retained?.id
+    );
+
+    for (const price of obsolete) {
+      await stripe.prices.update(price.id, { active: false });
+      console.log(`- ${offer.lookupKey} deactivated ${price.id}`);
+    }
+
+    if (retained) {
       console.log(`= ${offer.lookupKey} already exists, skipping`);
       continue;
     }
@@ -83,8 +103,6 @@ async function main() {
         salesOrderBand: offer.salesOrderBand ?? "",
       },
     });
-    const interval = offer.interval === "annual" ? "year" : "month";
-    const isAnnual = offer.interval === "annual";
     const isCore = offer.kind === "core";
     const isExtraLocation =
       canonicalRecurringLookupKey(offer.lookupKey) === EXTRA_LOCATION_LOOKUP_KEY;

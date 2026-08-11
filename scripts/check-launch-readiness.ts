@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import Stripe from "stripe";
-import { PRO_PLAN_LOOKUP_KEY } from "../lib/billing/types";
+import { PRO_MONTHLY_USD, PRO_PLAN_LOOKUP_KEY } from "../lib/billing/types";
 
 type Check = {
   name: string;
@@ -171,21 +171,31 @@ function localEnvValues() {
 // account this deployment authenticates with. When a deploy claims readiness,
 // confirm the sellable price really exists so "Start Pro" can't 503 in production.
 async function checkStripeCatalogPrice(secretKey: string): Promise<Check> {
-  const name = `Stripe ${PRO_PLAN_LOOKUP_KEY} price exists`;
+  const name = `Stripe ${PRO_PLAN_LOOKUP_KEY} price is live and canonical`;
   try {
     const stripe = new Stripe(secretKey);
     const prices = await stripe.prices.list({
       lookup_keys: [PRO_PLAN_LOOKUP_KEY],
       active: true,
-      limit: 1,
+      limit: 100,
     });
-    const exists = Boolean(prices.data[0]);
+    const canonical = prices.data.filter(
+      (price) =>
+        price.livemode &&
+        price.lookup_key === PRO_PLAN_LOOKUP_KEY &&
+        price.currency === "usd" &&
+        price.unit_amount === PRO_MONTHLY_USD * 100 &&
+        price.billing_scheme === "per_unit" &&
+        price.recurring?.interval === "month" &&
+        price.recurring.interval_count === 1
+    );
+    const ready = secretKey.startsWith("sk_live_") && prices.data.length === 1 && canonical.length === 1;
     return check(
       name,
-      exists,
-      exists
-        ? `${secretKey.startsWith("sk_live") ? "live" : "test"} mode`
-        : "no active price for this lookup key — run scripts/stripe-create-catalog.ts against this Stripe account"
+      ready,
+      ready
+        ? `one active USD $${PRO_MONTHLY_USD}/month price in live mode`
+        : `expected exactly one active live USD $${PRO_MONTHLY_USD}/month price; found ${prices.data.length} active and ${canonical.length} canonical — run scripts/stripe-create-catalog.ts against the live Stripe account`
     );
   } catch (error) {
     return check(name, false, error instanceof Error ? error.message : String(error));
