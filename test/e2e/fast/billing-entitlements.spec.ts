@@ -217,6 +217,20 @@ test("billing page reconciliation refreshes after Stripe sync and falls back whe
   ).resolves.toBe(refreshed);
   expect(reconciled).toBe(true);
 
+  const rereadError = new Error("Database reread failed");
+  await expect(
+    reconcileBillingPageState({
+      current,
+      reconcile: async () => undefined,
+      reread: async () => {
+        throw rereadError;
+      },
+      onError: () => {
+        throw new Error("A reread failure is not a Stripe reconciliation failure.");
+      },
+    }),
+  ).rejects.toBe(rereadError);
+
   const stripeError = new Error("Stripe unavailable");
   let reported: unknown;
   await expect(
