@@ -7,13 +7,13 @@ export async function reconcileBillingPageState<T>({
   current: T;
   reconcile: () => Promise<unknown>;
   reread: () => Promise<T>;
-  onError: (error: unknown) => void;
+  onError: (error: unknown) => void | Promise<void>;
 }) {
   try {
     await reconcile();
   } catch (error) {
     try {
-      onError(error);
+      await onError(error);
     } catch {
       // Reporting must not prevent Billing from rendering last-known state.
     }
