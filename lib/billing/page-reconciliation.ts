@@ -11,7 +11,6 @@ export async function reconcileBillingPageState<T>({
 }) {
   try {
     await reconcile();
-    return await reread();
   } catch (error) {
     try {
       onError(error);
@@ -20,4 +19,6 @@ export async function reconcileBillingPageState<T>({
     }
     return current;
   }
+
+  return reread();
 }
