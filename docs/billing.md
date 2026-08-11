@@ -55,11 +55,11 @@ a founder alert but is not workspace-locked.
 
 Stripe webhooks remain the primary source of real-time subscription updates.
 Opening Settings → Billing also performs a best-effort reconciliation before
-rendering when the organization has a Stripe customer. If Stripe is temporarily
-unavailable, the page renders the last-known database state and reports the
-failure internally. The authorized `POST /api/billing/resync` endpoint remains
-available for support and recovery, but no recovery control is exposed in the
-customer UI.
+rendering when the organization has a Stripe customer, with Stripe network work
+capped at five seconds. If Stripe is temporarily unavailable, the page renders
+the last-known database state and reports the failure internally. The authorized
+`POST /api/billing/resync` endpoint remains available for support and recovery,
+but no recovery control is exposed in the customer UI.
 
 During the compatibility release, legacy Core, package, plugin, location, and
 annual lookup keys still project to Pro. New checkout never creates them. Remove

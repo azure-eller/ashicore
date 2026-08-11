@@ -10,6 +10,8 @@ import {
   updateOrgBillingState,
 } from "./dal";
 import { sendFounderAlert } from "@/lib/internal-alerts";
+import { captureAppError } from "@/lib/observability/sentry";
+import { BillingConfigError } from "./errors";
 import {
   STRIPE_BILLING_CATALOG,
   DEFAULT_BILLING_INTERVAL,
@@ -46,14 +48,7 @@ type BillingConfig = {
   webhookSecret: string | null;
 };
 
-export class BillingConfigError extends Error {
-  status = 503;
-
-  constructor(message = "Stripe billing is not configured.") {
-    super(message);
-    this.name = "BillingConfigError";
-  }
-}
+export { BillingConfigError } from "./errors";
 
 export class BillingWebhookVerificationError extends Error {
   status = 400;
@@ -285,9 +280,22 @@ async function getActivePriceForLookupKey(stripe: Stripe, lookupKey: string) {
   });
   const price = prices.data[0];
   if (!price) {
-    throw new BillingConfigError(
-      `No active Stripe price has the lookup key ${lookupKey}. Run scripts/stripe-create-catalog.ts.`
+    const error = new BillingConfigError(
+      `No active Stripe price has the lookup key ${lookupKey}. Run scripts/stripe-create-catalog.ts.`,
+      {
+        publicMessage:
+          "Pro isn't available to start right now. Please try again shortly or contact support.",
+      }
     );
+    // Routes catch BillingConfigError and return early, so this misconfiguration
+    // never reaches the api handler's Sentry capture. Alert operators here — the
+    // lookup key is a stable catalog identifier, not customer data.
+    captureAppError(error, {
+      source: "billing_catalog",
+      operation: "resolve_active_price",
+      appDebug: { lookup_key: lookupKey },
+    });
+    throw error;
   }
   return price;
 }
@@ -1006,7 +1014,7 @@ export async function syncOrgBillingFromStripe(
       limit: 20,
     },
     options?.stripeRequestTimeoutMs
-      ? { timeout: options.stripeRequestTimeoutMs }
+      ? { timeout: options.stripeRequestTimeoutMs, maxNetworkRetries: 0 }
       : undefined
   );
   const active = subscriptions.data.filter((subscription) =>
