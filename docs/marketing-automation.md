@@ -88,12 +88,12 @@ Writing and sending
 3. Compare the draft against the examples in a fresh self-review. Rewrite once
    if it contains an unsupported claim, fake compliment, obvious AI language,
    multiple pitches, or multiple CTAs. Otherwise skip it.
-4. The first local weekday may send at most 3 initial emails in total. Each later
-   local weekday may send at most 5 in total. Before sending, count initial
-   emails Gmail verifies were sent during the current local calendar day and
-   subtract that count from today's limit. Send only the remaining allowance,
-   including after retries or manual runs. Never exceed 30 initial emails in one
-   experiment.
+4. The first local weekday may send at most 3 outreach emails in total. Each
+   later local weekday may send at most 5 in total. This cap includes both
+   initial messages and follow-ups. Before sending, count all outreach Gmail
+   verifies was sent during the current local calendar day and subtract that
+   count from today's limit. Send only the remaining allowance, including after
+   retries or manual runs. Never exceed 30 initial emails in one experiment.
 5. Send at most one follow-up, no sooner than 5 days after the initial message.
 6. Apply ashicore-marketing/outreach to each sent message.
 7. An example marked experimental may be used only when the latest run log
