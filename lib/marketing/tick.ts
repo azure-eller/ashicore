@@ -907,12 +907,18 @@ async function maybeCompleteExperiment(orgId: string, experimentId: string, now:
     metrics,
   });
   const result = { ...metrics, ...analysis };
-  await withOrgContext(orgId, (tx) =>
-    tx
+  const completed = await withOrgContext(orgId, async (tx) => {
+    const [row] = await tx
       .update(marketingExperiments)
       .set({ status: "completed", result, evaluateAt: now, updatedAt: now })
-      .where(eq(marketingExperiments.id, experimentId)),
-  );
+      .where(and(
+        eq(marketingExperiments.id, experimentId),
+        eq(marketingExperiments.status, "active"),
+      ))
+      .returning({ id: marketingExperiments.id });
+    return row ?? null;
+  });
+  if (!completed) return false;
   await sendFounderAlert({
     kind: "marketing_experiment",
     subject: "Ashicore marketing experiment completed",
