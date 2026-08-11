@@ -996,7 +996,10 @@ async function downgradeOrgToFree({
   });
 }
 
-export async function syncOrgBillingFromStripe(orgId: string) {
+export async function syncOrgBillingFromStripe(
+  orgId: string,
+  options?: { stripeRequestTimeoutMs?: number }
+) {
   const stripe = getStripeClient();
   const billing = await getBillingStateByOrgId(orgId);
 
@@ -1004,11 +1007,16 @@ export async function syncOrgBillingFromStripe(orgId: string) {
     return billing;
   }
 
-  const subscriptions = await stripe.subscriptions.list({
-    customer: billing.stripeCustomerId,
-    status: "all",
-    limit: 20,
-  });
+  const subscriptions = await stripe.subscriptions.list(
+    {
+      customer: billing.stripeCustomerId,
+      status: "all",
+      limit: 20,
+    },
+    options?.stripeRequestTimeoutMs
+      ? { timeout: options.stripeRequestTimeoutMs }
+      : undefined
+  );
   const active = subscriptions.data.filter((subscription) =>
     ["active", "trialing", "past_due", "unpaid", "paused"].includes(
       subscription.status
