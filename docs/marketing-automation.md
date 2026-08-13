@@ -26,7 +26,12 @@ schedule, create a Cloudflare Email Routing rule that forwards
 `azure@ashicore.app` to that Gmail account, then verify it by sending a message
 to `azure@ashicore.app` and confirming it arrives. Prospect messages use the
 display name `Azure from Ashicore`, set `Reply-To: azure@ashicore.app`, and end
-with the exact identity footer in the prompt below.
+with the exact identity footer in the prompt below. Before enabling the
+schedule, also send one message to an address you control through the connected
+Gmail plugin and inspect the received headers. Confirm that `From` is
+`Azure from Ashicore <azureller1@gmail.com>` and `Reply-To` is
+`azure@ashicore.app`; do not enable outreach if either header is missing or
+rewritten.
 
 Use the prompt below. It deliberately authorizes only the bounded Gmail writes
 described in the prompt; it does not authorize other external actions.
@@ -124,7 +129,8 @@ Writing and sending
 
 Stopping rules
 - Stop the current run immediately after a complaint, an unsupported claim was
-  sent, a Gmail write/sync failure, or 2 bounces among the first 10 messages.
+  sent, a Gmail write/sync failure, an identity header or required footer cannot
+  be preserved, or 2 bounces among the first 10 messages.
 - An ordinary opt-out suppresses that recipient but does not stop the experiment.
 - Escalate positive replies, product questions, pricing discussions, demo
   requests, and complaints in the run report. Do not conduct those conversations.
