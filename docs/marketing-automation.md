@@ -21,6 +21,18 @@ once each weekday morning in the local project. The computer must be on and the
 desktop app running. Install and connect the Gmail plugin before enabling the
 schedule.
 
+The connected Gmail account is `azureller1@gmail.com`. Before enabling the
+schedule, create a Cloudflare Email Routing rule that forwards
+`azure@ashicore.app` to that Gmail account, then verify it by sending a message
+to `azure@ashicore.app` and confirming it arrives. Prospect messages use the
+display name `Azure from Ashicore`, set `Reply-To: azure@ashicore.app`, and end
+with the exact identity footer in the prompt below. Before enabling the
+schedule, also send one message to an address you control through the connected
+Gmail plugin and inspect the received headers. Confirm that `From` is
+`Azure from Ashicore <azureller1@gmail.com>` and `Reply-To` is
+`azure@ashicore.app`; do not enable outreach if either header is missing or
+rewritten.
+
 Use the prompt below. It deliberately authorizes only the bounded Gmail writes
 described in the prompt; it does not authorize other external actions.
 
@@ -38,6 +50,8 @@ Durable inputs
 - Repository: /home/aeller/Projects/erp
 - Ashicore production organization slug: ashicore
 - Voice examples: lib/marketing/email-corpus.json
+- Gmail sender: Azure from Ashicore <azureller1@gmail.com>
+- Reply-To: azure@ashicore.app
 - Gmail is the outreach ledger. Search in:anywhere, not only the inbox.
 - Run logs use the Gmail label ashicore-marketing/log.
 - Outreach messages use the label ashicore-marketing/outreach.
@@ -95,14 +109,28 @@ Writing and sending
    count from today's limit. Send only the remaining allowance, including after
    retries or manual runs. Never exceed 30 initial emails in one experiment.
 5. Send at most one follow-up, no sooner than 5 days after the initial message.
-6. Apply ashicore-marketing/outreach to each sent message.
-7. An example marked experimental may be used only when the latest run log
+6. Send from `Azure from Ashicore <azureller1@gmail.com>` and set Reply-To to
+   `azure@ashicore.app`. End every initial message and follow-up with this exact
+   plain-text identity footer:
+
+   Azure
+   Ashicore LLC
+   ashicore.app
+
+   PO Box 593
+   Paonia, CO 81428
+
+   If you'd rather not hear from me again, just reply and I'll stop.
+7. Apply ashicore-marketing/outreach to each sent message.
+8. An example marked experimental may be used only when the latest run log
    explicitly names its ID. If wildcard-boom is selected, preserve its subject
-   and body exactly; do not shorten or sanitize it.
+   and corpus body exactly; do not shorten or sanitize it. The required identity
+   footer is appended after that body.
 
 Stopping rules
 - Stop the current run immediately after a complaint, an unsupported claim was
-  sent, a Gmail write/sync failure, or 2 bounces among the first 10 messages.
+  sent, a Gmail write/sync failure, an identity header or required footer cannot
+  be preserved, or 2 bounces among the first 10 messages.
 - An ordinary opt-out suppresses that recipient but does not stop the experiment.
 - Escalate positive replies, product questions, pricing discussions, demo
   requests, and complaints in the run report. Do not conduct those conversations.
