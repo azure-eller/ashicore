@@ -2761,6 +2761,22 @@ test.describe("inventory mutation kernel heartbeat", () => {
       targetIds.push((await response.json()).itemId);
     }
 
+    const selectedGeneration = await testFetch(
+      `/api/item-cards/${sourceId}/variants/generate`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          combinations: [
+            {
+              [packageOptionId]: packageValueId,
+              [focusOptionId]: gardenValueId,
+            },
+          ],
+        }),
+      },
+    );
+    expect(selectedGeneration.status, await selectedGeneration.text()).toBe(201);
+
     const card = await (await testFetch(`/api/item-cards/${sourceId}`)).json();
     const partialUpdate = await testFetch(`/api/item-cards/${sourceId}`, {
       method: "PATCH",

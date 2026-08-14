@@ -136,7 +136,7 @@ export {
 
 export const generateVariantsSchema = z.object({
   combinations: z
-    .array(z.record(z.string().uuid(), z.string().uuid()))
+    .array(z.record(z.guid(), z.guid()))
     .optional(),
 });
 
