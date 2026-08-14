@@ -61,6 +61,10 @@ exposing the hidden lot used by untracked stock.
 fields such as SKU, prices, barcodes, lead time, and MOQ stay on
 `PATCH /api/items/:variantId`.
 
+Variant option-assignment maps accept canonical PostgreSQL UUID strings. This
+includes deterministic option and value IDs created by migration `0107`, even
+when their version or variant bits do not match an RFC UUID version.
+
 ## Alternate Unit Rules
 
 The stocking unit remains the canonical inventory, manufacturing, planning,
@@ -98,6 +102,12 @@ Variant config updates are incremental. Removed unused options/values are hard
 deleted. Removed used options/values are disabled with `disabled_at` and remain
 available for historical display. Because those assignments remain part of the
 variant's identity, disabled option values remain in `displayName`.
+
+Adding an option does not rewrite existing variants. Existing variants may keep
+a partial option assignment and display only the values they have; operators can
+fill the new option later or retire the older variant. Newly created and generated
+variants still require one value for every active option. An existing variant's
+assignment may be partial but not empty.
 
 Deleting a variant blocks the last active variant in a card. Unused variants are
 hard-deleted with assignments; variants with historical references are

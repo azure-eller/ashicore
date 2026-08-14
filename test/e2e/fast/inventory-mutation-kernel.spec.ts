@@ -47,6 +47,13 @@ function editableGrid(page: Page, index = 0) {
   return page.locator('[data-slot="editable-line-data-grid"]').nth(index);
 }
 
+function nonRfcPostgresUuid() {
+  const id = randomUUID().split("");
+  id[14] = "f";
+  id[19] = "0";
+  return id.join("");
+}
+
 async function expectRows(page: Page, count: number, gridIndex = 0) {
   await expect(
     editableGrid(page, gridIndex).locator(".ag-center-cols-container .ag-row"),
@@ -2626,6 +2633,208 @@ test.describe("inventory mutation kernel heartbeat", () => {
       .from(bomRevisions)
       .where(eq(bomRevisions.productId, productId));
     expect(afterRevisions).toHaveLength(beforeRevisions.length);
+  });
+
+  test("legacy IDs and partial existing variants do not block recipe save or copy", async ({
+    page,
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const component = await createItem({
+      itemType: "material",
+      name: `Fast Variant Compatibility Component ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-VARIANT-COMPAT-COMP-${unique}`,
+      category: `Fast Variant Compatibility ${unique}`,
+      description: null,
+      defaultPurchasePrice: "3.00",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    const product = await createItem({
+      itemType: "product",
+      name: `Fast Variant Compatibility Product ${unique}`,
+      sellable: true,
+      unitDefinitionId: unitId,
+      sku: `FAST-VARIANT-COMPAT-PROD-${unique}`,
+      category: `Fast Variant Compatibility ${unique}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "12.00",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: component.body.id, quantity: "1" }],
+    });
+    expect(component.status, JSON.stringify(component.body)).toBe(201);
+    expect(product.status, JSON.stringify(product.body)).toBe(201);
+    const sourceId = product.body.id as string;
+    const [source] = await db
+      .select({ familyId: items.familyId })
+      .from(items)
+      .where(eq(items.id, sourceId));
+
+    const packageOptionId = nonRfcPostgresUuid();
+    const packageValueId = nonRfcPostgresUuid();
+    const focusOptionId = randomUUID();
+    const gardenValueId = randomUUID();
+    const industrialValueId = randomUUID();
+    await db.insert(variantOptions).values([
+      {
+        id: packageOptionId,
+        organizationId: orgId,
+        familyId: source.familyId!,
+        name: "Package",
+        code: `package_${unique}`,
+        sortOrder: 0,
+      },
+      {
+        id: focusOptionId,
+        organizationId: orgId,
+        familyId: source.familyId!,
+        name: "Focus",
+        code: `focus_${unique}`,
+        sortOrder: 1,
+      },
+    ]);
+    await db.insert(variantOptionValues).values([
+      {
+        id: packageValueId,
+        organizationId: orgId,
+        optionId: packageOptionId,
+        label: "1.5 cf bag",
+        code: `bag_${unique}`,
+      },
+      {
+        id: gardenValueId,
+        organizationId: orgId,
+        optionId: focusOptionId,
+        label: "Garden",
+        code: `garden_${unique}`,
+        sortOrder: 0,
+      },
+      {
+        id: industrialValueId,
+        organizationId: orgId,
+        optionId: focusOptionId,
+        label: "Industrial",
+        code: `industrial_${unique}`,
+        sortOrder: 1,
+      },
+    ]);
+    await db.insert(itemVariantValues).values({
+      organizationId: orgId,
+      itemId: sourceId,
+      optionId: packageOptionId,
+      optionValueId: packageValueId,
+    });
+
+    const incompleteCreate = await testFetch(`/api/item-cards/${sourceId}/variant`, {
+      method: "POST",
+      body: JSON.stringify({
+        optionValueIdsByOptionId: {
+          [packageOptionId]: packageValueId,
+        },
+        sku: `FAST-VARIANT-COMPAT-INCOMPLETE-${unique}`,
+      }),
+    });
+    expect(incompleteCreate.status, await incompleteCreate.text()).toBe(400);
+
+    const targetIds: string[] = [];
+    for (const [valueId, sku] of [
+      [gardenValueId, `FAST-VARIANT-COMPAT-GARDEN-${unique}`],
+      [industrialValueId, `FAST-VARIANT-COMPAT-INDUSTRIAL-${unique}`],
+    ]) {
+      const response = await testFetch(`/api/item-cards/${sourceId}/variant`, {
+        method: "POST",
+        body: JSON.stringify({
+          optionValueIdsByOptionId: {
+            [packageOptionId]: packageValueId,
+            [focusOptionId]: valueId,
+          },
+          sku,
+          sellable: true,
+        }),
+      });
+      expect(response.status, await response.text()).toBe(201);
+      targetIds.push((await response.json()).itemId);
+    }
+
+    const card = await (await testFetch(`/api/item-cards/${sourceId}`)).json();
+    const partialUpdate = await testFetch(`/api/item-cards/${sourceId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        variants: [
+          {
+            id: sourceId,
+            optionValueIdsByOptionId: {
+              [packageOptionId]: packageValueId,
+            },
+          },
+        ],
+        expectedVersion: card.family.version,
+      }),
+    });
+    expect(partialUpdate.status, await partialUpdate.text()).toBe(200);
+
+    const emptyUpdate = await testFetch(`/api/item-cards/${sourceId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        variants: [
+          {
+            id: sourceId,
+            optionValueIdsByOptionId: {},
+          },
+        ],
+        expectedVersion: card.family.version + 1,
+      }),
+    });
+    expect(emptyUpdate.status, await emptyUpdate.text()).toBe(400);
+    const sourceAssignments = await db
+      .select({ optionId: itemVariantValues.optionId })
+      .from(itemVariantValues)
+      .where(eq(itemVariantValues.itemId, sourceId));
+    expect(sourceAssignments).toEqual([{ optionId: packageOptionId }]);
+
+    await page.goto(`/inventory/products/${sourceId}/recipe`);
+    await editGridCell(page, "quantity", "2");
+    await page.getByRole("button", { name: "Save recipe" }).click();
+    const saveDialog = page.getByRole("dialog", { name: "Save recipe" });
+    await saveDialog.getByRole("button", { name: "Save recipe" }).click();
+    await expect(saveDialog).toBeHidden();
+
+    await page.getByRole("button", { name: "Copy to…" }).click();
+    const copyDialog = page.getByRole("dialog", {
+      name: "Copy recipe to sibling variants",
+    });
+    await copyDialog.getByRole("checkbox", { name: /Garden/ }).click();
+    await copyDialog.getByRole("checkbox", { name: /Industrial/ }).click();
+    await copyDialog.getByRole("button", { name: "Copy to selected" }).click();
+    await expect(copyDialog).toBeHidden();
+
+    for (const targetId of targetIds) {
+      const [revision] = await db
+        .select({ id: bomRevisions.id })
+        .from(bomRevisions)
+        .where(
+          and(
+            eq(bomRevisions.productId, targetId),
+            eq(bomRevisions.isCurrent, true),
+          ),
+        );
+      expect(revision?.id).toBeTruthy();
+      const rows = await db
+        .select({
+          componentId: bomRevisionComponents.componentId,
+          quantity: bomRevisionComponents.quantity,
+        })
+        .from(bomRevisionComponents)
+        .where(eq(bomRevisionComponents.bomRevisionId, revision.id));
+      expect(rows).toEqual([
+        { componentId: component.body.id, quantity: "2.0000" },
+      ]);
+    }
   });
 
   test("item-card autosave preserves an unsent blank variant row through a header rebase", async ({

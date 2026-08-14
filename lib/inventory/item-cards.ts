@@ -1488,31 +1488,25 @@ export async function updateItemCardVariantInTx(
     .where(eq(items.id, itemId));
 
   if (data.optionValueIdsByOptionId !== undefined) {
-    const activeOptions = await tx
+    const familyOptions = await tx
       .select({
         id: variantOptions.id,
-        name: variantOptions.name,
       })
       .from(variantOptions)
-      .where(
-        and(
-          eq(variantOptions.familyId, variant.familyId),
-          isNull(variantOptions.disabledAt),
-        ),
-      )
+      .where(eq(variantOptions.familyId, variant.familyId))
       .orderBy(asc(variantOptions.sortOrder), asc(variantOptions.name));
 
-    if (activeOptions.length === 0) {
-      throw new ItemCardError("This item card has no active variant options");
+    if (familyOptions.length === 0) {
+      throw new ItemCardError("This item card has no variant options");
     }
 
-    const activeOptionIds = new Set(activeOptions.map((option) => option.id));
+    const familyOptionIds = new Set(familyOptions.map((option) => option.id));
     const submittedEntries = Object.entries(data.optionValueIdsByOptionId);
-    if (
-      submittedEntries.length !== activeOptions.length ||
-      submittedEntries.some(([optionId]) => !activeOptionIds.has(optionId))
-    ) {
-      throw new ItemCardError("Select one value for every active variant option");
+    if (submittedEntries.length === 0) {
+      throw new ItemCardError("Select at least one variant option value");
+    }
+    if (submittedEntries.some(([optionId]) => !familyOptionIds.has(optionId))) {
+      throw new ItemCardError("Variant option is not valid for this card");
     }
 
     const selectedValueIds = submittedEntries.map(([, valueId]) => valueId);
@@ -1529,7 +1523,6 @@ export async function updateItemCardVariantInTx(
       .where(
         and(
           eq(variantOptions.familyId, variant.familyId),
-          isNull(variantOptionValues.disabledAt),
           inArray(variantOptionValues.id, selectedValueIds),
         ),
       );
@@ -1910,6 +1903,10 @@ export async function updateItemCardDoc(
 }
 
 async function recomputeVariantKeysInTx(tx: Tx, familyId: string) {
+  const familyVariants = await tx
+    .select({ id: items.id })
+    .from(items)
+    .where(eq(items.familyId, familyId));
   const assignmentRows = await tx
     .select({
       itemId: itemVariantValues.itemId,
@@ -1923,10 +1920,12 @@ async function recomputeVariantKeysInTx(tx: Tx, familyId: string) {
     .where(eq(variantOptions.familyId, familyId))
     .orderBy(asc(variantOptions.sortOrder), asc(variantOptions.code));
 
-  const partsByItem = new Map<
-    string,
-    Array<{ optionCode: string; optionSortOrder: number; valueCode: string }>
-  >();
+  const partsByItem = new Map(
+    familyVariants.map((variant) => [
+      variant.id,
+      [] as Array<{ optionCode: string; optionSortOrder: number; valueCode: string }>,
+    ]),
+  );
   for (const row of assignmentRows) {
     partsByItem.set(row.itemId, [...(partsByItem.get(row.itemId) ?? []), row]);
   }

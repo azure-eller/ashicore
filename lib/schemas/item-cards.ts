@@ -162,12 +162,15 @@ export const itemCardVariantUpdateSchema = z.object({
     ),
   sellable: z.boolean().optional(),
   optionValueIdsByOptionId: z
-    .record(z.string().uuid(), z.string().uuid())
+    // Migration 0107 deterministically generated PostgreSQL UUID values before
+    // RFC version/variant bits were enforced. They are valid database UUIDs,
+    // so accept the canonical UUID shape rather than rejecting our own rows.
+    .record(z.guid(), z.guid())
     .optional(),
 });
 
 export const itemCardVariantCreateSchema = itemCardVariantUpdateSchema.extend({
-  optionValueIdsByOptionId: z.record(z.string().uuid(), z.string().uuid()),
+  optionValueIdsByOptionId: z.record(z.guid(), z.guid()),
 });
 
 /**
