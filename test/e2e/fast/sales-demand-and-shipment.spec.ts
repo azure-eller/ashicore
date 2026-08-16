@@ -2537,6 +2537,8 @@ test.describe("sales demand and shipping heartbeat", () => {
       });
 
     const shopifyOrderId = `fast-${ts}`;
+    const tinyShopifyOrderId = `fast-tiny-${ts}`;
+    const preciseShopifyOrderId = `fast-precise-${ts}`;
     const server = await startShopifyServer({
       orders: [
         {
@@ -2558,6 +2560,42 @@ test.describe("sales demand and shipping heartbeat", () => {
             },
           ],
         },
+        {
+          id: tinyShopifyOrderId,
+          name: `#TINY-${ts}`,
+          created_at: "2026-05-20T18:31:00Z",
+          financial_status: "paid",
+          fulfillment_status: null,
+          email: `fast-shopify-${ts}@example.com`,
+          customer: { id: `customer-${ts}` },
+          line_items: [
+            {
+              id: `line-tiny-${ts}`,
+              sku: `FAST-SALES-ShopifyImport-${ts}`,
+              quantity: 0.00001,
+              fulfillable_quantity: 0.00001,
+              price: "12.00",
+            },
+          ],
+        },
+        {
+          id: preciseShopifyOrderId,
+          name: `#PRECISE-${ts}`,
+          created_at: "2026-05-20T18:32:00Z",
+          financial_status: "paid",
+          fulfillment_status: null,
+          email: `fast-shopify-${ts}@example.com`,
+          customer: { id: `customer-${ts}` },
+          line_items: [
+            {
+              id: `line-precise-${ts}`,
+              sku: `FAST-SALES-ShopifyImport-${ts}`,
+              quantity: 1.23456,
+              fulfillable_quantity: 1.23456,
+              price: "12.00",
+            },
+          ],
+        },
       ],
     });
 
@@ -2568,7 +2606,11 @@ test.describe("sales demand and shipping heartbeat", () => {
       });
       const body = await response.json();
       expect(response.status, JSON.stringify(body)).toBe(200);
-      expect(body).toMatchObject({ created: 1, skipped: 0, errors: [] });
+      expect(body).toMatchObject({ created: 1, skipped: 0 });
+      expect(body.errors).toEqual([
+        expect.stringContaining("Quantity must be at least 0.0001"),
+        expect.stringContaining("Quantity supports up to 4 decimal places"),
+      ]);
 
       const [order] = await db
         .select({ id: salesOrders.id })
@@ -2620,6 +2662,21 @@ test.describe("sales demand and shipping heartbeat", () => {
           )
         );
       expect(external.localRecordId).toBe(order.id);
+
+      const rejectedExternalRows = await db
+        .select({ externalId: integrationExternalRecords.externalId })
+        .from(integrationExternalRecords)
+        .where(
+          and(
+            eq(integrationExternalRecords.provider, "shopify"),
+            eq(integrationExternalRecords.entityType, "sales_order"),
+            inArray(integrationExternalRecords.externalId, [
+              tinyShopifyOrderId,
+              preciseShopifyOrderId,
+            ]),
+          ),
+        );
+      expect(rejectedExternalRows).toHaveLength(0);
     } finally {
       await server.close();
     }

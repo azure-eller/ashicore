@@ -46,7 +46,7 @@ Sales orders combine a header, one or more item lines, computed money fields, fu
 | `itemName` | varchar | snapshot | Item name copied onto the line. |
 | `itemSku` | varchar | snapshot | SKU copied onto the line. |
 | `unitName` | varchar | snapshot | Sales unit copied onto the line. Falls back to the stocking unit when the item has no different sales unit. |
-| `quantity` | numeric(12,4) | required | Ordered sales quantity. Must be between 0.0001 and 99,999,999.9999 after rounding to four decimal places. |
+| `quantity` | numeric(12,4) | required | Ordered sales quantity. Must use no more than four meaningful decimal places and be between 0.0001 and 99,999,999.9999; trailing zeroes are allowed. |
 | `shippedQuantity` | numeric(12,4) | 0 | Sales quantity delivered so far. |
 | `cancelledQuantity` | numeric(12,4) | 0 | Sales quantity cancelled from a partially shipped order. Shipped plus cancelled cannot exceed ordered quantity. |
 | `stockingUnitName` | varchar | snapshot | Stocking unit copied onto the line for fulfillment and inventory. |

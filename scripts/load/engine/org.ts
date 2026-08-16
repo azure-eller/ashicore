@@ -2,6 +2,7 @@ import { eq, or } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { organization } from "@/lib/db/schema";
 import { normalizeNumeric } from "@/lib/format";
+import { requireLoaderPositiveQuantity } from "./quantity-validation";
 
 export async function resolveOrganization(orgRef: string) {
   const matches = await db
@@ -33,5 +34,9 @@ export async function resolveOrganization(orgRef: string) {
 }
 
 export function getUnitSignature(name: string, size: string, uom: string) {
-  return `${name.toLowerCase()}|${normalizeNumeric(Number(size))}|${uom.toLowerCase()}`;
+  const normalizedSize = requireLoaderPositiveQuantity(
+    size,
+    `Unit "${name}" size`,
+  );
+  return `${name.toLowerCase()}|${normalizeNumeric(Number(normalizedSize))}|${uom.toLowerCase()}`;
 }

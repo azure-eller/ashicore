@@ -18,6 +18,10 @@ import { calculateIngredientPlannedQuantity, normalizeRecipeBasis, type RecipeBa
 import { getBomRevisionOperationCostsInTx } from "@/lib/bom/operation-costs";
 import { calculatePlannedOperationCost } from "@/lib/manufacturing/operation-costs";
 import { notifyManufacturingOrderCreated } from "@/lib/notifications/manufacturing";
+import {
+  isNumeric12Scale4Representable,
+  roundsToPositiveNumeric12Scale4,
+} from "@/lib/schemas/shared";
 import type { CreateManufacturingOrdersFromSalesOrder, InsertManufacturingOrder, PatchManufacturingOrder, PatchManufacturingOrderIngredient, UpdateManufacturingOrder } from "@/lib/schemas/manufacturing-orders";
 import type { ManufacturingOrdersFromSalesOrderResult } from "../types";
 import { ManufacturingError } from "./errors";
@@ -150,6 +154,20 @@ type ManufacturingScalingPlan = {
   expectedBatchYield: string | null;
 };
 
+function requirePersistableManufacturingQuantity(
+  value: string | number,
+  message: string,
+) {
+  const normalized = normalizeNumeric(Number(value));
+  if (
+    !roundsToPositiveNumeric12Scale4(normalized) ||
+    !isNumeric12Scale4Representable(normalized)
+  ) {
+    throw new ManufacturingError(message, 400);
+  }
+  return normalized;
+}
+
 function deriveScalingPlan(
   outputQuantity: number,
   ingredients: ValidatedIngredient[],
@@ -167,7 +185,10 @@ function deriveScalingPlan(
     return {
       manufacturingMode: "batch",
       numberOfBatches: batchCount,
-      expectedBatchYield: normalizeNumeric(outputQuantity / batchCount),
+      expectedBatchYield: requirePersistableManufacturingQuantity(
+        outputQuantity / batchCount,
+        "Expected output per batch must be between 0.0001 and 99,999,999.9999. Increase the planned output or reduce the batch count.",
+      ),
     };
   }
 
@@ -242,7 +263,7 @@ function calculatePlannedIngredientQuantity(params: {
   recipeOutputQuantity: string | number;
   batchCount?: number | null;
 }) {
-  return calculateIngredientPlannedQuantity({
+  const quantity = calculateIngredientPlannedQuantity({
     recipeBasis: params.recipeBasis,
     quantityPerRecipeBasis: params.quantityPerUnit,
     outputQuantity: params.outputQuantity,
@@ -255,6 +276,11 @@ function calculatePlannedIngredientQuantity(params: {
             outputQuantity: params.outputQuantity,
       }),
   });
+
+  return requirePersistableManufacturingQuantity(
+    quantity,
+      "Recipe scaling must produce each ingredient quantity between 0.0001 and 99,999,999.9999. Adjust the recipe quantity or stocking unit.",
+  );
 }
 
 function applyScalingPlanToIngredients(
@@ -978,10 +1004,14 @@ async function prepareCreateIngredientsFromBomInTx(
     outputQuantity > 0
       ? roundQuantity(Math.ceil(outputQuantity / batchYield) * batchYield)
       : outputQuantity;
+  const normalizedOutputQuantity = requirePersistableManufacturingQuantity(
+    effectiveOutputQuantity,
+    "Planned output after batch rounding must be between 0.0001 and 99,999,999.9999. Reduce the requested quantity or batch yield.",
+  );
 
   return {
     bomRevisionId: bomRows[0].bomRevisionId,
-    outputQuantity: effectiveOutputQuantity,
+    outputQuantity: Number(normalizedOutputQuantity),
     ingredients: bomRows.map((row, index) => {
       const recipeBasis = normalizeRecipeBasis(row.recipeBasis);
 
@@ -998,7 +1028,7 @@ async function prepareCreateIngredientsFromBomInTx(
         plannedQuantity: calculatePlannedIngredientQuantity({
           recipeBasis,
           quantityPerUnit: row.quantityPerUnit,
-          outputQuantity: effectiveOutputQuantity,
+          outputQuantity: Number(normalizedOutputQuantity),
           recipeOutputQuantity: row.bomOutputQuantity,
         }),
         sortOrder: index,

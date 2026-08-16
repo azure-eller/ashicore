@@ -2,7 +2,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { DEFAULT_COUNTRY } from "@/lib/addresses";
 import { salesOrders } from "@/lib/db/schema";
-import { normalizeMoney, normalizeNumeric } from "@/lib/format";
+import { normalizeMoney } from "@/lib/format";
 import {
   clientIdSchema,
   expectedVersionSchema,
@@ -13,7 +13,7 @@ import {
   nullableStringStrict,
   nullableStringPreserveUndefined,
   optionalMoneyString,
-  positiveDecimalString,
+  positiveQuantityString,
   positiveMoneyString,
 } from "./shared";
 import { PRICING_SOURCE_TYPES } from "./pricing-schedules";
@@ -37,6 +37,21 @@ const rawOrderLineSchema = z.object({
 });
 
 type RawOrderLine = z.input<typeof rawOrderLineSchema>;
+
+function addPositiveQuantityIssues(
+  value: string,
+  label: string,
+  path: PropertyKey[],
+  ctx: z.RefinementCtx,
+) {
+  const parsed = positiveQuantityString(label).safeParse(value);
+  if (!parsed.success) {
+    for (const issue of parsed.error.issues) {
+      ctx.addIssue({ ...issue, path: [...path, ...issue.path] });
+    }
+  }
+  return parsed;
+}
 
 function isBlankLine(line: RawOrderLine) {
   const itemId = typeof line.itemId === "string" ? line.itemId.trim() : "";
@@ -72,13 +87,7 @@ const cleanedLinesSchema = z
           path: [index, "quantity"],
         });
       } else {
-        if (!isPositiveNumberString(quantity)) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "Quantity must be greater than 0",
-            path: [index, "quantity"],
-          });
-        }
+        addPositiveQuantityIssues(quantity, "Quantity", [index, "quantity"], ctx);
       }
 
       if (!unitPrice) {
@@ -116,7 +125,14 @@ const cleanedLinesSchema = z
         });
       }
     });
-  });
+  })
+  .transform((lines) =>
+    lines.map((line) => {
+      if (line.quantity == null) return line;
+      const parsed = positiveQuantityString("Quantity").safeParse(line.quantity);
+      return { ...line, quantity: parsed.success ? parsed.data : line.quantity };
+    }),
+  );
 
 const baseSalesOrderSchema = createInsertSchema(salesOrders, {
   orderNumber: nullableString.refine(
@@ -268,9 +284,7 @@ export type PatchSalesOrderHeader = z.infer<typeof patchSalesOrderHeaderSchema>;
 export const patchSalesOrderLineSchema = z
   .object({
     quantityContractVersion: z.literal(2).optional(),
-    quantity: positiveDecimalString("Quantity")
-      .transform((value) => normalizeNumeric(Number(value)))
-      .optional(),
+    quantity: positiveQuantityString("Quantity").optional(),
     unitPrice: positiveMoneyString().optional(),
     taxRateId: nullableStringStrict
       .refine(
@@ -369,15 +383,22 @@ const shipLinesSchema = z
         return;
       }
       const quantity = sellingQuantity || stockQuantity;
-      if (!isPositiveNumberString(quantity)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Quantity must be greater than 0",
-          path: [index, "quantity"],
-        });
-      }
+      addPositiveQuantityIssues(quantity, "Quantity", [index, "quantity"], ctx);
     });
-  });
+  })
+  .transform((lines) =>
+    lines.map((line) => {
+      const stockQuantity = line.quantity?.trim() ?? "";
+      const sellingQuantity = line.sellingQuantity?.trim() ?? "";
+      const parsed = positiveQuantityString("Quantity").safeParse(
+        sellingQuantity || stockQuantity,
+      );
+      if (!parsed.success) return line;
+      return sellingQuantity
+        ? { ...line, sellingQuantity: parsed.data }
+        : { ...line, quantity: parsed.data };
+    }),
+  );
 
 export const shipSalesOrderSchema = z.object({
   // Shipping location for the physical consumption; omitted = default

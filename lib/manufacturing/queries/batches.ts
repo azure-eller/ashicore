@@ -13,6 +13,7 @@ import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
 import { getMinimumLotAgeDays } from "@/lib/bom/constraints";
 import { notifyManufacturingOrderCompleted } from "@/lib/notifications/manufacturing";
 import type { CompleteManufacturingBatch, CompleteManufacturingOrder } from "@/lib/schemas/manufacturing-orders";
+import { isNumeric12Scale4Representable } from "@/lib/schemas/shared";
 import { ManufacturingError } from "./errors";
 import { assertCurrentExecutionBatch, ensureBatchExecutionRowsInTx, getBatchIngredientsInTx, getBatchRowsInTx, getCurrentExecutionBatch, getLockedBatchStateRowsInTx, getOutputQuantityInTx, getPickAllocationsByIngredientInTx, getProducedLotIdInTx, resolveProducedLotForUnitInTx } from "./execution-state";
 import { assertLinkedMtoOutputWithinSalesDemandInTx, buildOutputConsumptionsFromPickedAllocations, getAbsorbedOperationCostForQuantityInTx, getIncrementalAbsorbedOperationCostForQuantityInTx, getTotalOutputQuantityForOrderInTx, insertManufacturingOrderOutputInTx } from "./output";
@@ -431,6 +432,21 @@ export async function completeManufacturingBatch(
     }
 
     const actualQuantity = Number(payload.actualQuantity);
+    const existingOrderOutputQuantity = await getTotalOutputQuantityForOrderInTx(
+      tx,
+      orderId
+    );
+    const nextOrderOutputQuantity =
+      existingOrderOutputQuantity + actualQuantity;
+    if (
+      nextOrderOutputQuantity < 0 ||
+      !isNumeric12Scale4Representable(nextOrderOutputQuantity)
+    ) {
+      throw new ManufacturingError(
+        "Total manufacturing output must be between 0 and 99,999,999.9999.",
+        400
+      );
+    }
     await assertLinkedMtoOutputWithinSalesDemandInTx(
       tx,
       order,
@@ -535,10 +551,6 @@ export async function completeManufacturingBatch(
       });
     }
 
-    const existingOrderOutputQuantity = await getTotalOutputQuantityForOrderInTx(
-      tx,
-      orderId
-    );
     const absorbedOperationCost = await getIncrementalAbsorbedOperationCostForQuantityInTx(
       tx,
       orderId,

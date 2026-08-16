@@ -25,6 +25,7 @@ import { createSupplierInTx, patchSupplierInTx } from "@/lib/purchasing/queries/
 import { createCustomerInTx, patchCustomerInTx } from "@/lib/sales/queries/customers-write";
 import { supplierDefaultValues } from "@/lib/schemas/suppliers";
 import { customerDefaultValues } from "@/lib/schemas/customers";
+import { positiveQuantityString } from "@/lib/schemas/shared";
 import type { PrivateFileUpload } from "@/lib/blob-storage";
 import { getUomOptions } from "@/lib/units-of-measure";
 import { businessDateToUtcDate, hashImportPackage } from "./hash";
@@ -97,6 +98,25 @@ function isPositiveNumericString(value: string | null | undefined): value is str
   if (value == null) return false;
   const parsed = Number(String(value).trim());
   return Number.isFinite(parsed) && parsed > 0;
+}
+
+function positiveQuantityIssue(value: string | null | undefined, label: string) {
+  if (value == null) return `${label} is required`;
+  const parsed = positiveQuantityString(label).safeParse(String(value));
+  return parsed.success
+    ? null
+    : (parsed.error.issues[0]?.message ?? `${label} is invalid`);
+}
+
+function provenanceLabel(record: { provenance?: ImportPackage["items"][number]["provenance"] }) {
+  const source = record.provenance?.[0];
+  if (!source) return "the imported data";
+  const detail =
+    source.location ??
+    [source.sheet ? `sheet ${source.sheet}` : null, source.row != null ? `row ${source.row}` : null]
+      .filter(Boolean)
+      .join(", ");
+  return detail ? `${source.fileId} (${detail})` : source.fileId;
 }
 
 function isPhoneLike(value: string | null | undefined) {
@@ -315,6 +335,14 @@ export async function validateImportPackageInTx(
 
   for (const unit of pkg.units) {
     if (!isReviewSelected(unit)) continue;
+    const sizeIssue = positiveQuantityIssue(unit.size, `Unit ${unit.name} size`);
+    if (sizeIssue) {
+      issues.push({
+        severity: "blocking",
+        message: `${sizeIssue}. Use 0.0001 to 99,999,999.9999 with no more than 4 decimal places.`,
+        path: `units.${unit.tempId}.size`,
+      });
+    }
     if (!allowedImportUoms.has(unit.uom)) {
       issues.push({
         severity: "blocking",
@@ -411,6 +439,19 @@ export async function validateImportPackageInTx(
         path: `items.${item.tempId}.defaultSupplierRef`,
       });
     }
+    if (item.purchaseToStockFactor != null) {
+      const factorIssue = positiveQuantityIssue(
+        item.purchaseToStockFactor,
+        `Purchase conversion for ${item.name}`,
+      );
+      if (factorIssue) {
+        issues.push({
+          severity: "blocking",
+          message: `${factorIssue} from ${provenanceLabel(item)}. Use 0.0001 to 99,999,999.9999 with no more than 4 decimal places.`,
+          path: `items.${item.tempId}.purchaseToStockFactor`,
+        });
+      }
+    }
   }
 
   for (const stock of pkg.openingStock) {
@@ -430,10 +471,14 @@ export async function validateImportPackageInTx(
         path: `openingStock.${stock.itemRef}`,
       });
     }
-    if (!isPositiveNumericString(stock.quantity)) {
+    const stockQuantityIssue = positiveQuantityIssue(
+      stock.quantity,
+      `Opening stock quantity for ${item?.name ?? stock.itemRef}`,
+    );
+    if (stockQuantityIssue) {
       issues.push({
         severity: "blocking",
-        message: `Opening stock for ${stock.itemRef} needs a positive quantity before approval.`,
+        message: `${stockQuantityIssue} from ${provenanceLabel(stock)}. Use 0.0001 to 99,999,999.9999 with no more than 4 decimal places.`,
         path: `openingStock.${stock.itemRef}.quantity`,
       });
     }
@@ -449,6 +494,17 @@ export async function validateImportPackageInTx(
   for (const bom of pkg.boms) {
     if (!isReviewSelected(bom)) continue;
     const product = pkg.items.find((item) => item.tempId === bom.productRef);
+    const outputQuantityIssue = positiveQuantityIssue(
+      bom.outputQuantity,
+      `BOM output quantity for ${product?.name ?? bom.productRef}`,
+    );
+    if (outputQuantityIssue) {
+      issues.push({
+        severity: "blocking",
+        message: `${outputQuantityIssue} from ${provenanceLabel(bom)}. Use 0.0001 to 99,999,999.9999 with no more than 4 decimal places.`,
+        path: `boms.${bom.productRef}.outputQuantity`,
+      });
+    }
     if (bom.components.length === 0) {
       issues.push({
         severity: "blocking",
@@ -486,6 +542,17 @@ export async function validateImportPackageInTx(
     }
     for (const component of bom.components) {
       const componentItem = pkg.items.find((item) => item.tempId === component.itemRef);
+      const componentQuantityIssue = positiveQuantityIssue(
+        component.quantity,
+        `BOM component quantity for ${componentItem?.name ?? component.itemRef}`,
+      );
+      if (componentQuantityIssue) {
+        issues.push({
+          severity: "blocking",
+          message: `${componentQuantityIssue} from ${provenanceLabel(bom)}. Use 0.0001 to 99,999,999.9999 with no more than 4 decimal places.`,
+          path: `boms.${bom.productRef}.components.${component.itemRef}.quantity`,
+        });
+      }
       if (!activeItemRefs.has(component.itemRef)) {
         issues.push({
           severity: "blocking",
@@ -882,8 +949,14 @@ export async function approveImportSession(
         }
         const itemId = itemIdByRef.get(stock.itemRef);
         if (!itemId) throw new DomainError(`Item ${stock.itemRef} was not resolved.`);
-        if (!isPositiveNumericString(stock.quantity)) {
-          throw new DomainError(`Opening stock for ${stock.itemRef} needs a positive quantity.`);
+        const parsedStockQuantity = positiveQuantityString(
+          `Opening stock quantity for ${stockItem?.name ?? stock.itemRef}`,
+        ).safeParse(stock.quantity);
+        if (!parsedStockQuantity.success) {
+          throw new DomainError(
+            parsedStockQuantity.error.issues[0]?.message ??
+              `Opening stock for ${stock.itemRef} has an invalid quantity.`,
+          );
         }
         if (!isPositiveNumericString(stock.unitCost)) {
           throw new DomainError(`Opening stock for ${stock.itemRef} needs a numeric unit cost.`);
@@ -892,7 +965,7 @@ export async function approveImportSession(
         const result = await seedOpeningBalanceInTx(tx, {
           organizationId: orgId,
           itemId,
-          quantity: Number(stock.quantity),
+          quantity: Number(parsedStockQuantity.data),
           unitCost,
           lotNumber: nullable(stock.lotNumber),
           actorUserId: userId,

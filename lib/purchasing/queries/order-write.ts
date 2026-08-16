@@ -28,6 +28,7 @@ import {
 import { withAuthedOrgContext } from "@/lib/dal/auth";
 import { getTaxRatesByIdInTx, getTaxSettingsInTx } from "@/lib/dal/tax-settings";
 import type { Tx } from "@/lib/db/with-org-context";
+import { isNumeric12Scale4Representable } from "@/lib/schemas/shared";
 import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
 import {
   calculatePurchaseOrderLandedCosts,
@@ -388,6 +389,7 @@ export async function preparePurchaseOrderPayload(
     }
 
     const quantityOrdered = Number(line.quantityOrdered);
+    const normalizedQuantityOrdered = normalizeNumeric(quantityOrdered);
     const unitCost = Number(line.unitCost);
     const lineCosts = landedCosts.lines[index];
     const overrideFactor =
@@ -398,6 +400,8 @@ export async function preparePurchaseOrderPayload(
       overrideFactor ?? material.purchaseToStockFactor ?? "1",
     );
     const stockQuantityOrdered = lineCosts.stockQuantityOrdered;
+    const normalizedStockQuantityOrdered =
+      normalizeLandedQuantity(stockQuantityOrdered);
     const stockUnitCost = normalizeLandedStockUnitCost(
       lineCosts.landedStockUnitCost,
     );
@@ -412,6 +416,40 @@ export async function preparePurchaseOrderPayload(
 
     if (stockUnitCost == null) {
       throw new PurchasingError("Unable to calculate landed unit cost.", 400);
+    }
+
+    if (
+      Number(normalizedQuantityOrdered) <= 0 ||
+      !isNumeric12Scale4Representable(normalizedQuantityOrdered)
+    ) {
+      throw new PurchasingError(
+        "Quantity must be between 0.0001 and 99,999,999.9999.",
+        400,
+        {
+          errors: {
+            [`lines.${index}.quantityOrdered`]: [
+              "Quantity must be between 0.0001 and 99,999,999.9999",
+            ],
+          },
+        },
+      );
+    }
+
+    if (
+      Number(normalizedStockQuantityOrdered) <= 0 ||
+      !isNumeric12Scale4Representable(normalizedStockQuantityOrdered)
+    ) {
+      throw new PurchasingError(
+        `This quantity must convert to between 0.0001 and 99,999,999.9999 ${material.stockingUnitName}. Adjust the quantity or stocking unit.`,
+        400,
+        {
+          errors: {
+            [`lines.${index}.quantityOrdered`]: [
+              "Converted stock quantity must be between 0.0001 and 99,999,999.9999",
+            ],
+          },
+        },
+      );
     }
 
     const effectiveTaxRateId =
@@ -438,9 +476,9 @@ export async function preparePurchaseOrderPayload(
         material.stockingUnitName,
       stockingUnitName: material.stockingUnitName,
       purchaseToStockFactor: normalizeNumeric(purchaseToStockFactor),
-      quantityOrdered: normalizeNumeric(quantityOrdered),
+      quantityOrdered: normalizedQuantityOrdered,
       quantityReceived: "0",
-      stockQuantityOrdered: normalizeLandedQuantity(stockQuantityOrdered),
+      stockQuantityOrdered: normalizedStockQuantityOrdered,
       stockQuantityReceived: "0",
       unitCost: normalizeNumeric(unitCost),
       stockUnitCost,

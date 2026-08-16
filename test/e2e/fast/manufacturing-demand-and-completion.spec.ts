@@ -33,6 +33,7 @@ import {
   getOrgId,
   getSessionCookie,
   getUnitId,
+  recordManufacturingOutput,
   releaseManufacturingOrder,
   testFetch,
   updateSalesOrder,
@@ -115,6 +116,202 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       productId: product.body.id as string,
     };
   }
+
+  test("manufacturing scaling cannot silently create a zero ingredient", async ({
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const component = await createItem({
+      itemType: "material",
+      name: `Fast Tiny MO Component ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-TINY-MO-COMP-${unique}`,
+      category: `Fast Manufacturing ${unique}`,
+      description: null,
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: null,
+      stock: "1",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(component.status).toBe(201);
+    const product = await createItem({
+      itemType: "product",
+      name: `Fast Tiny MO Product ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-TINY-MO-PRODUCT-${unique}`,
+      category: `Fast Manufacturing ${unique}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "1",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: component.body.id, quantity: "0.0001" }],
+    });
+    expect(product.status).toBe(201);
+
+    const order = await createManufacturingOrder({
+      productId: product.body.id,
+      plannedQuantity: "0.0001",
+      ingredients: [
+        { itemId: component.body.id, quantityPerUnit: "0.0001" },
+      ],
+    });
+    expect(order.status).toBe(400);
+    expect(order.body).toMatchObject({
+      error: expect.stringContaining(
+        "Recipe scaling must produce each ingredient quantity between 0.0001 and 99,999,999.9999",
+      ),
+    });
+
+    const overflowProduct = await createItem({
+      itemType: "product",
+      name: `Fast Overflow MO Product ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-OVERFLOW-MO-PRODUCT-${unique}`,
+      category: `Fast Manufacturing ${unique}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "1",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: component.body.id, quantity: "2" }],
+    });
+    expect(overflowProduct.status).toBe(201);
+    const overflowOrder = await createManufacturingOrder({
+      productId: overflowProduct.body.id,
+      plannedQuantity: "99999999.9999",
+      ingredients: [{ itemId: component.body.id, quantityPerUnit: "2" }],
+    });
+    expect(overflowOrder.status).toBe(400);
+    expect(overflowOrder.body).toMatchObject({
+      error: expect.stringContaining(
+        "Recipe scaling must produce each ingredient quantity between 0.0001 and 99,999,999.9999",
+      ),
+    });
+
+    const proportionalOrder = await createManufacturingOrder({
+      productId: product.body.id,
+      plannedQuantity: "1",
+      ingredients: [
+        { itemId: component.body.id, quantityPerUnit: "0.0001" },
+      ],
+    });
+    expect(proportionalOrder.status).toBe(201);
+    expect(
+      (await releaseManufacturingOrder(proportionalOrder.body.id)).status,
+    ).toBe(200);
+    const tinyCompletion = await completeManufacturingOrder(
+      proportionalOrder.body.id,
+      "0.1",
+    );
+    expect(tinyCompletion.status).toBe(400);
+    expect(tinyCompletion.body.error).toContain(
+      "would require an unsupported quantity",
+    );
+    const tinyOutput = await recordManufacturingOutput(
+      proportionalOrder.body.id,
+      "0.1",
+    );
+    expect(tinyOutput.status).toBe(400);
+    expect(tinyOutput.body.error).toContain(
+      "would require an unsupported quantity",
+    );
+
+    const [proportionalIngredient] = await db
+      .select({ id: manufacturingOrderIngredients.id })
+      .from(manufacturingOrderIngredients)
+      .where(
+        eq(
+          manufacturingOrderIngredients.manufacturingOrderId,
+          proportionalOrder.body.id,
+        ),
+      );
+    const explicitZeroCompletion = await testFetch(
+      `/api/manufacturing-orders/${proportionalOrder.body.id}/complete`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          actualQuantity: "0.1",
+          outputDisposition: "available",
+          ingredientActuals: [
+            {
+              ingredientId: proportionalIngredient.id,
+              actualConsumedQuantity: "0",
+            },
+          ],
+          confirmNegativeStock: false,
+        }),
+      },
+    );
+    expect(explicitZeroCompletion.status).toBe(200);
+
+    const cumulativeProduct = await createItem({
+      itemType: "product",
+      name: `Fast Cumulative MO Product ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-CUMULATIVE-MO-PRODUCT-${unique}`,
+      category: `Fast Manufacturing ${unique}`,
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "1",
+      stock: "0",
+      safetyStock: "0",
+      bom: [{ componentId: component.body.id, quantity: "1" }],
+    });
+    expect(cumulativeProduct.status).toBe(201);
+    const cumulativeOrder = await createManufacturingOrder({
+      productId: cumulativeProduct.body.id,
+      plannedQuantity: "99999999.9999",
+      ingredients: [{ itemId: component.body.id, quantityPerUnit: "1" }],
+    });
+    expect(cumulativeOrder.status).toBe(201);
+    expect((await releaseManufacturingOrder(cumulativeOrder.body.id)).status).toBe(
+      200,
+    );
+    const maximumOutput = await recordManufacturingOutput(
+      cumulativeOrder.body.id,
+      "99999999.9999",
+      { confirmNegativeStock: true },
+    );
+    expect(maximumOutput.status).toBe(200);
+    const overflowingOutput = await recordManufacturingOutput(
+      cumulativeOrder.body.id,
+      "0.0002",
+      { confirmNegativeStock: true },
+    );
+    expect(overflowingOutput.status).toBe(400);
+    expect(overflowingOutput.body.error).toBe(
+      "Total manufacturing output must be between 0 and 99,999,999.9999.",
+    );
+
+    const excessiveReversalOrder = await createManufacturingOrder({
+      productId: cumulativeProduct.body.id,
+      plannedQuantity: "1",
+      ingredients: [{ itemId: component.body.id, quantityPerUnit: "1" }],
+    });
+    expect(excessiveReversalOrder.status).toBe(201);
+    expect(
+      (await releaseManufacturingOrder(excessiveReversalOrder.body.id)).status,
+    ).toBe(200);
+    expect(
+      (
+        await recordManufacturingOutput(
+          excessiveReversalOrder.body.id,
+          "1",
+          { confirmNegativeStock: true },
+        )
+      ).status,
+    ).toBe(200);
+    const excessiveReversal = await recordManufacturingOutput(
+      excessiveReversalOrder.body.id,
+      "-2",
+    );
+    expect(excessiveReversal.status).toBe(400);
+    expect(excessiveReversal.body.error).toBe(
+      "Total manufacturing output must be between 0 and 99,999,999.9999.",
+    );
+  });
 
   async function pickAllIngredients(orderId: string) {
     const execution = await testFetch(`/api/manufacturing-orders/${orderId}/execution`);
@@ -694,6 +891,28 @@ test.describe("manufacturing demand and completion heartbeat", () => {
       }
     );
     expect([200, 201]).toContain(batchRevision.status);
+
+    const tinyBatchOutput = await testFetch("/api/manufacturing-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        id: randomUUID(),
+        productId: product.body.id,
+        plannedQuantity: "0.0001",
+        batchCount: "3",
+        plannedDate: null,
+        notes: null,
+        salesOrderId: null,
+        salesOrderLineId: null,
+        ingredients: [{ itemId: component.body.id, quantityPerUnit: "1" }],
+        confirmShortage: false,
+      }),
+    });
+    expect(tinyBatchOutput.status).toBe(400);
+    await expect(tinyBatchOutput.json()).resolves.toMatchObject({
+      error: expect.stringContaining(
+        "Expected output per batch must be between 0.0001 and 99,999,999.9999",
+      ),
+    });
 
     const create = await testFetch("/api/manufacturing-orders", {
       method: "POST",

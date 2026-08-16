@@ -5,19 +5,20 @@ import { normalizeMinimumLotAgeDays } from "@/lib/bom/constraints";
 import { normalizeNumeric, normalizeNumericScale } from "@/lib/format";
 import {
   isNonNegativeNumberString,
-  isNumeric12Scale4Representable,
   isPositiveNumberString,
+  nonNegativeQuantityString,
   nullableString as nullableStringOptional,
   nullableStringPreserveUndefined,
   nullableStringStrict as nullableString,
-  roundsToPositiveNumeric12Scale4,
+  positiveQuantityString,
 } from "./shared";
 
+const optionalPositiveQuantitySchema = (label: string) =>
+  nullableStringOptional.pipe(z.union([positiveQuantityString(label), z.null()]));
+
 const bomQuantitySchema = nullableString
+  .pipe(z.union([positiveQuantityString("Quantity"), z.null()]))
   .refine((value) => value != null, "Quantity is required")
-  .refine((value) => isPositiveNumberString(value), {
-    message: "Quantity must be greater than 0",
-  })
   .transform((value) => value as string);
 
 const minimumLotAgeDaysSchema = z
@@ -202,9 +203,9 @@ const rawBaseItemSchema = createInsertSchema(items, {
   itemType: z.enum(["product", "material"]),
   unitDefinitionId: z.string().min(1, "Unit is required"),
   purchaseUnitDefinitionId: nullableStringOptional,
-  purchaseToStockFactor: nullableStringOptional,
+  purchaseToStockFactor: optionalPositiveQuantitySchema("Conversion factor"),
   salesUnitDefinitionId: nullableStringOptional,
-  salesToStockFactor: nullableStringOptional,
+  salesToStockFactor: optionalPositiveQuantitySchema("Conversion factor"),
   sku: nullableString,
   category: nullableString,
   defaultPurchasePrice: nullableString,
@@ -213,15 +214,18 @@ const rawBaseItemSchema = createInsertSchema(items, {
   sellable: z.boolean().default(false),
   description: nullableString,
   manufacturingMode: z.enum(["discrete", "batch"]).default("discrete"),
-  expectedBatchYield: nullableStringOptional,
-  typicalBatchSize: nullableStringOptional,
-  standardCostQuantity: nullableStringOptional,
-  safetyStock: z.string().transform((v) => (v.trim() === "" ? "0" : v)),
+  expectedBatchYield: optionalPositiveQuantitySchema("Expected batch yield"),
+  typicalBatchSize: optionalPositiveQuantitySchema("Typical batch size"),
+  standardCostQuantity: optionalPositiveQuantitySchema("Standard costing quantity"),
+  safetyStock: z
+    .string()
+    .transform((v) => (v.trim() === "" ? "0" : v))
+    .pipe(nonNegativeQuantityString("Safety stock")),
   registeredBarcode: nullableStringOptional,
   internalBarcode: nullableStringOptional,
   supplierItemCode: nullableStringOptional,
   defaultLeadTimeDays: z.coerce.number().int().nonnegative().nullable().optional(),
-  minimumOrderQuantity: nullableStringOptional,
+  minimumOrderQuantity: optionalPositiveQuantitySchema("Minimum order quantity"),
 }).omit({
   id: true,
   organizationId: true,
@@ -237,10 +241,7 @@ const rawBaseItemSchema = createInsertSchema(items, {
   createdAt: true,
   updatedAt: true,
 }).extend({
-  stock: z.string().default("0").refine(
-    (v) => { const n = Number(v); return !isNaN(n) && n >= 0; },
-    "Must be a non-negative number"
-  ),
+  stock: nonNegativeQuantityString("Stock").default("0"),
   outputQuantity: bomQuantitySchema.optional(),
   bom: cleanedBomRowsSchema.optional(),
   operationCosts: cleanedOperationCostRowsSchema.optional(),
@@ -277,13 +278,6 @@ function purchaseUnitRefine(
     return;
   }
 
-  if (!isPositiveNumberString(factor)) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Conversion factor must be greater than 0",
-      path: ["purchaseToStockFactor"],
-    });
-  }
 }
 
 function salesUnitRefine(
@@ -314,41 +308,11 @@ function salesUnitRefine(
   }
 
   const factor = data.salesToStockFactor?.trim() ?? "";
-  if (!isPositiveNumberString(factor)) {
+  if (factor === "") {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: "Conversion factor must be greater than 0",
       path: ["salesToStockFactor"],
-    });
-  } else if (!roundsToPositiveNumeric12Scale4(factor)) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Conversion factor must be at least 0.0001",
-      path: ["salesToStockFactor"],
-    });
-  } else if (!isNumeric12Scale4Representable(factor)) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Conversion factor must be 99,999,999.9999 or less",
-      path: ["salesToStockFactor"],
-    });
-  }
-}
-
-function positiveOptionalRefine(
-  value: string | null | undefined,
-  fieldName: string,
-  path: string,
-  ctx: z.RefinementCtx
-) {
-  const raw = value?.trim() ?? "";
-  if (raw === "") return;
-
-  if (!isPositiveNumberString(raw)) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: `${fieldName} must be greater than 0`,
-      path: [path],
     });
   }
 }
@@ -445,11 +409,6 @@ export const insertItemSchema = rawBaseItemSchema.superRefine((data, ctx) => {
   bomRefine(data, ctx);
   operationCostsRefine(data, ctx);
   batchModeRefine(data, ctx);
-  positiveOptionalRefine(data.outputQuantity, "Recipe output", "outputQuantity", ctx);
-  positiveOptionalRefine(data.expectedBatchYield, "Expected batch yield", "expectedBatchYield", ctx);
-  positiveOptionalRefine(data.typicalBatchSize, "Typical batch size", "typicalBatchSize", ctx);
-  positiveOptionalRefine(data.standardCostQuantity, "Standard costing quantity", "standardCostQuantity", ctx);
-  positiveOptionalRefine(data.minimumOrderQuantity, "Minimum order quantity", "minimumOrderQuantity", ctx);
 });
 
 export type InsertItem = z.infer<typeof insertItemSchema>;
@@ -466,21 +425,13 @@ export const updateItemSchema = rawBaseItemSchema.omit({
   currentStockUnitCost: currentStockUnitCostUpdateSchema,
   sellable: z.boolean().optional(),
   manufacturingMode: z.enum(["discrete", "batch"]).default("discrete"),
-  stock: z.string().refine(
-    (v) => { const n = Number(v); return !isNaN(n) && n >= 0; },
-    "Must be a non-negative number"
-  ).optional(),
+  stock: nonNegativeQuantityString("Stock").optional(),
 }).superRefine((data, ctx) => {
   purchaseUnitRefine(data, ctx);
   salesUnitRefine(data, ctx);
   bomRefine(data, ctx);
   operationCostsRefine(data, ctx);
   batchModeRefine(data, ctx);
-  positiveOptionalRefine(data.outputQuantity, "Recipe output", "outputQuantity", ctx);
-  positiveOptionalRefine(data.expectedBatchYield, "Expected batch yield", "expectedBatchYield", ctx);
-  positiveOptionalRefine(data.typicalBatchSize, "Typical batch size", "typicalBatchSize", ctx);
-  positiveOptionalRefine(data.standardCostQuantity, "Standard costing quantity", "standardCostQuantity", ctx);
-  positiveOptionalRefine(data.minimumOrderQuantity, "Minimum order quantity", "minimumOrderQuantity", ctx);
 });
 
 export type UpdateItem = z.infer<typeof updateItemSchema>;

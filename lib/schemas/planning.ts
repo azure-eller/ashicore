@@ -3,7 +3,7 @@ import {
   isValidIsoDate,
   nonNegativeDecimalString,
   nullableString,
-  positiveDecimalString,
+  positiveQuantityString,
 } from "./shared";
 
 const planningSourceRefSchema = z.object({
@@ -20,7 +20,7 @@ const planningActionBaseSchema = z.object({
   inputHash: z.string().min(1),
   recommendationId: z.string().min(1),
   itemId: z.string().uuid(),
-  quantity: positiveDecimalString("Quantity"),
+  quantity: positiveQuantityString("Quantity"),
   requiredDate: nullableString.refine(
     (value) => value == null || isValidIsoDate(value),
     "Required date must be a real date in YYYY-MM-DD format"
@@ -34,7 +34,7 @@ export const createPlanningPurchaseOrderDraftSchema =
     supplierId: z.string().uuid(),
     unitCost: nonNegativeDecimalString("Unit cost"),
     purchaseUnitDefinitionId: z.string().uuid().nullable(),
-    purchaseToStockFactor: positiveDecimalString("Purchase conversion factor"),
+    purchaseToStockFactor: positiveQuantityString("Purchase conversion factor"),
   });
 
 export type CreatePlanningPurchaseOrderDraft = z.infer<
@@ -61,7 +61,7 @@ export const createPlanningManufacturingOrderDraftSchema =
       .array(
         z.object({
           itemId: z.string().uuid(),
-          quantityPerUnit: positiveDecimalString("Quantity per unit"),
+          quantityPerUnit: positiveQuantityString("Quantity per unit"),
         })
       )
       .min(1),

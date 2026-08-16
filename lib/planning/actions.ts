@@ -20,6 +20,10 @@ import type {
   CreatePlanningManufacturingOrderDraft,
   CreatePlanningPurchaseOrderDraft,
 } from "@/lib/schemas/planning";
+import {
+  isNumeric12Scale4Representable,
+  roundsToPositiveNumeric12Scale4,
+} from "@/lib/schemas/shared";
 import { buildPlanningSnapshotInTx } from "./service";
 import type {
   PlanningRecommendation,
@@ -302,7 +306,19 @@ async function getPurchaseQuantityForStockQuantityInTx(
     throw new PlanningError("Item purchase conversion is invalid.", 400);
   }
 
-  return normalizeNumeric(roundQuantity(Number.parseFloat(stockQuantity) / factor));
+  const purchaseQuantity = normalizeNumeric(
+    roundQuantity(Number.parseFloat(stockQuantity) / factor),
+  );
+  if (
+    !roundsToPositiveNumeric12Scale4(purchaseQuantity) ||
+    !isNumeric12Scale4Representable(purchaseQuantity)
+  ) {
+    throw new PlanningError(
+      "The required stock converts to a purchase quantity outside 0.0001 to 99,999,999.9999. Adjust the purchase unit or conversion factor.",
+      400,
+    );
+  }
+  return purchaseQuantity;
 }
 
 export async function createPurchaseOrderDraftFromPlanning(

@@ -47,6 +47,11 @@ import type {
   ExternalPurchaseOrderFetchResult,
   ExternalPurchaseOrderLine,
 } from "@/lib/accounting/providers/types";
+import {
+  hasAtMostNumeric12Scale4,
+  isAtLeastNumeric12Scale4Minimum,
+  isNumeric12Scale4Representable,
+} from "@/lib/schemas/numeric";
 import { upsertImportedAccountingPurchaseOrderInTx, type ImportedAccountingPurchaseOrder } from "@/lib/purchasing/queries/accounting-import";
 
 const DEFAULT_SINCE_DATE = "2024-01-01";
@@ -255,6 +260,21 @@ function isImportableLine(line: ExternalPurchaseOrderLine) {
     line.unitAmount >= 0 &&
     Boolean(cleanString(line.description) ?? cleanString(line.itemCode))
   );
+}
+
+function assertImportableMaterialQuantity(line: ExternalPurchaseOrderLine) {
+  const quantity = line.quantity;
+  if (
+    quantity == null ||
+    !isAtLeastNumeric12Scale4Minimum(quantity) ||
+    !hasAtMostNumeric12Scale4(quantity) ||
+    !isNumeric12Scale4Representable(quantity)
+  ) {
+    const lineName = cleanString(line.description) ?? cleanString(line.itemCode) ?? "line";
+    throw new Error(
+      `${lineName} quantity must be between 0.0001 and 99,999,999.9999 with no more than 4 decimal places.`,
+    );
+  }
 }
 
 function buildCandidate(
@@ -728,6 +748,10 @@ export async function applyAccountingPurchaseOrderImport(
           skipped += 1;
           continue;
         }
+        order.lines
+          .filter(isImportableLine)
+          .filter((line) => !isImportedPurchaseOrderChargeLine(line))
+          .forEach(assertImportableMaterialQuantity);
         const built = await buildPurchaseOrderPayloadInTx(tx, orgId, provider, order);
         createdSuppliers += built.createdSupplier ? 1 : 0;
         createdItems += built.createdItems;

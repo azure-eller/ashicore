@@ -1,6 +1,7 @@
 import "server-only";
 
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import Decimal from "decimal.js-light";
 import { withOrgContext, type Tx } from "@/lib/db/with-org-context";
 import {
   customers,
@@ -9,7 +10,8 @@ import {
   integrationImportRuns,
   items,
 } from "@/lib/db/schema";
-import { normalizeMoney, normalizeQuantityNumber } from "@/lib/format";
+import { normalizeMoney } from "@/lib/format";
+import { positiveQuantityString } from "@/lib/schemas/shared";
 import { SalesError } from "@/lib/sales/queries/errors";
 import { createCustomerInTx } from "@/lib/sales/queries/customers-write";
 import { createSalesOrder } from "@/lib/sales/queries/order-write";
@@ -224,21 +226,33 @@ async function upsertShopifyCustomerExternalRecordInTx(
 
 function importableLine(line: ShopifyOrderLine) {
   const sku = normalizeSku(line.sku);
-  const quantity = Number(line.fulfillable_quantity ?? line.quantity);
+  const rawQuantity = line.fulfillable_quantity ?? line.quantity;
+  const quantity = Number(rawQuantity);
   const price = Number(line.price);
   if (!sku || !Number.isFinite(quantity) || quantity <= 0) return null;
   if (!Number.isFinite(price) || price <= 0) return null;
-  return { sku, quantity, price };
+  const parsedQuantity = positiveQuantityString("Quantity").safeParse(
+    String(rawQuantity),
+  );
+  if (!parsedQuantity.success) {
+    throw new ShopifyError(
+      `Shopify line ${line.id} (${sku}) has unsupported quantity "${rawQuantity}": ${parsedQuantity.error.issues[0]?.message ?? "invalid quantity"}. Use 0.0001 to 99,999,999.9999 with no more than 4 decimal places.`,
+      400,
+    );
+  }
+  return { sku, quantity: parsedQuantity.data, price };
 }
 
 async function buildSalesLinesInTx(tx: Tx, order: ShopifyOrder) {
-  const bySku = new Map<string, { quantity: number; price: number }>();
+  const bySku = new Map<string, { quantity: string; price: number }>();
   for (const line of order.line_items ?? []) {
     const parsed = importableLine(line);
     if (!parsed) continue;
     const existing = bySku.get(parsed.sku);
     bySku.set(parsed.sku, {
-      quantity: (existing?.quantity ?? 0) + parsed.quantity,
+      quantity: new Decimal(existing?.quantity ?? 0)
+        .plus(parsed.quantity)
+        .toString(),
       price: parsed.price,
     });
   }
@@ -275,12 +289,23 @@ async function buildSalesLinesInTx(tx: Tx, order: ShopifyOrder) {
     );
   }
 
-  return [...bySku.entries()].map(([sku, line]) => ({
-    itemId: itemBySku.get(sku)!,
-    quantity: String(normalizeQuantityNumber(line.quantity)),
-    unitPrice: normalizeMoney(line.price),
-    taxRateId: undefined,
-  }));
+  return [...bySku.entries()].map(([sku, line]) => {
+    const parsedQuantity = positiveQuantityString("Combined quantity").safeParse(
+      line.quantity,
+    );
+    if (!parsedQuantity.success) {
+      throw new ShopifyError(
+        `Shopify order ${order.name ?? order.id} has an unsupported combined quantity for ${sku}: ${parsedQuantity.error.issues[0]?.message ?? "invalid quantity"}.`,
+        400,
+      );
+    }
+    return {
+      itemId: itemBySku.get(sku)!,
+      quantity: parsedQuantity.data,
+      unitPrice: normalizeMoney(line.price),
+      taxRateId: undefined,
+    };
+  });
 }
 
 async function createImportRunInTx(
@@ -386,20 +411,29 @@ export async function importPaidShopifyOrders(
       continue;
     }
 
-    const prepared = await withOrgContext(orgId, async (tx) => {
-      const existing = await getExternalRecordByExternalIdInTx(tx, {
-        organizationId: orgId,
-        provider: SHOPIFY_PROVIDER,
-        entityType: "sales_order",
-        externalId: externalOrderId,
-      });
-      if (existing) return { skipped: true as const };
+    let prepared;
+    try {
+      prepared = await withOrgContext(orgId, async (tx) => {
+        const existing = await getExternalRecordByExternalIdInTx(tx, {
+          organizationId: orgId,
+          provider: SHOPIFY_PROVIDER,
+          entityType: "sales_order",
+          externalId: externalOrderId,
+        });
+        if (existing) return { skipped: true as const };
 
-      const customerId = await findCustomerIdInTx(tx, orgId, order);
-      await upsertShopifyCustomerExternalRecordInTx(tx, orgId, order, customerId);
-      const lines = await buildSalesLinesInTx(tx, order);
-      return { skipped: false as const, customerId, lines };
-    });
+        const customerId = await findCustomerIdInTx(tx, orgId, order);
+        await upsertShopifyCustomerExternalRecordInTx(tx, orgId, order, customerId);
+        const lines = await buildSalesLinesInTx(tx, order);
+        return { skipped: false as const, customerId, lines };
+      });
+    } catch (error) {
+      if (error instanceof ShopifyError) {
+        errors.push(error.message);
+        continue;
+      }
+      throw error;
+    }
 
     if (prepared.skipped) {
       skipped += 1;

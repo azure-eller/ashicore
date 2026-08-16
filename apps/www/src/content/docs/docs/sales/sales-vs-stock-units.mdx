@@ -37,7 +37,7 @@ On the product or material card:
 
 When the two unit definitions measure the same kind of thing, Ashicore calculates the conversion. For example, a pallet defined as three each and a tote defined as one each produces a factor of 3. When the units cannot be converted dimensionally — such as selling a 50 lb bag while stocking dolomite in cups — enter the measured conversion yourself.
 
-The conversion rate must round to at least `0.0001` and cannot exceed `99,999,999.9999` stocking units per sales unit.
+The conversion rate must use no more than four meaningful decimal places and stay between `0.0001` and `99,999,999.9999` stocking units per sales unit. Trailing zeroes are allowed.
 
 Leave **Use a different sales unit** off when you sell and stock in the same unit.
 
@@ -64,7 +64,7 @@ For example, changing from `$30 per tote` to a pallet of three produces `$90 per
 
 Quantity-break pricing also reads the ordered sales quantity. A break at 10 means 10 pallets when the line's sales unit is Pallet, not 10 totes.
 
-Order quantities are stored to four decimal places. A line must be no more than `99,999,999.9999` sales units, and its converted stocking quantity must stay between `0.0001` and `99,999,999.9999`.
+Order quantities are stored to four decimal places. A line quantity must use no more than four meaningful decimal places and stay between `0.0001` and `99,999,999.9999` sales units; trailing zeroes are allowed. Its converted stocking quantity must also stay between `0.0001` and `99,999,999.9999`.
 
 ## Orders keep their original conversion
 

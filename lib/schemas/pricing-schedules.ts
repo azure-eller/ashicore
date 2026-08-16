@@ -3,9 +3,8 @@ import { z } from "zod";
 import { pricingSchedules } from "@/lib/db/schema";
 import {
   isNonNegativeNumberString,
-  isPositiveNumberString,
   nullableString,
-  positiveDecimalString,
+  positiveQuantityString,
 } from "./shared";
 
 export const PRICING_SOURCE_TYPES = ["base_price", "schedule_break"] as const;
@@ -27,12 +26,11 @@ const itemScopeSchema = z.enum(["all", "category", "variant", "selected"]).defau
 const itemCategorySchema = nullableString;
 const itemVariantCodeSchema = nullableString;
 
-const quantitySchema = positiveDecimalString("Quantity");
+const quantitySchema = positiveQuantityString("Quantity");
 
-const maxQuantitySchema = nullableString.refine((value) => {
-  if (value == null) return true;
-  return isPositiveNumberString(value);
-}, "Maximum quantity must be greater than 0");
+const maxQuantitySchema = nullableString.pipe(
+  z.union([positiveQuantityString("Maximum quantity"), z.null()]),
+);
 
 const discountPercentSchema = z
   .string()
@@ -158,7 +156,9 @@ export type UpdatePricingSchedule = z.infer<typeof updatePricingScheduleSchema>;
 export const resolveSalesLinePricingSchema = z.object({
   customerId: requiredUuidSchema("Customer"),
   itemId: requiredUuidSchema("Product"),
-  quantity: nullableString,
+  quantity: nullableString.pipe(
+    z.union([positiveQuantityString("Quantity"), z.null()]),
+  ),
 });
 export type ResolveSalesLinePricingInput = z.infer<
   typeof resolveSalesLinePricingSchema

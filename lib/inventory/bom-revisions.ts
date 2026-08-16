@@ -5,7 +5,10 @@ import { z } from "zod";
 import { items } from "@/lib/db/schema";
 import { withAuthedOrgContext, getAuthedMemberContext } from "@/lib/dal/auth";
 import { assertFeatureAccessInTx } from "@/lib/billing/entitlements";
-import { isPositiveNumberString } from "@/lib/schemas/shared";
+import {
+  isPositiveNumberString,
+  positiveQuantityString,
+} from "@/lib/schemas/shared";
 import {
   createBomRevisionInTx,
   hasBomChanged,
@@ -24,10 +27,7 @@ import {
 
 const bomRowSchema = z.object({
   componentId: z.string().uuid("Component is required"),
-  quantity: z.string().refine(
-    isPositiveNumberString,
-    "Quantity must be a positive number",
-  ),
+  quantity: positiveQuantityString(),
   minimumLotAgeDays: z
     .union([z.string(), z.number()])
     .nullable()
@@ -45,10 +45,7 @@ const bomRowSchema = z.object({
         // quantity too. Zod strips unknown keys, so leaving it out here silently dropped
         // what the editor sent. Optional: recipes saved before alternates carried a
         // quantity fall back to the component's own number.
-        quantity: z
-          .string()
-          .refine(isPositiveNumberString, "Quantity must be a positive number")
-          .optional(),
+        quantity: positiveQuantityString().optional(),
       })
     )
     .optional()
@@ -66,15 +63,14 @@ const operationCostRowSchema = z.object({
 
 export const createBomRevisionSchema = z.object({
     recipeBasis: z.enum(["unit", "batch"]).default("unit"),
-    expectedBatchYield: z.string().nullable().optional(),
+    expectedBatchYield: positiveQuantityString("Expected output per batch")
+      .nullable()
+      .optional(),
     outputQuantity: z
       .string()
       .nullable()
       .optional()
-      .refine((value) => {
-        if (value == null) return true;
-        return isPositiveNumberString(value);
-      }, "Recipe output must be greater than 0"),
+      .pipe(positiveQuantityString("Recipe output").nullable().optional()),
     bom: z.array(bomRowSchema).default([]),
     operationCosts: z.array(operationCostRowSchema).optional(),
     note: z

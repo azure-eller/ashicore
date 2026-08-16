@@ -172,8 +172,9 @@ Every item always has a stocking unit. A sellable item may also have one
 family-level sales unit and a positive conversion factor:
 
 - `salesToStockFactor` means "stocking units per 1 sales unit"
-- explicit factors persist as `numeric(12,4)`: after four-decimal rounding they
-  must be at least `0.0001` and no more than `99,999,999.9999`
+- explicit factors persist as `numeric(12,4)`, accept no more than four meaningful
+  decimal places, and must be at least `0.0001` and no more than
+  `99,999,999.9999`
 - when no different sales unit is configured, the effective sales unit is the
   stocking unit and the effective factor is `1`
 - the alternate sales unit and factor mirror from `item_families` to every
@@ -219,7 +220,9 @@ remainder on both bases rather than repeatedly multiplying/dividing, preventing
 rounding drift for factors such as `0.3333`.
 
 New and edited line quantities must fit `numeric(12,4)` on both bases. The
-selling quantity may not exceed `99,999,999.9999`; its converted stock quantity
+selling quantity accepts no more than four meaningful decimal places and must be
+at least `0.0001` without being silently rounded. It may not exceed
+`99,999,999.9999`; its converted stock quantity
 must round to at least `0.0001` and may not exceed `99,999,999.9999`. The same
 checks apply to imported sales lines before persistence.
 

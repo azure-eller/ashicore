@@ -2,20 +2,23 @@ import { z } from "zod";
 import { LOT_TRACKING_MODES } from "@/lib/inventory/lot-tracking";
 import {
   expectedVersionSchema,
-  isNonNegativeNumberString,
+  nonNegativeQuantityString,
   nullableString,
   nullableStringPreserveUndefined,
   optionalMoneyString,
   optionalNonNegativeDecimalInputPreserveUndefined,
   optionalNonNegativeDecimalString,
-  optionalPositiveDecimalString,
-  optionalPositiveDecimalStringPreserveUndefined,
-  optionalPositiveNumeric12Scale4String,
-  optionalPositiveNumeric12Scale4StringPreserveUndefined,
+  positiveQuantityString,
 } from "./shared";
 
 const nullableText = nullableString;
 const patchNullableText = nullableStringPreserveUndefined;
+const optionalPositiveQuantity = (label: string) =>
+  nullableString.pipe(z.union([positiveQuantityString(label), z.null()]));
+const patchOptionalPositiveQuantity = (label: string) =>
+  nullableStringPreserveUndefined.pipe(
+    z.union([positiveQuantityString(label), z.null(), z.undefined()]),
+  );
 
 export const lotTrackingModeSchema = z.enum(LOT_TRACKING_MODES);
 
@@ -27,11 +30,9 @@ export const itemCardCreateSchema = z.object({
   unitDefinitionId: z.string().uuid("Unit is required"),
   defaultSupplierId: z.string().uuid().nullable().optional(),
   purchaseUnitDefinitionId: z.string().uuid().nullable().optional(),
-  purchaseToStockFactor: optionalPositiveDecimalString("Purchase-to-stock factor"),
+  purchaseToStockFactor: optionalPositiveQuantity("Purchase-to-stock factor"),
   salesUnitDefinitionId: z.string().uuid().nullable().optional(),
-  salesToStockFactor: optionalPositiveNumeric12Scale4String(
-    "Sales-to-stock factor",
-  ),
+  salesToStockFactor: optionalPositiveQuantity("Sales-to-stock factor"),
   sku: nullableText,
   sellable: z.boolean().optional(),
   defaultSellingPrice: optionalMoneyString("Default selling price"),
@@ -41,7 +42,7 @@ export const itemCardCreateSchema = z.object({
   internalBarcode: nullableText,
   supplierItemCode: nullableText,
   defaultLeadTimeDays: z.number().int().nonnegative().nullable().optional(),
-  minimumOrderQuantity: optionalPositiveDecimalString("Minimum order quantity"),
+  minimumOrderQuantity: optionalPositiveQuantity("Minimum order quantity"),
   lotTrackingMode: lotTrackingModeSchema.optional(),
 }).superRefine((data, ctx) => {
   if (data.itemType === "product") {
@@ -99,11 +100,11 @@ export const itemCardUpdateSchema = z.object({
   unitDefinitionId: z.string().uuid("Unit is required").optional(),
   defaultSupplierId: z.string().uuid().nullable().optional(),
   purchaseUnitDefinitionId: z.string().uuid().nullable().optional(),
-  purchaseToStockFactor: optionalPositiveDecimalStringPreserveUndefined(
+  purchaseToStockFactor: patchOptionalPositiveQuantity(
     "Purchase-to-stock factor",
   ),
   salesUnitDefinitionId: z.string().uuid().nullable().optional(),
-  salesToStockFactor: optionalPositiveNumeric12Scale4StringPreserveUndefined(
+  salesToStockFactor: patchOptionalPositiveQuantity(
     "Sales-to-stock factor",
   ),
   lotTrackingMode: lotTrackingModeSchema.optional(),
@@ -137,7 +138,7 @@ export const itemCardVariantUpdateSchema = z.object({
   internalBarcode: patchNullableText,
   supplierItemCode: patchNullableText,
   defaultLeadTimeDays: z.number().int().nonnegative().nullable().optional(),
-  minimumOrderQuantity: optionalPositiveDecimalStringPreserveUndefined(
+  minimumOrderQuantity: patchOptionalPositiveQuantity(
     "Minimum order quantity",
   ),
   defaultSellingPrice: optionalNonNegativeDecimalInputPreserveUndefined(
@@ -156,9 +157,11 @@ export const itemCardVariantUpdateSchema = z.object({
       if (value === undefined) return undefined;
       return value.trim() || "0";
     })
-    .refine(
-      (value) => value == null || isNonNegativeNumberString(value),
-      "Safety stock must be a non-negative number",
+    .pipe(
+      z.union([
+        nonNegativeQuantityString("Safety stock"),
+        z.undefined(),
+      ]),
     ),
   sellable: z.boolean().optional(),
   optionValueIdsByOptionId: z

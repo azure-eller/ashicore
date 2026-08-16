@@ -9,6 +9,7 @@ import {
   purchaseOrders,
   salesOrderLines,
   salesOrders,
+  supplierItems,
 } from "../../../lib/db/schema";
 import { withOrgContext } from "../../../lib/db/with-org-context";
 import {
@@ -20,11 +21,13 @@ import {
   createCustomer,
   createItem,
   createManufacturingOrder,
+  createPlanningPurchaseOrderDraft,
   createPurchaseOrder,
   createSalesOrder,
   createSupplier,
   createUnit,
   fulfillSalesOrder,
+  getPlanningSnapshot,
   getOrgId,
   getUnitId,
   recordManufacturingOutput,
@@ -1891,6 +1894,118 @@ test("make-to-order creation rounds batch products up to whole batches", async (
     requestedQuantity: "17.5000",
     numberOfBatches: 2,
   });
+
+  const overflowProduct = await createItem({
+    itemType: "product",
+    name: `Fast Batch MTO Overflow Product ${ts}`,
+    sellable: true,
+    unitDefinitionId: unitId,
+    sku: `FAST-BATCH-MTO-OVERFLOW-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: null,
+    defaultSellingPrice: "1.00",
+    manufacturingMode: "batch",
+    expectedBatchYield: "1",
+    outputQuantity: "1",
+    stock: "0",
+    safetyStock: "0",
+    bom: [{ componentId: component.body.id, quantity: "0.0001" }],
+  });
+  expect(overflowProduct.status).toBe(201);
+  const overflowSalesOrder = await createSalesOrder({
+    customerId: customer.body.id,
+    orderNumber: `BATCH-MTO-OVERFLOW-${ts}`,
+    orderDate: "2026-05-10",
+    shipDate: "2026-05-20",
+    lines: [
+      {
+        itemId: overflowProduct.body.id,
+        quantity: "99999999.9999",
+        unitPrice: "1.00",
+      },
+    ],
+  });
+  expect(overflowSalesOrder.status).toBe(201);
+  const [overflowLine] = await db
+    .select({ id: salesOrderLines.id })
+    .from(salesOrderLines)
+    .where(eq(salesOrderLines.salesOrderId, overflowSalesOrder.body.id));
+  const overflowResponse = await testFetch(
+    `/api/sales-orders/${overflowSalesOrder.body.id}/manufacturing-orders`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        manufacturingStrategy: "make_to_order",
+        plannedDate: "2026-05-19",
+        salesOrderLineIds: [overflowLine.id],
+        priorityRank: null,
+        notes: null,
+      }),
+    },
+  );
+  expect(overflowResponse.status).toBe(400);
+  await expect(overflowResponse.json()).resolves.toMatchObject({
+    error: expect.stringContaining(
+      "Planned output after batch rounding must be between 0.0001 and 99,999,999.9999",
+    ),
+  });
+});
+
+test("planning rejects purchase-unit quantities outside the persistence range", async ({
+  db,
+}) => {
+  const ts = Date.now();
+  const supplier = await createSupplier({
+    name: `Fast Planning Conversion Supplier ${ts}`,
+  });
+  expect(supplier.status).toBe(201);
+  const purchaseUnit = await createUnit({
+    name: `Fast Planning Conversion Unit ${ts}`,
+    size: "1",
+    uom: "ea",
+  });
+  expect(purchaseUnit.status).toBe(201);
+  const material = await createItem({
+    itemType: "material",
+    name: `Fast Planning Conversion Material ${ts}`,
+    unitDefinitionId: getUnitId(),
+    purchaseUnitDefinitionId: purchaseUnit.body.id,
+    purchaseToStockFactor: "0.0001",
+    defaultSupplierId: supplier.body.id,
+    sku: `FAST-PLANNING-CONVERSION-${ts}`,
+    category: `Fast Planning ${ts}`,
+    description: null,
+    defaultPurchasePrice: "1",
+    defaultSellingPrice: null,
+    stock: "0",
+    safetyStock: "10000",
+    bom: [],
+  });
+  expect(material.status).toBe(201);
+  await db.insert(supplierItems).values({
+    organizationId: getOrgId(),
+    supplierId: supplier.body.id,
+    itemId: material.body.id,
+    unitCost: "1",
+    purchaseUnitDefinitionId: purchaseUnit.body.id,
+    purchaseToStockFactor: "0.0001",
+    isPreferred: true,
+  });
+
+  const snapshot = await getPlanningSnapshot();
+  expect(snapshot.status).toBe(200);
+  const recommendation = snapshot.body.recommendations.find(
+    (row: { itemId: string }) => row.itemId === material.body.id,
+  );
+  expect(recommendation?.actionPayload).toBeTruthy();
+  const response = await createPlanningPurchaseOrderDraft(
+    recommendation.actionPayload,
+  );
+  expect(response.status).toBe(400);
+  expect(response.body.error).toContain(
+    "purchase quantity outside 0.0001 to 99,999,999.9999",
+  );
 });
 
 // Numbering continues from the org's highest suffix, so the seeded legacy

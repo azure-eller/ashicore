@@ -12,6 +12,10 @@ import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
 import { evaluateLotAgeMinDaysRequirement, formatMinimumLotAgeRequirementViolation, getMinimumLotAgeDays, LOT_AGE_MIN_DAYS_CONSTRAINT } from "@/lib/bom/constraints";
 import { notifyManufacturingOrderCompleted } from "@/lib/notifications/manufacturing";
 import type { CompleteManufacturingOrder } from "@/lib/schemas/manufacturing-orders";
+import {
+  isNumeric12Scale4Representable,
+  roundsToPositiveNumeric12Scale4,
+} from "@/lib/schemas/shared";
 import { buildIngredientActualsMap, completeManufacturingBatch, getPickAllocationTotalsInTx, releaseRemainingExpectedOutputInTx } from "./batches";
 import { ManufacturingError } from "./errors";
 import { getManufacturingExecutionDetail } from "./execution-read";
@@ -363,11 +367,25 @@ async function completeDiscreteManufacturingOrder(
 
     for (const ingredient of ingredientRows) {
       const pickedQty = parseFloat(ingredient.pickedQuantity);
+      const rawPlannedActualQty =
+        parseFloat(ingredient.plannedQuantity) * actualToPlannedRatio;
       const plannedActualQty = normalizeQuantityNumber(
-        parseFloat(ingredient.plannedQuantity) * actualToPlannedRatio
+        rawPlannedActualQty,
       );
+      const explicitActual = actualsMap.get(ingredient.id);
+      if (
+        explicitActual == null &&
+        rawPlannedActualQty > 0 &&
+        (!roundsToPositiveNumeric12Scale4(rawPlannedActualQty) ||
+          !isNumeric12Scale4Representable(rawPlannedActualQty))
+      ) {
+        throw new ManufacturingError(
+          `Completing this output would require an unsupported quantity of ${ingredient.itemName}. Adjust the output quantity or stocking unit.`,
+          400,
+        );
+      }
       const suppliedActual =
-        actualsMap.get(ingredient.id) ??
+        explicitActual ??
         (pickedQty < plannedActualQty ? plannedActualQty : null);
       let effectiveQuantity: number;
       let effectiveCost: number;

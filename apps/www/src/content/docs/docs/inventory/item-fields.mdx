@@ -29,7 +29,7 @@ Every field on the inventory item model that operators normally see or are affec
 | Purchase unit | You | Optional unit used on purchase order lines. Must differ from stock unit. |
 | Purchase-to-stock factor | You | Required and positive when purchase unit is set. Converts purchase quantity into stock quantity. |
 | Sales unit | You | Optional family unit used on sales-order lines when a sellable item is ordered differently than it is stocked. |
-| Unit conversion rate | You / system | Stocking units per sales unit, from 0.0001 through 99,999,999.9999 after four-decimal rounding. Ashicore derives compatible conversions; you enter incompatible conversions. |
+| Unit conversion rate | You / system | Stocking units per sales unit, from 0.0001 through 99,999,999.9999 with no more than four meaningful decimal places; trailing zeroes are allowed. Ashicore derives compatible conversions; you enter incompatible conversions. |
 | Safety stock | You | Non-negative planning threshold. Defaults to `0`. |
 | Default purchase price | You | Prefill for purchase lines. |
 | Current stock unit cost | System / you | Weighted-average cost basis used for new positive stock when no lot cost exists. Can be overridden with a non-negative value. |

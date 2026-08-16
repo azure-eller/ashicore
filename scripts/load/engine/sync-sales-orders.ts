@@ -10,6 +10,7 @@ import { normalizeMoney, normalizeNumeric } from "@/lib/format";
 import { sellingToStockQuantity } from "@/lib/sales/quantity-basis";
 import {
   isNumeric12Scale4Representable,
+  positiveQuantityString,
   roundsToPositiveNumeric12Scale4,
 } from "@/lib/schemas/numeric";
 import type { Tx } from "@/lib/db/with-org-context";
@@ -531,15 +532,16 @@ export async function evaluateSalesImportInTx(
         continue;
       }
 
-      const quantity = Number(line.quantity);
-      if (
-        !Number.isFinite(quantity) ||
-        quantity <= 0 ||
-        !isPositivePersistableQuantity(line.quantity)
-      ) {
-        issues.push(`${line.raw} -> Quantity "${line.quantity}" is invalid.`);
+      const parsedQuantity = positiveQuantityString("Quantity").safeParse(
+        line.quantity,
+      );
+      if (!parsedQuantity.success) {
+        issues.push(
+          `${line.raw} -> Quantity "${line.quantity}" is invalid: ${parsedQuantity.error.issues[0]?.message ?? "unsupported quantity"}. Use 0.0001 to 99,999,999.9999 with no more than 4 decimal places.`,
+        );
         continue;
       }
+      const quantity = Number(parsedQuantity.data);
 
       const unitPriceNumber =
         line.priceOverride != null
@@ -552,7 +554,7 @@ export async function evaluateSalesImportInTx(
         continue;
       }
 
-      const normalizedQuantity = normalizeNumeric(quantity);
+      const normalizedQuantity = parsedQuantity.data;
       const stockQuantity = sellingToStockQuantity(
         normalizedQuantity,
         salesToStockFactor,

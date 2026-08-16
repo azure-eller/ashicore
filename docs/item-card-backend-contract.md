@@ -73,8 +73,9 @@ family-level presentation/transaction bases:
 
 - each alternate unit id and factor is an all-or-nothing pair
 - each factor is positive and means stocking units per one alternate unit
-- sales-to-stock factors persist at four decimal places and must round into the
-  inclusive `0.0001` to `99,999,999.9999` range
+- alternate-unit factors persist at four decimal places, accept no more than four
+  meaningful decimal places, and must be in the inclusive `0.0001` to
+  `99,999,999.9999` range
 - choosing the stocking unit as an alternate canonicalizes that alternate pair
   to null
 - compatible unit definitions derive conversions automatically; incompatible

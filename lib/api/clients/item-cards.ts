@@ -403,6 +403,7 @@ export type ProductRecipeTabPayload = {
   focusItemId: string;
   initialBomRows: Array<{
     componentId: string | null;
+    componentName?: string | null;
     quantity: string | null;
     minimumLotAgeDays?: string | number | null;
     alternates?: Array<{ itemId: string; quantity?: string | null }> | null;

@@ -33,6 +33,10 @@ import type {
   PurchaseOrderDetail,
   PurchaseOrderQuantityCorrectionImpact,
 } from "@/lib/purchasing/types";
+import {
+  isNumeric12Scale4Representable,
+  positiveQuantityString,
+} from "@/lib/schemas/shared";
 import { PurchasingError } from "./errors";
 import { getPurchaseOrder } from "./orders-read";
 import {
@@ -93,11 +97,18 @@ export async function getPurchaseOrderQuantityCorrectionImpact(
         ),
       );
     if (!line) throw new PurchasingError("Purchase order line not found.", 404);
-    const quantityOrdered = Number(quantityOrderedInput);
-    const quantityReceived = Number(line.quantityReceived);
-    if (!Number.isFinite(quantityOrdered) || quantityOrdered <= 0) {
-      throw new PurchasingError("Quantity must be greater than 0.", 400);
+    const parsedQuantity = positiveQuantityString("Quantity").safeParse(
+      quantityOrderedInput,
+    );
+    if (!parsedQuantity.success) {
+      const message =
+        parsedQuantity.error.issues[0]?.message ?? "Quantity is invalid";
+      throw new PurchasingError(message, 400, {
+        errors: { quantityOrdered: [message] },
+      });
     }
+    const quantityOrdered = Number(parsedQuantity.data);
+    const quantityReceived = Number(line.quantityReceived);
     if (quantityOrdered >= quantityReceived) {
       throw new PurchasingError(
         "Use the normal quantity edit when the new quantity is not below received.",
@@ -105,6 +116,19 @@ export async function getPurchaseOrderQuantityCorrectionImpact(
       );
     }
     const factor = Number(line.purchaseToStockFactor);
+    const correctedStockQuantity = roundQuantity(quantityOrdered * factor);
+    if (
+      correctedStockQuantity <= 0 ||
+      !isNumeric12Scale4Representable(correctedStockQuantity)
+    ) {
+      const message =
+        "Converted stock quantity must be between 0.0001 and 99,999,999.9999";
+      throw new PurchasingError(
+        `This quantity must convert to between 0.0001 and 99,999,999.9999 ${line.stockingUnitName}. Adjust the quantity or stocking unit.`,
+        400,
+        { errors: { quantityOrdered: [message] } },
+      );
+    }
     const stockQuantityToCorrect = roundQuantity(
       (quantityReceived - quantityOrdered) * factor,
     );
@@ -192,6 +216,22 @@ export async function correctPurchaseOrderQuantity(
     }
     const factor = Number(target.purchaseToStockFactor);
     const correctedStockQuantity = roundQuantity(correctedQuantity * factor);
+    if (
+      correctedStockQuantity <= 0 ||
+      !isNumeric12Scale4Representable(correctedStockQuantity)
+    ) {
+      throw new PurchasingError(
+        `This quantity must convert to between 0.0001 and 99,999,999.9999 ${target.stockingUnitName}. Adjust the quantity or stocking unit.`,
+        400,
+        {
+          errors: {
+            quantityOrdered: [
+              "Converted stock quantity must be between 0.0001 and 99,999,999.9999",
+            ],
+          },
+        },
+      );
+    }
     const stockQuantityToCorrect = roundQuantity(
       Number(target.stockQuantityReceived) - correctedStockQuantity,
     );

@@ -33,6 +33,7 @@ import {
 import { pushCardUrlWithoutNavigation } from "@/lib/routing/reflect-card-url";
 import styles from "@/components/card-page/card-page.module.css";
 import { queryKeys } from "@/lib/client/query-keys";
+import { ApiClientError } from "@/lib/client/api";
 
 type ManufacturingResourceOption = {
   id: string;
@@ -59,6 +60,28 @@ function isBlankOperationCost(row: OperationCostPayloadRow) {
   const crewSize = row.crewSize?.trim() ?? "";
   const plannedMinutes = row.plannedMinutes?.trim() ?? "";
   return operationName === "" && resourceId === "" && crewSize === "" && plannedMinutes === "";
+}
+
+function formatList(values: string[]) {
+  if (values.length <= 1) return values[0] ?? "the recipe";
+  if (values.length === 2) return `${values[0]} and ${values[1]}`;
+  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
+}
+
+function productionSaveError(error: unknown, bomRows: BomPayloadRow[]) {
+  if (!(error instanceof ApiClientError) || !error.fieldErrors) return error;
+
+  const ingredientNames = Object.keys(error.fieldErrors)
+    .map((path) => /^bom\.(\d+)\.quantity$/.exec(path))
+    .filter((match): match is RegExpExecArray => match != null)
+    .map((match) => bomRows[Number(match[1])]?.componentName?.trim())
+    .filter((name): name is string => Boolean(name));
+
+  if (ingredientNames.length === 0) return error;
+
+  return new Error(
+    `Recipe quantities for ${formatList(ingredientNames)} are invalid. Update them on the Recipe tab before saving Production.`,
+  );
 }
 
 export function ProductOperationsTab({
@@ -267,7 +290,10 @@ export function ProductOperationsTab({
           key={`${activeFocusItemId}:${productionData.initialOperationCosts.length}`}
           initialRows={productionData.initialOperationCosts}
           resources={productionData.resources}
-          error={saveMutation.error}
+          error={productionSaveError(
+            saveMutation.error,
+            productionData.currentBomRows,
+          )}
           onRowsChange={(nextRows, meta) => {
             if (!activeVariant) return;
             setRows(nextRows);

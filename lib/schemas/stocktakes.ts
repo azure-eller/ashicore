@@ -6,7 +6,7 @@ import {
   STOCKTAKE_NAME_MAX_LENGTH_MESSAGE,
 } from "@/lib/stocktake-names";
 import {
-  isNonNegativeNumberString,
+  nonNegativeQuantityString,
   nullableString,
   nullableStringPreserveUndefined,
 } from "./shared";
@@ -190,6 +190,25 @@ function isDeleteFoundLotLine(
   return "delete" in line && line.delete === true;
 }
 
+function addCountedQuantityIssues(
+  value: string,
+  path: PropertyKey[],
+  ctx: z.RefinementCtx,
+) {
+  const parsed = nonNegativeQuantityString("Counted quantity").safeParse(value);
+  if (!parsed.success) {
+    for (const issue of parsed.error.issues) {
+      ctx.addIssue({ ...issue, path: [...path, ...issue.path] });
+    }
+  }
+}
+
+function normalizeCountedQuantity(value: string | null | undefined) {
+  if (value == null) return null;
+  const parsed = nonNegativeQuantityString("Counted quantity").safeParse(value);
+  return parsed.success ? parsed.data : value.trim();
+}
+
 export const updateStocktakeSchema = z
   .object({
     name: z
@@ -226,13 +245,11 @@ export const updateStocktakeSchema = z
         return;
       }
 
-      if (!isNonNegativeNumberString(line.countedQty)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Counted quantity must be 0 or greater",
-          path: ["lines", index, "countedQty"],
-        });
-      }
+      addCountedQuantityIssues(
+        line.countedQty,
+        ["lines", index, "countedQty"],
+        ctx,
+      );
     });
 
     data.lotLines.forEach((line, index) => {
@@ -277,13 +294,11 @@ export const updateStocktakeSchema = z
             path: ["lotLines", index, "countedQty"],
           });
         } else {
-          if (!isNonNegativeNumberString(line.countedQty)) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: "Counted quantity must be 0 or greater",
-              path: ["lotLines", index, "countedQty"],
-            });
-          }
+          addCountedQuantityIssues(
+            line.countedQty,
+            ["lotLines", index, "countedQty"],
+            ctx,
+          );
         }
         return;
       }
@@ -303,13 +318,11 @@ export const updateStocktakeSchema = z
         return;
       }
 
-      if (!isNonNegativeNumberString(line.countedQty)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Counted quantity must be 0 or greater",
-          path: ["lotLines", index, "countedQty"],
-        });
-      }
+      addCountedQuantityIssues(
+        line.countedQty,
+        ["lotLines", index, "countedQty"],
+        ctx,
+      );
     });
   })
   .transform(({ lines, lotLines, name, scope, notes, reason, itemIds }) => ({
@@ -320,7 +333,7 @@ export const updateStocktakeSchema = z
     itemIds,
     lines: lines.map((line) => ({
       lineId: line.lineId,
-      countedQty: line.countedQty?.trim() ?? null,
+      countedQty: normalizeCountedQuantity(line.countedQty),
       ...(line.notes !== undefined ? { notes: line.notes?.trim() ?? null } : {}),
     })),
     lotLines: lotLines
@@ -329,7 +342,7 @@ export const updateStocktakeSchema = z
         const existing = line as z.infer<typeof rawCountLotLineSchema>;
         return {
           lotLineId: existing.lotLineId,
-          countedQty: existing.countedQty?.trim() ?? null,
+          countedQty: normalizeCountedQuantity(existing.countedQty),
           ...(existing.notes !== undefined
             ? { notes: existing.notes?.trim() ?? null }
             : {}),
@@ -340,7 +353,7 @@ export const updateStocktakeSchema = z
       .map((line) => ({
         stocktakeItemId: line.stocktakeItemId,
         lotNumber: line.lotNumber.trim(),
-        countedQty: line.countedQty?.trim() ?? null,
+        countedQty: normalizeCountedQuantity(line.countedQty),
         ...(line.notes !== undefined ? { notes: line.notes?.trim() ?? null } : {}),
       })),
     deletedLotLineIds: lotLines

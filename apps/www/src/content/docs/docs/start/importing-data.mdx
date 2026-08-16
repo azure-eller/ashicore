@@ -84,7 +84,7 @@ A single import builds the whole foundation. Each record type maps to a real obj
      </Grid>
    </Frame>
 
-4. **Approve, and commit.** When you're ready, Ashicore validates your selections and returns a preview split into **blocking issues** (must fix) and **warnings** worth a look. Opening stock, for example, needs an active item, a positive quantity, and a unit cost — a row missing any of those blocks until fixed. Clear the blockers and choose **Approve all &amp; continue** — your units, partners, items, opening balances, and recipes are written in one pass. A committed import can't be edited, so review carefully first.
+4. **Approve, and commit.** When you're ready, Ashicore validates your selections and returns a preview split into **blocking issues** (must fix) and **warnings** worth a look. Opening stock, recipe output, and recipe component quantities must be between `0.0001` and `99,999,999.9999` with no more than four meaningful decimal places; trailing zeroes are allowed. Opening stock also needs an active item and a unit cost. Clear the blockers and choose **Approve all &amp; continue** — your units, partners, items, opening balances, and recipes are written in one pass. A committed import can't be edited, so review carefully first.
 
    <Aside type="note" title="On Pro, checkout comes first">
    If you selected Pro, approval routes through checkout and your records commit once payment clears. On Free they commit on approval, subject to the active-SKU limit after the setup grace period.

@@ -5,6 +5,7 @@ import { getValidatedProductInTx } from "@/lib/manufacturing/queries/order-write
 import { getCurrentActiveBomIngredientsInTx } from "@/lib/bom/revisions";
 import type { ProposalField } from "@/lib/agent/chat/proposals";
 import { defineAgentAction } from "@/lib/agent/chat/actions/types";
+import { positiveQuantityString } from "@/lib/schemas/shared";
 
 const manufacturingOrderCreateInput = z.object({
   productId: z
@@ -13,9 +14,7 @@ const manufacturingOrderCreateInput = z.object({
     .describe(
       "UUID of the product to make (inventory.items.id with an active BOM — find it with the query tool)"
     ),
-  quantity: z
-    .string()
-    .regex(/^\d+(\.\d+)?$/)
+  quantity: positiveQuantityString()
     .describe('Quantity to make as a positive decimal string, e.g. "10"'),
   plannedDate: z.string().nullable().describe("Planned production date YYYY-MM-DD, or null"),
   notes: z.string().nullable().describe("Free-text note for the order, or null"),

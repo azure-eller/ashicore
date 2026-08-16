@@ -5,6 +5,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { purchaseOrderLines, purchaseOrders } from "@/lib/db/schema";
 import { trimScale } from "@/lib/db/numeric";
 import { withAuthedOrgContext } from "@/lib/dal/auth";
+import { isNumeric12Scale4Representable } from "@/lib/schemas/shared";
 import { lockItemsInTx } from "@/lib/inventory/kernel/locking";
 import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
 import { notifyPurchaseOrderReceived } from "@/lib/notifications/purchasing";
@@ -156,6 +157,23 @@ export async function receivePurchaseOrder(
         ),
       );
 
+      if (
+        stockQuantityReceived <= 0 ||
+        !isNumeric12Scale4Representable(stockQuantityReceived)
+      ) {
+        throw new PurchasingError(
+          `This quantity must convert to between 0.0001 and 99,999,999.9999 ${existingLine.stockingUnitName}. Adjust the quantity or stocking unit.`,
+          400,
+          {
+            errors: {
+              [`lines.${index}.quantityReceived`]: [
+                "Converted stock quantity must be between 0.0001 and 99,999,999.9999",
+              ],
+            },
+          },
+        );
+      }
+
       return {
         line: existingLine,
         quantityReceived,
@@ -207,7 +225,7 @@ export async function receivePurchaseOrder(
       existingLines.map((line) => [line.id, { ...line }]),
     );
 
-    for (const entry of receiveEntries) {
+    for (const [index, entry] of receiveEntries.entries()) {
       const currentLine = updatedLines.get(entry.line.id);
 
       if (!currentLine) {
@@ -234,6 +252,24 @@ export async function receivePurchaseOrder(
       );
       const normalizedOrdered = normalizeNumeric(newQuantityOrdered);
       const normalizedStockOrdered = normalizeNumeric(newStockQuantityOrdered);
+      if (
+        !isNumeric12Scale4Representable(normalizedReceived) ||
+        !isNumeric12Scale4Representable(normalizedStockReceived) ||
+        !isNumeric12Scale4Representable(normalizedOrdered) ||
+        !isNumeric12Scale4Representable(normalizedStockOrdered)
+      ) {
+        throw new PurchasingError(
+          "This receipt would exceed the maximum supported quantity of 99,999,999.9999.",
+          400,
+          {
+            errors: {
+              [`lines.${index}.quantityReceived`]: [
+                "Total received quantity must be 99,999,999.9999 or less",
+              ],
+            },
+          },
+        );
+      }
       const lineSubtotal = newQuantityOrdered * parseFloat(currentLine.unitCost);
       const normalizedLineSubtotal = normalizeLandedMoney(lineSubtotal);
       const normalizedLineTaxAmount = calculateTaxAmount(

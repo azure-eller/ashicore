@@ -15,11 +15,11 @@ import { resolvePositiveStockUnitCostInTx } from "@/lib/inventory/kernel/operati
 import {
   isNonNegativeNumberString,
   nullableString,
-  positiveDecimalString,
+  positiveQuantityString,
 } from "@/lib/schemas/shared";
 
 const addInitialStockSchema = z.object({
-  quantity: positiveDecimalString("Quantity"),
+  quantity: positiveQuantityString("Quantity"),
   costPerUnit: nullableString.refine(
     (value) => value == null || isNonNegativeNumberString(value),
     "Cost per unit must be zero or greater",

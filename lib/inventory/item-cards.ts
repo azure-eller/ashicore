@@ -1188,7 +1188,7 @@ async function resolveAlternateUnitPairInTx(
 
   if (factor == null || !roundsToPositiveNumeric12Scale4(factor)) {
     throw new ItemCardError(
-      `${params.label}-to-stock factor must be greater than zero.`,
+      `${params.label}-to-stock factor must convert to at least 0.0001 stocking units.`,
     );
   }
   if (!isNumeric12Scale4Representable(factor)) {

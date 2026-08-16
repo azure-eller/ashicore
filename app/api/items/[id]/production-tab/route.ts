@@ -29,6 +29,7 @@ export const GET = apiHandler(async (request: Request, ctx: unknown) => {
     currentRecipeBasis: currentRevision?.recipeBasis === "batch" ? "batch" : "unit",
     currentBomRows: bomRows.map((row) => ({
       componentId: row.componentId,
+      componentName: row.componentName,
       quantity: row.quantity,
       minimumLotAgeDays: row.minimumLotAgeDays ?? null,
       alternates: row.alternates.map((alternate) => ({

@@ -7,6 +7,7 @@ import {
 } from "@/lib/sales/queries/validation";
 import type { ProposalField, ProposalLine } from "@/lib/agent/chat/proposals";
 import { defineAgentAction } from "@/lib/agent/chat/actions/types";
+import { positiveQuantityString } from "@/lib/schemas/shared";
 
 const customerFields = {
   name: "Name",
@@ -33,9 +34,7 @@ const lineInput = z.object({
     .string()
     .min(1)
     .describe("UUID of a sellable item (inventory.items.id — find it with the query tool)"),
-  quantity: z
-    .string()
-    .regex(/^\d+(\.\d+)?$/)
+  quantity: positiveQuantityString()
     .describe(
       'Quantity in the item\'s configured sales unit, as a positive decimal string, e.g. "10"',
     ),

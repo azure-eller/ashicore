@@ -10,6 +10,10 @@ import type {
   InitialStockLotEntry,
   ItemSeed,
 } from "./types";
+import {
+  requireLoaderDerivedPositiveQuantity,
+  requireLoaderPositiveQuantity,
+} from "./quantity-validation";
 
 export function resolveSeedSellable(
   seed: ItemSeed,
@@ -46,10 +50,18 @@ export function resolveSeedOpeningQuantity(
   entry: InitialStockLotEntry
 ): { stockQuantity: number; sourceLabel: string } {
   if (typeof entry === "string") {
-    return { stockQuantity: Number(entry), sourceLabel: entry };
+    const quantity = requireLoaderPositiveQuantity(
+      entry,
+      `Opening stock for ${seed.name} (${seed.sku})`,
+    );
+    return { stockQuantity: Number(quantity), sourceLabel: entry };
   }
 
-  const inputQty = Number(entry.quantity);
+  const normalizedInput = requireLoaderPositiveQuantity(
+    entry.quantity,
+    `Opening stock for ${seed.name} (${seed.sku})`,
+  );
+  const inputQty = Number(normalizedInput);
 
   if (entry.unitKey == null) {
     return { stockQuantity: inputQty, sourceLabel: entry.quantity };
@@ -65,10 +77,19 @@ export function resolveSeedOpeningQuantity(
         `Opening stock for ${seed.name} (${seed.sku}) was entered in purchase unit "${entry.unitKey}" but the seed defines no purchaseToStockFactor.`
       );
     }
-    const factor = Number(seed.purchaseToStockFactor);
+    const factor = Number(
+      requireLoaderPositiveQuantity(
+        seed.purchaseToStockFactor,
+        `Purchase-to-stock conversion for ${seed.name} (${seed.sku})`,
+      ),
+    );
+    const stockQuantity = requireLoaderDerivedPositiveQuantity(
+      inputQty * factor,
+      `Opening stock conversion for ${seed.name} (${seed.sku}) from ${entry.quantity} ${entry.unitKey} to ${seed.unitKey}`,
+    );
     return {
-      stockQuantity: inputQty * factor,
-      sourceLabel: `${entry.quantity} ${entry.unitKey} → ${inputQty * factor} ${seed.unitKey}`,
+      stockQuantity: Number(stockQuantity),
+      sourceLabel: `${entry.quantity} ${entry.unitKey} → ${stockQuantity} ${seed.unitKey}`,
     };
   }
 

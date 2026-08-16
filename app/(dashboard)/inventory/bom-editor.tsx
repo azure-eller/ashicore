@@ -59,6 +59,7 @@ type BomAlternateRow = {
 
 type BomPayloadRow = {
   componentId: string | null;
+  componentName?: string | null;
   quantity: string | null;
   minimumLotAgeDays?: string | number | null;
   alternates?: BomAlternateRow[] | null;

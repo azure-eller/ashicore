@@ -14,6 +14,7 @@ import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
 import type { Tx } from "@/lib/db/with-org-context";
 import type { ProposalField } from "@/lib/agent/chat/proposals";
 import { defineAgentAction } from "@/lib/agent/chat/actions/types";
+import { nonNegativeQuantityString } from "@/lib/schemas/shared";
 
 async function getValidatedItemNameInTx(tx: Tx, itemId: string): Promise<string> {
   const names = await getItemDisplayNamesByIdInTx(tx, [itemId]);
@@ -45,8 +46,7 @@ const itemCreateInput = z.object({
     .string()
     .nullable()
     .describe("Default purchase price as a decimal string, or null"),
-  openingStock: z
-    .string()
+  openingStock: nonNegativeQuantityString("Opening stock")
     .nullable()
     .describe("Opening stock quantity as a decimal string, or null for none"),
   openingStockUnitCost: z
@@ -185,9 +185,7 @@ const adjustmentLotInput = z.object({
     .string()
     .nullable()
     .describe("Lot number (existing, or new for found stock), or null when using lotId"),
-  newQuantity: z
-    .string()
-    .regex(/^\d+(\.\d+)?$/)
+  newQuantity: nonNegativeQuantityString()
     .describe("The lot's new absolute quantity as a non-negative decimal string"),
 });
 
@@ -199,10 +197,7 @@ const stockAdjustmentCreateInput = z.object({
   reason: z
     .enum(ADJUSTMENT_REASONS)
     .describe("Why the stock is being adjusted"),
-  newQuantity: z
-    .string()
-    .regex(/^\d+(\.\d+)?$/)
-    .nullable()
+  newQuantity: nonNegativeQuantityString().nullable()
     .describe(
       "New absolute on-hand quantity for an UNTRACKED item as a non-negative decimal string; null for lot-tracked items (use lots instead)"
     ),
@@ -360,9 +355,7 @@ const stocktakeRecordCountsInput = z.object({
           .string()
           .min(1)
           .describe("UUID of the stocktake line (inventory.stocktake_items.id)"),
-        countedQty: z
-          .string()
-          .regex(/^\d+(\.\d+)?$/)
+        countedQty: nonNegativeQuantityString("Counted quantity")
           .describe("Counted quantity as a non-negative decimal string"),
       })
     )

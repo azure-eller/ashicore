@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ADJUSTMENT_REASONS } from "@/lib/db/schema";
+import { nonNegativeQuantityString } from "./shared";
 
 function normalizeAdjustmentReason(value: unknown) {
   if (typeof value !== "string") return value;
@@ -35,7 +36,7 @@ export const adjustLotSchema = z
   .object({
     lotId: z.string().uuid().optional(),
     lotNumber: z.string().trim().min(1).max(20).optional(),
-    newQuantity: z.string().regex(/^\d+(\.\d+)?$/),
+    newQuantity: nonNegativeQuantityString("New quantity"),
   })
   .refine((lot) => !(lot.lotId && lot.lotNumber), {
     message: "Use either lotId or lotNumber, not both.",
@@ -46,7 +47,7 @@ export const stockAdjustmentSchema = z.object({
   locationId: z.string().uuid().nullish(),
   reason: z.preprocess(normalizeAdjustmentReason, z.enum(ADJUSTMENT_REASONS)),
   note: z.string().trim().max(500).optional(),
-  newQuantity: z.string().regex(/^\d+(\.\d+)?$/).optional(),
+  newQuantity: nonNegativeQuantityString("New quantity").optional(),
   lots: z.array(adjustLotSchema).optional(),
 });
 

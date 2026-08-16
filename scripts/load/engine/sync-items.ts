@@ -16,6 +16,10 @@ import {
   resolveSeedSellable,
 } from "./seeds";
 import { getUnitSignature } from "./org";
+import {
+  requireLoaderNonNegativeQuantity,
+  requireLoaderPositiveQuantity,
+} from "./quantity-validation";
 import type {
   ExistingItem,
   ExistingUnit,
@@ -25,6 +29,33 @@ import type {
 } from "./types";
 
 export { buildExistingItemsByName };
+
+function validateItemSeedQuantities(seed: ItemSeed) {
+  if (seed.purchaseToStockFactor != null) {
+    requireLoaderPositiveQuantity(
+      seed.purchaseToStockFactor,
+      `Purchase-to-stock conversion for item "${seed.name}" (${seed.key})`,
+    );
+  }
+  if (seed.expectedBatchYield != null) {
+    requireLoaderPositiveQuantity(
+      seed.expectedBatchYield,
+      `Expected batch yield for item "${seed.name}" (${seed.key})`,
+    );
+  }
+  if (seed.typicalBatchSize != null) {
+    requireLoaderPositiveQuantity(
+      seed.typicalBatchSize,
+      `Typical batch size for item "${seed.name}" (${seed.key})`,
+    );
+  }
+  if (seed.safetyStock != null) {
+    requireLoaderNonNegativeQuantity(
+      seed.safetyStock,
+      `Safety stock for item "${seed.name}" (${seed.key})`,
+    );
+  }
+}
 
 type VariantAssignmentTarget = {
   familyId: string;
@@ -539,6 +570,7 @@ export function planItemsSync(
   const orderedSeeds = orderSeedsForSync(seeds);
 
   for (const seed of orderedSeeds) {
+    validateItemSeedQuantities(seed);
     const existing = findExistingItem(seed, existingItemsBySku, existingItemsByName, {
       allowNameMatch: true,
       nameMatchPredicate: (item) => item.familyId != null,
@@ -614,6 +646,7 @@ export async function applyItemsSyncInTx(
   );
 
   for (const seed of orderedSeeds) {
+    validateItemSeedQuantities(seed);
     const variantAssignment = variantAssignmentBySeedKey.get(seed.key);
     const unitDefinitionId = seed.unitKey ? unitIdByKey.get(seed.unitKey) : null;
     if (!unitDefinitionId) {

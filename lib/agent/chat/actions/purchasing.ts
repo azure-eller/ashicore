@@ -5,15 +5,14 @@ import { getValidatedSupplierInTx } from "@/lib/purchasing/queries/order-write";
 import { getValidatedPurchasableItemsInTx } from "@/lib/purchasing/queries/shared";
 import type { ProposalField, ProposalLine } from "@/lib/agent/chat/proposals";
 import { defineAgentAction } from "@/lib/agent/chat/actions/types";
+import { positiveQuantityString } from "@/lib/schemas/shared";
 
 const lineInput = z.object({
   itemId: z
     .string()
     .min(1)
     .describe("UUID of a purchasable item (inventory.items.id — find it with the query tool)"),
-  quantity: z
-    .string()
-    .regex(/^\d+(\.\d+)?$/)
+  quantity: positiveQuantityString()
     .describe('Quantity to order as a positive decimal string, e.g. "10"'),
   unitCost: z
     .string()

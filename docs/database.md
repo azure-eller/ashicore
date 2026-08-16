@@ -457,6 +457,16 @@ Use this for:
 
 Keep write normalization unchanged. Stored `numeric` values stay exact; read-time trimming only changes the serialized string form.
 
+Physical quantities use four decimal places. Mutation and import boundaries must
+reject a positive value below `0.0001`, above `99,999,999.9999`, or with more than
+four meaningful decimal places; they must not silently round user input into a different quantity.
+Trailing zeroes do not add meaningful precision, so `0.00010` is valid and
+normalizes to `0.0001`. A field may accept exact zero only when its workflow
+already defines zero as a valid state. Derived calculations may round normally
+to four places, but a positive result that rounds to zero or exceeds storage
+must fail before persistence. Validate cumulative totals before writing them,
+not only each contributing quantity.
+
 ## Inventory Event Retention
 
 `inventory.inventory_events` stays unpartitioned in v1.

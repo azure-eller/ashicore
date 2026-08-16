@@ -3,6 +3,10 @@ import Decimal from "decimal.js-light";
 import { normalizeMoney, normalizeNumeric } from "@/lib/format";
 
 const NUMERIC_12_4_MAX = new Decimal("99999999.9999");
+const NUMERIC_12_4_MIN_POSITIVE = new Decimal("0.0001");
+
+export const QUANTITY_SCALE = 4;
+export const MIN_POSITIVE_QUANTITY = "0.0001";
 
 export function isNumeric12Scale4Representable(value: string | number) {
   try {
@@ -25,13 +29,87 @@ export function roundsToPositiveNumeric12Scale4(value: string | number) {
   }
 }
 
-function normalizeNumeric12Scale4(value: string) {
+export function isAtLeastNumeric12Scale4Minimum(value: string | number) {
+  try {
+    return new Decimal(value).gte(NUMERIC_12_4_MIN_POSITIVE);
+  } catch {
+    return false;
+  }
+}
+
+export function hasAtMostNumeric12Scale4(value: string | number) {
+  try {
+    return new Decimal(value).decimalPlaces() <= QUANTITY_SCALE;
+  } catch {
+    return false;
+  }
+}
+
+function isExactlyZero(value: string | number) {
+  try {
+    return new Decimal(value).isZero();
+  } catch {
+    return false;
+  }
+}
+
+export function normalizeNumeric12Scale4(value: string | number) {
   const normalized = new Decimal(value)
     .toDecimalPlaces(4, Decimal.ROUND_HALF_UP)
     .toFixed(4)
     .replace(/\.?0+$/, "");
   return normalized === "-0" ? "0" : normalized;
 }
+
+export const positiveQuantityString = (label = "Quantity") =>
+  z
+    .string()
+    .trim()
+    .min(1, `${label} is required`)
+    .refine(isPositiveNumberString, `${label} must be greater than 0`)
+    .refine(
+      isAtLeastNumeric12Scale4Minimum,
+      `${label} must be at least ${MIN_POSITIVE_QUANTITY}`,
+    )
+    .refine(
+      (value) =>
+        !isPositiveNumberString(value) ||
+        !isAtLeastNumeric12Scale4Minimum(value) ||
+        hasAtMostNumeric12Scale4(value),
+      `${label} supports up to ${QUANTITY_SCALE} decimal places`,
+    )
+    .refine(
+      (value) =>
+        !isPositiveNumberString(value) ||
+        isNumeric12Scale4Representable(value),
+      `${label} must be 99,999,999.9999 or less`,
+    )
+    .transform(normalizeNumeric12Scale4);
+
+export const nonNegativeQuantityString = (label = "Quantity") =>
+  z
+    .string()
+    .trim()
+    .min(1, `${label} is required`)
+    .refine(isNonNegativeNumberString, `${label} must be 0 or greater`)
+    .refine(
+      (value) => isExactlyZero(value) || isAtLeastNumeric12Scale4Minimum(value),
+      `${label} must be 0 or at least ${MIN_POSITIVE_QUANTITY}`,
+    )
+    .refine(
+      (value) =>
+        !isNonNegativeNumberString(value) ||
+        (!isExactlyZero(value) && !isAtLeastNumeric12Scale4Minimum(value)) ||
+        hasAtMostNumeric12Scale4(value),
+      `${label} supports up to ${QUANTITY_SCALE} decimal places`,
+    )
+    .refine(
+      (value) =>
+        !isNonNegativeNumberString(value) ||
+        isNumeric12Scale4Representable(value),
+      `${label} must be 99,999,999.9999 or less`,
+    )
+    .transform(normalizeNumeric12Scale4);
 
 /**
  * Same normalization as nullableString but preserves undefined as undefined.
@@ -121,8 +199,15 @@ export const optionalPositiveNumeric12Scale4String = (label: string) =>
       `${label} must be greater than 0`,
     )
     .refine(
-      (value) => value == null || roundsToPositiveNumeric12Scale4(value),
+      (value) => value == null || isAtLeastNumeric12Scale4Minimum(value),
       `${label} must be at least 0.0001`,
+    )
+    .refine(
+      (value) =>
+        value == null ||
+        !isAtLeastNumeric12Scale4Minimum(value) ||
+        hasAtMostNumeric12Scale4(value),
+      `${label} supports up to 4 decimal places`,
     )
     .refine(
       (value) => value == null || isNumeric12Scale4Representable(value),
@@ -141,8 +226,15 @@ export const optionalPositiveNumeric12Scale4StringPreserveUndefined = (
       `${label} must be greater than 0`,
     )
     .refine(
-      (value) => value == null || roundsToPositiveNumeric12Scale4(value),
+      (value) => value == null || isAtLeastNumeric12Scale4Minimum(value),
       `${label} must be at least 0.0001`,
+    )
+    .refine(
+      (value) =>
+        value == null ||
+        !isAtLeastNumeric12Scale4Minimum(value) ||
+        hasAtMostNumeric12Scale4(value),
+      `${label} supports up to 4 decimal places`,
     )
     .refine(
       (value) => value == null || isNumeric12Scale4Representable(value),

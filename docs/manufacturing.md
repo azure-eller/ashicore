@@ -263,6 +263,10 @@ configure a different amount on the recipe when a package variant needs one.
 Same-family variants that are not configured on the BOM line are not valid material
 choices for that line.
 
+Recipe, alternate, planned, picked, and output quantities accept no more than four
+meaningful decimal places. Positive quantities must be at least `0.0001`; unsupported
+precision is rejected instead of being rounded into a different stored quantity.
+
 Recipe quantities take precedence when an order is created or a BOM-backed row's
 material changes: the default uses the component quantity and an alternate uses its
 own configured quantity, regardless of a stale quantity submitted by the client. An

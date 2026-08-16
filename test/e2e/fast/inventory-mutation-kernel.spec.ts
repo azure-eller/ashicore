@@ -32,6 +32,10 @@ import {
 } from "../../../lib/inventory/kernel";
 import { buildStocktakeCategoryScope } from "../../../lib/schemas/stocktakes";
 import {
+  isAtLeastNumeric12Scale4Minimum,
+  nonNegativeQuantityString,
+} from "../../../lib/schemas/shared";
+import {
   createItem,
   createManufacturingOrder,
   getBaseUrl,
@@ -81,6 +85,17 @@ test.describe("inventory mutation kernel heartbeat", () => {
   const ts = Date.now();
   const orgId = getOrgId();
   const unitId = getUnitId();
+
+  test("non-negative quantities distinguish exact zero from numeric underflow", () => {
+    expect(nonNegativeQuantityString().safeParse("0").success).toBe(true);
+    expect(nonNegativeQuantityString().safeParse("0.0000").success).toBe(true);
+    expect(nonNegativeQuantityString().safeParse("1.230000").data).toBe("1.23");
+    expect(nonNegativeQuantityString().safeParse("1.230001").success).toBe(false);
+    expect(nonNegativeQuantityString().safeParse("1e-999").success).toBe(false);
+    expect(nonNegativeQuantityString().safeParse("-1e-999").success).toBe(false);
+    expect(isAtLeastNumeric12Scale4Minimum("0.0001")).toBe(true);
+    expect(isAtLeastNumeric12Scale4Minimum("-0.0001")).toBe(false);
+  });
 
   test("onboarding import commits opening stock through the kernel", async ({ db }) => {
     const form = new FormData();
@@ -247,6 +262,124 @@ test.describe("inventory mutation kernel heartbeat", () => {
       onHandQty: "13.0000",
       availableToPromise: "13.0000",
     });
+  });
+
+  test("onboarding import rejects unsupported quantity precision before commit", async () => {
+    const form = new FormData();
+    form.append(
+      "file",
+      new File(["precision fixture"], "precision.csv", { type: "text/csv" }),
+    );
+    const upload = await fetch(`${getBaseUrl()}/api/onboarding/imports`, {
+      method: "POST",
+      headers: { Cookie: getSessionCookie() },
+      body: form,
+    });
+    expect(upload.status).toBe(201);
+    const created = (await upload.json()) as { session: { id: string } };
+
+    const buildPackage = (openingQuantity: string, componentQuantity: string) => ({
+      version: "1",
+      openingStockAsOf: "2026-06-01",
+      units: [{ tempId: "unit-each", name: "Each", size: "1.00000", uom: "ea" }],
+      suppliers: [],
+      customers: [],
+      items: [
+        {
+          tempId: "material",
+          itemType: "material",
+          name: "Precision Material",
+          sku: `FAST-PRECISION-MATERIAL-${ts}`,
+          unitRef: "unit-each",
+          purchaseToStockFactor: "2.00000",
+          lotTrackingMode: "tracked",
+          match: { suggestion: "create" },
+          provenance: [{ fileId: "precision.csv", location: "material row" }],
+          confidence: 1,
+        },
+        {
+          tempId: "product",
+          itemType: "product",
+          name: "Precision Product",
+          sku: `FAST-PRECISION-PRODUCT-${ts}`,
+          unitRef: "unit-each",
+          lotTrackingMode: "tracked",
+          match: { suggestion: "create" },
+          provenance: [{ fileId: "precision.csv", location: "product row" }],
+          confidence: 1,
+        },
+      ],
+      openingStock: [
+        {
+          itemRef: "material",
+          quantity: openingQuantity,
+          unitCost: "1.25",
+          provenance: [{ fileId: "precision.csv", location: "opening stock row" }],
+          confidence: 1,
+        },
+      ],
+      boms: [
+        {
+          productRef: "product",
+          outputQuantity: "1.00000",
+          outputUnitRef: "unit-each",
+          components: [
+            {
+              itemRef: "material",
+              quantity: componentQuantity,
+              unitRef: "unit-each",
+              basis: "per_unit",
+            },
+          ],
+          provenance: [{ fileId: "precision.csv", location: "BOM row" }],
+          confidence: 1,
+        },
+      ],
+      unresolvedQuestions: [],
+    });
+
+    const invalid = await testFetch(
+      `/api/onboarding/imports/${created.session.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          openingStockAsOf: "2026-06-01",
+          includeBoms: true,
+          package: buildPackage("0.00001", "1.23456"),
+        }),
+      },
+    );
+    expect(invalid.status).toBe(200);
+    const invalidBody = await invalid.json();
+    expect(invalidBody.preview.blockingIssueCount).toBe(2);
+    expect(invalidBody.preview.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "openingStock.material.quantity",
+          message: expect.stringContaining("at least 0.0001"),
+        }),
+        expect.objectContaining({
+          path: "boms.product.components.material.quantity",
+          message: expect.stringContaining("up to 4 decimal places"),
+        }),
+      ]),
+    );
+    expect(invalidBody.preview.issues[0].message).toContain("precision.csv");
+
+    const trailingZeros = await testFetch(
+      `/api/onboarding/imports/${created.session.id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          openingStockAsOf: "2026-06-01",
+          includeBoms: true,
+          package: buildPackage("0.01000", "1.23000"),
+        }),
+      },
+    );
+    expect(trailingZeros.status).toBe(200);
+    const trailingZerosBody = await trailingZeros.json();
+    expect(trailingZerosBody.preview.blockingIssueCount).toBe(0);
   });
 
   test("negative stock uses one debt lot and withholds receipts until debt clears", async ({
@@ -3370,5 +3503,87 @@ test.describe("inventory mutation kernel heartbeat", () => {
       body: JSON.stringify({ isDefault: true }),
     });
     expect(defaultSwap.status).toBe(409);
+  });
+
+  test("recipe writes reject quantities the database cannot preserve", async ({ db }) => {
+    const component = await createItem({
+      itemType: "material",
+      name: `Fast precision component ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-PRECISION-C-${ts}`,
+      category: "Fast precision",
+      description: null,
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: null,
+      stock: "1",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(component.status).toBe(201);
+
+    const product = await createItem({
+      itemType: "product",
+      name: `Fast precision product ${ts}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-PRECISION-P-${ts}`,
+      category: "Fast precision",
+      description: null,
+      defaultPurchasePrice: null,
+      defaultSellingPrice: "10",
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(product.status).toBe(201);
+
+    for (const [quantity, message] of [
+      ["0.00001", "Quantity must be at least 0.0001"],
+      ["1.23456", "Quantity supports up to 4 decimal places"],
+    ] as const) {
+      const rejected = await testFetch(
+        `/api/items/${product.body.id}/bom-revisions`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            recipeBasis: "unit",
+            bom: [{ componentId: component.body.id, quantity }],
+          }),
+        },
+      );
+      expect(rejected.status).toBe(400);
+      await expect(rejected.json()).resolves.toMatchObject({
+        error: message,
+        errors: { "bom.0.quantity": [message] },
+      });
+    }
+
+    expect(
+      await db
+        .select()
+        .from(bomRevisions)
+        .where(eq(bomRevisions.productId, product.body.id)),
+    ).toHaveLength(0);
+
+    const accepted = await testFetch(
+      `/api/items/${product.body.id}/bom-revisions`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          recipeBasis: "unit",
+          bom: [{ componentId: component.body.id, quantity: "0.00010" }],
+        }),
+      },
+    );
+    expect(accepted.status).toBe(201);
+
+    const [revision] = await db
+      .select()
+      .from(bomRevisions)
+      .where(eq(bomRevisions.productId, product.body.id));
+    const [line] = await db
+      .select()
+      .from(bomRevisionComponents)
+      .where(eq(bomRevisionComponents.bomRevisionId, revision.id));
+    expect(line.quantity).toBe("0.0001");
   });
 });

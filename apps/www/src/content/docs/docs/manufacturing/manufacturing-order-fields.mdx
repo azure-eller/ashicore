@@ -27,7 +27,7 @@ This reference names the user-facing fields and the underlying concepts that mat
 | Mode | enum | product production mode | `discrete` or `batch`; controls whether output is planned by quantity or number of batches. |
 | Production deadline | date | blank | Optional planned date for queue planning. |
 | Manufacturing location | location reference | default location | Read-only default location in v1 planning. |
-| Quantity | decimal + product unit | product output quantity | Discrete planned output quantity in the product unit. |
+| Quantity | decimal + product unit | product output quantity | Discrete planned output quantity in the product unit. Positive quantities must be between `0.0001` and `99,999,999.9999` with no more than four meaningful decimal places; trailing zeroes are allowed. |
 | Number of batches | integer | 1 | Batch planned input when the product uses batch production; ingredient demand scales from this count. |
 | Expected output | decimal + product unit | batch count × recipe yield | Batch planned output quantity; finished-good expected supply comes from this value. |
 | Sales order | sales order line reference | blank | Read-only link when the order was created from make-to-order sales demand. |
@@ -44,7 +44,7 @@ This reference names the user-facing fields and the underlying concepts that mat
 | Default ingredient | item reference | recipe component | The original BOM component identity used to keep BOM-backed rows aligned when saving. |
 | SKU | text snapshot | current item SKU | Component SKU snapshot for history. |
 | Basis | enum | recipe basis | `per_unit` for discrete output or `per_batch` for batch output. |
-| Planned quantity | decimal + unit | scaled recipe quantity | Planned consumption after scaling the recipe by output quantity or batches. |
+| Planned quantity | decimal + unit | scaled recipe quantity | Planned consumption after scaling the recipe by output quantity or batches. Derived quantities round to four decimal places but cannot round to zero or exceed `99,999,999.9999`. |
 | Actual quantity | decimal + unit | 0 | Filled when stock is consumed for output. |
 | Actual cost | money | 0 | Filled from consumed lots and inventory valuation during completion. |
 | Lot strategy | enum | `fifo` | `fifo`, `lifo`, or `custom`. |

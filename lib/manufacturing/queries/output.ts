@@ -12,6 +12,10 @@ import { calculatePlannedOperationCost } from "@/lib/manufacturing/operation-cos
 import { InsufficientStockError } from "@/lib/inventory/kernel/errors";
 import { getItemLotTrackingModeInTx } from "@/lib/inventory/lot-tracking";
 import type { RecordManufacturingOutput } from "@/lib/schemas/manufacturing-orders";
+import {
+  isNumeric12Scale4Representable,
+  roundsToPositiveNumeric12Scale4,
+} from "@/lib/schemas/shared";
 import { ManufacturingError } from "./errors";
 import { type LockedBatchStateRow, assertCurrentExecutionBatch, ensureBatchExecutionRowsInTx, getBatchIngredientsInTx, getCurrentExecutionBatch, getLockedBatchStateRowsInTx, getOutputQuantityInTx, getPickAllocationsByIngredientInTx, getProducedLotIdInTx, getTemplateIngredientsInTx, resolveProducedLotForUnitInTx } from "./execution-state";
 import { type LockedManufacturingOrder, getLockedManufacturingOrderInTx, isOpenManufacturingOrder, validateActiveIngredientItemsInTx } from "./shared";
@@ -746,6 +750,15 @@ export async function recomputeManufacturingActualRollupsInTx(
     .from(manufacturingOrderOutputs)
     .where(eq(manufacturingOrderOutputs.manufacturingOrderId, orderId));
   const totalActualQuantity = parseFloat(allOutputs[0]?.quantity ?? "0");
+  if (
+    totalActualQuantity < 0 ||
+    !isNumeric12Scale4Representable(totalActualQuantity)
+  ) {
+    throw new ManufacturingError(
+      "Total manufacturing output must be between 0 and 99,999,999.9999.",
+      400,
+    );
+  }
   const totalMaterialCost = parseFloat(allOutputs[0]?.materialCostTotal ?? "0");
   const totalOperationsCost = await getAbsorbedOperationCostForQuantityInTx(
     tx,
@@ -757,6 +770,15 @@ export async function recomputeManufacturingActualRollupsInTx(
       manufacturingOrderId: orderId,
       manufacturingOrderBatchId: options.batchId,
     });
+    if (
+      batchOutputQuantity < 0 ||
+      !isNumeric12Scale4Representable(batchOutputQuantity)
+    ) {
+      throw new ManufacturingError(
+        "Total batch output must be between 0 and 99,999,999.9999.",
+        400,
+      );
+    }
     await tx
       .update(manufacturingOrderBatches)
       .set({
@@ -826,6 +848,34 @@ export async function recordManufacturingOutput(
 
     const outputQuantity = Number(payload.quantity);
     if (outputQuantity < 0) {
+      const nextTotalOutputQuantity =
+        Number(order.actualQuantity ?? 0) + outputQuantity;
+      if (
+        nextTotalOutputQuantity < 0 ||
+        !isNumeric12Scale4Representable(nextTotalOutputQuantity)
+      ) {
+        throw new ManufacturingError(
+          "Total manufacturing output must be between 0 and 99,999,999.9999.",
+          400,
+        );
+      }
+      if (options?.batchId != null) {
+        const existingBatchOutputQuantity = await getOutputQuantityInTx(tx, {
+          manufacturingOrderId: orderId,
+          manufacturingOrderBatchId: options.batchId,
+        });
+        const nextBatchOutputQuantity =
+          existingBatchOutputQuantity + outputQuantity;
+        if (
+          nextBatchOutputQuantity < 0 ||
+          !isNumeric12Scale4Representable(nextBatchOutputQuantity)
+        ) {
+          throw new ManufacturingError(
+            "Total batch output must be between 0 and 99,999,999.9999.",
+            400,
+          );
+        }
+      }
       await reverseManufacturingOutputInTx(tx, {
         organizationId: orgId,
         manufacturingOrderId: orderId,
@@ -910,6 +960,29 @@ export async function recordManufacturingOutput(
       manufacturingOrderId: orderId,
       manufacturingOrderBatchId: batch?.id ?? null,
     });
+    const nextTotalOutputQuantity =
+      Number(order.actualQuantity ?? 0) + outputQuantity;
+    if (
+      nextTotalOutputQuantity < 0 ||
+      !isNumeric12Scale4Representable(nextTotalOutputQuantity)
+    ) {
+      throw new ManufacturingError(
+        "Total manufacturing output must be between 0 and 99,999,999.9999.",
+        400,
+      );
+    }
+    if (
+      batch != null &&
+      (existingOutputQuantity + outputQuantity < 0 ||
+        !isNumeric12Scale4Representable(
+          existingOutputQuantity + outputQuantity,
+        ))
+    ) {
+      throw new ManufacturingError(
+        "Total batch output must be between 0 and 99,999,999.9999.",
+        400,
+      );
+    }
     await assertLinkedMtoOutputWithinSalesDemandInTx(
       tx,
       order,
@@ -953,9 +1026,20 @@ export async function recordManufacturingOutput(
     for (const ingredient of ingredientRows) {
       const plannedIngredientQuantity = parseFloat(ingredient.plannedQuantity);
       const alreadyOutputConsumed = outputConsumedByIngredient.get(ingredient.id) ?? 0;
+      const rawRequiredQuantity = plannedIngredientQuantity * ratio;
       const requiredQuantity = normalizeQuantityNumber(
-        plannedIngredientQuantity * ratio
+        rawRequiredQuantity,
       );
+      if (
+        rawRequiredQuantity > 0 &&
+        (!roundsToPositiveNumeric12Scale4(rawRequiredQuantity) ||
+          !isNumeric12Scale4Representable(rawRequiredQuantity))
+      ) {
+        throw new ManufacturingError(
+          `This output would require an unsupported quantity of ${ingredient.itemName}. Adjust the output quantity or stocking unit.`,
+          400,
+        );
+      }
       if (requiredQuantity <= 0) {
         continue;
       }

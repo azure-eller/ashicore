@@ -76,10 +76,14 @@ export const clientIdSchema = z.string().uuid().optional();
 export const expectedVersionSchema = z.number().int().min(1).optional();
 
 export {
+  hasAtMostNumeric12Scale4,
+  isAtLeastNumeric12Scale4Minimum,
   isNonNegativeNumberString,
   isNumeric12Scale4Representable,
   isPositiveNumberString,
   nonNegativeDecimalString,
+  nonNegativeQuantityString,
+  normalizeNumeric12Scale4,
   nullableStringPreserveUndefined,
   optionalMoneyString,
   optionalNonNegativeDecimalInputPreserveUndefined,
@@ -89,6 +93,7 @@ export {
   optionalPositiveNumeric12Scale4String,
   optionalPositiveNumeric12Scale4StringPreserveUndefined,
   positiveDecimalString,
+  positiveQuantityString,
   positiveMoneyString,
   roundsToPositiveNumeric12Scale4,
 } from "./numeric";

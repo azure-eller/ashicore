@@ -5,10 +5,10 @@ import {
   clientIdSchema,
   expectedVersionSchema,
   isNonNegativeNumberString,
-  isPositiveNumberString,
   isValidIsoDate,
   nullableString,
   nullableStringPreserveUndefined,
+  positiveQuantityString,
 } from "./shared";
 
 export const PURCHASE_ORDER_STATUSES = [
@@ -68,6 +68,21 @@ const rawAdditionalCostSchema = z.object({
 });
 
 type RawLine = z.input<typeof rawLineSchema>;
+
+function addPositiveQuantityIssues(
+  value: string,
+  label: string,
+  path: PropertyKey[],
+  ctx: z.RefinementCtx,
+) {
+  const parsed = positiveQuantityString(label).safeParse(value);
+  if (!parsed.success) {
+    for (const issue of parsed.error.issues) {
+      ctx.addIssue({ ...issue, path: [...path, ...issue.path] });
+    }
+  }
+  return parsed;
+}
 
 function isBlankLine(line: RawLine) {
   const itemId = typeof line.itemId === "string" ? line.itemId.trim() : "";
@@ -135,13 +150,12 @@ const cleanedLinesSchema = z
           path: [index, "quantityOrdered"],
         });
       } else {
-        if (!isPositiveNumberString(quantityOrdered)) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: "Quantity must be greater than 0",
-            path: [index, "quantityOrdered"],
-          });
-        }
+        addPositiveQuantityIssues(
+          quantityOrdered,
+          "Quantity",
+          [index, "quantityOrdered"],
+          ctx,
+        );
       }
 
       if (!unitCost) {
@@ -168,7 +182,17 @@ const cleanedLinesSchema = z
         });
       }
     });
-  });
+  })
+  .transform((lines) =>
+    lines.map((line) => {
+      if (line.quantityOrdered == null) return line;
+      const parsed = positiveQuantityString("Quantity").safeParse(line.quantityOrdered);
+      return {
+        ...line,
+        quantityOrdered: parsed.success ? parsed.data : line.quantityOrdered,
+      };
+    }),
+  );
 
 const cleanedAdditionalCostsSchema = z
   .array(rawAdditionalCostSchema)
@@ -317,24 +341,32 @@ export const receivePurchaseOrderSchema = z
     }
 
     data.lines.forEach((line, index) => {
-      if (!isPositiveNumberString(line.quantityReceived)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Received quantity must be greater than 0",
-          path: ["lines", index, "quantityReceived"],
-        });
-      }
+      addPositiveQuantityIssues(
+        line.quantityReceived,
+        "Received quantity",
+        ["lines", index, "quantityReceived"],
+        ctx,
+      );
     });
-  });
+  })
+  .transform((data) => ({
+    ...data,
+    lines: data.lines.map((line) => {
+      const parsed = positiveQuantityString("Received quantity").safeParse(
+        line.quantityReceived,
+      );
+      return {
+        ...line,
+        quantityReceived: parsed.success ? parsed.data : line.quantityReceived,
+      };
+    }),
+  }));
 
 export type ReceivePurchaseOrder = z.infer<typeof receivePurchaseOrderSchema>;
 
 export const purchaseOrderQuantityCorrectionSchema = z.object({
   lineId: z.string().uuid(),
-  quantityOrdered: z
-    .string()
-    .trim()
-    .refine(isPositiveNumberString, "Quantity must be greater than 0"),
+  quantityOrdered: positiveQuantityString("Quantity"),
   expectedVersion: expectedVersionSchema,
 });
 export type PurchaseOrderQuantityCorrection = z.infer<

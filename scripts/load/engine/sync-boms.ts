@@ -19,6 +19,23 @@ import type {
   ItemSeed,
   Report,
 } from "./types";
+import {
+  requireLoaderDerivedPositiveQuantity,
+  requireLoaderPositiveQuantity,
+} from "./quantity-validation";
+
+function validateSeedBomQuantities(seed: ItemSeed) {
+  requireLoaderPositiveQuantity(
+    resolveSeedBomOutputQuantity(seed),
+    `BOM output quantity for product "${seed.name}" (${seed.key})`,
+  );
+  for (const row of seed.bom ?? []) {
+    requireLoaderPositiveQuantity(
+      row.quantity,
+      `BOM component "${row.componentKey}" for product "${seed.name}" (${seed.key})`,
+    );
+  }
+}
 
 export function getManagedProductSeedsWithBom(seeds: ItemSeed[]): ItemSeed[] {
   return seeds.filter((seed) => seed.bom && seed.bom.length > 0);
@@ -141,6 +158,17 @@ export async function createLoaderBomRevisionInTx(
     note: string;
   }
 ) {
+  requireLoaderPositiveQuantity(
+    params.outputQuantity,
+    `BOM output quantity for product ${params.productId}`,
+  );
+  for (const row of params.bom) {
+    requireLoaderPositiveQuantity(
+      row.quantity,
+      `BOM component ${row.componentId} for product ${params.productId}`,
+    );
+  }
+
   const [currentRevision] = await tx
     .select({
       id: bomRevisions.id,
@@ -285,7 +313,10 @@ export async function createLoaderBomRevisionInTx(
         alternateItemSku: alternateItem.sku,
         alternateItemType: alternateItem.itemType,
         unitName: alternateItem.unitName,
-        quantityFactor: normalizeNumeric(quantityFactor),
+        quantityFactor: requireLoaderDerivedPositiveQuantity(
+          quantityFactor,
+          `BOM alternate conversion from "${alternateItem.name}" to "${defaultComponent.name}"`,
+        ),
         sortOrder: alternateIndex,
       };
     });
@@ -332,6 +363,7 @@ export function planBomsSync(
   report: Report
 ) {
   for (const product of getManagedProductSeedsWithBom(seeds)) {
+    validateSeedBomQuantities(product);
     const existingTarget = matchedItemByKey.get(product.key);
     if (!existingTarget || !product.bom) {
       report.syncedBoms.push(product.name);
@@ -420,6 +452,7 @@ export async function applyBomsSyncInTx(
   }
 
   for (const seed of managedBomSeeds) {
+    validateSeedBomQuantities(seed);
     const itemId = itemIdByKey.get(seed.key);
     if (!itemId || !seed.bom) {
       throw new Error(`Missing managed BOM target for ${seed.name}.`);

@@ -10,6 +10,7 @@ import {
   attachmentFiles,
   inventoryEvents,
   inventoryExpectedSummary,
+  integrationExternalRecords,
   itemFamilies,
   inventoryItemBalances,
   inventoryLotBalances,
@@ -110,6 +111,158 @@ async function writeFastLocalAttachment(storageKey: string, content: string) {
 test.describe("purchasing supply and receipt heartbeat", () => {
   const ts = Date.now();
   const unitId = getUnitId();
+
+  test("purchase quantities cannot silently convert to zero stock", async ({ db }) => {
+    const unique = randomUUID().slice(0, 8);
+    const [purchaseUnit] = await db
+      .insert(unitDefinitions)
+      .values({
+        organizationId: getOrgId(),
+        name: `Fast Tiny Purchase Unit ${unique}`,
+        size: "1",
+        uom: "ea",
+      })
+      .returning({ id: unitDefinitions.id });
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast Tiny Conversion Material ${unique}`,
+      unitDefinitionId: unitId,
+      purchaseUnitDefinitionId: purchaseUnit.id,
+      purchaseToStockFactor: "0.0001",
+      sku: `FAST-TINY-CONVERSION-${unique}`,
+      category: `Fast Purchasing ${unique}`,
+      description: null,
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status).toBe(201);
+    const supplier = await createSupplier({
+      name: `Fast Tiny Conversion Supplier ${unique}`,
+    });
+    expect(supplier.status).toBe(201);
+
+    const response = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId: supplier.body.id,
+        expectedDate: "2026-08-20",
+        notes: null,
+        lines: [
+          {
+            itemId: material.body.id,
+            quantityOrdered: "0.1",
+            unitCost: "1",
+          },
+        ],
+        additionalCosts: [],
+      }),
+    });
+    const body = await response.json();
+    expect(response.status, JSON.stringify(body)).toBe(400);
+    expect(body).toMatchObject({
+      error: expect.stringContaining(
+        "This quantity must convert to between 0.0001 and 99,999,999.9999",
+      ),
+      errors: {
+        "lines.0.quantityOrdered": [
+          "Converted stock quantity must be between 0.0001 and 99,999,999.9999",
+        ],
+      },
+    });
+
+    const overflowMaterial = await createItem({
+      itemType: "material",
+      name: `Fast Overflow Conversion Material ${unique}`,
+      unitDefinitionId: unitId,
+      purchaseUnitDefinitionId: purchaseUnit.id,
+      purchaseToStockFactor: "50000000",
+      sku: `FAST-OVERFLOW-CONVERSION-${unique}`,
+      category: `Fast Purchasing ${unique}`,
+      description: null,
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(overflowMaterial.status).toBe(201);
+    const overflowResponse = await testFetch("/api/purchase-orders", {
+      method: "POST",
+      body: JSON.stringify({
+        supplierId: supplier.body.id,
+        expectedDate: "2026-08-20",
+        notes: null,
+        lines: [
+          {
+            itemId: overflowMaterial.body.id,
+            quantityOrdered: "2",
+            unitCost: "1",
+          },
+        ],
+        additionalCosts: [],
+      }),
+    });
+    const overflowBody = await overflowResponse.json();
+    expect(overflowResponse.status, JSON.stringify(overflowBody)).toBe(400);
+    expect(overflowBody.errors).toMatchObject({
+      "lines.0.quantityOrdered": [
+        "Converted stock quantity must be between 0.0001 and 99,999,999.9999",
+      ],
+    });
+
+    const cumulativeMaterial = await createItem({
+      itemType: "material",
+      name: `Fast Cumulative Receipt Material ${unique}`,
+      unitDefinitionId: unitId,
+      sku: `FAST-CUMULATIVE-RECEIPT-${unique}`,
+      category: `Fast Purchasing ${unique}`,
+      description: null,
+      defaultPurchasePrice: "1",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(cumulativeMaterial.status).toBe(201);
+    const cumulativeOrder = await createPurchaseOrder({
+      supplierId: supplier.body.id,
+      lines: [
+        {
+          itemId: cumulativeMaterial.body.id,
+          quantityOrdered: "99999999.9999",
+          unitCost: "1",
+        },
+      ],
+    });
+    expect(cumulativeOrder.status).toBe(201);
+    const cumulativeLineId = cumulativeOrder.body.lines[0].id;
+    const maximumReceipt = await receivePurchaseOrder(cumulativeOrder.body.id, {
+      lines: [
+        { lineId: cumulativeLineId, quantityReceived: "99999999.9998" },
+      ],
+    });
+    expect(maximumReceipt.status).toBe(200);
+    const overflowingReceipt = await receivePurchaseOrder(
+      cumulativeOrder.body.id,
+      {
+        confirmOverReceipt: true,
+        lines: [{ lineId: cumulativeLineId, quantityReceived: "0.0002" }],
+      },
+    );
+    expect(overflowingReceipt.status).toBe(400);
+    expect(overflowingReceipt.body).toMatchObject({
+      error:
+        "This receipt would exceed the maximum supported quantity of 99,999,999.9999.",
+      errors: {
+        "lines.0.quantityReceived": [
+          "Total received quantity must be 99,999,999.9999 or less",
+        ],
+      },
+    });
+  });
 
   test("purchase orders preserve canonical variant identity from selection through snapshot", async ({
     db,
@@ -2471,6 +2624,58 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     ]);
   });
 
+  test("accounting imports reject unsupported material quantity precision", async ({
+    db,
+  }) => {
+    const externalId = `fast-invalid-qty-${ts}-${randomUUID().slice(0, 6)}`;
+    const document = {
+      id: externalId,
+      number: `FAST-INVALID-QTY-${ts}`,
+      status: "AUTHORISED",
+      supplierContactId: null,
+      supplierName: `Fast Invalid Quantity Supplier ${ts}`,
+      date: "2026-07-01",
+      deliveryDate: null,
+      deliveryAddress: null,
+      total: null,
+      updatedAt: null,
+      lines: [
+        {
+          lineItemID: "line-1",
+          itemCode: `FAST-INVALID-QTY-${ts}`,
+          description: `Fast Invalid Quantity Material ${ts}`,
+          quantity: 1.23456,
+          unitAmount: 10,
+          accountCode: null,
+          taxType: null,
+        },
+      ],
+    };
+    const output = execFileSync(
+      "npx",
+      [
+        "tsx",
+        "--tsconfig",
+        "test/helpers/tsconfig.accounting-import.json",
+        "test/helpers/accounting-import-harness.ts",
+        JSON.stringify({ orgId: getOrgId(), document }),
+      ],
+      {
+        encoding: "utf8",
+        timeout: 60_000,
+        env: { ...process.env, NODE_OPTIONS: "" },
+      },
+    );
+
+    expect(output).toContain('"created":0');
+    expect(output).toContain("no more than 4 decimal places");
+    const importedRows = await db
+      .select({ id: integrationExternalRecords.id })
+      .from(integrationExternalRecords)
+      .where(eq(integrationExternalRecords.externalId, externalId));
+    expect(importedRows).toEqual([]);
+  });
+
   test("quantity-distributed freight edit revalues landed cost via append-only event", async ({
     db,
   }) => {
@@ -4272,6 +4477,17 @@ test.describe("purchasing supply and receipt heartbeat", () => {
       },
     );
     expect(blocked.status, await blocked.text()).toBe(200);
+
+    const invalidPreview = await testFetch(
+      `/api/purchase-orders/${order.body.id}/quantity-correction-preview?lineId=${lineId}&quantityOrdered=1.23456`,
+    );
+    expect(invalidPreview.status).toBe(400);
+    await expect(invalidPreview.json()).resolves.toMatchObject({
+      error: "Quantity supports up to 4 decimal places",
+      errors: {
+        quantityOrdered: ["Quantity supports up to 4 decimal places"],
+      },
+    });
 
     const preview = await testFetch(
       `/api/purchase-orders/${order.body.id}/quantity-correction-preview?lineId=${lineId}&quantityOrdered=2`,

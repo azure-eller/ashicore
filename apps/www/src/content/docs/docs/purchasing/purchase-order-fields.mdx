@@ -47,7 +47,7 @@ One row per item being ordered. An item can appear on an order only once.
 | Item | You | The material or product being purchased. Required. Its SKU appears beneath its name when one is set. |
 | Supplier item code | Item | The selected item's current supplier-facing code. An em dash means the item has no supplier item code. |
 | Internal barcode | Item | The selected item's current internal barcode. An em dash means the item has no internal barcode. |
-| Quantity | You | How much to order, in the selected **UoM**. Required and greater than zero. Increasing it after receipt adds expected supply; reducing it below received opens an impact confirmation. |
+| Quantity | You | How much to order, in the selected **UoM**. Must be between `0.0001` and `99,999,999.9999` with no more than four meaningful decimal places; trailing zeroes are allowed. Its converted stocking quantity must remain in the same range. Increasing it after receipt adds expected supply; reducing it below received opens an impact confirmation. |
 | UoM | You / item | The purchase unit for the line, such as Bag or Case. |
 | Price per unit | You | Price per purchase unit. Required. If received tracked stock from this order is still on hand, a later change to this cost revalues it. |
 | Tax | You | The tax applied to the line. Defaults to your organization's purchase tax rate. |

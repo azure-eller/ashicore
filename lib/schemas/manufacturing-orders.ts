@@ -4,10 +4,10 @@ import { manufacturingOrders } from "@/lib/db/schema";
 import {
   clientIdSchema,
   expectedVersionSchema,
-  isNonNegativeNumberString,
   isValidIsoDate,
+  nonNegativeQuantityString,
   nullableString,
-  positiveDecimalString,
+  positiveQuantityString,
 } from "./shared";
 
 export const MANUFACTURING_ORDER_STATUSES = ["open", "done"] as const;
@@ -41,7 +41,7 @@ export type ManufacturingBatchStatus =
 const ingredientRowSchema = z.object({
   itemId: z.string().min(1, "Ingredient is required"),
   defaultItemId: z.string().min(1, "Default ingredient is required").optional(),
-  quantityPerUnit: positiveDecimalString("Quantity per unit"),
+  quantityPerUnit: positiveQuantityString("Quantity per unit"),
 }).strict();
 
 const rawIngredientRowSchema = z.object({
@@ -122,7 +122,7 @@ const manufacturingIngredientLotAllocationSchema = z.object({
     .array(
       z.object({
         sourceId: z.string().uuid(),
-        quantity: positiveDecimalString("Allocated quantity"),
+        quantity: positiveQuantityString("Allocated quantity"),
       })
     )
     .default([]),
@@ -162,8 +162,8 @@ const baseManufacturingOrderSchema = createInsertSchema(manufacturingOrders, {
     updatedAt: true,
   })
   .extend({
-    plannedQuantity: positiveDecimalString("Planned quantity"),
-    batchCount: positiveDecimalString("Batches").optional(),
+    plannedQuantity: positiveQuantityString("Planned quantity"),
+    batchCount: positiveQuantityString("Batches").optional(),
     ingredients: ingredientsSchema,
     lotAllocations: z
       .array(manufacturingIngredientLotAllocationSchema)
@@ -209,7 +209,7 @@ export const manufacturingOrderCreateFormSchema = z
       });
     }
 
-    const quantityCheck = positiveDecimalString("Planned quantity").safeParse(
+    const quantityCheck = positiveQuantityString("Planned quantity").safeParse(
       values.plannedQuantity ?? ""
     );
 
@@ -294,7 +294,7 @@ export const patchManufacturingOrderIngredientSchema = z
       .array(
         z.object({
           sourceId: z.string().uuid(),
-          quantity: positiveDecimalString("Allocated quantity"),
+          quantity: positiveQuantityString("Allocated quantity"),
         }),
       )
       .optional(),
@@ -311,9 +311,7 @@ const ingredientActualSchema = z.object({
   ingredientId: z.string().min(1, "Ingredient is required"),
   actualConsumedQuantity: z
     .string()
-    .trim()
-    .min(1, "Actual consumed is required")
-    .refine(isNonNegativeNumberString, "Actual consumed must be zero or greater"),
+    .pipe(nonNegativeQuantityString("Actual consumed")),
 });
 
 /**
@@ -335,7 +333,7 @@ const producedLotSelectionFields = {
 export const completeManufacturingOrderSchema = z.object({
   // Output + variance location; omitted = default (mobile sends none).
   locationId: z.string().uuid().nullish(),
-  actualQuantity: positiveDecimalString("Actual quantity").nullish(),
+  actualQuantity: positiveQuantityString("Actual quantity").nullish(),
   batchCount: z.number().int("Batches must be a whole number").positive("Batches must be positive").optional(),
   outputDisposition: z.enum(["available", "blocked"]).default("available"),
   ingredientActuals: z.array(ingredientActualSchema).default([]),
@@ -349,7 +347,7 @@ export type CompleteManufacturingOrder = z.infer<
 export const completeManufacturingBatchSchema = z.object({
   // Output + variance location; omitted = default (mobile sends none).
   locationId: z.string().uuid().nullish(),
-  actualQuantity: positiveDecimalString("Actual quantity").nullish(),
+  actualQuantity: positiveQuantityString("Actual quantity").nullish(),
   outputDisposition: z.enum(["available", "blocked"]).default("available"),
   ingredientActuals: z.array(ingredientActualSchema).default([]),
   confirmNegativeStock: z.boolean().optional(),
@@ -439,18 +437,29 @@ export type ReorderManufacturingOrderPriorityRanks = z.infer<
   typeof reorderManufacturingOrderPriorityRanksSchema
 >;
 
+const signedOutputQuantitySchema = z
+  .string()
+  .trim()
+  .min(1, "Output quantity is required")
+  .transform((value, ctx) => {
+    const isNegative = value.startsWith("-");
+    const parsed = positiveQuantityString("Output quantity").safeParse(
+      isNegative ? value.slice(1) : value,
+    );
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        ctx.addIssue({ ...issue });
+      }
+      return z.NEVER;
+    }
+    return isNegative ? `-${parsed.data}` : parsed.data;
+  });
+
 export const recordManufacturingOutputSchema = z.object({
   // Output location; a negative quantity reverses at this location too.
   // Omitted = default (mobile sends none).
   locationId: z.string().uuid().nullish(),
-  quantity: z
-    .string()
-    .trim()
-    .min(1, "Output quantity is required")
-    .refine((value) => {
-      const parsed = Number(value);
-      return Number.isFinite(parsed) && parsed !== 0;
-    }, "Output quantity must be a non-zero number"),
+  quantity: signedOutputQuantitySchema,
   outputDisposition: z.enum(["available", "blocked"]).default("available"),
   notes: nullableString,
   confirmNegativeStock: z.boolean().optional(),
@@ -476,7 +485,7 @@ export const createManufacturingOrdersFromSalesOrderSchema = z.object({
     .array(
       z.object({
         salesOrderLineId: z.string().uuid("Sales order line is required"),
-        quantity: positiveDecimalString("Quantity"),
+        quantity: positiveQuantityString("Quantity"),
       }).strict()
     )
     .optional(),

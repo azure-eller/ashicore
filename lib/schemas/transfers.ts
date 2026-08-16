@@ -1,14 +1,7 @@
 import { z } from "zod";
+import { positiveQuantityString } from "./shared";
 
-const transferQuantity = z
-  .string()
-  .trim()
-  .refine((value) => /^\d+(\.\d{1,4})?$/.test(value), {
-    message: "Quantity must be a positive number with up to 4 decimal places",
-  })
-  .refine((value) => Number.isFinite(Number(value)) && Number(value) > 0, {
-    message: "Quantity must be greater than zero",
-  });
+const transferQuantity = positiveQuantityString("Quantity");
 
 export const createTransferSchema = z
   .object({
