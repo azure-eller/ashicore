@@ -35,7 +35,7 @@ const isHome = path === "/";
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..700&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
     <link rel="icon" href={logo.src} type="image/svg+xml" />
@@ -65,9 +65,8 @@ const isHome = path === "/";
             <span>ashicore</span>
           </a>
           <nav class="nav-links" aria-label="Primary">
-            <a href="/#how">How it works</a>
-            <a href="/#built">Built for</a>
-            <a href="/#integrations">Integrations</a>
+            <a href="/#chain">What it handles</a>
+            <a href="/#books">Accounting</a>
             <a href="/pricing">Pricing</a>
             <a href="/docs">Docs</a>
           </nav>
@@ -110,16 +109,15 @@ const isHome = path === "/";
               <span>ashicore</span>
             </a>
             <p class="blurb">
-              The batch-manufacturing ERP that onboards itself. Starting with
-              soil, mulch &amp; compost.
+              Business software for soil, compost, fertilizer and amendment
+              manufacturers.
             </p>
           </div>
           <div>
             <h4>Product</h4>
             <ul>
-              <li><a href="/#how">How it works</a></li>
-              <li><a href="/#built">Features</a></li>
-              <li><a href="/#integrations">Integrations</a></li>
+              <li><a href="/#chain">What it handles</a></li>
+              <li><a href="/#books">Accounting sync</a></li>
               <li><a href="/pricing">Pricing</a></li>
               <li><a href="/docs">Docs</a></li>
             </ul>
@@ -169,7 +167,6 @@ const isHome = path === "/";
         </div>
       </footer>
     </div>
-    {isHome && <script is:inline src="/pipeline.js" defer></script>}
     <script is:inline src="/marketing-main.js" defer></script>
   </body>
 </html>

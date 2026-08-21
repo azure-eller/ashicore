@@ -1,4 +1,4 @@
-/* ashicore — scroll reveals, nav, topo texture */
+/* ashicore — acquisition analytics, scroll reveals, nav state */
 (function () {
   // ---- acquisition analytics ----
   function trackEvent(name, data) {
@@ -81,28 +81,4 @@
   onScroll();
   window.addEventListener('scroll', onScroll, { passive: true });
 
-  // ---- topo contour background (simple concentric ovals, drawn once) ----
-  const topo = document.getElementById('topo');
-  if (topo) {
-    const ns = 'http://www.w3.org/2000/svg';
-    const svg = document.createElementNS(ns, 'svg');
-    svg.setAttribute('viewBox', '0 0 1200 700');
-    svg.setAttribute('preserveAspectRatio', 'xMidYMid slice');
-    svg.setAttribute('width', '100%');
-    svg.setAttribute('height', '100%');
-    const cx = 960, cy = 150;
-    for (let k = 1; k <= 13; k++) {
-      const el = document.createElementNS(ns, 'ellipse');
-      el.setAttribute('cx', cx);
-      el.setAttribute('cy', cy);
-      el.setAttribute('rx', 70 + k * 62);
-      el.setAttribute('ry', 52 + k * 44);
-      el.setAttribute('fill', 'none');
-      el.setAttribute('stroke', 'var(--line)');
-      el.setAttribute('stroke-width', k % 4 === 0 ? '1.6' : '1');
-      el.setAttribute('transform', `rotate(-16 ${cx} ${cy})`);
-      svg.appendChild(el);
-    }
-    topo.appendChild(svg);
-  }
 })();
