@@ -20,7 +20,6 @@ interface Props {
 const { title, description, path = "/" } = Astro.props;
 const canonical = absoluteUrl(path);
 const pageTitle = title === SITE_NAME ? SITE_NAME : `${title} | ${SITE_NAME}`;
-const isHome = path === "/";
 ---
 
 <!doctype html>
