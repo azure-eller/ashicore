@@ -14,7 +14,7 @@ const stages = [
     object: "recipe",
     title: "Formulas and their history",
     yard: "The mix lives in a spreadsheet, or in the head of the one person who formulates. When it changes, nobody writes down why.",
-    app: "The formula lives on the product. Every changed save appends a revision holding the components, the constraints, the operation costs, who saved it and a note. One revision is current.",
+    app: "The formula lives on the product. A save that changes the formula appends a revision holding the components, the constraints, the operation costs, who saved it and a note. One revision is current.",
     fact: "Manufacturing orders copy the current revision, so editing a formula never rewrites a run you already made. Lock a proven formula and it stops taking quiet edits.",
   },
   {
@@ -104,8 +104,8 @@ const stages = [
             <a href="#chain" class="btn btn-ghost btn-lg">What it handles</a>
           </div>
           <p class="hero-note reveal d3">
-            Start with one blend. Keep its formula, batches, lots, package sizes,
-            orders and costs connected.
+            Built alongside a working organic soil company in Colorado, on their
+            blends, their bag sizes and their books.
           </p>
         </div>
 
@@ -253,19 +253,17 @@ const stages = [
             </a>
           </div>
           <div class="col reveal d1">
-            <h3>Shipment and invoicing stay connected</h3>
+            <h3>And it works away from the desk</h3>
             <p>
-              A sales order keeps ordered, allocated, picked, shipped and
-              cancelled quantities on each line. Ship what is ready now, leave
-              the balance open, and send the eligible invoice to your connected
-              accounting provider.
+              The Android app reads the same records over the same API, for the
+              times when counting stock, receiving a load or closing out a batch
+              happens standing in the yard rather than sitting in the office.
             </p>
             <p class="col-fact">
-              A failed invoice push never blocks the shipment and is safe to
-              retry.
+              Same data, same rules. Nothing to reconcile afterwards.
             </p>
-            <a class="col-link" href="/docs/sales/deliver-and-invoice">
-              How delivery and invoicing work <span class="arr">→</span>
+            <a class="col-link" href="/android">
+              The Android app <span class="arr">→</span>
             </a>
           </div>
         </div>
