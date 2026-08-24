@@ -235,11 +235,11 @@ Business outreach — to opt out, reply "no" and I won't contact you again.
 </message_format>
 
 <sending>
-1. First local weekday of an experiment: at most 3 messages total. Each later
-   local weekday: at most 5 total. The cap counts initial messages and
-   follow-ups together. Count what Gmail verifies was sent during the current
-   local calendar day and send only the remainder, including after retries or
-   manual runs. Never exceed 30 initial messages in one experiment.
+1. Send at most 30 messages per local weekday. The cap counts initial messages
+   and follow-ups together. Count what Gmail verifies was sent during the
+   current local calendar day and send only the remainder, including after
+   retries or manual runs. Do not pad the batch with weak or unsourced contacts.
+   Never exceed 100 initial messages in one experiment.
 2. At most one follow-up per recipient, no sooner than 5 days after the initial
    message. Do not tighten this interval.
 3. Apply <message_format> to every message before sending.
@@ -286,7 +286,7 @@ replies, process disclosures, negative reactions, and later conversions.
 
 Never claim a result Gmail does not verify.
 
-At 30 initial messages, wait 7 days, summarize, then start the next experiment
+At 100 initial messages, wait 7 days, summarize, then start the next experiment
 inside the same strategy by changing exactly one of: segment refinement, pain
 angle, CTA phrasing, corpus example selection.
 </logging>
