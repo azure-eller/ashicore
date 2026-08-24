@@ -508,7 +508,7 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; font-stretch: 1
   display: grid;
   grid-template-columns: var(--rail) minmax(0, 1fr);
   column-gap: var(--stage-gap);
-  padding-block: clamp(26px, 3.2vw, 42px);
+  padding-block: clamp(20px, 2.2vw, 30px);
   border-top: 1px solid var(--line);
 }
 .stage-mark { position: relative; }
@@ -538,7 +538,7 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; font-stretch: 1
   font-size: clamp(1.22rem, 2vw, 1.62rem);
   font-stretch: 104%;
   letter-spacing: -0.025em;
-  margin-bottom: 19px;
+  margin-bottom: 12px;
 }
 .stage-cols { display: grid; grid-template-columns: 1fr 1fr; }
 .stage-yard {
@@ -554,17 +554,6 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; font-stretch: 1
   font-size: 15.5px;
   line-height: 1.52;
   color: var(--ink-soft);
-  text-wrap: pretty;
-}
-.stage-fact {
-  margin-top: 21px;
-  padding-left: 15px;
-  border-left: 2px solid var(--accent);
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  line-height: 1.62;
-  color: var(--ink-soft);
-  max-width: 74ch;
   text-wrap: pretty;
 }
 
@@ -644,7 +633,7 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; font-stretch: 1
    ============================================================ */
 
 /* shared head/foot for the home pricing section */
-.price-head { text-align: center; max-width: 640px; margin-inline: auto; }
+.price-head { text-align: center; max-width: 760px; margin-inline: auto; }
 .price-head h2 { margin-top: 16px; }
 .price-head .lede { margin-top: 16px; }
 .price-foot { text-align: center; margin-top: 36px; font-family: var(--font-mono); font-size: 12.5px; color: var(--ink-faint); letter-spacing: 0.02em; }

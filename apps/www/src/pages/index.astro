@@ -6,72 +6,63 @@ const stages = [
   {
     object: "material",
     title: "Inbound and freight",
-    yard: "The bark is on one invoice. The freight is on another, and it lands a week later. What the yard actually paid per unit is on neither one.",
-    app: "A purchase order carries its additional costs beside the material lines. Distribute freight, customs and handling by line value or by ordered purchase quantity, or leave a deposit out of stock cost entirely.",
-    fact: "Landed cost per stock unit becomes the lot cost at receipt. Change a cost after receiving and the lots still on hand revalue.",
+    yard: "Bark on one invoice. Freight on another, a week later.",
+    app: "Freight spreads across the lines by value or quantity, and lands in the lot cost.",
   },
   {
     object: "recipe",
-    title: "Formulas and their history",
-    yard: "The mix lives in a spreadsheet, or in the head of the one person who formulates. When it changes, nobody writes down why.",
-    app: "The formula lives on the product. A save that changes the formula appends a revision holding the components, the constraints, the operation costs, who saved it and a note. One revision is current.",
-    fact: "Manufacturing orders copy the current revision, so editing a formula never rewrites a run you already made. Lock a proven formula and it stops taking quiet edits.",
+    title: "Formulas and history",
+    yard: "The mix is in a spreadsheet, or in one person's head.",
+    app: "Every change appends a revision. Orders copy the current one, so old runs stay put.",
   },
   {
     object: "ingredient",
     title: "Ingredients and packaging",
-    yard: "Peat, coir, perlite, bark, lime. Then the bags, totes and labels that also have to be on hand before anything can run.",
-    app: "Packaging is a material in the formula like any other input, so a run that is short on 1 cu ft bags reads as short instead of ready. A component can name which sibling variants may stand in for it, each with its own quantity in its own unit.",
-    fact: "Swap a component to an approved variant while the row is still unpicked. Once picking starts the row locks, because the inventory trail already points at those lots.",
+    yard: "Peat, coir, perlite. Then the bags, totes and labels.",
+    app: "Packaging is an input like any other. Short on bags reads as short, not ready.",
   },
   {
     object: "batch",
-    title: "Batches and production",
-    yard: "Nobody makes 137 yards. They make four batches of whatever the mixer holds, and the fourth one comes up short.",
-    app: "A formula is written per unit or per batch. A batch order runs a whole number of batches against a planned output, and ingredient demand scales from the batch count.",
-    fact: "Each batch carries its own status and its own output lot, so a run can complete in pieces instead of all at once.",
+    title: "Batches",
+    yard: "Nobody makes 137 yards. They make four batches.",
+    app: "Run whole batches against a planned output. Each gets its own status and output lot.",
   },
   {
     object: "lot",
-    title: "Curing and age rules",
-    yard: "Compost is not compost the day it is turned. Material that has not sat long enough should not end up in a bag with your name on it.",
-    app: "A formula component can require lots to be at least a set number of days old, counted from the date the lot was received.",
-    fact: "Picking takes eligible lots first. When nothing is old enough it shows need, have and short before you can continue, and records the override if you go ahead.",
+    title: "Curing",
+    yard: "Compost is not compost the day it is turned.",
+    app: "Require a minimum lot age. Picking flags short before you continue.",
   },
   {
     object: "variant",
-    title: "One blend, several package sizes",
-    yard: "The same mix leaves as a 1.5 cu ft bag, a 2 cu ft bag, a tote and loose by the yard. Four prices, four counts, one formula.",
-    app: "A family holds the shared identity: name, units, lot-tracking mode, purchasing setup. Each size stays a real item with its own SKU, price, stock, lots and ledger history.",
-    fact: "A pricing schedule can target one option value, such as every 2 cu ft bag, for a customer category with quantity breaks.",
+    title: "Package sizes",
+    yard: "One mix leaves as bags, totes and bulk. Four prices, four counts.",
+    app: "Each size is a real item with its own SKU, price and stock. One family, one formula.",
   },
   {
     object: "balance",
-    title: "What is on hand, and what is coming",
-    yard: "A landscaper asks for forty yards on Friday. The answer is split between two people and a stack of open purchase orders.",
-    app: "Every item reads on hand, demand, expected and available to promise, per location. Only available stock counts. Blocked and rejected quantity stays on the lot for the record but out of use.",
-    fact: "Open sales lines and manufacturing ingredient demand compete for the same stock in rank order, so scarce material is steered by ranking orders.",
+    title: "On hand, and coming",
+    yard: "Forty yards on Friday? The answer is split between two people.",
+    app: "On hand, demand, expected and available to promise. Per item, per location.",
   },
   {
     object: "order",
-    title: "Orders, fulfillment and shipping",
-    yard: "Half the order can go today and the rest when the next batch is ready. The customer wants to know which half, and when.",
-    app: "Each line reads three ways: whether the finished good is there, whether the components are coverable, and whether production has to run. Those roll up into one readiness answer for the order.",
-    fact: "Ship part of an order and the shipped rows are protected. Cancel what is left and the order closes with its history intact.",
+    title: "Orders and shipping",
+    yard: "Half goes today. The rest when the next batch is ready.",
+    app: "Each line says whether stock is there, components cover it, or production has to run.",
   },
   {
     object: "cost",
-    title: "What it actually cost to make",
-    yard: "The per-yard cost behind the price list was worked out two seasons ago, before freight moved and before the mix changed.",
-    app: "The formula shows an estimate per output unit from current stock costs plus operations. When a run completes, Ashicore reconciles the quantities and lot costs that were actually consumed.",
-    fact: "Actual material cost, absorbed operation cost and actual cost per unit, recorded on the order that produced it.",
+    title: "Cost to make",
+    yard: "The per-yard cost is from two seasons ago.",
+    app: "Estimated from current costs, then reconciled to what the run actually consumed.",
   },
 ];
 ---
 
 <BaseLayout
   title="Ashicore"
-  description="Ashicore is business software for soil, compost, fertilizer and amendment manufacturers. Formulas and their revisions, batches, cure rules, package sizes, landed freight, orders and real cost per unit in one system."
+  description="Business software for soil, compost, fertilizer and amendment manufacturers. Formulas, batches, cure rules, package sizes, freight and real cost per unit in one system."
   path="/"
 >
   <main id="top">
@@ -85,10 +76,8 @@ const stages = [
             Business software for<br /><span class="hl">soil manufacturers.</span>
           </h1>
           <p class="lede reveal d2">
-            Compost, potting mixes, growing media, amendment and fertilizer
-            blends. Ashicore holds the formula, the batch, the cure rule, the
-            package sizes, the inbound freight and the real cost per unit in one
-            system instead of six spreadsheets.
+            Formulas, batches, cure times, bag sizes, freight, cost per unit.
+            One system, not six spreadsheets.
           </p>
           <div class="hero-cta reveal d3">
             <a
@@ -104,8 +93,7 @@ const stages = [
             <a href="#chain" class="btn btn-ghost btn-lg">What it handles</a>
           </div>
           <p class="hero-note reveal d3">
-            Built alongside a working organic soil company in Colorado, on their
-            blends, their bag sizes and their books.
+            Built alongside a working organic soil company in Colorado.
           </p>
         </div>
 
@@ -175,10 +163,8 @@ const stages = [
             <li><span>The cost per yard</span> a number from two seasons ago</li>
           </ul>
           <p class="lede">
-            Every one of those is a fact about the same material. Ashicore keeps
-            one record for the thing you make and hangs all six off it, so
-            changing the formula changes the cost, and receiving a load changes
-            what you can promise.
+            All six describe the same material. Ashicore keeps one record and
+            hangs them off it.
           </p>
         </div>
       </div>
@@ -192,10 +178,6 @@ const stages = [
           <h2 class="h-section">
             Follow one load of material from the gate to the invoice.
           </h2>
-          <p class="lede">
-            These are the places a soil operation actually loses money and time.
-            Each one is a record in Ashicore, and each one knows about the next.
-          </p>
         </header>
 
         <div class="chain-cols" aria-hidden="true">
@@ -216,7 +198,6 @@ const stages = [
                     <p class="stage-yard">{stage.yard}</p>
                     <p class="stage-app">{stage.app}</p>
                   </div>
-                  <p class="stage-fact">{stage.fact}</p>
                 </div>
               </li>
             ))
@@ -236,17 +217,11 @@ const stages = [
           <div class="col reveal">
             <h3>Xero or QuickBooks</h3>
             <p>
-              Connect one provider. Sales invoices go out on shipment,
-              automatically on Xero or with one action on QuickBooks. A supplier
-              bill is raised from a purchase order when you choose to raise it,
-              never as a side effect of receiving. Open purchase orders come the
-              other way so you can receive against an order raised in your
-              accounting system, and Xero contacts can be pulled in as customers
-              and suppliers.
+              Invoices go out on shipment. Bills are raised from a purchase
+              order when you choose to raise one.
             </p>
             <p class="col-fact">
-              Ashicore keeps no ledger of its own. Your accounting system stays
-              the book of record.
+              Ashicore keeps no ledger of its own.
             </p>
             <a class="col-link" href="/docs/integrations/accounting-sync">
               How accounting sync works <span class="arr">→</span>
@@ -255,12 +230,10 @@ const stages = [
           <div class="col reveal d1">
             <h3>And it works away from the desk</h3>
             <p>
-              The Android app reads the same records over the same API, for the
-              times when counting stock, receiving a load or closing out a batch
-              happens standing in the yard rather than sitting in the office.
+              Count stock, receive a load or close out a batch from the yard.
             </p>
             <p class="col-fact">
-              Same data, same rules. Nothing to reconcile afterwards.
+              Same records, same rules.
             </p>
             <a class="col-link" href="/android">
               The Android app <span class="arr">→</span>
@@ -277,9 +250,8 @@ const stages = [
           <span class="eyebrow">Pricing</span>
           <h2 class="h-section">Free until your catalog is big.</h2>
           <p class="lede">
-            Every feature is free for up to 30 active SKUs. For a soil maker a
-            SKU is one sellable item, so six blends in three bag sizes is
-            eighteen. Pro is $199 per month when the catalog outgrows that.
+            Free to 30 active SKUs. Pro is $199 a month for an unlimited
+            catalog.
           </p>
         </div>
 
@@ -288,9 +260,7 @@ const stages = [
           <div class="pp-card reveal">
             <div class="pp-card-name">Free</div>
             <div class="pp-card-price"><span class="num">$0</span><span class="per">forever</span></div>
-            <p class="pp-card-desc">
-              The whole system, with no time limit and no card.
-            </p>
+            <p class="pp-card-desc">No time limit, no card.</p>
             <span class="pp-card-meta">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/></svg>
               15 days of unlimited SKU creation to get set up
@@ -319,9 +289,7 @@ const stages = [
             <span class="pp-card-tag"><i></i> Unlimited catalog</span>
             <div class="pp-card-name">Pro</div>
             <div class="pp-card-price"><span class="num">$199</span><span class="per">/month</span></div>
-            <p class="pp-card-desc">
-              The same system with no ceiling on how many items you sell.
-            </p>
+            <p class="pp-card-desc">No ceiling on what you sell.</p>
             <hr />
             <ul class="pp-card-list">
               <li><span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 6"/></svg></span><span><b>Unlimited</b> SKUs, users and integrations</span></li>
@@ -341,8 +309,7 @@ const stages = [
           </div>
         </div>
         <p class="price-foot">
-          Exactly how the 30-SKU limit counts is on the
-          <a href="/pricing" class="price-foot-link">full pricing page →</a>
+          <a href="/pricing" class="price-foot-link">How the SKU limit counts →</a>
         </p>
       </div>
     </section>
@@ -354,9 +321,7 @@ const stages = [
           <span class="eyebrow on-dark">Get started</span>
           <h2 class="h-section">Load one blend and see if it fits.</h2>
           <p class="lede">
-            Set up a formula, run a batch against it, and check the cost that
-            comes out the other side. If it does not match how your yard
-            actually runs, tell us what is missing.
+            Set up a formula, run a batch, check the cost that comes out.
           </p>
           <div class="hero-cta">
             <a
