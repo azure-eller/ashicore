@@ -2,7 +2,7 @@
    ashicore brand theme for Starlight
    Maps Starlight's --sl-* tokens onto the marketing design system:
    cool grey neutrals · near-black ink · highlighter-yellow accent.
-   Type: Archivo (display) / Hanken Grotesk (body) / JetBrains Mono.
+   Type: Space Grotesk (display) / Hanken Grotesk (body) / JetBrains Mono.
    Token values mirror src/styles/global.css.
    ============================================================ */
 
@@ -53,7 +53,7 @@
 /* Display face for headings + the site title, like the marketing site */
 .sl-markdown-content :is(h1, h2, h3, h4, h5, h6),
 .site-title {
-  font-family: "Archivo", system-ui, sans-serif;
+  font-family: "Space Grotesk", system-ui, sans-serif;
   letter-spacing: -0.018em;
 }
 
@@ -124,7 +124,7 @@ a[aria-current="page"] {
 
 /* Theme-independent tokens */
 :root {
-  --font-display: "Archivo", system-ui, sans-serif;
+  --font-display: "Space Grotesk", system-ui, sans-serif;
   --font-body: var(--sl-font);
   --font-mono: var(--sl-font-mono);
   --r-sm: 8px;
