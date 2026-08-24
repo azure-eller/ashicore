@@ -3183,7 +3183,11 @@ test.describe("manufacturing demand and completion heartbeat", () => {
     // reverts the swap or is rejected as a locked planning change.
     await page.goto(`/manufacturing/orders/${orderId}`);
     const variantTrigger = page.getByLabel(/Choose variant for/).first();
-    await expect(variantTrigger).toBeVisible();
+    // This is the first navigation to the order card in this spec, so the route
+    // cold-starts and the ingredient grid renders the variant select after the
+    // default 5s expect window. It sat just under the limit until CI load tipped
+    // it over. 15s matches the other grid waits in this file.
+    await expect(variantTrigger).toBeVisible({ timeout: 15_000 });
     const swapResponse = page.waitForResponse(
       (response) =>
         response.request().method() === "PATCH" &&
