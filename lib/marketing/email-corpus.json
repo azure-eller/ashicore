@@ -1,19 +1,74 @@
 {
-  "version": "outbound-starter-v1",
-  "blacklist": [
-    "I was impressed by",
-    "I noticed that",
-    "streamline",
-    "optimize",
-    "leverage",
-    "pain points",
-    "innovative solution",
-    "I'd love to explore",
-    "quick 15-minute call",
-    "touch base",
-    "circle back",
-    "synergy"
-  ],
+  "version": "marketing-conversations-v3",
+  "blacklist": {
+    "note": "Lexical entries are cheap to check and catch roughly the easy 80%. The structural entries are what actually survived four rounds of model review on 2026-08-14, because each message passed inspection on its own. Both lists are time-dated detectors and will drift; re-profile them against real sent mail rather than treating them as permanent.",
+    "lexical": [
+      "I was impressed by",
+      "I noticed that",
+      "streamline",
+      "optimize",
+      "leverage",
+      "pain points",
+      "innovative solution",
+      "I'd love to explore",
+      "quick 15-minute call",
+      "touch base",
+      "circle back",
+      "synergy",
+      "seamless",
+      "robust",
+      "transformative",
+      "utilize",
+      "facilitate",
+      "delve"
+    ],
+    "structural": [
+      {
+        "pattern": "Three-noun capability list",
+        "example": "formulas, production, and inventory",
+        "why": "Appeared in five of the eight messages sent on 2026-08-13/14. The single strongest tell in our own corpus. Name one capability, the one this recipient would care about."
+      },
+      {
+        "pattern": "First name followed by an em-dash as the opener",
+        "example": "Rick — we've been building...",
+        "why": "All eight sent messages opened this way. Vary the entry into the first sentence, not just its content."
+      },
+      {
+        "pattern": "Question that supplies its own answer options",
+        "example": "spreadsheets, another system, or something homegrown?",
+        "why": "Started as a good idea for lowering reply effort, then became the default closer. A menu tells the recipient you already decided what the answers are."
+      },
+      {
+        "pattern": "Closing on \"...today?\"",
+        "why": "Two of three drafts in one batch ended on this exact rhythm. Fine once; a tic across a batch."
+      },
+      {
+        "pattern": "Not just X, but Y / Not only X, but also Y / Not X. Y.",
+        "why": "Negative parallelism. Among the most reliable machine-writing signals."
+      },
+      {
+        "pattern": "Whether you're X or Y / While X, Y is also important",
+        "why": "Hedged symmetry. Addresses every reader at once, which means it addresses none of them."
+      },
+      {
+        "pattern": "Copula inflation: serves as, stands as, represents, marks",
+        "why": "Keep the verb when it enumerates, defines, or locates. Replace it when it only inflates a plain 'is'."
+      },
+      {
+        "pattern": "This is where X comes in / At its core / When it comes to",
+        "why": "Generic connective scaffolding with no information in it."
+      },
+      {
+        "pattern": "Restating the company's About page back at them",
+        "why": "Reads as research theatre. They know what they do. Use the research to ask a question only someone who read it could ask."
+      },
+      {
+        "pattern": "Rule-of-three parallelism anywhere in the message",
+        "why": "In a message under 60 words, a tricolon is almost always cadence standing in for a point."
+      }
+    ],
+    "batchRule": "Outside the exact required footer and required on-site origin idea, no content phrase of three or more words may repeat across a batch, and no two messages may share a first-sentence structure. Check message-specific copy across the batch, never per message: every convergent batch we have produced passed per-message review."
+  },
   "examples": [
     {
       "id": "soil-production-planning",
@@ -81,6 +136,37 @@
       "subject": "business",
       "body": "buddy,\n\nive seen u SUCKING at business.\n\nmy app, it makes ur business B00000M.\n\ncome by it now!!! 1.99 per month.\n\n199 per month i mean\n\nashicore.app",
       "experimental": true
+    }
+  ],
+  "replyExamples": [
+    {
+      "id": "formula-question-assisted-pilot",
+      "validationStatus": "candidate",
+      "situation": "A soil formulator at a small, established soil-amendment manufacturer replied to an initial outreach message by asking whether Ashicore is an app for formulas. Public research showed bagged and bulk blends, custom formulas, wholesale distribution, and a small team. The response has not yet produced an observable outcome.",
+      "inbound": "Are you building a app for the formulas?",
+      "body": "Yeah — formulas are a big part of it. You add the ingredients for each blend, and Ashicore figures out what you need for a batch, tracks what you actually use, and keeps your inventory and costs up to date. It also keeps the old versions whenever a formula changes.\n\nWe're working closely with our first few manufacturers, so if it looks like a good fit for LGM, we'll set up your products and formulas for you at no cost and let you try it with your own data.\n\nWhat are you using to manage all of that right now?\n\nAzure Eller | Ashicore\nashicore.app\nAshicore LLC · PO Box 593 · Paonia, CO 81428\nBusiness outreach — to opt out, reply \"no\" and I won't contact you again."
+    }
+  ],
+  "learningCases": [
+    {
+      "id": "lgm-first-touch-product-clarity",
+      "status": "one-observation",
+      "context": "The recipient was LGM's soil formulator. Research supported a highly specific formula-and-orders message.",
+      "approach": "The initial email led with detailed observations and several operational questions, then referred to Ashicore only as something being built for shops like theirs.",
+      "observedOutcome": "The recipient replied, 'Are you building a app for the formulas?'",
+      "interpretation": "The specificity earned attention, but the recipient still had to infer what Ashicore was. This is evidence for testing clearer product framing, not proof that every first email needs the same framing or founder story.",
+      "untestedAlternative": "Sam — my family runs an organic potting-soil company, and I built Ashicore to keep formulas, production, and inventory in one place.\n\nSince you handle LGM's formulas, what are you using today—spreadsheets, another system, or something homegrown?",
+      "caution": "This alternative is preserved as a record of what was proposed, not as a model to copy. It contains three of the structural patterns now on the blacklist: the em-dash opener, the three-noun list, and the answer-menu question."
+    },
+    {
+      "id": "batch-convergence-2026-08-14",
+      "status": "mechanism-understood",
+      "context": "Three drafts were run through a four-pass loop: Codex drafted, Claude critiqued the batch, Codex revised, a fresh Claude challenged the result. A batch-level diversity rule had already been added after an earlier round converged.",
+      "approach": "Add more review and more explicit diversity rules each time the output looked templated.",
+      "observedOutcome": "Every round produced messages whose first sentences shared a structure, and five of eight sent messages carried the same three-noun capability list. The owner's read: 'they still seem a bit AI to me.' The run log records Codex noting that Claude had proposed more varied openings which Codex then 'improved' back into one shape.",
+      "interpretation": "The review loop caused this. Preference-trained models carry a typicality bias: given two options of equal quality they favor the more familiar one, so each judging pass moves a batch toward the median. Adding review rounds to fix blandness makes it worse. This is a known mechanism, not a quirk of these particular prompts.",
+      "changeApplied": "Replaced the review loop with distribution-level candidate generation (five candidates with probabilities in one call, selecting off the mode) plus a mechanical pre-send check that fires or does not fire rather than offering an opinion.",
+      "openQuestion": "Whether lower-probability candidates actually reply better. Borrowed from research on other generation tasks; unmeasured for cold email. The run log records the chosen candidate's probability so this can eventually be answered."
     }
   ]
 }
