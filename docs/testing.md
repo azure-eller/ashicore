@@ -150,7 +150,23 @@ Missing labels fail the slow selector only after `ci:ready` is present.
 
 Add the slow-selection label **before** `ci:ready`. Add `ci:ready` only after local validation is complete and documented in the PR body or a PR comment. If you push another commit after final CI, remove `ci:ready`, rerun local validation, then re-add it.
 
-Non-draft pull requests run `.github/workflows/codex-code-review.yml`, which uses the official read-only Codex GitHub Action and updates one review comment per PR.
+Every pull request gets two independent automated reviews, and both bill to a
+subscription rather than a metered API:
+
+| Reviewer | Where it runs | Auth |
+|----------|---------------|------|
+| Codex | locally, as the `review` step of `no-mistakes axi run` | the Codex CLI's ChatGPT login (`agent: codex` in `~/.no-mistakes/config.yaml`) |
+| Claude | `.github/workflows/claude-code-review.yml` on non-draft, same-repo PRs | `secrets.CLAUDE_CODE_OAUTH_TOKEN` |
+
+`.github/workflows/codex-code-review.yml` used to run a third review in CI, but
+`openai/codex-action` accepts only `openai-api-key` — it cannot use a ChatGPT
+subscription — so it duplicated the axi review at metered cost. It was removed;
+run `axi` to get the Codex review.
+
+Claude review is **advisory**: the job sets `continue-on-error: true`, so a
+provider outage or an action-internal failure never paints a red X on an
+otherwise good PR. Making review gate merges is a branch-protection change, not
+a workflow edit.
 
 Failed scheduled slow runs open/update an investigation PR, comment with run details, and hand the run and artifact links to Codex via `@codex`. Treat those PRs as fix branches, not merge-ready reports.
 
