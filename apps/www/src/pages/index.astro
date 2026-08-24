@@ -2,60 +2,140 @@
 import BaseLayout from "../layouts/BaseLayout.astro";
 import { SIGN_UP_URL } from "../lib/site";
 
-const stages = [
+type Viz =
+  | {
+      kind: "rows";
+      rows: { a: string; b: string; c: string; tone?: "short" | "now" | "total" }[];
+      foot?: string;
+    }
+  | { kind: "chips"; chips: { label: string; state: "done" | "run" }[]; foot?: string }
+  | { kind: "stats"; stats: { k: string; v: string }[]; foot?: string }
+  | { kind: "bar"; pct: number; label: string; foot?: string };
+
+type Stage = { object: string; title: string; yard: string; viz: Viz };
+
+const stages: Stage[] = [
   {
     object: "material",
     title: "Inbound and freight",
     yard: "Bark on one invoice. Freight on another, a week later.",
-    app: "Freight spreads across the lines by value or quantity, and lands in the lot cost.",
+    viz: {
+      kind: "rows",
+      rows: [
+        { a: "Bark fines", b: "$3,720", c: "+$267" },
+        { a: "Screened compost", b: "$2,976", c: "+$213" },
+      ],
+      foot: "$480 freight, split by line value",
+    },
   },
   {
     object: "recipe",
     title: "Formulas and history",
     yard: "The mix is in a spreadsheet, or in one person's head.",
-    app: "Every change appends a revision. Orders copy the current one, so old runs stay put.",
+    viz: {
+      kind: "rows",
+      rows: [
+        { a: "rev 4", b: "Swapped perlite grade", c: "current", tone: "now" },
+        { a: "rev 3", b: "Added lot age rule", c: "" },
+        { a: "rev 2", b: "Initial spring recipe", c: "" },
+      ],
+      foot: "Orders copy the current revision",
+    },
   },
   {
     object: "ingredient",
     title: "Ingredients and packaging",
     yard: "Peat, coir, perlite. Then the bags, totes and labels.",
-    app: "Packaging is an input like any other. Short on bags reads as short, not ready.",
+    viz: {
+      kind: "rows",
+      rows: [
+        { a: "Screened compost", b: "24 yd³", c: "in stock" },
+        { a: "Coir pith", b: "15 yd³", c: "in stock" },
+        { a: "1 cu ft bags", b: "0 of 400", c: "short", tone: "short" },
+      ],
+      foot: "Short on bags reads as short, not ready",
+    },
   },
   {
     object: "batch",
     title: "Batches",
     yard: "Nobody makes 137 yards. They make four batches.",
-    app: "Run whole batches against a planned output. Each gets its own status and output lot.",
+    viz: {
+      kind: "chips",
+      chips: [
+        { label: "1", state: "done" },
+        { label: "2", state: "done" },
+        { label: "3", state: "done" },
+        { label: "4", state: "run" },
+      ],
+      foot: "Each batch has its own status and output lot",
+    },
   },
   {
     object: "lot",
     title: "Curing",
     yard: "Compost is not compost the day it is turned.",
-    app: "Require a minimum lot age. Picking flags short before you continue.",
+    viz: {
+      kind: "rows",
+      rows: [
+        { a: "LOT-0412", b: "47 days", c: "eligible" },
+        { a: "LOT-0509", b: "12 days", c: "too young", tone: "short" },
+      ],
+      foot: "30-day minimum, from the date received",
+    },
   },
   {
     object: "variant",
     title: "Package sizes",
     yard: "One mix leaves as bags, totes and bulk. Four prices, four counts.",
-    app: "Each size is a real item with its own SKU, price and stock. One family, one formula.",
+    viz: {
+      kind: "rows",
+      rows: [
+        { a: "0.5 cu ft", b: "PPM-05", c: "$6.50" },
+        { a: "1 cu ft", b: "PPM-1", c: "$11.00" },
+        { a: "2 cu ft", b: "PPM-2", c: "$19.50" },
+      ],
+      foot: "One family, one formula, separate stock",
+    },
   },
   {
     object: "balance",
     title: "On hand, and coming",
     yard: "Forty yards on Friday? The answer is split between two people.",
-    app: "On hand, demand, expected and available to promise. Per item, per location.",
+    viz: {
+      kind: "stats",
+      stats: [
+        { k: "On hand", v: "1,240" },
+        { k: "Demand", v: "380" },
+        { k: "Expected", v: "200" },
+        { k: "To promise", v: "1,060" },
+      ],
+    },
   },
   {
     object: "order",
     title: "Orders and shipping",
     yard: "Half goes today. The rest when the next batch is ready.",
-    app: "Each line says whether stock is there, components cover it, or production has to run.",
+    viz: {
+      kind: "bar",
+      pct: 60,
+      label: "24 of 40 shipped",
+      foot: "16 waiting on the next batch",
+    },
   },
   {
     object: "cost",
     title: "Cost to make",
     yard: "The per-yard cost is from two seasons ago.",
-    app: "Estimated from current costs, then reconciled to what the run actually consumed.",
+    viz: {
+      kind: "rows",
+      rows: [
+        { a: "Material", b: "", c: "$920.00" },
+        { a: "Operations", b: "", c: "$180.00" },
+        { a: "Per yd³", b: "", c: "$27.50", tone: "total" },
+      ],
+      foot: "Reconciled from what the run consumed",
+    },
   },
 ];
 ---
@@ -161,13 +241,50 @@ const stages = [
                   <h3 class="stage-title">{stage.title}</h3>
                   <div class="stage-cols">
                     <p class="stage-yard">{stage.yard}</p>
-                    <p class="stage-app">{stage.app}</p>
+                    <div class="viz">
+                      {stage.viz.kind === "rows" && (
+                        <div class="viz-rows">
+                          {stage.viz.rows.map((r) => (
+                            <div class={`viz-r${r.tone ? ` is-${r.tone}` : ""}`}>
+                              <span class="viz-a">{r.a}</span>
+                              <span class="viz-b">{r.b}</span>
+                              <span class="viz-c">{r.c}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {stage.viz.kind === "chips" && (
+                        <div class="viz-chips">
+                          {stage.viz.chips.map((c) => (
+                            <span class={`viz-chip is-${c.state}`}>{c.label}</span>
+                          ))}
+                        </div>
+                      )}
+                      {stage.viz.kind === "stats" && (
+                        <div class="viz-stats">
+                          {stage.viz.stats.map((s) => (
+                            <span class="viz-stat">
+                              <span class="viz-stat-k">{s.k}</span>
+                              <span class="viz-stat-v">{s.v}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {stage.viz.kind === "bar" && (
+                        <div class="viz-barwrap">
+                          <span class="viz-barlabel">{stage.viz.label}</span>
+                          <span class="viz-bar"><i style={`width:${stage.viz.pct}%`} /></span>
+                        </div>
+                      )}
+                      {stage.viz.foot && <span class="viz-foot">{stage.viz.foot}</span>}
+                    </div>
                   </div>
                 </div>
               </li>
             ))
           }
         </ol>
+        <p class="chain-note">Figures are illustrative.</p>
       </div>
     </section>
 
