@@ -288,39 +288,38 @@ const stages: Stage[] = [
       </div>
     </section>
 
-    <!-- ===================== CONNECTED ===================== -->
-    <section class="section connected" id="books">
+    <!-- ===================== INTEGRATIONS ===================== -->
+    <section class="section integrations" id="integrations">
       <div class="wrap">
         <header class="chain-head reveal">
-          <h2 class="h-section">Your books stay your books.</h2>
+          <h2 class="h-section">Works with what you already run.</h2>
         </header>
-        <div class="two-up">
-          <div class="col reveal">
-            <h3>Xero or QuickBooks</h3>
-            <p>
-              Invoices go out on shipment. Bills are raised from a purchase
-              order when you choose to raise one.
-            </p>
-            <p class="col-fact">
-              Ashicore keeps no ledger of its own.
-            </p>
-            <a class="col-link" href="/docs/integrations/accounting-sync">
-              How accounting sync works <span class="arr">→</span>
-            </a>
-          </div>
-          <div class="col reveal d1">
-            <h3>And it works away from the desk</h3>
-            <p>
-              Count stock, receive a load or close out a batch from the yard.
-            </p>
-            <p class="col-fact">
-              Same records, same rules.
-            </p>
-            <a class="col-link" href="/android">
-              The Android app <span class="arr">→</span>
-            </a>
-          </div>
+
+        <div class="int-grid">
+          <a class="int reveal" href="/docs/integrations/accounting-sync">
+            <span class="int-mark">Xero</span>
+            <span class="int-role">Invoices out on shipment. Open purchase orders and contacts in.</span>
+          </a>
+          <a class="int reveal d1" href="/docs/integrations/accounting-sync">
+            <span class="int-mark">QuickBooks</span>
+            <span class="int-role">Invoices and supplier bills out. Open purchase orders in.</span>
+          </a>
+          <a class="int reveal d2" href="/docs/integrations/shopify">
+            <span class="int-mark">Shopify</span>
+            <span class="int-role">Paid, unshipped orders arrive as sales orders.</span>
+          </a>
+          <a class="int reveal d3" href="/docs/integrations/agent-api">
+            <span class="int-mark">Agent API</span>
+            <span class="int-role">Read and write your own data from your own tooling.</span>
+          </a>
         </div>
+
+        <p class="int-foot reveal">
+          Ashicore keeps no ledger of its own. Your accounting system stays the
+          book of record. There is also an
+          <a href="/android">Android app</a> for counting stock and receiving
+          loads in the yard.
+        </p>
       </div>
     </section>
 

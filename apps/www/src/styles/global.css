@@ -591,51 +591,61 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; font-stretch: 1
 }
 
 /* ============================================================
-   CONNECTED — accounting and the yard
+   INTEGRATIONS — the logo wall
    ============================================================ */
-.two-up {
-  margin-top: clamp(38px, 5vw, 60px);
+.integrations .chain-head h2 { max-width: none; }
+
+.int-grid {
+  margin-top: clamp(34px, 4.5vw, 52px);
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  border-top: 1px solid var(--line);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
 }
-.two-up .col { padding: clamp(26px, 3vw, 38px) clamp(24px, 3vw, 40px); }
-.two-up .col:first-child { padding-left: 0; }
-.two-up .col:last-child { padding-right: 0; border-left: 1px solid var(--line); }
-.two-up h3 {
+.int {
+  background: var(--surface);
+  padding: clamp(22px, 2.6vw, 32px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: background 0.18s;
+}
+.int:hover { background: var(--bg-2); }
+.int-mark {
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: clamp(1.2rem, 1.9vw, 1.5rem);
   font-stretch: 104%;
-  letter-spacing: -0.025em;
+  font-size: clamp(1.3rem, 2.1vw, 1.75rem);
+  letter-spacing: -0.03em;
+  color: var(--ink);
 }
-.two-up p {
-  margin-top: 15px;
-  font-size: 15.5px;
-  line-height: 1.55;
+.int-role {
+  font-size: 13.5px;
+  line-height: 1.45;
   color: var(--ink-soft);
   text-wrap: pretty;
 }
-.two-up .col-fact { color: var(--ink); font-weight: 500; }
-.col-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 22px;
-  font-weight: 600;
-  font-size: 15px;
-  color: var(--accent-ink);
-  border-bottom: 1.5px solid var(--accent);
-  padding-bottom: 2px;
-}
-.col-link .arr { transition: transform 0.2s; }
-.col-link:hover { color: var(--ink); border-bottom-color: var(--ink); }
-.col-link:hover .arr { transform: translateX(3px); }
+.int:hover .int-mark { color: var(--accent-ink); }
 
-@media (max-width: 780px) {
-  .two-up { grid-template-columns: 1fr; }
-  .two-up .col { padding-inline: 0; }
-  .two-up .col:last-child { border-left: none; border-top: 1px solid var(--line); }
+.int-foot {
+  margin-top: 26px;
+  max-width: 66ch;
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--ink-faint);
+  text-wrap: pretty;
+}
+.int-foot a { color: var(--accent-ink); border-bottom: 1px solid var(--accent); }
+.int-foot a:hover { color: var(--ink); border-bottom-color: var(--ink); }
+
+@media (max-width: 860px) {
+  .int-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+  .int-grid { grid-template-columns: 1fr; }
 }
 
 /* ============================================================
@@ -645,7 +655,7 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; font-stretch: 1
 
 /* section rhythm: the chain is long, so its neighbours sit closer to it */
 .section.chain { padding-bottom: clamp(52px, 7vw, 96px); }
-.section.connected { padding-top: clamp(52px, 7vw, 96px); }
+.section.integrations { padding-top: clamp(52px, 7vw, 96px); }
 
 /* ============================================================
    PRICING — cards + calculator + packages × add-ons grid
