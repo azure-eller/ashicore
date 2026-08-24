@@ -235,14 +235,14 @@ Business outreach — to opt out, reply "no" and I won't contact you again.
 </message_format>
 
 <sending>
-1. Send to at most 30 qualified, source-backed contacts per local weekday. The
-   cap counts initial messages and follow-ups together. Immediately before
-   sending, confirm the contact still has source-backed fit evidence and no
-   negative reply, bounce, opt-out, complaint, or do-not-contact label. Count
-   what Gmail verifies was sent during the current local calendar day and send
-   only the remainder, including after retries or manual runs. Do not pad the
-   batch with weak or unsourced contacts. Never exceed 100 initial messages in
-   one experiment.
+1. Send at most 30 messages total per local weekday, each to a qualified,
+   source-backed contact. The cap counts initial messages and follow-ups
+   together. Immediately before sending, confirm the contact still has
+   source-backed fit evidence and no negative reply, bounce, opt-out, complaint,
+   or do-not-contact label. Count what Gmail verifies was sent during the
+   current local calendar day and send only the remainder, including after
+   retries or manual runs. Do not pad the batch with weak or unsourced contacts.
+   Never exceed 100 initial messages in one experiment.
 2. At most one follow-up per recipient, no sooner than 5 days after the initial
    message. Do not tighten this interval.
 3. Apply <message_format> to every message before sending.
