@@ -377,88 +377,6 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; font-stretch: 1
 }
 
 /* ============================================================
-   DARK SURFACE (shared by the spread band)
-   ============================================================ */
-.dark { background: var(--ground); color: var(--on-ground); }
-.dark .lede { color: var(--on-ground-soft); }
-.dark .eyebrow { color: var(--accent-2); }
-.dark h2, .dark h3 { color: var(--on-ground); }
-
-/* ============================================================
-   SEGMENTS STRIP
-   ============================================================ */
-.segments { border-block: 1px solid var(--line); background: var(--bg-2); }
-.segments-inner {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 14px clamp(18px, 3.5vw, 46px);
-  padding-block: 22px;
-}
-.segments-label {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-}
-.segment {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  font-size: 14.5px;
-  color: var(--ink-soft);
-}
-.segment::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 1px;
-  background: var(--accent-2);
-  transform: rotate(45deg);
-  flex: none;
-}
-
-/* ============================================================
-   THE SPREAD (dark)
-   ============================================================ */
-.spread-grid {
-  display: grid;
-  grid-template-columns: 0.85fr 1.15fr;
-  gap: clamp(30px, 5vw, 76px);
-  align-items: start;
-}
-.spread h2 { margin-top: 18px; color: var(--on-ground); }
-.spread-list {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 30px;
-  border-top: 1px solid var(--ground-line);
-}
-.spread-list li {
-  display: flex;
-  gap: 20px;
-  align-items: baseline;
-  padding: 13px 2px;
-  border-bottom: 1px solid var(--ground-line);
-  font-size: 15.5px;
-  color: var(--on-ground-soft);
-  text-wrap: pretty;
-}
-.spread-list li > span {
-  flex: none;
-  width: 156px;
-  font-weight: 600;
-  color: var(--on-ground);
-}
-
-@media (max-width: 860px) {
-  .spread-grid { grid-template-columns: 1fr; }
-  .spread-list li { flex-direction: column; gap: 3px; }
-  .spread-list li > span { width: auto; }
-}
-
-/* ============================================================
    THE CHAIN — one load of material, gate to invoice
    ============================================================ */
 .chain-head { max-width: 760px; }
@@ -625,7 +543,6 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 600; font-stretch: 1
 /* section rhythm: the chain is long, so its neighbours sit closer to it */
 .section.chain { padding-bottom: clamp(52px, 7vw, 96px); }
 .section.connected { padding-top: clamp(52px, 7vw, 96px); }
-.section.spread { padding-block: clamp(64px, 9vw, 120px); }
 
 /* ============================================================
    PRICING — cards + calculator + packages × add-ons grid
