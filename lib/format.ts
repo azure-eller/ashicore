@@ -58,6 +58,28 @@ export function formatCost(value: string | null | undefined): string | null {
   return costFormat.format(parseFloat(value));
 }
 
+const unitPriceFormat = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 4,
+});
+
+/**
+ * Format a per-unit cost or price. Supplier invoices routinely quote four
+ * decimal places, and `unit_cost` stores scale 4, so rounding these to cents
+ * for display hides the price the operator actually entered. Line totals and
+ * order totals stay on {@link formatPrice}; only the per-unit value widens.
+ */
+export function formatUnitPrice(
+  value: string | number | null | undefined,
+): string | null {
+  if (value == null || value === "") return null;
+  const parsed = typeof value === "number" ? value : parseFloat(value);
+  if (!Number.isFinite(parsed)) return null;
+  return unitPriceFormat.format(parsed);
+}
+
 export function formatPercent(
   value: unknown,
   options: { fallback?: string; fractionDigits?: number } = {},

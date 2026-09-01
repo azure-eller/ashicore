@@ -136,9 +136,17 @@ export async function upsertXeroContact(
     return returned.contactID;
   } catch (error) {
     if (error instanceof XeroError) throw error;
-    const existing = !contact.xeroContactId
-      ? await findXeroContactByExactName(tenantId, accountingApi, contact.name)
-      : null;
+    // A stored contact id goes stale whenever the contact is merged away or
+    // archived in Xero. Writing our name against the dead id then fails — often
+    // on name uniqueness, because the surviving contact already holds it — and
+    // every push for that supplier stays broken until someone repoints it by
+    // hand. Recover by exact name whether or not we had an id, and adopt the
+    // contact that name actually resolves to now.
+    const existing = await findXeroContactByExactName(
+      tenantId,
+      accountingApi,
+      contact.name,
+    );
     if (existing?.contactID) {
       await persistXeroContactId(orgId, contact, existing.contactID);
       return existing.contactID;
@@ -170,7 +178,19 @@ async function findXeroContactByExactName(
       100
     );
 
-    return (response.body.contacts ?? []).find((row) => row.name === name) ?? null;
+    // The lookup includes archived contacts, so a merged-away duplicate can
+    // share the name. Prefer the active contact — that is the one a bill has
+    // to be raised against.
+    const matches = (response.body.contacts ?? []).filter(
+      (row) => row.name === name,
+    );
+    return (
+      matches.find(
+        (row) => row.contactStatus === Contact.ContactStatusEnum.ACTIVE,
+      ) ??
+      matches[0] ??
+      null
+    );
   } catch {
     return null;
   }

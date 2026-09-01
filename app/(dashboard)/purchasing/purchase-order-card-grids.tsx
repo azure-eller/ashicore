@@ -14,6 +14,7 @@ import {
 import { formatAddressLines } from "@/lib/addresses";
 import {
   formatPrice,
+  formatUnitPrice,
   normalizeMoney,
 } from "@/lib/format";
 import {
@@ -176,7 +177,7 @@ function PurchaseLandedCostCell({
 
   return (
     <span className="block truncate font-medium">
-      {formatPrice(unitCost) ?? "$0.00"}
+      {formatUnitPrice(unitCost) ?? "$0.00"}
       <span className="text-[var(--color-ink-faint)]">
         {" / "}
         {material?.stockingUnitName ?? "unit"}
@@ -389,7 +390,7 @@ export function buildPurchaseOrderLineColumns({
             : ["Unit cost must be 0 or greater"];
         },
         valueFormatter: ({ value }) =>
-          value == null || value === "" ? "" : (formatPrice(value) ?? value),
+          value == null || value === "" ? "" : (formatUnitPrice(value) ?? value),
         rightAligned: true,
         cellClassRules: {
           "erp-editable-grid-cell-error": hasCellError("unitCost"),

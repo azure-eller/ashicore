@@ -342,12 +342,19 @@ function billReference(input: CreatePurchaseBill, order: OrderForBill) {
   return input.reference?.trim() || order.orderNumber;
 }
 
-function billCreateOperation(invoiceNumber: string) {
+/**
+ * Records the attempt this sync row represents. Only the batch key below is
+ * sent to Xero, but this one is stored on the sync row, so it has to move when
+ * the order does — otherwise the audit trail claims two different pushes were
+ * the same request. Covers the prepare-phase payload; the resolved Xero contact
+ * is not known this early and is folded into the batch key instead.
+ */
+function billCreateOperation(invoiceNumber: string, payloadHash: string) {
   const digest = createHash("sha256")
-    .update(invoiceNumber.trim().toLowerCase())
+    .update(`${invoiceNumber.trim().toLowerCase()}\n${payloadHash}`)
     .digest("hex")
     .slice(0, 32);
-  return `create-v2:${digest}`;
+  return `create-v3:${digest}`;
 }
 
 function assertBillablePurchaseOrder(data: {
@@ -824,7 +831,7 @@ export async function createPurchaseBillAccountingSync(
         orgId,
         "purchase-bill",
         orderId,
-        `${group.key}:${billCreateOperation(group.input.invoiceNumber)}`,
+        `${group.key}:${billCreateOperation(group.input.invoiceNumber, payloadHash)}`,
       );
 
       await markAccountingDocumentPushAttempt(tx, {
@@ -942,14 +949,14 @@ export async function createPurchaseBillAccountingSync(
       orgId,
       "purchase-bill",
       orderId,
-      `create-batch-v2:${createHash("sha256")
-        .update(
-          billsToCreate
-            .map((entry) => entry.ready.group.input.invoiceNumber)
-            .join("\n"),
-        )
-        .digest("hex")
-        .slice(0, 32)}`,
+      // Hash the exact bodies being sent, not the prepare-phase snapshot. The
+      // resolved Xero contact id is only known once upsertXeroContact has run,
+      // so it cannot be in `payloadHash` — and a retry that changes nothing but
+      // that contact (a merged contact repointed by the recovery above) is the
+      // very case this key has to treat as a new request.
+      `create-batch-v3:${hashXeroPayload(
+        billsToCreate.map((entry) => entry.bill),
+      ).slice(0, 32)}`,
     );
 
     try {

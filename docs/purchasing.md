@@ -148,6 +148,12 @@ purchase/stock pair and a sales-order line snapshots only its sales/stock pair.
 - PO lines store both:
   - `unitCost` = purchase-unit price
   - `stockUnitCost` = converted stock-unit cost
+- `unit_cost` is `numeric(10,4)`, and supplier invoices routinely quote four
+  decimal places. Per-unit costs therefore display through `formatUnitPrice`
+  (two decimals minimum, four maximum) on the card grid and the PO PDF; line
+  totals, additional costs, and order totals stay on `formatPrice` at two.
+  Rounding a per-unit price to cents for display invites re-keying it at two
+  decimals, which is a real discrepancy against the supplier's invoice.
 - inventory lots, ledger `unit_cost`, BOM ingredient rollups, stocktake gains, and manual increases always use stock-unit cost
 
 Example:

@@ -6,7 +6,7 @@ import {
   View,
 } from "@react-pdf/renderer";
 import { formatAddressLines } from "@/lib/addresses";
-import { formatDate, formatPrice } from "@/lib/format";
+import { formatDate, formatPrice, formatUnitPrice } from "@/lib/format";
 
 const styles = StyleSheet.create({
   page: {
@@ -370,7 +370,7 @@ export function PurchaseOrderDocument({
                 ) : null}
                 {showPrices ? (
                   <Text style={styles.colPrice}>
-                    {formatPrice(line.unitCost) ?? line.unitCost}
+                    {formatUnitPrice(line.unitCost) ?? line.unitCost}
                   </Text>
                 ) : null}
                 {showPrices ? (

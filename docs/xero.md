@@ -50,7 +50,13 @@ Store setup/support copy, read `docs/xero-support-listing.md`.
   emailing Xero-rendered PO PDFs. Legacy export routes return HTTP 410 so old
   clients fail explicitly; historical sync rows remain readable.
 - **Contact upsert** — `lib/xero/contacts.ts`. Used by sales invoice push and
-  purchase bill push.
+  purchase bill push. A stored `contactID` goes stale when someone merges or
+  archives that contact in Xero, and writing to a dead id fails — commonly on
+  name uniqueness, because the surviving contact already holds the name. On any
+  upsert failure the push falls back to an exact-name lookup, preferring the
+  active contact, and repoints the stored external record to whatever that name
+  resolves to now. Without this, every push for that supplier stays broken until
+  the id is corrected by hand.
 - **Contact import** — `lib/xero/import-contacts.ts`. Customer/supplier
   imports preview counts before writing, record `xero_import_runs`, and
   can reset a completed run when imported rows are not referenced by orders.
@@ -95,7 +101,17 @@ Store setup/support copy, read `docs/xero-support-listing.md`.
 - **Idempotency keys** — `lib/xero/idempotency.ts`. ≤128 chars, stable
   per `(orgId, entity, id, operation)`. Xero retains keys ~6 minutes;
   beyond that, idempotency comes from reconcile-by-reference, not
-  the key.
+  the key. The `operation` must cover the request body actually sent, not just
+  its reference: the purchase-bill batch key hashes the final `Invoice`
+  payloads, including each resolved Xero contact id. That id is only known once
+  `upsertXeroContact` has run, so it cannot come from the prepare-phase payload
+  hash — and a retry whose only change is a repointed contact is exactly the
+  case the key has to treat as new. Keying on the reference alone deduped
+  identical replays but also
+  blocked *corrected* retries — after a failed push, any fix the operator made
+  produced the same key with a different body, and Xero answered
+  `Idempotency Key ... is used with a different request` until the key aged
+  out. A new request needs a new key; only an unchanged one should replay.
 - **Payload hash** — `lib/xero/payload-hash.ts`. Local drift check only;
   Xero does not enforce.
 - **Generic sync state** — Xero writes provider-neutral document and attachment

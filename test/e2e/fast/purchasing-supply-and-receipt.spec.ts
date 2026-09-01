@@ -1024,6 +1024,48 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     await expect(page.getByRole("dialog", { name: "Receive purchase order" })).toBeVisible();
   });
 
+  test("the card shows a per-unit price at the precision it stores", async ({
+    page,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const material = await createItem({
+      itemType: "material",
+      name: `Fast PO Price Precision Material ${unique}`,
+      unitDefinitionId: getUnitId(),
+      sku: `FAST-PO-PRECISION-${unique}`,
+      category: `Fast Purchasing ${unique}`,
+      description: null,
+      defaultPurchasePrice: "0.0885",
+      defaultSellingPrice: null,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status).toBe(201);
+
+    const supplier = await createSupplier({
+      name: `Fast PO Price Precision Supplier ${unique}`,
+    });
+    expect(supplier.status).toBe(201);
+
+    const order = await createPurchaseOrder({
+      supplierId: supplier.body.id,
+      lines: [
+        { itemId: material.body.id, quantityOrdered: "1000", unitCost: "0.0885" },
+      ],
+    });
+    expect(order.status, JSON.stringify(order.body)).toBe(201);
+
+    // unit_cost is numeric(10,4) and supplier invoices quote four decimals.
+    // Rounding the displayed price to cents invites re-keying it at two, which
+    // is a real discrepancy against the supplier's invoice.
+    await page.goto(`/purchasing/order/${order.body.id}`);
+    const unitCostCell = editableGrid(page)
+      .locator('.ag-row[row-index="0"] .ag-cell[col-id="unitCost"]')
+      .first();
+    await expect(unitCostCell).toContainText("$0.0885");
+  });
+
   test("purchase order create replays under the same idempotency key", async ({
     db,
   }) => {

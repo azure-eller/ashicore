@@ -99,7 +99,9 @@ function makePurchaseBillDialogValues(
           groupKey: group.key,
           label: group.isPurchaseOrderSupplier ? detail.supplierName : group.supplier.name,
           include: state?.pushStatus !== "pushed",
-          invoiceNumber: "",
+          // Mirrors the card: a pushed group shows the invoice number it was
+          // billed under instead of resetting the field to empty.
+          invoiceNumber: state?.externalDocumentNumber ?? "",
           accountingPurchaseAccountCode:
             detail.accountingPurchaseAccountCode ??
             order.accountingPurchaseAccountCode ??

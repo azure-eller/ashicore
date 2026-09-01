@@ -817,10 +817,11 @@ export function PurchaseBillDialog({
                         </span>
                         <span className="truncate font-mono text-[length:var(--text-xs)] text-[var(--color-ink-faint)]">
                           {accountSummary}
-                          {invoice ? ` · Inv ${invoice}` : ""}
                           {pushed && group.externalNumber
                             ? ` · Billed ${group.externalNumber}`
-                            : ""}
+                            : invoice
+                              ? ` · Inv ${invoice}`
+                              : ""}
                         </span>
                       </div>
                       <span className="shrink-0 font-mono text-[length:var(--text-sm)] font-semibold tabular-nums text-[var(--color-ink)]">
@@ -850,6 +851,10 @@ export function PurchaseBillDialog({
                           placeholder="e.g. INV-2043"
                           className="rounded-[var(--radius-md)]"
                           value={group.invoiceNumber}
+                          // Already billed: the number is the reconciliation
+                          // key for the Xero bill, so show it but do not let an
+                          // edit here imply it can be changed in Xero.
+                          readOnly={pushed}
                           onChange={(event) =>
                             updateGroup(index, {
                               invoiceNumber: event.target.value,

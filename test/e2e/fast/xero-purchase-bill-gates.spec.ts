@@ -19,6 +19,7 @@ import {
   testFetch,
 } from "../../helpers/api";
 import { withAccountingConnectionFixtureLock } from "../../helpers/accounting-connection-fixture-lock";
+import { resolvedPurchaseOrderSupplierGroupKey } from "../../../lib/purchasing/resolved-supplier-groups";
 import {
   accountingDocumentSyncs,
   integrationConnections,
@@ -462,6 +463,61 @@ test.describe("Xero purchase bill gates", () => {
     await expect(
       page.getByRole("menuitem", { name: "Manage bills..." }),
     ).toBeEnabled();
+  });
+
+  test("bill management reports the invoice number a pushed group was billed under", async ({
+    db,
+    page,
+  }) => {
+    const ts = Date.now();
+    const { materialId, supplierId } = await createMaterialAndSupplier(ts);
+    const order = await createPurchaseOrder({
+      supplierId,
+      expectedDate: "2026-05-27",
+      lines: [{ itemId: materialId, quantityOrdered: "5", unitCost: "4.00" }],
+    });
+    expect(order.status).toBe(201);
+    const orderId = order.body.id as string;
+    const invoiceNumber = `SL-${ts}`;
+
+    await withOnlyXeroConnection(db, async () => {
+      await db.insert(accountingDocumentSyncs).values({
+        organizationId: getOrgId(),
+        provider: ACCOUNTING_PROVIDER_XERO,
+        documentType: ACCOUNTING_DOCUMENT_PURCHASE_BILL,
+        documentId: orderId,
+        groupKey: resolvedPurchaseOrderSupplierGroupKey(supplierId),
+        externalDocumentId: randomUUID(),
+        externalDocumentNumber: invoiceNumber,
+        pushStatus: "pushed",
+        pushedAt: new Date(),
+        providerDocumentType: "xero_accpay_invoice",
+      });
+
+      await page.goto(`/purchasing/orders/${orderId}`);
+      await page.getByLabel("Bill actions").click();
+      await page.getByRole("menuitem", { name: "Manage bills..." }).click();
+
+      // A pushed group carries its supplier invoice number back into the
+      // dialog. Dropping it strands the operator with no way to reconcile the
+      // Xero bill against this order.
+      const groupToggle = page
+        .getByRole("button", { expanded: false })
+        .filter({ hasText: `Billed ${invoiceNumber}` })
+        .first();
+      await expect(groupToggle).toBeVisible();
+      await groupToggle.click();
+
+      const invoiceInput = page
+        .locator('input[id^="purchase-bill-invoice-"]')
+        .first();
+      await expect(invoiceInput).toHaveValue(invoiceNumber);
+      await expect(invoiceInput).toHaveAttribute("readonly", "");
+
+      await db
+        .delete(accountingDocumentSyncs)
+        .where(eq(accountingDocumentSyncs.documentId, orderId));
+    });
   });
 
   test("keeps manual billed status reachable on a dirty persisted purchase order", async ({

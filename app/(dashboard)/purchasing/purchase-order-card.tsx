@@ -1376,7 +1376,9 @@ export function PurchaseOrderCard({
         groupKey: group.key,
         label: group.supplier.name,
         include: state?.pushStatus !== "pushed",
-        invoiceNumber: "",
+        // A pushed group keeps the supplier invoice number it was billed under
+        // so the operator can reconcile the Xero bill back to this order.
+        invoiceNumber: state?.externalDocumentNumber ?? "",
         accountingPurchaseAccountCode:
           initialData?.accountingPurchaseAccountCode ??
           xeroPurchaseBillDefaultAccountCode ??
