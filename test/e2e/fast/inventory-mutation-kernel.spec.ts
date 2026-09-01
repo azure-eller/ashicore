@@ -3586,4 +3586,37 @@ test.describe("inventory mutation kernel heartbeat", () => {
       .where(eq(bomRevisionComponents.bomRevisionId, revision.id));
     expect(line.quantity).toBe("0.0001");
   });
+
+  test("a constraint violation answers 409, not a bare 500", async () => {
+    // drizzle wraps driver errors in DrizzleQueryError and hangs the pg error
+    // off `cause`, so reading `error.code` off the caught value stops matching
+    // and every constraint violation degrades to "Internal server error".
+    // Duplicate SKU is the cheapest route to a real 23505: nothing pre-checks it.
+    const ts = Date.now();
+    const unitId = getUnitId();
+    const sku = `FAST-DUPSKU-${ts}`;
+    const payload = (name: string) => ({
+      itemType: "material" as const,
+      name,
+      sellable: false,
+      unitDefinitionId: unitId,
+      sku,
+      category: `Fast DupSku ${ts}`,
+      description: null,
+      defaultPurchasePrice: "1.00",
+      defaultSellingPrice: null,
+      lotTrackingMode: "tracked" as const,
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+
+    const first = await createItem(payload(`Fast DupSku A ${ts}`));
+    expect(first.status).toBe(201);
+
+    const second = await createItem(payload(`Fast DupSku B ${ts}`));
+    expect(second.status).toBe(409);
+    expect(second.body.error).toBe("A record with that value already exists.");
+  });
+
 });

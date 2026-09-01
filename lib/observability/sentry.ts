@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/nextjs";
 import { z } from "zod";
+import { findPostgresError } from "@/lib/errors/postgres-error";
 
 type SentryEvent = {
   breadcrumbs?: Array<{
@@ -147,7 +148,9 @@ function asNumber(value: unknown) {
 }
 
 function classifyPostgresError(error: unknown): SafeErrorClassification | null {
-  const record = getErrorRecord(error);
+  // Same wrapper problem as the API handler: drizzle hides the driver error
+  // behind `cause`, so the top-level object has no `code` to classify.
+  const record = findPostgresError(error) ?? getErrorRecord(error);
   const code = asString(record.code);
   if (!code || !(code in POSTGRES_SAFE_MESSAGES || code.startsWith("23") || code.startsWith("42"))) {
     return null;

@@ -5,6 +5,10 @@ import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { jsonError } from "@/lib/api/responses";
 import { AuthorizationError } from "@/lib/authz";
 import { DomainError } from "@/lib/errors/domain-error";
+import {
+  PG_UNIQUE_VIOLATION,
+  findPostgresErrorCode,
+} from "@/lib/errors/postgres-error";
 import { MissingIdempotencyKeyError } from "@/lib/inventory/kernel";
 import {
   applyRequestTimingHeaders,
@@ -78,12 +82,10 @@ export function apiHandler<TArgs extends unknown[]>(
         if (error instanceof SyntaxError) {
           return finalizeResponse(jsonError("Invalid JSON", 400, { requestId }));
         }
-        // Postgres unique constraint violation — surface as a 409 instead of 500
-        if (
-          error instanceof Error &&
-          "code" in error &&
-          (error as { code: string }).code === "23505"
-        ) {
+        // Postgres unique constraint violation — surface as a 409 instead of 500.
+        // The code lives on the driver error, which drizzle wraps in a
+        // DrizzleQueryError, so it is never on the value caught here.
+        if (findPostgresErrorCode(error) === PG_UNIQUE_VIOLATION) {
           return finalizeResponse(
             jsonError("A record with that value already exists.", 409, { requestId })
           );
