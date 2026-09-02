@@ -79,6 +79,7 @@ This file is a constitution + map. Deep reference lives in `docs/` — read the 
 | Free/Pro billing, SKU capacity, beta access | `docs/billing.md` |
 | Production launch, auth protection, observability | `docs/production-ops.md` |
 | Scheduled marketing agent | `docs/marketing-automation.md` |
+| Scheduled support triage agent | `docs/support-triage-automation.md` |
 | Sentry triage, autofix, vocabulary | `docs/observability/sentry-triage.md` |
 | Xero App Store / partner readiness | `docs/xero-partner-readiness.md` |
 | Xero security evidence / key rotation | `docs/xero-security-evidence.md` |
@@ -93,7 +94,7 @@ This file is a constitution + map. Deep reference lives in `docs/` — read the 
 
 1. `pnpm build`, `pnpm lint`, and relevant fast/slow Playwright lanes pass
 2. Inventory-affecting changes also pass `pnpm verify:inventory`
-3. After opening or updating the PR, run `no-mistakes axi run --yes --intent "<user goal / PR intent>"` from the same worktree/branch that owns the PR and address its findings before calling the PR done. If it appears stuck, inspect `no-mistakes axi status` and `no-mistakes axi logs --step <step> --full` before killing it; confirm the run head matches the PR head, and abort/restart stale runs after amending or force-pushing.
+3. The PR carries an automated review and its findings are addressed. The Codex GitHub connector reviews on PR open, on draft→ready, and on a `@codex review` comment — it does NOT re-review on push, so comment `@codex review` after a new commit. Proof it reviewed the head sha is one of two signals: a review record at `pulls/<n>/reviews` with that `commit_id` **and** `user.login` of `chatgpt-codex-connector[bot]` (findings), or an issue comment from the same bot whose "Reviewed commit:" starts with it (clean — the reviews endpoint stays empty). A review from any other author on the same sha does not count. Findings are inline comments at `pulls/<n>/comments`; every one on any commit must be addressed before merge. `no-mistakes axi run --yes --intent "<goal>"` is an optional extra local review; scheduled cloud agents cannot invoke it.
 4. PR body records the local validation that ran
 5. Correct `ci:slow:*` label is set, then `ci:ready` is added last
 6. PR is opened ready for review, not draft

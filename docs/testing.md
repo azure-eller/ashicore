@@ -150,23 +150,39 @@ Missing labels fail the slow selector only after `ci:ready` is present.
 
 Add the slow-selection label **before** `ci:ready`. Add `ci:ready` only after local validation is complete and documented in the PR body or a PR comment. If you push another commit after final CI, remove `ci:ready`, rerun local validation, then re-add it.
 
-Pull request review runs **locally, not in CI**: the `review` step of
-`no-mistakes axi run` drives Codex against the Codex CLI's ChatGPT login
-(`agent: codex` in `~/.no-mistakes/config.yaml`), so it bills to a subscription
-rather than a metered API. There is no review workflow in `.github/workflows/`.
+Pull request review runs in the cloud through the **Codex GitHub connector**
+(`chatgpt-codex-connector`), configured for this repo at
+https://chatgpt.com/codex/cloud/settings/general. It bills to a ChatGPT
+subscription rather than a metered API, needs no repo secret, and posts its
+result as a PR *review* rather than a check.
+
+It triggers on three things and only three: opening a pull request, marking a
+draft ready for review, and commenting `@codex review`. **It does not re-review
+on every push.** After pushing a new commit you must comment `@codex review` to
+get a verdict on that commit. Its output depends on the verdict. With findings: a review record at
+`pulls/<n>/reviews` carrying the `commit_id` it examined (its body is
+boilerplate) plus the actual findings as inline comments at
+`pulls/<n>/comments`. Clean: an issue comment at `issues/<n>/comments` from
+`chatgpt-codex-connector[bot]` reading "Didn't find any major issues" with a
+"Reviewed commit:" line — and **no review record at all**. Check whichever
+signal appears against the head sha; a stale review of an earlier commit looks
+identical to a fresh one in the PR UI, and waiting for a review record on a
+clean PR waits forever.
 
 Two CI review workflows used to exist and both were removed:
 
 - `codex-code-review.yml` — `openai/codex-action` accepts only `openai-api-key`,
-  so it could not use a ChatGPT subscription and merely duplicated the axi
-  review at metered cost.
+  so it could not use a ChatGPT subscription and merely duplicated the review at
+  metered cost.
 - `claude-code-review.yml` — `anthropics/claude-code-action` can use a
-  subscription via `secrets.CLAUDE_CODE_OAUTH_TOKEN`, but that token expired and
-  every run failed in one turn, burning Actions minutes and posting an error
-  comment on each PR. Restore it only alongside a freshly minted token
-  (`claude setup-token`, then `gh secret set CLAUDE_CODE_OAUTH_TOKEN`).
+  subscription via `secrets.CLAUDE_CODE_OAUTH_TOKEN`, but the token has failed
+  twice (`227613c6`, then again on a freshly minted token on 2026-09-01), each
+  time dying in one turn with `total_cost_usd 0` and an empty `modelUsage` while
+  posting "Claude encountered an error" on every PR. The Codex connector already
+  covers cloud review, so this one is not worth restoring.
 
-Run `axi` to get a review; there is no automated reviewer on GitHub.
+`no-mistakes axi run` remains available as an optional extra review on your own
+machine. It is local, so scheduled cloud agents cannot invoke it.
 
 Failed scheduled slow runs open/update an investigation PR, comment with run details, and hand the run and artifact links to Codex via `@codex`. Treat those PRs as fix branches, not merge-ready reports.
 
