@@ -59,7 +59,26 @@ import type { PurchaseOrderDetail } from "@/lib/purchasing/types";
 import { softDeleteLinkedAdditionalCostPurchaseOrdersInTx } from "./additional-costs";
 import { PurchasingError } from "./errors";
 import { getPurchaseOrder, getPurchaseOrderInTx } from "./orders-read";
-import { getLockedPurchaseOrderInTx, getPurchaseOrderLinesInTx, getValidatedPurchasableItemsInTx } from "./shared";
+import {
+  getLockedPurchaseOrderInTx,
+  getPurchasableItemsByIdInTx,
+  getPurchaseOrderLinesInTx,
+  type PurchasableLineSource,
+} from "./shared";
+
+type PersistedPurchaseOrderLine = Awaited<
+  ReturnType<typeof getPurchaseOrderLinesInTx>
+>[number];
+
+export type PreparePurchaseOrderPayloadOptions = {
+  /**
+   * Lines already persisted on the order being updated. A persisted line whose
+   * item has since been soft-deleted is prepared from its own snapshot instead
+   * of a catalog lookup, so a received order does not become uneditable when
+   * one of its items leaves Inventory. New lines still need a live item.
+   */
+  existingLines?: PersistedPurchaseOrderLine[];
+};
 
 type PreparedPurchaseOrderLine = {
   id?: string;
@@ -261,6 +280,7 @@ export async function preparePurchaseOrderPayload(
   tx: Tx,
   orgId: string,
   payload: PurchaseOrderPayload | UpdatePurchaseOrder,
+  options: PreparePurchaseOrderPayloadOptions = {},
 ): Promise<{
   supplierId: string;
   supplierName: string;
@@ -284,10 +304,36 @@ export async function preparePurchaseOrderPayload(
   affectedItemIds: string[];
 }> {
   const supplier = await getValidatedSupplierInTx(tx, payload.supplierId);
-  const materials = await getValidatedPurchasableItemsInTx(
+  const liveItems = await getPurchasableItemsByIdInTx(
     tx,
     payload.lines.map((line) => line.itemId),
   );
+  // A line that is already on this order carries its own snapshot. When its
+  // item has been soft-deleted since, that snapshot is the only source left,
+  // and it is enough for every edit except ordering more of the item.
+  const persistedLineByItemId = new Map(
+    (options.existingLines ?? []).map((line) => [line.itemId, line]),
+  );
+  const materials = new Map<string, PurchasableLineSource>(liveItems);
+  const snapshotItemIds = new Set<string>();
+  for (const line of payload.lines) {
+    if (materials.has(line.itemId)) continue;
+    const persisted = persistedLineByItemId.get(line.itemId);
+    if (!persisted) continue;
+    snapshotItemIds.add(line.itemId);
+    materials.set(line.itemId, {
+      id: persisted.itemId,
+      displayName: persisted.itemName,
+      sku: persisted.itemSku,
+      stockingUnitName: persisted.stockingUnitName,
+      purchaseUnitName: persisted.purchaseUnitName,
+      purchaseToStockFactor: persisted.purchaseToStockFactor,
+      accountingPurchaseAccountCode: persisted.accountingPurchaseAccountCode,
+    });
+  }
+  if (materials.size !== new Set(payload.lines.map((line) => line.itemId)).size) {
+    throw new PurchasingError("Item not found", 404);
+  }
   const taxSettings = await getTaxSettingsInTx(tx, orgId);
   const defaultPurchaseTaxRateId = taxSettings.defaultPurchaseTaxRateId;
   const taxRatesById = await getTaxRatesByIdInTx(
@@ -386,6 +432,31 @@ export async function preparePurchaseOrderPayload(
 
     if (!material) {
       throw new PurchasingError("Item not found", 404);
+    }
+
+    if (snapshotItemIds.has(line.itemId)) {
+      const persisted = persistedLineByItemId.get(line.itemId);
+      if (
+        persisted &&
+        Number(line.quantityOrdered) > Number(persisted.quantityOrdered)
+      ) {
+        // The snapshot can carry a bookkeeping edit, but not new supply: more
+        // of a deleted item would book expected stock for an item that no
+        // longer exists in Inventory. Reductions stay allowed — a short-closed
+        // line can still be trimmed — and the received-quantity floor below
+        // guards them as it always has.
+        throw new PurchasingError(
+          `"${material.displayName}" has been deleted from Inventory, so its quantity can't be increased on this order.`,
+          400,
+          {
+            errors: {
+              [`lines.${index}.quantityOrdered`]: [
+                "This item has been deleted from Inventory",
+              ],
+            },
+          },
+        );
+      }
     }
 
     const quantityOrdered = Number(line.quantityOrdered);
@@ -834,14 +905,16 @@ export async function updatePurchaseOrder(
       return result;
     }
 
-    const prepared = await preparePurchaseOrderPayload(tx, orgId, data);
+    const existingLines = await getPurchaseOrderLinesInTx(tx, id);
+    const prepared = await preparePurchaseOrderPayload(tx, orgId, data, {
+      existingLines,
+    });
     const nextOrderNumber =
       data.orderNumber === undefined || data.orderNumber == null
         ? order.orderNumber
         : await resolvePurchaseOrderNumberInTx(tx, orgId, data.orderNumber, {
             excludeId: id,
           });
-    const existingLines = await getPurchaseOrderLinesInTx(tx, id);
     const existingLineByItemId = new Map(
       existingLines.map((line) => [line.itemId, line]),
     );

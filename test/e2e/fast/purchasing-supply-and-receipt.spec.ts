@@ -3215,6 +3215,128 @@ test.describe("purchasing supply and receipt heartbeat", () => {
     );
   });
 
+  test("a received purchase order keeps saving from its line snapshots after its material is deleted", async ({
+    db,
+  }) => {
+    const unique = randomUUID().slice(0, 8);
+    const materialName = `Fast Retired Material ${unique}`;
+    const material = await createItem({
+      itemType: "material",
+      name: materialName,
+      unitDefinitionId: unitId,
+      sku: `FAST-RETIRED-${unique}`,
+      category: `Fast Purchasing ${ts}`,
+      description: null,
+      defaultPurchasePrice: "5.00",
+      defaultSellingPrice: null,
+      lotTrackingMode: "tracked",
+      stock: "0",
+      safetyStock: "0",
+      bom: [],
+    });
+    expect(material.status).toBe(201);
+    const supplier = await createSupplier({
+      name: `Fast Retired Supplier ${unique}`,
+    });
+    expect(supplier.status).toBe(201);
+    const order = await createPurchaseOrder({
+      supplierId: supplier.body.id,
+      lines: [
+        { itemId: material.body.id, quantityOrdered: "10", unitCost: "5.00" },
+      ],
+    });
+    expect(order.status).toBe(201);
+    const received = await receivePurchaseOrder(order.body.id, {
+      lines: [{ lineId: order.body.lines[0].id, quantityReceived: "10" }],
+    });
+    expect(received.status).toBe(200);
+
+    // Fully received orders do not block item deletion — the line snapshot
+    // keeps history, the same way supplierName does — so the catalog row can go
+    // away underneath a live order. The inventory list's bulk delete is the
+    // path that lets it go with stock still on hand.
+    const deleted = await testFetch("/api/items", {
+      method: "DELETE",
+      body: JSON.stringify({ ids: [material.body.id] }),
+    });
+    const deletedBody = (await deleted.json()) as { deletedCount?: number };
+    expect(deleted.status, JSON.stringify(deletedBody)).toBe(200);
+    expect(deletedBody.deletedCount).toBe(1);
+
+    const basePayload = {
+      supplierId: supplier.body.id,
+      expectedDate: null,
+      notes: null,
+      accountingPurchaseAccountCode: null,
+      lines: [
+        {
+          id: order.body.lines[0].id,
+          itemId: material.body.id,
+          quantityOrdered: "10",
+          unitCost: "5.00",
+        },
+      ],
+      additionalCosts: [
+        {
+          costType: "shipping",
+          reference: "Freight",
+          distributionMethod: "by_quantity",
+          accountingPurchaseAccountCode: null,
+          amount: "50.00",
+        },
+      ],
+    };
+
+    // Freight on a received order is ordinary bookkeeping; the persisted line
+    // already carries everything the save needs.
+    const freight = await testFetch(`/api/purchase-orders/${order.body.id}`, {
+      method: "PUT",
+      body: JSON.stringify(basePayload),
+    });
+    expect(freight.status, await freight.text()).toBe(200);
+
+    const [line] = await db
+      .select({
+        itemName: purchaseOrderLines.itemName,
+        itemSku: purchaseOrderLines.itemSku,
+        stockUnitCost: purchaseOrderLines.stockUnitCost,
+      })
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, order.body.id));
+    expect(line.itemName).toBe(materialName);
+    expect(line.itemSku).toBe(`FAST-RETIRED-${unique}`);
+    expect(Number(line.stockUnitCost)).toBe(10);
+
+    const revaluations = await db
+      .select({ unitCost: inventoryEvents.unitCost })
+      .from(inventoryEvents)
+      .where(
+        and(
+          eq(inventoryEvents.itemId, material.body.id),
+          eq(inventoryEvents.eventType, "landed_cost_revaluation"),
+        ),
+      );
+    expect(revaluations).toHaveLength(1);
+    expect(Number(revaluations[0].unitCost)).toBe(10);
+
+    // Ordering more of a deleted item would book expected supply for a catalog
+    // row that no longer exists, so that one edit is refused by name.
+    const reorder = await testFetch(`/api/purchase-orders/${order.body.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        ...basePayload,
+        lines: [{ ...basePayload.lines[0], quantityOrdered: "12" }],
+      }),
+    });
+    expect(reorder.status).toBe(400);
+    const reorderBody = (await reorder.json()) as {
+      error?: string;
+      errors?: Record<string, string[]>;
+    };
+    expect(reorderBody.error).toContain(materialName);
+    expect(reorderBody.errors?.["lines.0.quantityOrdered"]).toBeTruthy();
+  });
+
   test("resolved supplier grouping collapses supplier overrides and splits supplier costs", async () => {
     const groups = groupPurchaseOrderByResolvedSupplier({
       purchaseOrderSupplier: {

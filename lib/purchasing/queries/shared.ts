@@ -64,8 +64,42 @@ export async function getLockedPurchaseOrderInTx(tx: Tx, id: string) {
   return order ?? null;
 }
 
+/**
+ * What a purchase-order line needs from its item to be prepared. Live catalog
+ * rows satisfy this, and so does a persisted line's own snapshot, which is how
+ * a received order keeps saving after its item has been soft-deleted.
+ */
+export type PurchasableLineSource = Pick<
+  MaterialValidationRow,
+  | "id"
+  | "displayName"
+  | "sku"
+  | "stockingUnitName"
+  | "purchaseUnitName"
+  | "purchaseToStockFactor"
+  | "accountingPurchaseAccountCode"
+>;
+
 export async function getValidatedPurchasableItemsInTx(tx: Tx, itemIds: string[]) {
   const uniqueIds = [...new Set(itemIds)];
+  const itemMap = await getPurchasableItemsByIdInTx(tx, uniqueIds);
+
+  if (itemMap.size !== uniqueIds.length) {
+    throw new PurchasingError("Item not found", 404);
+  }
+
+  return itemMap;
+}
+
+/**
+ * Live purchasable items by id. Soft-deleted or non-purchasable ids are simply
+ * absent from the map; callers decide whether that is an error.
+ */
+export async function getPurchasableItemsByIdInTx(tx: Tx, itemIds: string[]) {
+  const uniqueIds = [...new Set(itemIds)];
+  if (uniqueIds.length === 0) {
+    return new Map<string, MaterialValidationRow>();
+  }
 
   const rows = await tx
     .select({
@@ -112,7 +146,7 @@ export async function getValidatedPurchasableItemsInTx(tx: Tx, itemIds: string[]
     tx,
     rows.map((row) => row.id),
   );
-  const itemMap = new Map(
+  return new Map<string, MaterialValidationRow>(
     rows.map((row) => {
       const display = displayByItemId.get(row.id);
       return [
@@ -125,12 +159,6 @@ export async function getValidatedPurchasableItemsInTx(tx: Tx, itemIds: string[]
       ];
     }),
   );
-
-  if (itemMap.size !== uniqueIds.length) {
-    throw new PurchasingError("Item not found", 404);
-  }
-
-  return itemMap;
 }
 
 export async function getPurchaseOrderLinesInTx(tx: Tx, purchaseOrderId: string) {

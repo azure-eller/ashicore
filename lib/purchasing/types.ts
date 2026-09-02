@@ -280,9 +280,13 @@ export type PurchaseOrderEditData = {
   lines: Array<{
     id: string;
     itemId: string;
+    itemName: string;
     itemSku: string | null;
     supplierItemCode: string | null;
     internalBarcode: string | null;
+    purchaseUnitName: string;
+    stockingUnitName: string;
+    purchaseToStockFactor: string;
     quantityOrdered: string;
     quantityReceived: string;
     stockQuantityReceived: string;

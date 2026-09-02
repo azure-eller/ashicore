@@ -326,6 +326,12 @@ soft-delete (`deletedAt`) only.
   current assigned option suffix to legacy base-only line snapshots without
   duplicating a suffix already present
 - materials used by active not received or partially received purchase orders cannot be soft-deleted from inventory
+- a saved line whose item has since been soft-deleted keeps saving from its
+  snapshot: header, additional-cost, price, and other line edits still land and
+  still revalue eligible received stock. Only raising that line's ordered
+  quantity is refused, naming the item, because it would book expected supply
+  for an item that no longer exists. New lines still require a live purchasable
+  item
 - suppliers used by active not received or partially received purchase orders cannot be soft-deleted
 
 ## Receiving

@@ -278,10 +278,34 @@ export function PurchaseOrderCard({
       })),
     [materials],
   );
-  const materialMap = useMemo(
-    () => new Map(materials.map((material) => [material.id, material])),
-    [materials],
-  );
+  const materialMap = useMemo(() => {
+    const map = new Map<string, PurchaseOrderMaterialOption>(
+      materials.map((material) => [material.id, material]),
+    );
+    // A saved line whose item has left the catalog still renders and prices
+    // from its own snapshot — the same source the server saves it from — so
+    // the landed-cost preview matches what a save will persist. Deleted items
+    // are deliberately not offered as options for new lines.
+    for (const line of initialData?.lines ?? []) {
+      if (map.has(line.itemId)) continue;
+      map.set(line.itemId, {
+        id: line.itemId,
+        itemType: "material",
+        name: line.itemName,
+        displayName: line.itemName,
+        sku: line.itemSku,
+        supplierItemCode: line.supplierItemCode,
+        internalBarcode: line.internalBarcode,
+        stockingUnitName: line.stockingUnitName,
+        purchaseUnitName: line.purchaseUnitName,
+        purchaseToStockFactor: line.purchaseToStockFactor,
+        defaultPurchasePrice: null,
+        currentStockUnitCost: null,
+        accountingPurchaseAccountCode: line.accountingPurchaseAccountCode,
+      });
+    }
+    return map;
+  }, [materials, initialData?.lines]);
   const receivedMaterialIds = useMemo(
     () =>
       new Set(
