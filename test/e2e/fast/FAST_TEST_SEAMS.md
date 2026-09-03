@@ -5,7 +5,7 @@ that is worth running on every serious PR.
 
 | File | Seam invariant |
 | --- | --- |
-| `auth-org-context.spec.ts` | Authenticated browser context has an active org and can access a protected app/API path. |
+| `auth-org-context.spec.ts` | Authenticated browser context has an active org and can access a protected app/API path, and `/api/version` stays public and uncached and reports the commit the server was built from, so a merge can be confirmed live in production. |
 | `billing-entitlements.spec.ts` | Legacy signup intent safely normalizes to Free or flat-rate Pro, unbilled legacy paid rows enter Free grace without downgrading billed Pro, commercial capabilities remain open, Pricing Scenarios stays allowlisted, Free SKU creation stops after grace at 30 active item rows, and Stripe activation/cancellation projects the correct plan. |
 | `inventory-mutation-kernel.spec.ts` | Inventory, stocktake, recipe, and item-card mutations preserve kernel projection truth across replay, queued autosave, rebase, conflicts, fresh reads, strict physical-quantity persistence boundaries, and deadlock-safe SKU-cap accounting across every item-card creation route, and Postgres constraint violations surfacing as a 409 with a usable message rather than a bare 500. |
 | `stock-adjustment-route.spec.ts` | Stock adjustment writes reasoned per-item/per-lot stock targets with correct costing, validation, mobile gating metadata, and replay behavior. |

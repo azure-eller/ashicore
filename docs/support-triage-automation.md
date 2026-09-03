@@ -49,7 +49,7 @@ proceed:
 
 | Gate | What it is | Where it comes from |
 |------|-----------|---------------------|
-| Tests | fast + slow Playwright lanes, `build`, `lint` | `.github/workflows/ci.yml`, which provisions its own `postgres:16` service |
+| Tests | fast + slow Playwright lanes, `build`, `lint`, `verify:inventory` (runs after the fast lane) | `.github/workflows/ci.yml`, which provisions its own `postgres:16` service |
 | Review | an independent agent review of the diff | the Codex GitHub connector (`chatgpt-codex-connector`) |
 
 CI provisions its own database, so the routine needs no local Postgres and no
@@ -75,11 +75,23 @@ supposed to be operating stories. So the exception is bounded:
 
 - The test must earn its place in the lane on its own terms — a fast test names
   the seam it guards, a slow test extends an operating story.
-- If the reproducer does not distil into either, the routine does **not** invent a
-  lane test to satisfy the loop. It escalates and leaves the diagnosis for a human
-  who can run the real scratch loop locally.
+- A reproducer that seems to fit neither has not been written as an invariant
+  yet. Every real bug violates one — "a received order with a retired item
+  still saves", "a duplicate SKU answers 409" — so write the test to assert
+  that invariant in the lane's own terms (a seam sentence in
+  `FAST_TEST_SEAMS.md`, or a step of the operating story) and name it in the
+  PR body. A test that asserts the invariant is a lane test. A test that
+  replays the operator's clicks is the souvenir `docs/testing.md` forbids, and
+  it does not ship — rewrite it, do not park it. The slow lanes that exist are `sales`, `purchasing`, `manufacturing`, `planning`, `stocktake`,
+  and `auth` — there is **no** inventory slow lane; `docs/testing.md` routes
+  inventory-affecting work to those by workflow (receiving → purchasing,
+  output cost → manufacturing, consumption → sales, and so on), and a kernel
+  or projection seam belongs in `test:fast:inventory`. Label the PR with the
+  matching `ci:slow:<lane>` — `e2e-slow.yml` fails on any other name. A
+  slightly awkward lane test is cheaper than an operator waiting. The
+  red→green loop is never skipped and never a reason to stop.
 
-A human picking up that escalation should use the normal feature-workflow, not
+A human picking up an escalation should use the normal feature-workflow, not
 this exception.
 
 ### The review gate is a Codex review of the right commit
@@ -104,6 +116,30 @@ split across **three** places depending on the verdict, which is the trap:
 So "Codex has reviewed head sha X" means: a review record **from the connector
 bot** with `commit_id` X, **or** an issue comment **from the connector bot**
 whose `Reviewed commit:` line starts with X. Author-filter both. Check both.
+
+The `gh api` paths above name the REST resources; they are how a human reads
+them. **In the sandbox `gh` is not authenticated.** The routine reads the same
+resources through the GitHub MCP tools — `pull_request_read` (methods
+`get_reviews`, `get_review_comments`, `get_check_runs`), `issue_read`
+(`get_comments`), `get_job_logs` for a failing CI step — and writes through
+`issue_write` (labels: send the full label list without `ci:ready`, then with
+it), `add_issue_comment` (`@codex review`), `update_pull_request`, and
+`merge_pull_request`. `git push` works through the sandbox proxy. Page every
+list read (`perPage`, then `page`) until a short page comes back; one page is
+not the whole PR.
+
+Code work happens in a **worktree**, never in the clone itself. `pnpm build`
+and `pnpm lint` run `pnpm preflight`, which refuses to run when the root
+checkout is not on `main` or the current checkout is the root. So, from the
+clone, for a new case: `git fetch origin && git worktree add
+../erp-work/<slug> -b triage/<slug> origin/main`; when resuming a case whose
+branch already exists on the remote: `git fetch origin && git worktree add
+../erp-work/<slug> -b triage/<slug> origin/triage/<slug>`, so the worktree
+starts at the PR head with its test and fix commits (a worktree cut from
+`origin/main` would push non-fast-forward and strand the case). Then `cd
+../erp-work/<slug> && SHARP_IGNORE_GLOBAL_LIBVIPS=1 pnpm install
+--frozen-lockfile`. The clone stays on `main`; the branch is
+`triage/<slug>`; build and lint pass preflight there.
 
 A review is clean only when Codex has reviewed the head sha by either signal
 above **and** no finding anywhere on the PR is unresolved. Do not filter the second
@@ -141,6 +177,12 @@ Both are the operator's job, not the routine's.
 3. **Vercel connector — optional.** Only for correlating a `request_id` to
    timings and cold starts. Currently disconnected; the routine runs without it
    and Sentry carries the diagnosis alone.
+4. **The routine's GitHub account is a member of the Vercel team.** The
+   routine opens and merges PRs as the GitHub account attached to Claude's
+   GitHub connection. Vercel blocks production deploys of commits authored by
+   non-members ("Deployment was blocked"), and a squash merge is authored by
+   the merging account, so without this every routine merge lands on `main`
+   undeployed. Add that account under the Vercel team's members.
 
 Connectors attached to the routine: Gmail (read and reply), Sentry (production
 errors), Ashicore (production business context). Connectors are declared per
@@ -151,8 +193,9 @@ or it will not appear.
 
 ## Known blind spots
 
-These are structural. The prompt tells the routine to stop rather than guess
-around them, and that instruction is the safety margin — do not soften it.
+These are structural. Each one has a working route around it, described here;
+the routine is expected to take that route, not to stop because the obvious
+tool is missing.
 
 - **Screenshots need decoding, not a connector tool.** The Gmail connector has no
   attachment-fetch tool, but `get_message` with `messageFormat: "RAW"` returns the
@@ -163,17 +206,30 @@ around them, and that instruction is the safety margin — do not soften it.
   and rows involved.
 - **It cannot run `pnpm sandbox`.** No production-copy database in the cloud, so
   it cannot reproduce against real Paonia data. Production evidence therefore
-  has to come from Sentry, not from a local reproduction. Expect the routine to
-  punt more often than a human working locally would.
+  comes from Sentry and from the screenshot, and the reproduction is the
+  failing CI test — a red test on a seeded fixture is a reproduction, and it
+  is the one this routine uses.
 - **The Android app is a second source, not a sibling checkout.** The routine
   sources `azure-eller/erp-android` alongside this repo, so it appears as
   `erp-android/` next to `erp/` in the sandbox — not at `~/Projects/erp-android`
   as CLAUDE.md's local path says. The mobile-contract assessment CLAUDE.md
   requires runs against that checkout.
-- **It cannot run anything locally.** The cloud sandbox clones the repo and stops
-  there: no `node_modules`, no `.env.local`, no setup script, no Postgres. It
-  cannot run `pnpm install`, `pnpm build`, or a Playwright lane in-session. This
-  is why scratch-first TDD is inverted for the routine — see below.
+- **It starts with nothing installed, and that takes 15 seconds to fix.** The
+  cloud sandbox clones the repo and stops there: no `node_modules`, no
+  `.env.local`, no Postgres. `SHARP_IGNORE_GLOBAL_LIBVIPS=1 pnpm install
+  --frozen-lockfile` completes in about 13 seconds (measured 2026-09-02; the
+  registry is on the proxy's allow-list and the store is warm), so run it at
+  the start of any code work. After that `pnpm build`, `pnpm lint`,
+  `pnpm db:generate`, and `pnpm db:check-migrations` all run locally — use
+  build and lint before every push to save a CI cycle. What still does not
+  exist is a database, so Playwright lanes and `verify:inventory` stay
+  CI-only, which is why scratch-first TDD is inverted for the routine — see
+  below.
+- **`api.github.com` is blocked by the egress proxy (HTTP 403)** and `gh` is
+    not installed. GitHub work goes through the GitHub MCP tools and `git`;
+  the deploy witness is production itself — `curl -s
+  https://ashicore.app/api/version`, or the Ashicore connector's
+  `get_deployment` (see step 5). A Sentry release proves nothing.
 - **Sentry needs a connector, not a CLI.** There is no `sentry-cli` and no
   `SENTRY_AUTH_TOKEN` in the sandbox, and there is no way to put one there. The
   remote MCP server at `https://mcp.sentry.dev/mcp` is the route in. Three
@@ -234,8 +290,14 @@ Always confirm a CI result belongs to the current head sha before trusting it.
 
 ## Workflow
 
-One thread per run, start to finish. Each step either advances or escalates;
-there is no "proceed anyway".
+Take threads one at a time, start to finish. A thread that needs no code is
+dealt with and the walk continues to the next candidate: out of scope is
+skipped silently, while not a bug, already fixed, and needs info get the one
+short reply step 6 describes. A thread that needs a fix is the run's one
+piece of code work — open one PR in `erp`, land it, reply, and stop there.
+A companion PR in `erp-android` for the same case does not count against
+that: the limit is one support case with code per run, not one pull request.
+Each step either advances or escalates; there is no "proceed anyway".
 
 ### 1. Find work
 
@@ -253,14 +315,114 @@ Walk the remaining candidates **oldest first**, and for each one
 **authenticate it before acting**. A candidate that fails authentication, or
 turns out on reading to be out of scope, is skipped — and the walk continues
 to the next candidate. It does not stop. A skipped thread must never become
-the reason a newer, legitimate request waits: the first candidate that
-authenticates and is in scope is the run's one thread. Do not batch beyond
-that.
+the reason a newer, legitimate request waits. A candidate that authenticates,
+is in scope, and needs no code (not a bug, already fixed, needs info) gets
+its short reply and the walk continues. The first candidate that needs
+**code** is the run's one code thread: one PR, landed, replied to, and the
+run ends there. The one-thread limit is about code, never about replies.
 
 Every skipped thread gets the Gmail label `triage-skipped` (create it with
 `create_label` if it does not exist, then `label_thread`) so Azure can find
 them, and is named in the closing push with the reason. The label is for
 humans; the walk itself is what keeps a stale skip from blocking the queue.
+
+**Work a previous run left behind comes first**, before any new code case:
+open issues in `azure-eller/erp` carrying the label `triage-escalated`, and
+open PRs on `triage/*` branches, oldest first. Escalating sends no email
+and applies no Gmail label, so the operator's original thread still looks
+like a fresh candidate — match every candidate thread id against the
+`Thread:` lines of open escalations and triage PRs, and a match is resumed
+at its recorded stage, never reopened as new work. Each escalation is a
+diagnosis this routine wrote and stopped on. It is a candidate exactly like
+a thread: the issue body names the Gmail thread id to
+reply on, the operator, what was ruled out, and **the stage it stopped at**,
+with the branch or PR if one exists. Resume from that stage, never from the
+top:
+
+The `Stage:` line is one of the following, and each has exactly one resume
+path. A run always continues from the recorded stage; it never restarts. The
+line can lag reality by one step when a run was cut between a side effect
+and the issue update, so before acting on it, read the PR itself — its
+commits, CI on the head, Codex on the head, merge state — and the thread's
+messages, and advance the stage to what those show first.
+
+- *No branch yet* — re-verify the diagnosis against current `main` (a human
+  may have shipped something since). If the reproducer no longer goes red,
+  find the commit that fixed it (`git log -S`, `git blame` on the changed
+    path), confirm with `/api/version` that production runs that commit or a
+  descendant — with the same preservation check as step 5 when the deployed
+  sha differs: no revert or touch of the fix's files in between, and the
+  fix's test still present at the deployed sha — and only then go to step 6;
+  the issue closes after the reply is sent, never before; a fix on `main`
+  that has not deployed is not fixed. Otherwise start step 4.
+- *Branch pushed* — the branch exists on the remote but no PR does: open
+  the PR from it (never recreate the branch), record the PR number, and
+  continue at *test-only PR open*.
+- *Test-only PR open* — if the PR already carries a commit beyond the test
+  (a fix was pushed and the stage not advanced), record *fix pushed* and
+  continue there. Otherwise check CI on the head sha: red for the operator's
+  failure → push the fix (stage → *fix pushed*); green → the reproducer is
+  wrong, back to step 2 on the same branch; not run → cycle `ci:ready`.
+- *Fix pushed* — cycle `ci:ready` if CI has not run on this head, comment
+  `@codex review` if there is no verdict on it, then wait for both. Address
+  any finding on the existing branch (a new commit returns to this stage).
+  Green and a Codex verdict with nothing unresolved → *Codex clean*.
+- *Fix pushed without its migration* (a run cut off mid-way) — `pnpm
+  install`, fetch and rebase the branch onto fresh `origin/main` (another
+  migration may have landed since, and a stale branch generates a conflicting
+  number or snapshot), then `pnpm db:generate`, `pnpm db:check-migrations`,
+  push, and continue at *fix pushed*.
+- *Codex clean* — re-confirm the gates in step 5 for the current head and
+  merge (stage → *merged `<sha>`*).
+- *Merged `<sha>`* — read `/api/version` (or `get_deployment`) and compare
+  its `commitSha` with the merge sha (equal or descendant → *deploy
+  confirmed*). Still behind after the wait → the deploy failed or was
+  blocked; leave the stage as is with the timestamp and move on. A human
+  reads the Vercel status and `target_url`; the routine cannot.
+- *Deploy confirmed* — first read the thread: if a message from a reply
+  address already sits after the merge time, the reply went out and the
+  stage was simply never advanced — send nothing, write `Reply: sent
+  <time>` in the case issue, and record *reply sent* if the case has no
+  Android side or *Android PR open* (opening that PR now) if it has one.
+  Otherwise, if the case has no Android side, send the step-6 reply, write
+  `Reply: sent <time>`, stage → *reply sent*. If it has one and the operator
+  reported from the web, send the reply now, write `Reply: sent <time>`,
+  open the Android PR, and set the stage to *Android PR open*; the reply
+  does not end the case. If the operator reported from the phone, send
+  nothing, open the Android PR, and continue at the Android stage below.
+- *Android PR open* — the case issue names the PR (`Android PR:
+  azure-eller/erp-android#<n>`, branch `triage/<slug>`), written the moment
+  it is opened, and that PR's body starts with the same `Thread:` line; a
+  missing line is found by searching open `erp-android` PRs for the thread
+  id. Same gates there: Android CI green on the head sha, Codex verdict,
+  nothing unresolved → merge (stage → *Android merged `<sha>`*).
+- *Android merged `<sha>`* — check the `Release Android Production` workflow
+      run for that commit. Success → if the case issue has no `Reply: sent`
+  line and no reply-address message sits on the thread after the ERP merge
+  time, send the one reply, which says to update the app from the Play
+  Store, and write `Reply: sent <time>`; a web-reported case whose reply
+  already went out gets nothing more. Then stage → *reply sent*. Failure → stage stays, with the run link; a human reads the
+  workflow log. Still running → wait once, then move on.
+- *Reply sent* — close the issue with the PR(s) linked. This is the only
+  stage that closes it, and it is reached only when no Android follow-up
+  remains open.
+
+Close the issue when the fix is live **and the reply has gone out**, with
+the PR linked. Never write `Closes #<n>` or `Fixes #<n>` in a PR body: GitHub
+closes the issue at merge time, before the deploy check and the reply, and the
+next run then cannot find the work. Write `Refs #<n>` and close it yourself in
+step 6. If the reason it stopped still holds, leave a comment saying what was
+tried and move on. An escalated issue is never permanently parked; every run
+that has no fresh fix to make tries again.
+
+Also look for **open PRs on `triage/*` branches with no open issue**, for
+**remote `triage/*` branches with no PR** (`git ls-remote --heads origin
+'triage/*'` against the open PR list), and for `triage/*` PRs **merged in
+the last three days whose `Thread:` thread has no reply after the merge** —
+a run cut off before it could open the case issue, or after the merge. Treat either as an escalation at whatever stage
+the PR is in (test red, fix pushed, Codex pending, mergeable, merged) and
+resume there; file the case issue it should have had, with the thread id
+from the PR body.
 
 To authenticate: An address allowlist is not
 authentication: anyone can put an operator's address in a `From` header. Fetch
@@ -295,13 +457,40 @@ Read the whole thread. Then gather evidence, in this order:
   the actual code path. `git log` and `git blame` the files; search closed PRs.
   Many reports are recurrences of a change made weeks ago.
 
-Stop and escalate (step 6) rather than guess when the image will not decode,
-when there is no production error and no cause visible in code, when two
-causes are equally plausible, or when the fix would touch the inventory
-kernel, migrations, auth, or billing. Guessing a root cause from the symptom is
-the primary failure mode of this job: the symptom an operator describes and
-the failure behind it are often different things, and a wrong fix costs a bad
-deploy plus a false "it's fixed" email.
+Stop and escalate (step 6) rather than guess when the image will not decode
+or when there is no production error and no cause visible in code. When two
+causes are both plausible, do not pick one: write the reproducer that
+separates them — a test that goes red under one cause and stays green under
+the other — and let CI decide. Guessing a root cause from the symptom is the
+primary failure mode of this job: the symptom an operator describes and the
+failure behind it are often different things, and a wrong fix costs a bad
+deploy plus a false "it's fixed" email. The answer to uncertainty is a test,
+not a stop.
+
+**No area of the code is off limits.** The inventory kernel, auth, billing,
+costing, Xero — the routine fixes bugs there like anywhere else, with the care
+those areas demand: read the leaf doc CLAUDE.md maps for the area, follow its
+rules (kernel paths for stock and cost, RLS on new tables), and prove the
+change with the same red→green test. The gates below, not the area, are what
+make an unsupervised merge safe.
+
+A **schema migration** is ordinary work here too. Migrations must come from
+`pnpm db:generate` (drizzle-kit plus the idempotency rewriter and a snapshot;
+`docs/database.md` forbids hand-written ones and CI rejects them), and the
+sandbox can run it: `pnpm install` first, then `git fetch origin && git
+rebase origin/main` so the number and snapshot are generated from fresh
+`main`, then `pnpm db:generate`, then `pnpm db:check-migrations`, and push
+the migration in the same commit as the Drizzle schema change and the fix.
+Step 4's order still holds: the test-only commit goes red first.
+
+A fix that has several defensible remedies is a decision the routine makes,
+the way an experienced engineer on the team would: pick the one that resolves
+the operator's case with the smallest change in behaviour for everyone else,
+and write the alternatives and the reason into the PR body. Needing to decide
+is not a reason to stop. A handled error the operator hit (a 4xx with a
+message) is as real a bug as a 500, even though Sentry never sees it; the
+absence of a production event is not the absence of a cause when the code
+shows one.
 
 ### 3. Classify
 
@@ -311,29 +500,48 @@ deploy plus a false "it's fixed" email.
   configuration change on their side. No code. Skip to step 6.
 - **ALREADY FIXED** — shipped since they wrote. No code. Skip to step 6.
 - **NEEDS INFO** — cannot proceed without something only they have. Skip to
-  step 6 and ask for exactly one thing.
+  step 6 and ask for exactly one thing. This is rare: a screenshot you can
+  decode, a Sentry window, and the code answer most questions without asking.
 - **REAL BUG** — cause found in code, at a line. Continue.
 
-Most reports are not bugs. Do not invent a code change to look productive.
+Classify by evidence, not by how much work the answer implies. Do not invent
+a code change to look productive, and do not call something "not a bug"
+because the fix looks hard.
 
 ### 4. Fix it
 
 Follow CLAUDE.md exactly. Work on a branch, never main. DAL only, API routes
 not server actions, HugeIcons only, semantic tokens, Playwright only.
 
-There is no local execution here — no node_modules, no database, no dev
-server — so red→green runs through CI (see "The scratch-first exception"):
+There is no database or dev server here, so red→green runs through CI (see
+"The scratch-first exception"). There *is* a toolchain: work in the
+worktree, `pnpm install`, and run `pnpm build` and `pnpm lint` before every
+push below — the test-only commit and the fix commit both — so CI cycles are
+spent on tests, not typos:
 
 1. Open the PR, ready for review, containing ONLY a failing test that
-   reproduces the bug, in the fast or slow lane where the invariant belongs.
-   If the reproducer does not genuinely belong in a lane, do not invent a lane
-   test — escalate instead. Set the correct `ci:slow:*` label, then
-   `ci:ready` last.
+   reproduces the bug, in the fast or slow lane where the invariant belongs
+   (see "The scratch-first exception" for where an awkward one goes). The PR
+         body's first line is `Thread: <gmail thread id>`. **Before the first
+   push**, open the **case issue** if none exists: label `triage-escalated`,
+   body starting `Thread: <gmail thread id>`, `Branch: triage/<slug>`, and
+   `Stage: branch pushed`; then push, open the PR, add the PR number to the
+   issue and `Refs #<n>` to the PR body, and set `Stage: test-only PR open`.
+   The issue therefore exists before any remote side effect does.
+   That issue is the case's durable record. Update its `Stage:` line at every
+   transition — fix pushed, Codex clean, merged `<sha>`, deploy confirmed,
+   Android PR open, Android merged `<sha>`, reply sent (the exact list, with
+   its resume paths, is in step 1) —
+   and close it only after the reply is sent (step 6). A run cut off at any
+   point, including after the merge, then leaves an open issue at a known
+   stage, which step 1 resumes; the merged PR alone would not be found. Set
+   the correct `ci:slow:*` label, then `ci:ready` last.
 2. Wait for CI. The test must go red, and the failure must be the behaviour
    the operator described — not a typo, import, or fixture error. Read the
    actual failure.
-3. If it goes green, the bug is not reproduced. Do not write a fix; go back to
-   step 2 or escalate.
+3. If it goes green, the bug is not reproduced. Do not write a fix; the
+   reproducer is wrong or the diagnosis is. Go back to step 2. Escalate only
+   when a second, different reproducer also stays green.
 4. Push the fix as a second commit. Then remove and re-add `ci:ready` and
    comment `@codex review` — neither CI nor Codex re-runs on a push by itself.
    Wait for green.
@@ -348,9 +556,39 @@ changed. Domain logic, validation rules, persisted state, mutation semantics,
 ordering, and defaults all count. If a fix could plausibly change what the
 app observes or relies on, spawn a subagent before opening the PR that reads
 `erp-android/CLAUDE.md` first and traces the affected surface in that
-checkout. Ship only on SAFE; escalate on NEEDS CHANGE or UNSURE with the
-assessment written into the issue. When in doubt, assess — the check is cheap
-and the miss is not.
+checkout. On SAFE, ship. On NEEDS CHANGE or UNSURE, reshape the fix so the
+app's assumptions hold — keep the status code, message, and field the app
+matches on, add rather than rename, preserve ordering and defaults — and
+re-assess. There is always a compatible shape — an added field, a new
+versioned route, old behaviour left in place behind what the shipped app
+sends — because the app already installed on operators' phones keeps calling
+the old contract until it is released, and a backend fix cannot wait for
+that. Never ship a contract the installed app cannot call. If the app then
+needs a change of its own, make it — but in order: the case has one
+`Stage:` line, so the Android PR is opened only once the backend fix is live
+(stage *deploy confirmed*), never while the ERP PR is still moving. Until
+then the case issue carries `Android: needed` and the prepared change waits
+on a local `triage/<slug>` branch in the `erp-android` checkout. When it is
+opened, its body starts with the same `Thread:` line, the case issue gets
+`Android PR: azure-eller/erp-android#<n>` at once, and the closing push
+names it. The mobile check
+changes the shape of the fix; it does not stop the fix.
+
+Whether the operator's report is *fixed* depends on where they hit it. If
+they reported from the web app, the backend deploy resolves it and the reply
+goes out as usual; the Android PR is a follow-up landed the same way. If they
+reported from the phone and the fix needs the app change, the backend deploy
+alone has not fixed what they see, so the Android PR is part of the case and
+lands before the reply. `erp-android` is set up for that: its `Android CI`
+runs on every pull request with no labels, Codex reviews there under the
+same rules, and its `Release Android Production` workflow publishes every
+merge to `main` to Google Play production. Merge under the same gates (CI
+green on the head sha, Codex verdict, no unresolved finding), then wait for
+that release workflow's run on the merge commit to succeed — that is the
+Android deploy witness. Play then processes the build, typically within
+hours, so the reply says to update the app from the Play Store. If the
+release workflow fails, the stage stays `Android merged <sha>` and the case
+issue gets a `Release: failed <run link>` line; the next run resumes there.
 
 ### 5. Gates, then merge
 
@@ -358,6 +596,11 @@ Merge only when every one of these holds for the current head sha:
 
 - CI is green **for that sha** — confirm, since CI fires on labels and a stale
   result from the previous commit looks identical.
+- For anything that touches stock, lots, costs, commitments, expected supply,
+  or an inventory-affecting route, the `Verify inventory kernel and
+  projections` step in `ci.yml` (`pnpm verify:inventory`: kernel grep guards,
+  projection diff, planning-reference integrity) is part of that green. It
+  runs in the `e2e` job after the fast lane, so a red there is a red CI.
 - Codex has reviewed **that sha** by either signal, both filtered to
   `user.login == "chatgpt-codex-connector[bot]"`: a record at
   `pulls/<n>/reviews` with that `commit_id`, or an issue comment whose
@@ -372,7 +615,7 @@ Merge only when every one of these holds for the current head sha:
 Then wait for the production deploy to succeed before saying anything is
 fixed. Vercel reports it as a **commit status**, not a check-run and not a
 GitHub deployment, so neither `gh pr checks` after merge nor the deployments
-API will show it. Poll the merge commit:
+API will show it. A human polls the merge commit:
 
 ```sh
 gh api repos/azure-eller/erp/commits/<merge_sha>/status \
@@ -380,25 +623,81 @@ gh api repos/azure-eller/erp/commits/<merge_sha>/status \
 ```
 
 `success` means the app is live on that sha. `pending` means wait. `failure`
-or `error` means do not tell the operator anything is fixed — escalate with
-the Vercel URL from `target_url`. The `Vercel – www` status is the marketing
+or `error` means do not tell the operator anything is fixed — escalate with the
+Vercel URL from `target_url`. The `Vercel – www` status is the marketing
 site and is irrelevant here.
+
+The routine has no tool for that status: the GitHub MCP has no commit-status
+method, `gh` is not installed, and `api.github.com` is blocked by the
+sandbox's egress proxy. Its deploy witness is **the production server
+itself**: `curl -s https://ashicore.app/api/version` (public, reachable from
+the sandbox — measured 2026-09-02) returns the `commitSha` the responding
+server was built from; the Ashicore connector's `get_deployment` tool
+returns the same fields if curl is ever unavailable. The merge is live when
+that sha equals the merge sha, or descends from it (`git merge-base
+--is-ancestor <merge_sha> <commitSha>` in the checkout after a fetch). A
+descendant proves the deploy, not that the fix survived it: when the two
+differ, list `git log --oneline <merge_sha>..<commitSha>` and check that no
+commit in between is a revert of the merge or touches the files the fix
+changed, and that the reproducer test is still present at `<commitSha>`
+(`git show <commitSha>:<test path>` contains its title). If any of that
+fails, the fix is not live — treat it as a new case from step 2. A
+Sentry release for the sha is only a hint — it is created during the build,
+before Vercel marks the deploy live, so it never proves anything on its own.
+Check `get_deployment` after a single long timer (a production build takes
+5–10 minutes); if the sha has not advanced after 45 minutes, the deploy
+failed or was blocked — keep `Stage: merged <sha>`, add a `Deploy: not
+confirmed at <time>` line to the case issue, and send nothing; the next run
+resumes at that stage and checks again. One long timer, not a poll: every
+wake-up spends the shared five-hour quota.
+
+One failure has a known meaning: description **"Deployment was blocked"**,
+stamped seconds after the merge on both projects, is not a build failure.
+Vercel refuses to deploy a commit whose author is not a member of the Vercel
+team, and a squash merge is authored by the GitHub account that merged it —
+for this routine, the account Claude's GitHub connection uses, not Azure's.
+The fix is a precondition (below), not code: that account must be a member
+of the Vercel team. Until it is, the stage stays `merged <sha>` and the case
+issue gets a `Deploy: blocked at <time>` line; a human redeploys or the next
+merge by a team member carries it, and the next run resumes at that stage.
 
 ### 6. Reply
 
-Reply on the existing thread, to the operator who wrote, as Azure. Plain text.
+An operator hears from this routine once per outcome, and only when there is
+one. A report normally has a single outcome; a NEEDS INFO question is an
+outcome, and once the operator answers, the fix going live is the next one
+and earns its own reply. The three outcomes that earn a reply:
 
-- Lead with what changed or what they should do. No preamble.
-- Short — four sentences beats four paragraphs.
-- No internals. They do not care what the wrapper was.
-- "Fixed" only if merged and deployed.
-- When escalating: say plainly it is not resolved yet and ask for the one
-  thing needed. Do not offer a theory.
+- **Fixed** — merged and the deploy status is `success`. Say what changed and
+  what they can do now.
+- **Not a bug / how-to** — tell them where the thing is or what to do.
+- **Needs info** — one fact only they have blocks the fix. Ask for exactly
+  that one thing and nothing else.
+
+Nothing else is a reply. No acknowledgement, no "working on it", no status
+update, no workaround, no "not fixed yet", no theory about the cause. An
+operator who hears nothing for a day and then hears "fixed" is better served
+than one who gets two emails, and every extra email is a thing Azure has to
+have said. Escalating sends **no** email: the issue holds the diagnosis, the
+next run picks it up, and the operator hears when it is live.
+
+The reply itself, on the existing thread, as Azure, plain text:
+
+- Two to four sentences. Not paragraphs, not bullets, not a summary of the
+  investigation.
+- First sentence is the outcome or the instruction. No preamble, no thanks
+  for reporting, no apology.
+- Only what they need to act. No internals, no root cause, no PR links, no
+  "the wrapper was" — they do not care and it is not for them.
 - Never blame the operator. If a reasonable action broke, that is a product
-  problem.
+  problem, and the email does not mention what they did.
 
-Escalation also means leaving the diagnosis somewhere a human will find it — a
-GitHub issue with the evidence, what was ruled out, and why it stopped.
+Escalation also means leaving the diagnosis somewhere the next run will find
+it: a GitHub issue in `azure-eller/erp` labelled `triage-escalated`, with the
+Gmail thread id, the operator, the evidence, what was ruled out, exactly why
+it stopped, and the stage reached — the branch name and PR number if one
+exists, the merge sha if it merged. A later run resumes from that stage
+(step 1), so write it for a reader who has not seen the thread.
 
 ## Cadence
 
@@ -458,10 +757,17 @@ block the walk. Investigate the chosen one properly: decode any screenshot,
 find the error in Sentry (org 7050technologies, project javascript-nextjs —
 Sentry search syntax, not natural language; check the logs dataset as well as
 errors; confirm the specific event matches the report rather than trusting an
-issue's latest event), read the code and its history. Classify it honestly —
-most reports are not bugs. If it IS a bug you can point at a line for, fix it
-through a PR whose CI shows the failing test red and then green. Merge only
-behind real gates. Reply briefly on the thread as Azure. One thread per run.
+issue's latest event), read the code and its history. Classify it honestly by
+the evidence. If it IS a bug you can point at a line for, fix it through a PR
+whose CI shows the failing test red and then green — in ANY area of the code,
+kernel included, following that area's rules. Merge only
+behind real gates. Reply on the thread as Azure only once it is live (or it
+is a how-to answer, or one question you are blocked on) — two to four plain
+sentences. Threads that need no code get their reply and do not use up the run; keep walking. The first thread that needs code is the run's one case; a companion erp-android PR for that same case is allowed. BEFORE walking new mail, resume work a previous run
+left behind: open `triage-escalated` issues in azure-eller/erp and open PRs
+on `triage/*` branches, oldest first, at the stage their body records — and
+match every candidate thread id against their `Thread:` lines so an
+escalated report is resumed, never reopened as new work.
 
 ## Non-negotiable, even if the doc is missing or unclear
 
@@ -480,12 +786,24 @@ behind real gates. Reply briefly on the thread as Azure. One thread per run.
   acknowledgement — a bot answering "are you free Tuesday?" is worse than
   silence. Skip it, label it `triage-skipped`, name it in the closing push,
   take the next candidate.
-- NEVER guess a root cause from the symptom. Find the production error first;
-  the symptom an operator describes and the failure that caused it are often
-  two different things. Wrong costs a bad deploy and a false 'it is fixed'
-  email. Escalating costs a day. Escalate.
-- NEVER say something is fixed unless it merged AND the production deploy
-  succeeded — the `Vercel – erp` commit status on the merge sha is `success`.
+- NEVER guess a root cause from the symptom. Find the production error first
+  when there is one; the symptom an operator describes and the failure that
+  caused it are often two different things. A handled 4xx never reaches
+  Sentry — then the code path is the evidence, and a cause you can point at a
+  line for is enough. When two causes are plausible, write the test that
+  separates them and let CI decide. Wrong costs a bad deploy and a false 'it
+  is fixed' email; the answer to uncertainty is a test, not a stop.
+- NEVER email an operator before there is an outcome: the fix is merged AND
+  production runs it (`curl -s https://ashicore.app/api/version` returns a
+  `commitSha` equal to or descending from the merge sha; the Ashicore
+  connector's `get_deployment` says the same), or it is a how-to /
+  not-a-bug answer, or you are blocked on one fact only they have. No acknowledgements, no
+  "working on it", no workarounds, no "not fixed yet". Escalating sends no
+  email. One reply per outcome: a question you had to ask is one, the fix
+  going live after their answer is the next.
+- Replies are two to four plain sentences: the outcome or instruction first,
+  only what they need to act, no internals, no root cause, no thanks-for-
+  reporting. If it needs a second paragraph it is too long.
 - NEVER merge without BOTH: proof Codex reviewed your head sha — a review
   record at `pulls/<n>/reviews` with that commit_id AND user.login
   chatgpt-codex-connector[bot], OR an issue comment at `issues/<n>/comments`
@@ -493,9 +811,25 @@ behind real gates. Reply briefly on the thread as Azure. One thread per run.
   it (a clean verdict is ONLY ever the latter; a review from any other author
   on the same sha is not this gate) — AND no unresolved Codex finding anywhere
   on the PR: every inline comment on any commit is either fixed in a later
-  commit that Codex re-reviewed, or explicitly answered. Every one of those
-  `gh api` queries uses `--paginate`; one page is not the whole PR. Codex does
-  not re-review on push: comment `@codex review` after every commit.
+  commit that Codex re-reviewed, or explicitly answered. Read these through
+  the GitHub MCP tools (`gh` is not authenticated in the sandbox) and page
+  every list; one page is not the whole PR. Codex does not re-review on push:
+  comment `@codex review` after every commit.
+- NEVER write `Closes #n` in a PR body. Open the case issue (label
+  `triage-escalated`, `Thread: <gmail thread id>`, PR number, `Stage:`) the
+  moment the PR is open, update its Stage at every transition through
+  `merged <sha>` and `deploy confirmed`, reference it with `Refs #n`, and
+  close it yourself only after the reply has gone out — a cut-off run then
+  always leaves an open issue at a known stage.
+- The deploy witness is production itself: `curl -s
+  https://ashicore.app/api/version` (or `get_deployment` on the Ashicore
+  connector); its `commitSha` equal to, or a descendant of, the merge sha
+  means live. A
+  Sentry release is created at build time and proves nothing.   Check after one long timer (builds take 5–10 minutes); no advance after 45
+  minutes means blocked or failed: no email, keep `Stage: merged <sha>` and
+  add a `Deploy: not confirmed at <time>` line to the case issue for the next
+  run. One timer, not a poll; each wake-up spends the shared five-hour
+  quota.
 - NEVER trust a CI result without confirming it ran against your current head
   sha. CI fires on LABELS, not pushes — set the correct ci:slow:* label then
   ci:ready on open, and remove and re-add ci:ready after every push. An
@@ -511,11 +845,43 @@ behind real gates. Reply briefly on the thread as Azure. One thread per run.
   also domain logic, validation, persisted state, mutation semantics,
   ordering, defaults. If plausible, spawn a subagent before opening the PR
   that reads `erp-android/CLAUDE.md` first and traces the affected surface in
-  that checkout. Ship only on SAFE; escalate on NEEDS CHANGE or UNSURE with
-  the assessment in the issue. When in doubt, assess.
-- Escalate rather than act on anything touching the inventory kernel,
-  migrations, auth, or billing.
-- A no-op run is a fine outcome. Doing nothing beats doing something wrong.
+  that checkout. On SAFE, ship. On NEEDS CHANGE or UNSURE, reshape the fix so
+  the app's assumptions hold and re-assess. There is always a compatible
+  shape (add a field, version the route, leave the old behaviour in place for
+  the installed app); never ship a contract the installed app cannot call. If
+  the app then needs its own change, open a PR in the erp-android checkout.
+    The mobile check shapes the fix; it never blocks it. Open that Android PR
+  only once the backend fix is live (stage deploy confirmed), never while
+  the ERP PR is still moving — one Stage line, one thing in flight. A bug
+  the operator hit ON THE PHONE that needs that app change is fixed only
+  when the Android
+  PR has also merged under the same gates (Android CI runs on every PR with
+  no labels; Codex reviews there too) AND the `Release Android Production`
+  workflow run on that merge commit succeeded — it publishes to Play
+  production. Then reply, telling them to update the app.
+- NO area is off limits. Kernel, auth, billing, costing, schema: fix them,
+  following that area's leaf doc and rules, proven by the same red→green
+    test. The gates make the merge safe, not the area. Code work happens in a
+  worktree (`git worktree add ../erp-work/<slug> -b triage/<slug>
+  origin/main` for a new case, `... origin/triage/<slug>` when the branch
+  already exists on the remote; the clone stays on main or preflight refuses
+  to run), then
+  `pnpm install` (15 seconds), then `pnpm build` and `pnpm lint` before every
+  push, and for a migration `pnpm db:generate` + `pnpm db:check-migrations`
+  from a branch rebased on fresh origin/main, pushed with the fix. Red
+  test-only commit first, always. PR body line one: `Thread: <gmail thread
+  id>`.
+- A fix with several defensible remedies is YOUR decision, made the way an
+  experienced engineer on the team would: smallest behaviour change that
+  resolves the operator's case, alternatives and reasoning in the PR body.
+  Needing to decide is never a reason to escalate.
+- Escalate only when you genuinely cannot: the image will not decode, no cause
+  is visible anywhere, the reproducer will not go red twice, a Codex finding
+  cannot be resolved, or the deploy failed. Then file the issue with label
+  `triage-escalated`, the Gmail thread id, the evidence, what was ruled out,
+  and the stage reached with the branch or PR — a later run resumes there.
+- A no-op run is a fine outcome when there is nothing to do. Doing nothing
+  beats doing something wrong; it does not beat doing something right.
 
 ## Finish by
 

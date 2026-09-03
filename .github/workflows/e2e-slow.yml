@@ -218,6 +218,11 @@ jobs:
       - name: Run ${{ matrix.name }} slow suite
         run: ${{ matrix.command }}
 
+      # Slow stories mutate stock; the projection and planning-reference
+      # checks must hold after them too, in this job's own database.
+      - name: Verify inventory kernel and projections
+        run: pnpm verify:inventory
+
       - name: Upload Playwright artifacts on failure
         if: failure()
         uses: actions/upload-artifact@v4

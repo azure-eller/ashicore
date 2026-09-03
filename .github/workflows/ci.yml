@@ -488,6 +488,9 @@ jobs:
     env:
       EMAIL_OUTBOX_ONLY: "1"
       PLAYWRIGHT_FAST_WORKERS: "4"
+      # Fixed build sha so the fast lane proves /api/version exposes it (the
+      # support triage routine's deploy witness) rather than accepting null.
+      VERCEL_GIT_COMMIT_SHA: "0123456789abcdef0123456789abcdef01234567"
       # Fake Stripe credentials for the billing entitlement seam: webhook
       # signatures verify against this secret; the fake API key forces
       # handleStripeWebhook onto its event-payload fallback (no network).
@@ -551,11 +554,18 @@ jobs:
           cat /tmp/erp-dev.log
           exit 1
 
+      - name: Run fast Playwright suite
+        run: pnpm test
+
+      # Runs before the reconciliation suite on purpose: that suite seeds
+      # deliberate projection drift (a lot balance with no event behind it) to
+      # prove the repair path, and leaves it in the shared org.
+      - name: Verify inventory kernel and projections
+        run: pnpm verify:inventory
+
       - name: Run reconciliation Playwright suite
         run: pnpm test:reconciliation
 
-      - name: Run fast Playwright suite
-        run: pnpm test
 
       - name: Upload Playwright artifacts on failure
         if: failure()

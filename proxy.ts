@@ -33,6 +33,7 @@ function isPublicRoute(pathname: string) {
     pathname.startsWith("/api/auth") ||
     pathname === "/api/agent/production-planning/context" ||
     pathname === "/api/agent/mcp" ||
+    pathname === "/api/version" ||
     pathname.startsWith("/api/agent/mcp/oauth/") ||
     pathname === "/api/xero/sign-up" ||
     pathname === "/api/xero/callback" ||

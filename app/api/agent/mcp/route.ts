@@ -1,5 +1,6 @@
 import { createMcpHandler, withMcpAuth } from "mcp-handler";
 import { z } from "zod";
+import { env } from "@/lib/env";
 import { getCanonicalAppUrl } from "@/lib/app-url";
 import { authenticateMcpOAuthAccessToken } from "@/lib/agent/mcp-oauth/service";
 import {
@@ -130,6 +131,35 @@ const handler = createMcpHandler(
             ],
           };
         }
+      }
+    );
+
+    server.registerTool(
+      "get_deployment",
+      {
+        title: "Get Deployment",
+        description:
+          "Returns the git commit sha and Vercel environment the responding server was built from. Use it to confirm a merge is live in production: the returned commitSha equals, or descends from, the merge commit.",
+        inputSchema: {},
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      },
+      async () => {
+        const deployment = {
+          commitSha: env.VERCEL_GIT_COMMIT_SHA ?? null,
+          environment: env.VERCEL_ENV ?? null,
+          deploymentId: env.VERCEL_DEPLOYMENT_ID ?? null,
+          checkedAt: new Date().toISOString(),
+        };
+
+        return {
+          structuredContent: deployment,
+          content: [{ type: "text", text: JSON.stringify(deployment) }],
+        };
       }
     );
   },
