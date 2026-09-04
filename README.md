@@ -1,8 +1,15 @@
 # Ashicore
 
-Inventory-first operations app for a small-scale MRP workflow.
+Inventory-first ERP for small-scale manufacturers: inventory items, lots, and stock
+movements; products and BOMs; sales and purchase orders; manufacturing orders;
+stocktakes; multi-tenant org/team auth; and Xero/QuickBooks accounting sync.
+Runs in production for a soil and amendment manufacturer in western Colorado. A
+Kotlin/Compose shop-floor companion app lives in
+[ashicore-android](https://github.com/azure-eller/ashicore-android).
 
-This README is for coding agents and engineers working in the repo. It is a runbook, not a product overview.
+> Public snapshot. Customer seed data, production loaders, and design archives were
+> removed from the history before publishing, so a few ops scripts referenced in
+> older commits are absent. The rest of this file is the working runbook.
 
 ## Current Scope
 
@@ -65,7 +72,7 @@ minutes without workflow activity; `pnpm boot`, Playwright, and review workflows
 resume the current server as needed. Run `pnpm servers` to inspect every
 worktree server's status, memory, URL, and idle age.
 
-4. For live triage against the Paonia production-copy data, use sandbox mode
+4. For live triage against production-copy data, use sandbox mode
    instead of boot:
 
 ```bash
